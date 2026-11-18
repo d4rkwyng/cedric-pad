@@ -120,6 +120,24 @@ func kinds(_ text: String, _ language: Language) -> [String: TokenKind] {
         #expect(s[6].map(\.1) == [.punctuation])
     }
 
+    @Test func markdownFrontmatterIsYAML() {
+        let s = spans("---\ntitle: Hello # c\ndraft: true\n...\n# Heading\n---", .markdown)
+        #expect(s[0].map(\.1) == [.punctuation])
+        #expect(s[1].map(\.1) == [.key, .comment])
+        #expect(s[2].map(\.1) == [.key, .constant])
+        #expect(s[3].map(\.1) == [.punctuation])
+        #expect(s[4].map(\.1) == [.heading])
+        #expect(s[5].map(\.1) == [.heading])   // a later --- is a setext underline / rule again
+        // Only on the first line: further down, --- is no frontmatter.
+        let later = spans("text\n---\ntitle: x", .markdown)
+        #expect(later[2].isEmpty)
+        // Through the engine too (it starts from the tokenizer's top-of-file state).
+        let text = "---\na: 1\n---\n" as NSString
+        let engine = HighlightEngine(language: .markdown)
+        let toks = engine.tokens(forLines: 1..<2, in: text, index: LineIndex(text))
+        #expect(toks.map(\.kind) == [.key, .number])
+    }
+
     @Test func markdownSnakeCaseIsNotEmphasis() {
         #expect(spans("call some_function_name here", .markdown)[0].isEmpty)
     }

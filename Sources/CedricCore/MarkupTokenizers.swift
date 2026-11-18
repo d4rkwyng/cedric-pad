@@ -117,19 +117,41 @@ public struct YAMLTokenizer: Tokenizer {
     }
 }
 
-/// Markdown: headings, fenced code (state 1 inside a ``` fence, 2 inside a
-/// ~~~ fence), block quotes, list markers, code spans, emphasis, strong,
-/// links and autolinks.
+/// Markdown: headings, fenced code, block quotes, list markers, code
+/// spans, emphasis, strong, links and autolinks, and YAML frontmatter.
+/// State: the low 4 bits are the mode (0 text, 1 inside a ``` fence, 2
+/// inside a ~~~ fence, 3 inside frontmatter); bit 0x80 marks the top of
+/// the file (`initialState`), where a `---` line opens frontmatter.
 public struct MarkdownTokenizer: Tokenizer {
     public init() {}
     public var carriesState: Bool { true }
+    public var initialState: UInt32 { Self.topOfFile }
+    static let topOfFile: UInt32 = 0x80
     private static let backticks: [UInt16] = Array("```".utf16)
     private static let tildes: [UInt16] = Array("~~~".utf16)
+    private static let yaml = YAMLTokenizer()
+
+    /// Whether the line is `---` (or `...` with `orDots`), trailing spaces allowed.
+    private static func isMarker(_ b: UnsafeBufferPointer<UInt16>, orDots: Bool) -> Bool {
+        guard b.count >= 3, (b[0] == C.minus && b[1] == C.minus && b[2] == C.minus) || (orDots && b[0] == C.dot && b[1] == C.dot && b[2] == C.dot)
+        else { return false }
+        return b.skipSpaces(from: 3) == b.count
+    }
 
     public func tokenize(_ b: UnsafeBufferPointer<UInt16>, state: inout UInt32, into t: inout [Token]) {
         let n = b.count
+        if state & Self.topOfFile != 0 {
+            state &= ~Self.topOfFile
+            if Self.isMarker(b, orDots: false) { t.add(0, n, .punctuation); state = 3; return }
+        }
+        if state & 0xf == 3 {
+            if Self.isMarker(b, orDots: true) { t.add(0, n, .punctuation); state = 0; return }
+            var inner: UInt32 = 0
+            Self.yaml.tokenize(b, state: &inner, into: &t)
+            return
+        }
         let indent = b.skipSpaces(from: 0)
-        let fence = state == 1 ? Self.backticks : state == 2 ? Self.tildes : nil
+        let fence = state & 0xf == 1 ? Self.backticks : state & 0xf == 2 ? Self.tildes : nil
         if let fence {
             t.add(0, n, .code)
             if indent <= 3, b.has(fence, at: indent) { state = 0 }

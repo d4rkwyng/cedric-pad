@@ -21,12 +21,13 @@ public final class HighlightEngine {
     public init(language: Language) {
         self.language = language
         tokenizer = Languages.tokenizer(for: language)
+        states = [tokenizer.initialState]
     }
 
     public func setLanguage(_ language: Language) {
         self.language = language
         tokenizer = Languages.tokenizer(for: language)
-        states = [0]
+        states = [tokenizer.initialState]
     }
 
     /// Call after an edit: line `line`'s content changed.
@@ -34,7 +35,7 @@ public final class HighlightEngine {
         if line + 1 < states.count { states.removeSubrange((line + 1)...) }
     }
 
-    public func invalidateAll() { states = [0] }
+    public func invalidateAll() { states = [tokenizer.initialState] }
 
     /// How many lines have a known start state (for tests and diagnostics).
     public var validStateCount: Int { states.count }

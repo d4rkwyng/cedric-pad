@@ -37,7 +37,12 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Scrolling either side scrolls the other to the same source line (by
   block, list item and quote). Relative images load from the document's
   folder (and only from there), and a link to a relative `.md` (or other
-  text) file opens it in a Cedric tab. **Detach Preview** (View menu, ⇧⌥⌘P,
+  text) file opens it in a Cedric tab. The renderer follows CommonMark's
+  emphasis rules (`**bold *mix***` nests properly) and knows reference
+  links, footnotes (`[^1]`), GitHub alerts (`> [!NOTE]`, `[!TIP]`,
+  `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), task lists (disabled
+  checkboxes) and YAML frontmatter, which shows as a small metadata table
+  (and is coloured as YAML in the editor). **Detach Preview** (View menu, ⇧⌥⌘P,
   or Detach in the preview's header) moves it into its own resizable
   window, "notes.md — Preview", still updating as you type; it stays
   with its own document whichever tab is in front, and closes with that

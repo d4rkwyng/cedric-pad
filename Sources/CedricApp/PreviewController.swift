@@ -209,6 +209,18 @@ final class PreviewController: NSObject, WKNavigationDelegate {
         th, td { border: 1px solid \(hex(p.currentLine)); padding: 4px 10px; }
         img { max-width: 100%; }
         hr { border: 0; border-top: 1px solid \(hex(p.currentLine)); }
+        table.frontmatter { font-size: 12px; margin: 0 0 1.2em; color: \(hex(p.color(for: .comment))); }
+        table.frontmatter th { text-align: left; font-weight: 600; color: \(hex(p.color(for: .key))); vertical-align: top; }
+        table.frontmatter td { white-space: pre-wrap; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+        li:has(> input[type=checkbox]) { list-style: none; }
+        li > input[type=checkbox] { margin: 0 .4em 0 -1.3em; }
+        .markdown-alert { padding: .1em 1em; margin: 1em 0; border-left: 4px solid var(--alert); }
+        .markdown-alert-title { font-weight: 600; color: var(--alert); margin: .5em 0; }
+        .markdown-alert-note { --alert: #4493f8; } .markdown-alert-tip { --alert: #3fa34d; }
+        .markdown-alert-important { --alert: #a371f7; } .markdown-alert-warning { --alert: #d29922; }
+        .markdown-alert-caution { --alert: #e5534b; }
+        sup.footnote-ref a { text-decoration: none; }
+        section.footnotes { font-size: 13px; color: \(hex(p.color(for: .comment))); }
         """
     }
 
