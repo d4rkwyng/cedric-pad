@@ -22,7 +22,14 @@ final class EditorDocument {
     var language: Language { languageChoice.language }
     /// Picked from the menu: never re-detected (typing, paste, save).
     var languageIsManual: Bool { languageChoice.isManual }
-    var fileModified: Date?
+    /// The file's date at the last read or save. Setting it drops the
+    /// size (unknown until `noteDisk`), so a stale size never fakes a change.
+    var fileModified: Date? { didSet { fileSize = nil } }
+    /// The file's size at the last read or save, when known.
+    private(set) var fileSize: Int?
+    /// What the file looked like when last read or written (DiskStamp).
+    var diskStamp: DiskStamp { DiskStamp(modified: fileModified, size: fileSize) }
+    func noteDisk(_ s: DiskStamp?) { fileModified = s?.modified; fileSize = s?.size }
 
     /// Edits since open; compared with the count at the last save.
     private(set) var changeCount = 0
@@ -77,6 +84,10 @@ final class EditorDocument {
     /// Reads and decodes a file; returns the LF-normalised text.
     static func read(_ url: URL, encoding: TextEncoding? = nil) throws -> (DecodedText, Date?) {
         let data: Data
+        if let kind = SpecialFile.kind(atPath: url.path) {
+            throw LoadError.unreadable(url, NSError(domain: "Cedric", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                String(localized: "It is \(kind), not a regular file.")]))
+        }
         do {
             data = try Data(contentsOf: url, options: .mappedIfSafe)
         } catch {
@@ -99,9 +110,11 @@ final class EditorDocument {
             throw NSError(domain: "Cedric", code: 1, userInfo: [NSLocalizedDescriptionKey:
                 String(localized: "Some characters can’t be saved as \(encoding.displayName). Choose UTF-8 from the encoding menu in the status bar and save again.")])
         }
-        try data.write(to: url, options: .atomic)
+        // Through a symbolic link: replace its target (keeping the link and
+        // the target's permissions), not the link itself.
+        try data.write(to: SafePaths.writeTarget(for: url), options: .atomic)
         fileURL = url
-        fileModified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        noteDisk(DiskStamp.of(url))
         mixedLineEndings = false
         markSaved()
     }

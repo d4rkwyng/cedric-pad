@@ -44,7 +44,10 @@ final class PreviewController: NSObject, WKNavigationDelegate {
     /// The user scrolled the preview: the source line now at its top.
     var onScrolledToLine: ((Double) -> Void)?
     /// A link to a text file was clicked (open it in Cedric).
-    var onOpenFile: ((URL) -> Void)?
+    /// A clicked link, decided (see PreviewLinkAction).
+    var onLink: ((PreviewLinkAction) -> Void)?
+    /// The last link clicked (for checks).
+    private(set) var lastLinkAction: PreviewLinkAction?
 
     /// Serves the document's folder (and nothing else) to the page.
     private let folderFiles = DocumentFolderFiles()
@@ -346,20 +349,17 @@ final class PreviewController: NSObject, WKNavigationDelegate {
 
     fileprivate func scrolledByUser(_ line: Double) { onScrolledToLine?(line) }
 
-    // Links: the first load is ours; a link within the page scrolls it; a
-    // link to a text file opens in Cedric; anything else the user clicks
-    // opens in the default app or browser.
+    // Links: the first load is ours; a link within the page scrolls it;
+    // anything else goes to `onLink` as a PreviewLinkAction (nothing is
+    // ever launched: audit H2).
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
         if action.navigationType == .linkActivated, let url = action.request.url {
             if url.fragment != nil, Self.samePage(url, webView.url) { decisionHandler(.allow); return }
             decisionHandler(.cancel)
-            let url = DocumentFolderFiles.fileURL(for: url) ?? url
-            if url.isFileURL, Self.opensInCedric(url), let open = onOpenFile {
-                open(url)
-            } else {
-                NSWorkspace.shared.open(url)
-            }
+            let act = PreviewLinkAction.action(for: url, folder: folderFiles.folder, isText: Self.opensInCedric)
+            lastLinkAction = act
+            onLink?(act)
             return
         }
         decisionHandler(action.navigationType == .other || action.navigationType == .reload ? .allow : .cancel)

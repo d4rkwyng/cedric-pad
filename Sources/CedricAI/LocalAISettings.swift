@@ -126,7 +126,9 @@ public enum LocalEndpointPolicy {
         if host == "localhost" || host.hasSuffix(".localhost") { return true }
         if host.hasSuffix(".local") || host.hasSuffix(".lan") || host.hasSuffix(".home.arpa") { return true }
         if !host.contains(".") && !host.contains(":") { return true }   // bare LAN name, e.g. "studio"
-        if host.hasSuffix(".ts.net") { return true }                     // tailnet MagicDNS
+        // Tailnet MagicDNS. A Funnel host is public; the client also
+        // requires every resolved address to be private (resolvesPrivately).
+        if host.hasSuffix(".ts.net") { return true }
         if host == "::1" { return true }
         if host.contains(":") {
             // IPv6: unique-local fc00::/7 and link-local fe80::/10.
@@ -143,6 +145,70 @@ public enum LocalEndpointPolicy {
         case (100, 64...127): return true   // CGNAT / Tailscale
         default: return false
         }
+    }
+}
+
+extension LocalEndpointPolicy {
+    /// A redirect stays on the same scheme-allowed host (and port).
+    public static func allowsRedirect(from: URL, to: URL) -> Bool {
+        guard isAllowed(to), let a = from.host?.lowercased(), let b = to.host?.lowercased(), a == b else { return false }
+        return from.port == to.port
+    }
+
+    /// Loopback, RFC 1918, CGNAT (Tailscale), link-local, IPv6 unique-local.
+    public static func isPrivateAddress(_ ip: String) -> Bool {
+        var a = in_addr(), a6 = in6_addr()
+        if inet_pton(AF_INET, ip, &a) == 1 {
+            let v = UInt32(bigEndian: a.s_addr)
+            let b0 = v >> 24, b1 = (v >> 16) & 0xff
+            switch (b0, b1) {
+            case (127, _), (10, _), (192, 168), (169, 254), (172, 16...31), (100, 64...127): return true
+            default: return false
+            }
+        }
+        if inet_pton(AF_INET6, ip, &a6) == 1 {
+            let b = withUnsafeBytes(of: a6) { Array($0) }
+            if b[0..<15].allSatisfy({ $0 == 0 }) && b[15] == 1 { return true }          // ::1
+            if b[0] & 0xfe == 0xfc { return true }                                     // fc00::/7
+            if b[0] == 0xfe && b[1] & 0xc0 == 0x80 { return true }                     // fe80::/10
+            if b[0..<10].allSatisfy({ $0 == 0 }) && b[10] == 0xff && b[11] == 0xff {    // ::ffff:a.b.c.d
+                return isPrivateAddress("\(b[12]).\(b[13]).\(b[14]).\(b[15])")
+            }
+            return false
+        }
+        return false
+    }
+
+    /// Every address `host` resolves to (off the caller's thread).
+    public static func resolve(_ host: String) async -> [String] {
+        let h = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
+        return await withCheckedContinuation { (c: CheckedContinuation<[String], Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var hints = addrinfo()
+                hints.ai_socktype = SOCK_STREAM
+                var res: UnsafeMutablePointer<addrinfo>?
+                guard getaddrinfo(h, nil, &hints, &res) == 0 else { c.resume(returning: []); return }
+                defer { freeaddrinfo(res) }
+                var out: [String] = []
+                var p = res
+                while let ai = p {
+                    var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    if getnameinfo(ai.pointee.ai_addr, ai.pointee.ai_addrlen, &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 {
+                        var s = String(cString: buf)
+                        if let pct = s.firstIndex(of: "%") { s = String(s[..<pct]) }   // fe80::1%en0
+                        out.append(s)
+                    }
+                    p = ai.pointee.ai_next
+                }
+                c.resume(returning: out)
+            }
+        }
+    }
+
+    /// The host resolves, and only to private addresses.
+    public static func resolvesPrivately(_ host: String) async -> Bool {
+        let addrs = await resolve(host)
+        return !addrs.isEmpty && addrs.allSatisfy(isPrivateAddress)
     }
 }
 

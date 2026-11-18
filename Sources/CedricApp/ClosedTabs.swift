@@ -61,6 +61,8 @@ extension AppDelegate {
             closedTexts[d.id] = t.text
         }
         if !keepText { store.removeBuffer(d.id) }
+        // Kept for ⇧⌘T, but the file wasn't written: say so once (ClosedNotice.swift).
+        if keepText, d.fileURL != nil, d.isDirty { noteClosedUnsaved(id: d.id, name: d.displayName) }
         let sel = t.textView.selectedRange()
         let entry = SessionTab(id: d.id, path: d.fileURL?.path, untitledName: d.fileURL == nil ? d.untitledName : nil,
                                hasBuffer: keepText, encoding: d.encoding, lineEnding: d.lineEnding,

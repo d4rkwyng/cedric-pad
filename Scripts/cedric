@@ -25,8 +25,31 @@ case "$here" in
 esac
 DRY=${CEDRIC_DRY_RUN:-}
 
+# The user's own temp folder (the app accepts hand-off files only there),
+# even when TMPDIR isn't set (ssh, cron).
+tmpdir=${TMPDIR:-$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || echo /tmp)}
+tmpdir=${tmpdir%/}
+
+# The secret that tells the app a URL is from this script, not a web page:
+# a random token in a file only this user can read. Made here if the app
+# hasn't made it yet.
+token_file="$HOME/Library/Application Support/Cedric/cli-token"
+token() {
+    if [ ! -s "$token_file" ]; then
+        mkdir -p "$(dirname "$token_file")"
+        ( umask 077; t=$(head -c 16 /dev/urandom | xxd -p | tr -d '\n'); set -o noclobber; echo "$t" > "$token_file" ) 2>/dev/null || true
+    fi
+    tr -d '\n' < "$token_file"
+}
+TOKEN=""
+
 urlencode() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe="/"))' "$1"; }
-send() { if [ -n "$DRY" ]; then echo "$1"; else open "${TARGET[@]}" "$1"; fi; }
+# Every URL carries the token (shown as TOKEN in a dry run).
+send() {
+    if [ -n "$DRY" ]; then echo "$1&token=TOKEN"; return; fi
+    [ -n "$TOKEN" ] || TOKEN=$(token)
+    open "${TARGET[@]}" "$1&token=$TOKEN"
+}
 
 if [ $# -eq 0 ]; then
     [ -n "$DRY" ] && exit 0
@@ -53,7 +76,7 @@ for arg in ${args[@]+"${args[@]}"}; do
     case "$arg" in
         +[0-9]*) line=${arg#+}; continue ;;
         -)
-            tmp=$(mktemp "${TMPDIR:-/tmp}/cedric-stdin.XXXXXX")
+            tmp=$(mktemp "$tmpdir/cedric-stdin.XXXXXX")
             cat > "$tmp"
             send "cedric://open?untitled=$(urlencode "$tmp")"
             continue ;;
@@ -72,7 +95,7 @@ for arg in ${args[@]+"${args[@]}"}; do
     [ -n "$line" ] && url="$url&line=$line"
     [ -n "$col" ] && url="$url&col=$col"
     if [ -n "$wait" ]; then
-        marker=$(mktemp "${TMPDIR:-/tmp}/cedric-wait.XXXXXX")
+        marker=$(mktemp "$tmpdir/cedric-wait.XXXXXX")
         markers+=("$marker")
         url="$url&wait=$(urlencode "$marker")"
     fi

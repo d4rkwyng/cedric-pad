@@ -120,3 +120,33 @@ public enum PDFText {
         s.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     }
 }
+
+/// Files Cedric refuses before reading a byte (security audit L2): a named
+/// pipe blocks forever, `/dev/zero` never ends, a socket can't be read.
+/// Folders are left to the caller (an `.rtfd` or Pages bundle is one).
+public enum SpecialFile {
+    /// What the file is when it isn't a regular file or folder, else nil
+    /// (also nil when it doesn't exist). Symbolic links are followed.
+    public static func kind(atPath path: String) -> String? {
+        var st = stat()
+        guard stat(path, &st) == 0 else { return nil }
+        switch st.st_mode & S_IFMT {
+        case S_IFREG, S_IFDIR: return nil
+        case S_IFIFO: return "a named pipe"
+        case S_IFCHR, S_IFBLK: return "a device"
+        case S_IFSOCK: return "a socket"
+        default: return "not a regular file"
+        }
+    }
+}
+
+/// 1-based line, column or page numbers from outside (a link, the command
+/// line, a dialog) as 0-based indexes, clamped without overflow
+/// (`Int.min - 1` would trap).
+public enum OneBased {
+    /// `n` (1-based) as an index in `0..<count`; 0 when count is 0.
+    public static func index(_ n: Int, count: Int) -> Int {
+        guard count > 0, n > 1 else { return 0 }
+        return min(n, count) - 1
+    }
+}

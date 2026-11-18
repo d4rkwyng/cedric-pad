@@ -21,6 +21,10 @@ extension DevChecks {
         case "colours": colourConsistency(app)
         case "autoedit": autoEdit(app)
         case "counts": counts(app)
+        case "diskconflict": diskConflict(app)
+        case "help": helpCheck(app)
+        case "closenotice": closeNoticeCheck(app)
+        case "menus": menusCheck(app)
         default: return gapCheck(name, app)
         }
         return true

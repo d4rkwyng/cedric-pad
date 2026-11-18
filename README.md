@@ -19,6 +19,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   unsaved changes and all, even after a quit or a crash. The last 50
   closed tabs are remembered (tabs without unsaved text are forgotten
   first; a closed tab with unsaved text is never forgotten).
+  The first time in a launch that a file tab with unsaved edits is closed,
+  the tab in front says the file wasn't written, with **Save Now**.
   Closing the last document window (text, PDF, image or Office tab) quits Cedric Pad, as
   Quit does: that tab, unsaved text and all, is open again next launch.
   Detached previews, Settings and panels don't keep Cedric Pad running.
@@ -41,7 +43,11 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   menu overrides it.
 - **Live preview** for Markdown and HTML, side by side (View › Show Preview,
   ⌥⌘P). JavaScript and network access in the preview are **off** by default
-  and can be turned on per tab (View menu). The Markdown preview doesn't
+  and can be turned on per tab (View menu). A link in the preview never
+  launches anything: web and mail links open only after you confirm the
+  full URL, a text file in the document's folder opens in a tab, any
+  other file (or one outside the folder) is shown in Finder, and other
+  schemes are ignored. The Markdown preview doesn't
   flicker or jump: it is rendered in the background (a 1 MB file costs the
   main thread about a millisecond per update), and only the blocks that
   changed are swapped into the page, so it keeps its place and its images.
@@ -246,7 +252,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   page, with the file name, date and page numbers; line numbers are an
   option in the print panel.
 - **Go to line** (⌘L, `42` or `42:7`), line numbers, current-line highlight,
-  show invisibles (⌥⌘I), wrap lines (⌥Z).
+  show invisibles (⌥⌘I), wrap lines (⌥⌘Z).
 - **Encodings and line endings:** UTF-8 (with or without BOM), UTF-16 LE/BE,
   Latin-1, Windows-1252 and Mac Roman, and LF/CRLF/CR, detected on open
   (a file that isn't UTF-8 is read as whichever 8-bit Western encoding
@@ -288,6 +294,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   window is up, on a background queue; no network, no sign-in. Without
   the developer tools (or another git) it does nothing, rather than
   setting off the install prompt; very large documents are skipped.
+  A repository can't make Cedric Pad run its programs: git is only
+  asked read-only questions (`rev-parse`, `cat-file`, `ls-files`, never
+  `status` or `diff`), with fsmonitor, hooks, pagers and diff drivers
+  forced off, and a repository whose own config names a program to run
+  (fsmonitor, filters, textconv, through `include`/`includeIf` too) gets
+  no git at all: the status bar says "Git info off". With "Show git
+  changes" off, git never runs.
 - **Images open in a viewer tab** (read-only): PNG, JPEG, GIF, HEIC/HEIF,
   AVIF, WebP, TIFF, BMP, ICO, ICNS, JPEG 2000, PSD, TGA (whatever ImageIO
   decodes), from every route a PDF takes (Open, drops, the Dock,
@@ -338,7 +351,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   pasting its path; dropped text is inserted as before. (On a Markdown
   tab a dropped image is linked instead; see Markdown editing.)
 - **Files changed on disk** reload by themselves when the tab has no unsaved
-  changes.
+  changes. With unsaved changes, a bar says so (**Reload** / **Keep Mine**),
+  owl or no owl. **⌘S never overwrites another app's changes:** if the file
+  changed since Cedric Pad read or saved it, a sheet asks first (**Keep My
+  Version**, **Reload Theirs** (undoable) or **Compare**).
+- **Help menu**: **Cedric Pad Help** (⌘?, this README), **Keyboard
+  Shortcuts** (every menu shortcut in one window) and the system's menu
+  search.
 - **`cedric` command-line launcher** (below), with `-w` so it can be
   git's editor, and `file:line:col`.
 - **Cedric the owl** (View › Show Cedric the Owl, off by default): a small
@@ -388,6 +407,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   A one-word AI fix in prose ("definately" → "definitely") keeps its
   **Fix it**.
   In very large documents the owl only looks when clicked.
+  A network endpoint must resolve to a private address (loopback, LAN,
+  Tailscale); redirects to another host are refused.
 - **Ask Cedric** (beta; Settings › "Owl chat (beta)", off by default):
   Edit › Ask Cedric… (⌥⌘/) or the owl's **Ask Cedric…** opens a small
   panel about the current document, made on first use. A chip picks what
@@ -401,6 +422,12 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   applied as one undo step only if the document hasn't changed since you
   asked (otherwise **Ask Again**). History is per document, in memory
   only, with **Copy as Markdown** and **Clear**.
+- **Careful with files:** pipes and devices (`/dev/zero`, a FIFO) are
+  refused before anything is read; saving through a symbolic link writes
+  the file it points to and keeps that file's permissions; Export as HTML
+  and Copy as HTML drop `<script>` and `on…=` handlers; Copy as Rich Text
+  loads nothing from the network; pasted images never go to an `images`
+  folder that points outside the document's folder.
 
 ## Build and run
 
@@ -442,7 +469,13 @@ git log | cedric -              # stdin into a new untitled tab
 git config --global core.editor "cedric -w"   # -w / --wait: return when the tab closes
 ```
 
-It talks to the app through a `cedric://open?path=…&line=…&col=…` URL.
+It talks to the app through a `cedric://open?path=…&line=…&col=…` URL. Any
+app or web page can send such a URL, so each one the script sends carries a
+secret token (`~/Library/Application Support/Cedric/cli-token`, readable only
+by you). A link without it can't hand over stdin or `-w` files, and opening a
+file from it asks first. The app deletes only the script's own temp files
+(`cedric-stdin.*`, `cedric-wait.*` in your temp folder), checked after `..`
+and symlinks are resolved.
 With `-w` the script makes a `cedric-wait.*` marker file in the temp
 folder and passes it along; Cedric Pad deletes it when that file's tab closes
 (or when Cedric Pad quits), and the script returns.

@@ -15,9 +15,12 @@ extension EditorWindowController {
         return base.isEmpty ? n : base
     }
 
-    /// A standalone page: no Content-Security-Policy, no script, light style.
+    /// A standalone page, light style, with no script: raw HTML blocks'
+    /// `<script>`, frames and `on…=` handlers are removed (it is opened
+    /// in a browser later), and a CSP forbids script as a second layer.
     static func exportPage(markdown: String, title: String) -> String {
-        PreviewController.page(body: Markdown.render(markdown, options: .preview), palette: EditorPalettes.light, csp: nil, title: title)
+        PreviewController.page(body: HTMLScrub.noScript(Markdown.render(markdown, options: .preview)), palette: EditorPalettes.light,
+                               csp: "script-src 'none'; object-src 'none'; frame-src 'none'", title: title)
     }
 
     /// The selection's Markdown, or the whole document's.
@@ -59,14 +62,14 @@ extension EditorWindowController {
     }
 
     private func writeExport(_ data: Data, to url: URL) {
-        do { try data.write(to: url, options: .atomic) } catch { showError(error) }
+        do { try data.write(to: SafePaths.writeTarget(for: url), options: .atomic) } catch { showError(error) }
     }
 
     /// Edit › Copy as HTML: the rendered HTML of the selection (or the
     /// whole document), as text.
     func copyAsHTML() {
         guard doc.language == .markdown else { NSSound.beep(); return }
-        let html = Markdown.render(exportSelectionMarkdown, options: .preview)
+        let html = HTMLScrub.noScript(Markdown.render(exportSelectionMarkdown, options: .preview))
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(html, forType: .string)
@@ -76,7 +79,8 @@ extension EditorWindowController {
     /// RTF and HTML for mail, notes and word processors, and its plain text.
     func copyAsRichText() {
         guard doc.language == .markdown else { NSSound.beep(); return }
-        let page = Self.exportPage(markdown: exportSelectionMarkdown, title: exportBaseName)
+        // Nothing remote: the HTML importer must not fetch a tracking image.
+        let page = HTMLScrub.noScriptNoRemote(Self.exportPage(markdown: exportSelectionMarkdown, title: exportBaseName))
         guard let attributed = NSAttributedString(html: Data(page.utf8), options: [.characterEncoding: String.Encoding.utf8.rawValue],
                                                   documentAttributes: nil) else { NSSound.beep(); return }
         let pb = NSPasteboard.general

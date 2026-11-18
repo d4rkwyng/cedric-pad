@@ -56,12 +56,20 @@ extension DevChecks {
 
     static func markdownPreview(_ app: AppDelegate) {
         var body = "# Notes\n\nFirst paragraph with a [link to other](other.md) and ![dot](dot.png).\n\n"
+        // Security audit H2: links that must never launch anything.
+        body += "[run](build.command) [app](Setup.app) [pkg](x.pkg) [hosts](cedric-doc://doc/etc/hosts) "
+        body += "[term](file:///System/Applications/Utilities/Terminal.app) [smb](smb://attacker.invalid/share) "
+        body += "[prefs](x-apple.systempreferences:com.apple.Security) [web](https://example.com/a?b=1)\n\n"
         body += "<script>document.title = 'page-script-ran'</script>\n\n<img src=\"nope.png\" onerror=\"document.title='handler-ran'\">\n\n"
         for k in 1...60 { body += "## Section \(k)\n\nParagraph \(k) with some *text* to fill the page out a little.\n\n- item a\n- item b\n\n" }
         // A 1x1 PNG beside the file (relative images load from the document's folder).
         let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")!
         try? png.write(to: dir.appendingPathComponent("dot.png"))
         _ = write("other.md", "# Other\n\nthe other file\n")
+        _ = write("build.command", "#!/bin/sh\ntouch \"$(dirname \"$0\")/launched\"\n")
+        _ = write("Setup.app/Contents/MacOS/Setup", "#!/bin/sh\n")
+        _ = write("x.pkg", "x")
+        chmod(dir.appendingPathComponent("build.command").path, 0o755)
         let tab = app.open(write("notes.md", body))!
         sized(tab)
         let p = { tab.preview }
@@ -177,6 +185,80 @@ extension DevChecks {
                         other?.doc.markSaved()
                         other?.window?.performClose(nil)
                         next()
+                    }
+                }
+            },
+            // Hostile links: a script opens as text (never runs), an app and a
+            // package are only revealed, files outside the folder only
+            // revealed, other schemes ignored, the web after a confirm.
+            { next in
+                let tabsBefore = app.tabs.count
+                PreviewLinkLog.revealed = []
+                PreviewLinkLog.opened = []
+                @MainActor func click(_ href: String, _ then: @escaping @MainActor () -> Void) {
+                    previewJS(tab, "document.querySelector('a[href=\"\(href)\"]').click(); 1") { _ in
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { MainActor.assumeIsolated { then() } }
+                    }
+                }
+                @MainActor func action() -> PreviewLinkAction? { tab.preview?.lastLinkAction }
+                @MainActor func allViews(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(allViews) }
+                click("build.command") {
+                    let cmd = app.tabs.first { $0.doc.fileURL?.lastPathComponent == "build.command" }
+                    if case .openInCedric = action() {
+                        expect(cmd != nil, "a .command link opens as text in a Cedric tab", "\(app.tabs.count) tabs")
+                    } else {
+                        expect(action().map { if case .revealInFinder = $0 { return true } else { return false } } ?? false,
+                               "a .command link is opened as text or only revealed", "\(String(describing: action()))")
+                    }
+                    cmd?.window?.performClose(nil)
+                    focus(tab)
+                    click("Setup.app") {
+                        expect(PreviewLinkLog.revealed.last?.lastPathComponent == "Setup.app", "an .app link is revealed in Finder, not launched")
+                        click("x.pkg") {
+                            expect(PreviewLinkLog.revealed.last?.lastPathComponent == "x.pkg", "a .pkg link is revealed")
+                            click("cedric-doc://doc/etc/hosts") {
+                                expect(PreviewLinkLog.revealed.last?.path.hasSuffix("/etc/hosts") == true
+                                       && !app.tabs.contains { $0.doc.fileURL?.lastPathComponent == "hosts" },
+                                       "a file outside the folder is revealed, never read into a tab")
+                                let before = PreviewLinkLog.revealed.count
+                                click("file:///System/Applications/Utilities/Terminal.app") {
+                                    // WebKit may refuse a file: navigation from the page outright (no
+                                    // policy call): then nothing happens, which is as safe.
+                                    let revealed = PreviewLinkLog.revealed.count > before
+                                    expect(!revealed || PreviewLinkLog.revealed.last?.lastPathComponent == "Terminal.app",
+                                           "a file: app link is revealed (or dropped by WebKit), not launched",
+                                           revealed ? "revealed" : "dropped by WebKit")
+                                    print("check: note: file: link \(revealed ? "revealed" : "dropped by WebKit")")
+                                    click("smb://attacker.invalid/share") {
+                                        expect(action() == .ignore("smb"), "an smb: link is ignored", "\(String(describing: action()))")
+                                        expect(tab.noticeBar?.isHidden == false, "with a note in the tab")
+                                        click("x-apple.systempreferences:com.apple.Security") {
+                                            expect(action() == .ignore("x-apple.systempreferences"), "other schemes are ignored")
+                                            click("https://example.com/a?b=1") {
+                                                let sheet = tab.window?.attachedSheet
+                                                let shown = sheet.flatMap { s in
+                                                    s.contentView.flatMap { allViews($0) }?
+                                                        .compactMap { ($0 as? NSTextField)?.stringValue }.joined(separator: " ") }
+                                                expect(shown?.contains("https://example.com/a?b=1") == true, "a web link asks first, showing the whole URL", shown ?? "no sheet")
+                                                if let sheet, let cancel = allViews(sheet.contentView!).compactMap({ $0 as? NSButton }).first(where: { $0.title == "Cancel" }) {
+                                                    cancel.performClick(nil)
+                                                }
+                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                                    MainActor.assumeIsolated {
+                                                        expect(PreviewLinkLog.opened.isEmpty, "Cancel opens nothing")
+                                                        expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("launched").path),
+                                                               "nothing was launched")
+                                                        expect(app.tabs.count == tabsBefore, "no stray tabs", "\(app.tabs.count) vs \(tabsBefore)")
+                                                        tab.noticeBar?.isHidden = true
+                                                        next()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -395,10 +477,14 @@ extension DevChecks {
                 expect(colours.count >= 2, "with the code's colours", "\(colours.count) colours")
                 expect(pb.string(forType: .html)?.contains("tk-keyword") == true && pb.string(forType: .string)?.contains("let answer") == true,
                        "and HTML and plain text too")
-                // Export as HTML: a standalone light page, no CSP, no script.
+                // Export as HTML: a standalone light page; script forbidden by CSP, none in it.
                 let page = EditorWindowController.exportPage(markdown: tab.text, title: tab.exportBaseName)
-                expect(page.contains("<title>report</title>") && page.contains("color-scheme: light") && !page.contains("Content-Security-Policy")
+                expect(page.contains("<title>report</title>") && page.contains("color-scheme: light") && page.contains("script-src 'none'")
                        && !page.contains("<script"), "Export as HTML writes a standalone, light page")
+                // Security audit L4: raw HTML blocks' script and handlers don't survive export.
+                let hostile = EditorWindowController.exportPage(markdown: "<script>alert(1)</script>\n\n<img src=\"a.png\" onerror=\"alert(2)\">\n", title: "x")
+                expect(!hostile.contains("<script") && !hostile.contains("onerror") && hostile.contains("a.png"),
+                       "an exported page has no <script> or on…= handlers from the Markdown")
                 expect(page.contains("class=\"frontmatter\"") && page.contains("tk-keyword") && page.contains("id=\"fn-1\""),
                        "rendered as the preview renders it")
             },

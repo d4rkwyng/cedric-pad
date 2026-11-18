@@ -34,8 +34,18 @@ final class SystemGrammarChecker: GrammarChecking {
         }
         let types = NSTextCheckingResult.CheckingType.grammar.rawValue | NSTextCheckingResult.CheckingType.spelling.rawValue
         sc.requestChecking(of: text, range: NSRange(location: 0, length: (text as NSString).length), types: types,
-                           options: options, inSpellDocumentWithTag: tag) { _, results, _, _ in
-            completion(results.filter { $0.resultType == .grammar }.map(Self.result))
+                           options: options, inSpellDocumentWithTag: tag, completionHandler: Self.handler(completion))
+    }
+
+    /// The completion handler, made outside the main actor: a closure
+    /// written inside the @MainActor `check` is main-actor isolated, and
+    /// NSSpellChecker calls it on a background queue ("data race detected"
+    /// at runtime; the same pattern crashed Tankard). This one is nonisolated
+    /// and only hands the results on (`completion` runs on any queue).
+    nonisolated static func handler(_ completion: @escaping @Sendable ([GrammarResult]) -> Void)
+        -> @Sendable (Int, [NSTextCheckingResult], NSOrthography, Int) -> Void {
+        { _, results, _, _ in
+            completion(results.filter { $0.resultType == .grammar }.map(SystemGrammarChecker.result))
         }
     }
 
