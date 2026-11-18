@@ -40,6 +40,26 @@ them; orphan buffers are pruned after each save.
   reopens the file from disk; a file that has gone and had no buffer is
   dropped.
 - `Scripts/session-check.sh` checks it end to end (kill -9 and normal quit).
+- Only each window's selected tab is built during launch. The others are
+  built 0.25 s after the first frame, one per run-loop turn, into their
+  saved places in the tab bar (AppKit spends ~10 ms adding a window to a
+  tab group, ~45 ms for the first, which creates the tab bar). A save,
+  quit, opening one of their files or a dev hook builds them first.
+
+## Launch
+
+`Scripts/launch-speed-check.sh` prints median phase times from process
+start (`CEDRIC_LAUNCH_TRACE`, LaunchTrace.swift), including a key posted at
+the first frame through the event queue, typed and drawn. What is off the
+launch path: the unselected restored tabs (above); the Open Recent rebuild
+and the owl hub (`AfterFirstFrame`: after the first frame, one block per
+run-loop turn); the find bar (built on first use); llama.framework (not
+linked: `CLlamaLoader` dlopens it on the first model load;
+`CEDRIC_LLAMA_CHECK=1`, run by launch-check.sh, checks it loads). What is
+left is mostly AppKit's own: NSApplication (~25 ms), finishing launching
+(~20 ms), the first window, text view and its layout (~40 ms), and the
+first display (~18 ms); a minimal AppKit window with a text view takes
+~95 ms to its first frame on the same Mac.
 
 - The timed saves snapshot the tabs on the main thread (one copy of each
   changed buffer's text) and write the buffers, then `session.json`, then

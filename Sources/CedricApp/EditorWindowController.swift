@@ -50,7 +50,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     let gutter = GutterView()
     private(set) var lineIndex = LineIndex()
     private(set) var colorizer: SyntaxColorizer!
-    let findBar = FindBar()
+    /// Built the first time it is used (an NSSearchField and its row cost
+    /// ~5 ms of every tab's launch otherwise).
+    private(set) lazy var findBar: FindBar = makeFindBar()
+    private var stack: NSStackView!
     let statusBar = StatusBar()
     let split = NSSplitView()
     private var container: EditorContainer!
@@ -129,16 +132,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         split.delegate = self
         split.addArrangedSubview(container)
 
-        findBar.isHidden = true
-        findBar.onChange = { [weak self] in self?.findChanged() }
-        findBar.onFind = { [weak self] back in self?.find(backwards: back) }
-        findBar.onReplace = { [weak self] in self?.replaceOne() }
-        findBar.onReplaceAll = { [weak self] in self?.replaceAll() }
-        findBar.onClose = { [weak self] in self?.hideFindBar() }
-
         largeBar.isHidden = true
         largeBar.onTurnOn = { [weak self] in self?.turnOnExtras() }
-        let stack = NSStackView(views: [largeBar, findBar, split, statusBar])
+        let stack = NSStackView(views: [largeBar, split, statusBar])
+        self.stack = stack
         stack.orientation = .vertical
         stack.spacing = 0
         stack.alignment = .width
@@ -147,6 +144,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         split.setContentHuggingPriority(.init(1), for: .vertical)
         window.contentView = stack
         configureStatusBar()
+    }
+
+    private func makeFindBar() -> FindBar {
+        let findBar = FindBar()
+        findBar.isHidden = true
+        findBar.onChange = { [weak self] in self?.findChanged() }
+        findBar.onFind = { [weak self] back in self?.find(backwards: back) }
+        findBar.onReplace = { [weak self] in self?.replaceOne() }
+        findBar.onReplaceAll = { [weak self] in self?.replaceAll() }
+        findBar.onClose = { [weak self] in self?.hideFindBar() }
+        // Between the large-document bar and the editor.
+        stack.insertArrangedSubview(findBar, at: 1)
+        return findBar
     }
 
     private func observe() {

@@ -27,7 +27,16 @@ let package = Package(
         // often" scheduler. OFF by default.
         .target(
             name: "CedricAI",
-            dependencies: ["CedricCore", "llama"]
+            dependencies: ["CedricCore", "llama", "CLlamaLoader"]
+        ),
+
+        // llama.cpp's functions as pointers from dlopen/dlsym, so the app
+        // doesn't load llama.framework (and Metal, Accelerate) on every
+        // launch for an engine that is off by default. Headers only from
+        // the binary target; see include/CLlamaLoader.h.
+        .target(
+            name: "CLlamaLoader",
+            dependencies: ["llama"]
         ),
 
         // The built-in engine's inference runtime: llama.cpp's prebuilt
@@ -46,8 +55,13 @@ let package = Package(
         .executableTarget(
             name: "CedricApp",
             dependencies: ["CedricCore", "CedricAI"],
-            // llama.framework sits in Cedric.app/Contents/Frameworks.
-            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
+            // llama.framework sits in Cedric.app/Contents/Frameworks and is
+            // loaded with dlopen when the built-in engine first loads a model
+            // (CLlamaLoader); -dead_strip_dylibs drops the load commands for
+            // it and the frameworks only it uses, since no symbol of theirs
+            // is referenced.
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
+                                           "-Xlinker", "-dead_strip_dylibs"])]
         ),
 
         .testTarget(

@@ -11,26 +11,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Files handed over before launch finished (Finder, `open`).
     private var pendingOpen: [URL] = []
     private var launched = false
+    /// Open Recent rebuild queued (EditorTools.swift).
+    var recentRebuildScheduled = false
     /// Set once quitting: windows closed by termination keep their buffers.
     private var terminating = false
 
     // MARK: Launch
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        LaunchTrace.mark("will_finish")
         NSWindow.allowsAutomaticWindowTabbing = true
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        LaunchTrace.mark("did_finish")
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { _, _ in
             Task { @MainActor in NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil) }
         }
         // The owl hub listens for View › Show Cedric the Owl; it must exist
         // before the first toggle (it was created lazily, so with the owl
-        // off and only untitled tabs the menu item did nothing).
-        _ = OwlHub.shared
+        // off and only untitled tabs the menu item did nothing). Not needed
+        // for the first frame (a tab with the owl on creates it at once).
+        AfterFirstFrame.run { _ = OwlHub.shared }
         if env["CEDRIC_NO_RESTORE"] != "1" { restoreSession() }
+        LaunchTrace.mark("restored")
         var toOpen = pendingOpen
         if let list = env["CEDRIC_OPEN"], !list.isEmpty {
             toOpen += list.split(separator: ":").map { URL(fileURLWithPath: String($0)) }
@@ -38,9 +44,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         for url in toOpen { open(url) }
         pendingOpen = []
         if tabs.isEmpty { newTab(nil) }
-        rebuildRecentMenu()
+        schedulePendingRestore()
+        LaunchTrace.mark("tabs_ready")
+        recentMenu?.delegate = self
+        scheduleRecentMenuRebuild()
         launched = true
         DevHooks.afterLaunch(self)
+        LaunchTrace.afterLaunch(self)
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -113,7 +123,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @discardableResult
-    func makeTab(_ doc: EditorDocument, text: String, in group: NSWindow? = nil, newWindow: Bool = false, show: Bool = true) -> EditorWindowController {
+    func makeTab(_ doc: EditorDocument, text: String, in group: NSWindow? = nil, newWindow: Bool = false, show: Bool = true,
+                 tabIndex: Int? = nil) -> EditorWindowController {
         let tab = EditorWindowController(doc: doc, text: text)
         tab.onChange = { [weak self] _ in self?.scheduleSessionSave() }
         tab.onClose = { [weak self] t in
@@ -125,7 +136,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         tabs.append(tab)
         guard let window = tab.window else { return tab }
         let host = newWindow ? nil : group ?? NSApp.keyWindow ?? tabs.dropLast().last?.window
-        if let host, host !== window, host.isVisible {
+        if let tabIndex, let host = group, host !== window, let tg = host.tabGroup {
+            // A restored tab built after launch: its saved place in the tab bar.
+            tg.insertWindow(window, at: min(tabIndex, tg.windows.count))
+        } else if let host, host !== window, host.isVisible {
             host.addTabbedWindow(window, ordered: .above)
         } else {
             window.center()
@@ -173,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @discardableResult
     func open(_ url: URL) -> EditorWindowController? {
         let std = url.standardizedFileURL
+        restorePendingTab(for: std)
         if let existing = tabs.first(where: { $0.doc.fileURL?.standardizedFileURL == std }) {
             existing.window?.makeKeyAndOrderFront(nil)
             return existing
@@ -218,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// The windows in on-screen order, each with its tabs in tab-bar order.
-    private func tabGroups() -> [[EditorWindowController]] {
+    func tabGroups() -> [[EditorWindowController]] {
         var seen = Set<ObjectIdentifier>()
         var groups: [[EditorWindowController]] = []
         let ordered = NSApp.orderedWindows + tabs.compactMap(\.window)
@@ -241,6 +256,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func saveSession(sync: Bool = true) {
         sessionTimer?.invalidate()
         guard env["CEDRIC_NO_SESSION_SAVE"] != "1" else { return }
+        // Tabs not built yet would be dropped from the session (and their buffers pruned).
+        finishRestore()
         var windows: [SessionWindow] = []
         var keep = Set<UUID>()
         var buffers: [(UUID, String)] = []
@@ -294,49 +311,140 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if sync { sessionQueue.sync(execute: write) } else { sessionQueue.async(execute: write) }
     }
 
+    /// A restored tab not built yet: each window's selected tab is built
+    /// during launch; the others are built after the first frame, one per
+    /// run-loop turn (`restoreNextPending`), so a long session neither
+    /// delays the window nor blocks the first keystrokes for long. Adding a
+    /// window to a tab group costs AppKit ~10 ms per tab (~45 ms for the
+    /// first, which creates the tab bar), whatever the tab holds.
+    private struct PendingTab {
+        let tab: SessionTab
+        let group: RestoreGroup
+        /// Its place in the saved window's tab bar.
+        let index: Int
+    }
+
+    /// One saved window's tabs built so far, by their saved index.
+    private final class RestoreGroup {
+        var built: [(index: Int, window: NSWindow)] = []
+    }
+
+    private var pendingRestore: [PendingTab] = []
+    /// Seconds after the first frame before the other tabs are built (about
+    /// a human reaction time, so a keystroke right after the window shows
+    /// doesn't wait behind them). CEDRIC_RESTORE_DELAY overrides it (session-check).
+    static let pendingRestoreDelay: TimeInterval =
+        ProcessInfo.processInfo.environment["CEDRIC_RESTORE_DELAY"].flatMap(Double.init) ?? 0.25
+
     private func restoreSession() {
         guard let session = store.load() else { return }
         for w in session.windows {
+            // The selected tab first (it is what shows); if its file has
+            // gone, the next one that still restores.
+            let order = w.tabs.indices.contains(w.selectedTab)
+                ? [w.selectedTab] + w.tabs.indices.filter { $0 != w.selectedTab } : Array(w.tabs.indices)
+            let group = RestoreGroup()
             var host: NSWindow?
-            var selectedWindow: NSWindow?
-            for (i, st) in w.tabs.enumerated() {
-                let doc = EditorDocument(id: st.id, fileURL: st.path.map { URL(fileURLWithPath: $0) },
-                                         untitledName: st.untitledName ?? st.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Untitled"))
-                var text: String?
-                if st.hasBuffer { text = store.readBuffer(st.id) }
-                if text == nil, let url = doc.fileURL, let (d, mod) = try? EditorDocument.read(url, encoding: st.encoding) {
-                    doc.apply(d)
-                    doc.fileModified = mod
-                    text = d.text
-                } else if text != nil {
-                    doc.encoding = st.encoding
-                    doc.lineEnding = st.lineEnding
-                    doc.fileModified = st.fileModified
-                }
-                guard let body = text else { continue } // the file is gone and there was no buffer
-                if let l = st.language {
-                    doc.languageChoice.choose(l)
-                } else if let url = doc.fileURL {
-                    doc.languageChoice = .forFile(named: url.lastPathComponent, content: body)
-                } else {
-                    doc.languageChoice = .untitled(content: body)
-                }
-                let tab = makeTab(doc, text: body, in: host, newWindow: host == nil, show: false)
-                if st.hasBuffer { doc.markDirtyFromSession(); doc.sessionChangeCount = doc.changeCount }
-                tab.updateTitle()
-                let len = (body as NSString).length
-                tab.textView.setSelectedRange(NSRange(location: min(st.selectionLocation, len), length: min(st.selectionLength, max(0, len - st.selectionLocation))))
-                if host == nil {
-                    host = tab.window
-                    if let f = w.frame { tab.window?.setFrame(from: f) }
-                    tab.window?.orderFront(nil)
-                }
-                if i == w.selectedTab { selectedWindow = tab.window }
-                let top = st.topLine
-                DispatchQueue.main.async { tab.scrollToLine(top) }
+            var rest: [Int] = []
+            for i in order {
+                if host != nil { rest.append(i); continue }
+                guard let tab = restoreTab(w.tabs[i], into: nil), let window = tab.window else { continue }
+                host = window
+                group.built.append((i, window))
+                if let f = w.frame { window.setFrame(from: f) }
             }
-            (selectedWindow ?? host)?.makeKeyAndOrderFront(nil)
+            guard let host else { continue }
+            pendingRestore += rest.sorted().map { PendingTab(tab: w.tabs[$0], group: group, index: $0) }
+            host.makeKeyAndOrderFront(nil)
         }
+    }
+
+    /// Builds one saved tab; nil if its file has gone and it had no buffer.
+    /// `place` nil: in a new window (not ordered in). Else into that
+    /// window's tab group at that position.
+    @discardableResult
+    private func restoreTab(_ st: SessionTab, into place: (host: NSWindow, index: Int)?) -> EditorWindowController? {
+        let doc = EditorDocument(id: st.id, fileURL: st.path.map { URL(fileURLWithPath: $0) },
+                                 untitledName: st.untitledName ?? st.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Untitled"))
+        var text: String?
+        if st.hasBuffer { text = store.readBuffer(st.id) }
+        if text == nil, let url = doc.fileURL, let (d, mod) = try? EditorDocument.read(url, encoding: st.encoding) {
+            doc.apply(d)
+            doc.fileModified = mod
+            text = d.text
+        } else if text != nil {
+            doc.encoding = st.encoding
+            doc.lineEnding = st.lineEnding
+            doc.fileModified = st.fileModified
+        }
+        guard let body = text else { return nil } // the file is gone and there was no buffer
+        if let l = st.language {
+            doc.languageChoice.choose(l)
+        } else if let url = doc.fileURL {
+            doc.languageChoice = .forFile(named: url.lastPathComponent, content: body)
+        } else {
+            doc.languageChoice = .untitled(content: body)
+        }
+        let tab = makeTab(doc, text: body, in: place?.host, newWindow: place == nil, show: false, tabIndex: place?.index)
+        if st.hasBuffer { doc.markDirtyFromSession(); doc.sessionChangeCount = doc.changeCount }
+        tab.updateTitle()
+        let len = (body as NSString).length
+        tab.textView.setSelectedRange(NSRange(location: min(st.selectionLocation, len), length: min(st.selectionLength, max(0, len - st.selectionLocation))))
+        let top = st.topLine
+        DispatchQueue.main.async { tab.scrollToLine(top) }
+        return tab
+    }
+
+    /// Starts building the pending tabs once the first frame is on screen.
+    private func schedulePendingRestore() {
+        guard !pendingRestore.isEmpty else { return }
+        AfterFirstFrame.run {
+            Timer.scheduledTimer(withTimeInterval: Self.pendingRestoreDelay, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated { self?.restoreNextPending() }
+            }
+        }
+    }
+
+    /// One pending tab per run-loop turn (key events get through in between).
+    private func restoreNextPending() {
+        guard !pendingRestore.isEmpty else { return }
+        restorePending(pendingRestore.removeFirst())
+        if pendingRestore.isEmpty { scheduleSessionSave(); return }
+        perform(#selector(restoreNextPendingLater), with: nil, afterDelay: 0)
+    }
+
+    @objc private func restoreNextPendingLater() { restoreNextPending() }
+
+    private func restorePending(_ p: PendingTab) {
+        // The saved window's tabs still open (the user may have closed some).
+        let live = p.group.built.filter { b in tabs.contains { $0.window === b.window } }
+        guard let anchor = live.first?.window, let tg = anchor.tabGroup else {
+            // All of them closed before this one was built: it gets its own window.
+            if let tab = restoreTab(p.tab, into: nil), let w = tab.window {
+                p.group.built.append((p.index, w))
+                w.orderFront(nil)
+            }
+            return
+        }
+        // After the nearest tab saved before it, else first.
+        let before = live.filter { $0.index < p.index }.max { $0.index < $1.index }
+        let position = before.flatMap { b in tg.windows.firstIndex { $0 === b.window } }.map { $0 + 1 } ?? 0
+        // Keep the user where they are: building a tab must not move the selection.
+        let selected = tg.selectedWindow
+        if let tab = restoreTab(p.tab, into: (anchor, position)), let w = tab.window { p.group.built.append((p.index, w)) }
+        if let selected, tg.selectedWindow !== selected { tg.selectedWindow = selected }
+    }
+
+    /// Builds every pending tab now (save, quit, open, the dev hooks).
+    func finishRestore() {
+        while !pendingRestore.isEmpty { restorePending(pendingRestore.removeFirst()) }
+    }
+
+    /// A pending tab for this file, built now so it isn't opened twice.
+    private func restorePendingTab(for url: URL) {
+        let std = url.standardizedFileURL
+        guard let i = pendingRestore.firstIndex(where: { $0.tab.path.map { URL(fileURLWithPath: $0).standardizedFileURL } == std }) else { return }
+        restorePending(pendingRestore.remove(at: i))
     }
 
     // MARK: Menu actions routed to the current tab
