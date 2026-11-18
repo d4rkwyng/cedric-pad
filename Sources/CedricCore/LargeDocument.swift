@@ -18,8 +18,10 @@ import Foundation
 public enum LargeDocument {
     /// Any line longer than this (UTF-16 code units) turns large mode on.
     public static let lineThreshold = 20_000
-    /// So does a document longer than this (UTF-16 code units, ≈ 5 MB of ASCII).
-    public static let sizeThreshold = 5_000_000
+    /// So does a document longer than this (UTF-16 code units, ≈ 25 MB of ASCII).
+    /// Raised from 5 M (T3-M4, 2026-11-18): many-line files stay fast far past
+    /// that, and a 10 MB JSON or code file should keep its colouring.
+    public static let sizeThreshold = 25_000_000
     /// The chunk length TextKit sees for lines longer than this.
     public static let chunkLength = 2_048
 
