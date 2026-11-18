@@ -253,6 +253,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gutter.needsDisplay = true
         syncPreviewScroll()
         owl?.caretMoved()
+        if owl != nil { OwlHub.shared.visibleChanged(in: self) }
     }
 
     // MARK: Appearance
@@ -594,6 +595,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observers = []
         previewTimer?.invalidate()
         owl?.detach()
+        OwlHub.shared.closed(self)
         onClose?(self)
     }
 

@@ -253,25 +253,38 @@ public enum ModelPicker {
         return Double(s[r])
     }
 
-    /// 1. a Qwen coder model of 0.5–3B (closest to 1.5B first);
-    /// 2. else a Qwen3 model of ≤ 4B (closest to 1.7B first);
-    /// 3. else nil: the user picks.
+    /// The automatic choice never goes above `maxAutoParametersB`, so a
+    /// default setup can't make LM Studio JIT-load a big model:
+    ///
+    /// 1. a Qwen coder/instruct model of 2.5–4B (coder first, closest to 3B):
+    ///    1.5B gives noticeably weaker hints;
+    /// 2. else a Qwen of 1–2B (coder first, closest to 1.5B);
+    /// 3. else a Qwen of 0.5–1B;
+    /// 4. else nil: the user picks.
     public static func pickSmallQwen(_ models: [LocalModelInfo]) -> LocalModelInfo? {
-        let candidates = models.filter { !$0.isEmbedding && $0.id.lowercased().contains("qwen") }
-        let coders = candidates.filter {
-            guard let p = $0.parametersB else { return false }
-            return $0.id.lowercased().contains("coder") && p >= 0.5 && p <= 3
+        let candidates = models.filter {
+            let id = $0.id.lowercased()
+            return !$0.isEmbedding && id.contains("qwen")
+                && (id.contains("coder") || id.contains("instruct") || id.contains("qwen3"))
         }
-        if let best = coders.min(by: { rank($0, target: 1.5) < rank($1, target: 1.5) }) { return best }
-        let q3 = candidates.filter {
-            guard let p = $0.parametersB else { return false }
-            return $0.id.lowercased().contains("qwen3") && p <= 4
+        let tiers: [(ClosedRange<Double>, Double)] = [(2.5...maxAutoParametersB, 3), (1...2, 1.5), (0.5...0.99, 0.5)]
+        for (range, target) in tiers {
+            let tier = candidates.filter { $0.parametersB.map(range.contains) ?? false }
+            if let best = tier.min(by: { rank($0, target: target) < rank($1, target: target) }) { return best }
         }
-        return q3.min(by: { rank($0, target: 1.7) < rank($1, target: 1.7) })
+        return nil
     }
 
+    /// The largest model the automatic choice will take.
+    public static let maxAutoParametersB = 4.0
+
+    /// ≤ 2B: the settings sheet says "Small models give weaker hints."
+    public static func isWeak(_ m: LocalModelInfo) -> Bool { (m.parametersB ?? 99) <= 2 }
+
     private static func rank(_ m: LocalModelInfo, target: Double) -> Double {
-        let instructBonus = m.id.lowercased().contains("instruct") ? 0 : 0.01
-        return abs((m.parametersB ?? 99) - target) + instructBonus
+        let id = m.id.lowercased()
+        let coderBonus = id.contains("coder") ? 0 : 10
+        let instructBonus = id.contains("instruct") ? 0 : 0.01
+        return Double(coderBonus) + abs((m.parametersB ?? 99) - target) + instructBonus
     }
 }

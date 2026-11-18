@@ -322,6 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func toggleInvisibles(_ sender: Any?) { Settings.shared.showInvisibles.toggle() }
     @objc func toggleLineNumbers(_ sender: Any?) { Settings.shared.showLineNumbers.toggle() }
     @objc func toggleOwl(_ sender: Any?) { Settings.shared.showOwl.toggle() }
+    @objc func showAISettings(_ sender: Any?) { AISettingsSheet.show(on: currentTab?.window) }
     @objc func pickOwlHintSource(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let src = OwlHintSource(rawValue: raw) { Settings.shared.owlHintSource = src }
     }

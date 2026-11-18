@@ -290,3 +290,35 @@ func context(_ text: String, language: String = "plain") -> OwlContext { window(
         #expect(s.replacingCharacters(in: e.range, with: e.replacement) == "abc\ndef\n")
     }
 }
+
+/// Hints that arrive on their own (the AI scheduler's) go through the
+/// same checks as a query's.
+@MainActor
+@Suite struct OwlAcceptTests {
+    struct Marker: OwlHintProvider { let name = "local:m"; func hints(for context: OwlContext) async -> [OwlHint] { [] } }
+
+    @Test func acceptAIOnlyWithRulesAndAIAndChecksRanges() {
+        let suite = "cedric-accept-\(UUID())"
+        let d = UserDefaults(suiteName: suite)!
+        defer { d.removePersistentDomain(forName: suite) }
+        let c = OwlCoordinator(defaults: d)
+        let doc = UUID()
+        let ctx = OwlContext(fileName: "a.swift", language: "swift", text: "for i in 0...n {}", textStart: 400,
+                             visibleRange: NSRange(location: 0, length: 5), selection: nil, documentID: doc, editGeneration: 7)
+        let h = OwlHint(id: "ai1", kind: .fix, title: "Off by one", range: NSRange(location: 9, length: 4),
+                        replacement: "0..<n", source: "local:m")
+        // No AI provider registered / source Rules: dropped.
+        #expect(c.acceptAI([h], context: ctx, length: 1000, generation: 7) == nil)
+        c.registry.register(Marker(), isAI: true)
+        #expect(c.acceptAI([h], context: ctx, length: 1000, generation: 7) == nil)
+        c.source = .rulesAndAI
+        // Edited since, or out of the document: dropped.
+        #expect(c.acceptAI([h], context: ctx, length: 1000, generation: 8) == nil)
+        #expect(c.acceptAI([h], context: ctx, length: 410, generation: 7) == nil)
+        #expect(c.acceptAI([h], context: ctx, length: 1000, generation: 7) == h)
+        #expect(OwlCoordinator.documentRange(h, context: ctx) == NSRange(location: 409, length: 4))
+        // Shown once per document.
+        #expect(c.acceptAI([h], context: ctx, length: 1000, generation: 7) == nil)
+        #expect(c.recent.first?.hint.source == "local:m")
+    }
+}

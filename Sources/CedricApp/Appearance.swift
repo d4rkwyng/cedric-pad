@@ -68,10 +68,16 @@ final class Settings {
         set { defaults.set(newValue, forKey: "showOwl"); NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil) }
     }
 
+    /// CEDRIC_OWL_SOURCE=rulesAndAI: the hint source for this run, not saved.
+    var owlSourceOverride = ProcessInfo.processInfo.environment["CEDRIC_OWL_SOURCE"].flatMap(OwlHintSource.init(rawValue:))
+
     /// "Hint source": Rules, or Rules + AI (only once an AI provider registers).
     var owlHintSource: OwlHintSource {
-        get { defaults.string(forKey: "owlHintSource").flatMap(OwlHintSource.init(rawValue:)) ?? .rules }
-        set { defaults.set(newValue.rawValue, forKey: "owlHintSource"); NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil) }
+        get { owlSourceOverride ?? defaults.string(forKey: "owlHintSource").flatMap(OwlHintSource.init(rawValue:)) ?? .rules }
+        set {
+            if owlSourceOverride != nil { owlSourceOverride = newValue } else { defaults.set(newValue.rawValue, forKey: "owlHintSource") }
+            NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil)
+        }
     }
 
     var font: NSFont { NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular) }

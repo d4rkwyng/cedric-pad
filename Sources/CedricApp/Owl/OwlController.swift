@@ -32,6 +32,8 @@ final class OwlController: NSObject, NSPopoverDelegate {
     let owl = OwlView(frame: NSRect(x: 0, y: 0, width: OwlController.size, height: OwlController.size))
     private(set) var bubble: OwlBubble?
     private var presented: (hint: OwlHint, range: NSRange?, expected: String?)?
+    /// The hint in the bubble and its range in the document (checks).
+    var presentedHint: (hint: OwlHint, documentRange: NSRange?)? { presented.map { ($0.hint, $0.range) } }
     private var observers: [NSObjectProtocol] = []
     private var idleTimer: Timer?
     private(set) var lastTyping = Date()
@@ -189,15 +191,16 @@ final class OwlController: NSObject, NSPopoverDelegate {
 
     // MARK: Hints
 
-    /// Shows a hint the coordinator picked. `context.textStart` maps the hint's range
-    /// (context-window coordinates) back into the document.
-    func present(_ hint: OwlHint, window w: OwlContextWindow) {
+    /// Shows a hint the coordinator picked (from the rules or the AI).
+    /// `context.textStart` maps the hint's range (context-window
+    /// coordinates) back into the document.
+    func present(_ hint: OwlHint, context: OwlContext) {
         guard let tab else { return }
         var docRange: NSRange?, expected: String?
         if let r = hint.range {
-            let ctx = w.context.text as NSString
+            let ctx = context.text as NSString
             guard NSMaxRange(r) <= ctx.length else { return }
-            docRange = OwlCoordinator.documentRange(hint, context: w.context) ?? r
+            docRange = OwlCoordinator.documentRange(hint, context: context) ?? r
             expected = ctx.substring(with: r)
         }
         presented = (hint, docRange, expected)

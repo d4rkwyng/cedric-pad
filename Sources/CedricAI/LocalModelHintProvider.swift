@@ -85,10 +85,12 @@ public enum LocalAIOwl {
 
     /// A scheduler wired with the settings' timings and the real clock/power.
     public static func makeScheduler(provider: any OwlHintProvider, settings: LocalAISettings,
+                                     onOutcome: (@Sendable (UUID, OwlScheduler.Outcome) -> Void)? = nil,
+                                     onStart: (@Sendable (OwlContext) -> Void)? = nil,
                                      deliver: @escaping @Sendable (OwlContext, [OwlHint]) async -> Void) -> OwlScheduler {
         OwlScheduler(provider: provider,
                      config: .init(pauseDelay: settings.pauseDelay, minInterval: settings.minInterval,
                                    timeout: settings.timeout),
-                     deliver: deliver)
+                     onOutcome: onOutcome, onStart: onStart, deliver: deliver)
     }
 }

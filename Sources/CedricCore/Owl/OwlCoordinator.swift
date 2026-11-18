@@ -137,10 +137,25 @@ public final class OwlCoordinator {
         }
         // Only now: the window may have gone quiet while a provider ran.
         let now = current()
-        hints = hints.filter { Self.matchesDocument($0, context: window.context, length: now.length, generation: now.generation) }
-        guard !isQuiet, let hint = hints.first(where: { isEligible($0, documentID: window.context.documentID) }) else { return nil }
-        markShown(hint, documentID: window.context.documentID)
+        return accept(hints, context: window.context, length: now.length, generation: now.generation)
+    }
+
+    /// Hints that arrive on their own (the AI scheduler's): the same
+    /// filtering as a query — in the document, not edited since, not
+    /// quiet, not shown/snoozed/never — then the first is marked shown and
+    /// returned. `length`/`generation` describe the document now. Nil when
+    /// the source is Rules or nothing is left.
+    public func accept(_ hints: [OwlHint], context: OwlContext, length: Int, generation: Int) -> OwlHint? {
+        let ok = hints.filter { Self.matchesDocument($0, context: context, length: length, generation: generation) }
+        guard !isQuiet, let hint = ok.first(where: { isEligible($0, documentID: context.documentID) }) else { return nil }
+        markShown(hint, documentID: context.documentID)
         return hint
+    }
+
+    /// `accept` for hints from an AI source: dropped unless "Rules + AI" is on.
+    public func acceptAI(_ hints: [OwlHint], context: OwlContext, length: Int, generation: Int) -> OwlHint? {
+        guard source == .rulesAndAI, registry.hasAIProvider else { return nil }
+        return accept(hints, context: context, length: length, generation: generation)
     }
 
     /// The hint's range, converted to the document (`location + textStart`).

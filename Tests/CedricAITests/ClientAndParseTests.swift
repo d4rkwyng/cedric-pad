@@ -33,10 +33,22 @@ import CedricCore
         #expect(report.latency >= 0)
     }
 
-    @Test func fallsBackToSmallQwen3ThenToNothing() {
+    @Test func prefersThreeToFourBThenOnePointFiveThenNothing() {
         let q3 = [LocalModelInfo(id: "qwen/qwen3.6-35b-a3b"), LocalModelInfo(id: "qwen3-4b"),
                   LocalModelInfo(id: "qwen3-1.7b"), LocalModelInfo(id: "qwen3-8b")]
-        #expect(ModelPicker.pickSmallQwen(q3)?.id == "qwen3-1.7b")
+        #expect(ModelPicker.pickSmallQwen(q3)?.id == "qwen3-4b")
+        let mixed = [LocalModelInfo(id: "qwen3-4b"), LocalModelInfo(id: "qwen2.5-coder-3b-instruct"),
+                     LocalModelInfo(id: "qwen2.5-coder-1.5b-instruct"), LocalModelInfo(id: "qwen2.5-coder-7b-instruct")]
+        #expect(ModelPicker.pickSmallQwen(mixed)?.id == "qwen2.5-coder-3b-instruct")
+        let small = [LocalModelInfo(id: "qwen2.5-coder-1.5b-instruct-mlx"), LocalModelInfo(id: "qwen2.5-coder-0.5b-instruct"),
+                     LocalModelInfo(id: "qwen/qwen3.8-27b")]
+        let pick = ModelPicker.pickSmallQwen(small)
+        #expect(pick?.id == "qwen2.5-coder-1.5b-instruct-mlx")
+        #expect(pick.map(ModelPicker.isWeak) == true)
+        #expect(ModelPicker.isWeak(LocalModelInfo(id: "qwen3-4b")) == false)
+        // Never a big one, whatever else is there.
+        #expect(ModelPicker.pickSmallQwen([LocalModelInfo(id: "qwen2.5-coder-7b-instruct"),
+                                           LocalModelInfo(id: "qwen2.5-coder-14b-instruct")]) == nil)
         let big = [LocalModelInfo(id: "qwen/qwen3.6-35b-a3b"), LocalModelInfo(id: "qwen/qwen3.8-27b"),
                    LocalModelInfo(id: "llama-3.2-1b")]
         #expect(ModelPicker.pickSmallQwen(big) == nil)

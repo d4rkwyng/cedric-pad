@@ -82,6 +82,7 @@ func buildMainMenu() -> NSMenu {
             item($0 == .rules ? String(localized: "Rules") : String(localized: "Rules + AI"),
                  #selector(AppDelegate.pickOwlHintSource(_:)), represented: $0.rawValue)
         }),
+        item(String(localized: "Cedric AI Settings…"), #selector(AppDelegate.showAISettings(_:))),
         .separator(),
         item(String(localized: "Zoom In"), #selector(AppDelegate.zoomIn(_:)), "="),
         item(String(localized: "Zoom Out"), #selector(AppDelegate.zoomOut(_:)), "-"),

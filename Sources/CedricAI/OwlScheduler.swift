@@ -61,6 +61,9 @@ public actor OwlScheduler {
     let power: any PowerSource
     let deliver: @Sendable (OwlContext, [OwlHint]) async -> Void
     let onOutcome: (@Sendable (UUID, Outcome) -> Void)?
+    /// Called when a request starts (the owl's "thinking" pose); every
+    /// start is followed by exactly one `onOutcome`.
+    let onStart: (@Sendable (OwlContext) -> Void)?
 
     var docs: [UUID: Doc] = [:]
     public private(set) var appActive = true
@@ -70,12 +73,14 @@ public actor OwlScheduler {
     public init(provider: any OwlHintProvider, config: Config = Config(),
                 clock: any OwlClock = SystemClock(), power: any PowerSource = SystemPowerSource(),
                 onOutcome: (@Sendable (UUID, Outcome) -> Void)? = nil,
+                onStart: (@Sendable (OwlContext) -> Void)? = nil,
                 deliver: @escaping @Sendable (OwlContext, [OwlHint]) async -> Void) {
         self.provider = provider
         self.config = config
         self.clock = clock
         self.power = power
         self.onOutcome = onOutcome
+        self.onStart = onStart
         self.deliver = deliver
     }
 
@@ -132,6 +137,12 @@ public actor OwlScheduler {
 
     public func updateConfig(_ config: Config) { self.config = config }
 
+    /// The provider is going away (AI switched off, settings changed):
+    /// cancel every timer and request and forget the documents.
+    public func shutdown() {
+        for id in Array(docs.keys) { documentClosed(id) }
+    }
+
     // MARK: Decisions
 
     /// The gate for `id` right now. Pure apart from reading the clock and
@@ -186,6 +197,7 @@ public actor OwlScheduler {
         doc.lastFire = clock.now
         doc.askedGeneration = context.editGeneration
         requestCount += 1
+        onStart?(context)
         let provider = self.provider, clock = self.clock, timeout = config.timeout
         doc.inflight = Task { [weak self] in
             let result = await Self.race(provider: provider, context: context, clock: clock, timeout: timeout)
@@ -211,7 +223,7 @@ public actor OwlScheduler {
 
     private func finish(_ context: OwlContext, _ result: [OwlHint]?) async {
         let id = context.documentID
-        guard var doc = docs[id] else { return }
+        guard var doc = docs[id] else { onOutcome?(id, .cancelled); return }   // closed meanwhile
         let current = doc.context.editGeneration == context.editGeneration
         if current { doc.inflight = nil; docs[id] = doc }
         let outcome: Outcome

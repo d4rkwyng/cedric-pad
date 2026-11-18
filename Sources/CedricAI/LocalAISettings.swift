@@ -95,3 +95,52 @@ public enum LocalEndpointPolicy {
         }
     }
 }
+
+// MARK: - The settings sheet's model
+
+extension LocalAISettings.Backend {
+    /// The endpoint preset's name in the settings sheet.
+    public var title: String {
+        switch self {
+        case .lmStudio: return "LM Studio on this Mac"
+        case .ollama: return "Ollama on this Mac"
+        case .custom: return "Custom URL (LAN)"
+        }
+    }
+}
+
+extension LocalAISettings {
+    /// Shown under the endpoint in the settings sheet, word for word.
+    public static let privacyNote = "Sends only the visible text (up to 8 KB) to the address above. Never the cloud."
+    /// Shown when the chosen (or only available) model is ≤ 2B.
+    public static let weakModelNote = "Small models give weaker hints."
+    /// The interval menu, in seconds (default 90).
+    public static let intervalChoices: [TimeInterval] = [30, 60, 90, 120, 300]
+
+    /// Picks an endpoint preset. LM Studio and Ollama set their localhost
+    /// URL; Custom keeps the current URL for the user to edit. A different
+    /// server means a different model list, so the model goes back to auto.
+    public mutating func selectBackend(_ b: Backend) {
+        guard b != backend else { return }
+        backend = b
+        if b != .custom { baseURL = b.defaultBaseURL }
+        model = nil
+    }
+
+    /// Parses what the user typed in the Custom URL field: adds `http://`
+    /// when there is no scheme and `/v1` when there is no path. nil when it
+    /// isn't a URL or the host isn't local/LAN (`LocalEndpointPolicy`).
+    public static func parseEndpoint(_ raw: String) -> URL? {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return nil }
+        if !s.contains("://") { s = "http://" + s }
+        guard var c = URLComponents(string: s), c.host?.isEmpty == false else { return nil }
+        if c.path.isEmpty || c.path == "/" { c.path = "/v1" }
+        while c.path.count > 1 && c.path.hasSuffix("/") { c.path.removeLast() }
+        guard let url = c.url, LocalEndpointPolicy.isAllowed(url) else { return nil }
+        return url
+    }
+
+    /// Ready to register: on, with a local/LAN endpoint.
+    public var isUsable: Bool { enabled && LocalEndpointPolicy.isAllowed(baseURL) }
+}
