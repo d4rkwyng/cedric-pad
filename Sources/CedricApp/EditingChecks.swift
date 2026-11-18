@@ -12,6 +12,7 @@ extension DevChecks {
     static func editingCheck(_ name: String, _ app: AppDelegate) -> Bool {
         switch name {
         case "highlight": highlight(app)
+        case "lineops": lineOps(app)
         default: return false
         }
         return true
@@ -115,6 +116,96 @@ extension DevChecks {
                 tab.textView.setSelectedRange(NSRange(location: at("alpha").location + 1, length: 0))
                 tab.refreshHighlights()
                 expect(tab.textView.occurrenceRanges.isEmpty, "View › Highlight Occurrences off: no tint")
+            },
+        ])
+    }
+
+    // MARK: Line operations
+
+    static let up = String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!)
+    static let down = String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!)
+
+    static func lineOps(_ app: AppDelegate) {
+        let src = "func f() {\n    let a = 1\n    let b = 2\n}\n"
+        let tab = app.open(write("lines.swift", src))!
+        let json = app.open(write("data.json", "{\"a\": 1}\n"))!
+        sized(tab)
+        let pb = NSPasteboard.general
+        let savedClipboard = pb.string(forType: .string)
+        func caret(_ off: Int) { tab.textView.setSelectedRange(NSRange(location: off, length: 0)) }
+        let lineA = 11 + 4 // inside "let a"
+        run([
+            sync {
+                focus(tab)
+                caret(lineA)
+                key("d", [.command, .shift])
+                expect(tab.text == "func f() {\n    let a = 1\n    let a = 1\n    let b = 2\n}\n", "⇧⌘D duplicates the line", tab.text)
+                expect(tab.textView.selectedRange().location == lineA + 14, "the caret moves to the copy", "\(tab.textView.selectedRange())")
+                expect(tab.textView.undoManager?.undoActionName == "Duplicate Line", "undo is named", tab.textView.undoManager?.undoActionName ?? "-")
+            },
+            sync {
+                key("z", [.command])
+                expect(tab.text == src, "one ⌘Z undoes it", tab.text)
+                caret(lineA)
+                key(down, [.control, .command])
+                expect(tab.text == "func f() {\n    let b = 2\n    let a = 1\n}\n", "⌃⌘↓ moves the line down", tab.text)
+            },
+            sync {
+                key(up, [.control, .command])
+                expect(tab.text == src, "⌃⌘↑ moves it back up", tab.text)
+                expect(tab.textView.selectedRange().location == lineA, "the caret stays on the moved line", "\(tab.textView.selectedRange())")
+                caret(0)
+                key(up, [.control, .command])
+                expect(tab.text == src, "⌃⌘↑ on the first line changes nothing", tab.text)
+            },
+            sync {
+                caret(lineA)
+                key("k", [.command, .shift])
+                expect(tab.text == "func f() {\n    let b = 2\n}\n", "⇧⌘K deletes the line", tab.text)
+            },
+            sync {
+                key("z", [.command])
+                caret(lineA)
+                key("/", [.command])
+                expect(tab.text == "func f() {\n    // let a = 1\n    let b = 2\n}\n", "⌘/ comments the line out", tab.text)
+                expect(tab.textView.selectedRange().location == lineA + 3, "the caret moves with its text", "\(tab.textView.selectedRange())")
+            },
+            sync {
+                // Two lines selected: mixed → both commented, then both back.
+                tab.textView.setSelectedRange(NSRange(location: 11, length: 30))
+                key("/", [.command])
+                expect(tab.text == "func f() {\n    // // let a = 1\n    // let b = 2\n}\n", "⌘/ on mixed lines comments all", tab.text)
+            },
+            sync {
+                key("/", [.command])
+                expect(tab.text == "func f() {\n    // let a = 1\n    let b = 2\n}\n", "⌘/ again uncomments all", tab.text)
+            },
+            sync { key("z", [.command]) },
+            sync { key("z", [.command]) },
+            sync {
+                key("z", [.command])
+                expect(tab.text == src, "each ⌘Z undoes one step, back to the original", tab.text)
+            },
+            snapshot("line-ops.png"),
+            sync {
+                // ⌘X with no selection cuts the line.
+                caret(lineA)
+                key("x", [.command])
+                expect(tab.text == "func f() {\n    let b = 2\n}\n", "⌘X with nothing selected cuts the line", tab.text)
+                expect(pb.string(forType: .string) == "    let a = 1\n", "the line is on the clipboard", pb.string(forType: .string) ?? "-")
+                key("v", [.command])
+                expect(tab.text == src, "and ⌘V pastes it back as a line (at the caret's line start)", tab.text)
+                // With a selection, ⌘X cuts only the selection.
+                tab.textView.setSelectedRange(NSRange(location: 15, length: 3))
+                key("x", [.command])
+                expect(tab.text == "func f() {\n     a = 1\n    let b = 2\n}\n", "⌘X with a selection cuts the selection", tab.text)
+                if let savedClipboard { pb.clearContents(); pb.setString(savedClipboard, forType: .string) }
+            },
+            sync {
+                focus(json)
+                json.textView.setSelectedRange(NSRange(location: 1, length: 0))
+                key("/", [.command])
+                expect(json.text == "{\"a\": 1}\n", "⌘/ does nothing in JSON (no comments)", json.text)
             },
         ])
     }

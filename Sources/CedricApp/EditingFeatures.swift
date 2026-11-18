@@ -120,12 +120,91 @@ extension EditorWindowController {
     }
 }
 
+// MARK: - Line operations
+
+/// Edit › Line: what to do to the selected lines.
+enum LineCommand {
+    case duplicate, moveUp, moveDown, delete, toggleComment
+
+    var actionName: String {
+        switch self {
+        case .duplicate: return String(localized: "Duplicate Line")
+        case .moveUp: return String(localized: "Move Line Up")
+        case .moveDown: return String(localized: "Move Line Down")
+        case .delete: return String(localized: "Delete Line")
+        case .toggleComment: return String(localized: "Toggle Comment")
+        }
+    }
+}
+
+extension EditorWindowController {
+    /// Applies one line command to the selection as one undo step; beeps
+    /// when there's nothing to do (top line up, no comments in JSON…).
+    func perform(_ command: LineCommand) {
+        guard textView.isEditable, !textView.hasMarkedText() else { NSSound.beep(); return }
+        let ns = textView.string as NSString
+        let sel = textView.selectedRange()
+        let edit: TextEdit?
+        switch command {
+        case .duplicate: edit = LineOperations.duplicate(sel, in: ns)
+        case .moveUp: edit = LineOperations.moveUp(sel, in: ns)
+        case .moveDown: edit = LineOperations.moveDown(sel, in: ns)
+        case .delete: edit = LineOperations.deleteLines(sel, in: ns)
+        case .toggleComment: edit = LineOperations.toggleComment(sel, in: ns, syntax: doc.language.commentSyntax)
+        }
+        guard let edit else { NSSound.beep(); return }
+        apply(edit, actionName: command.actionName)
+    }
+
+    /// One `TextEdit` as one undoable change, inserted in the theme's text
+    /// colour (the highlighter recolours it), then its selection.
+    func apply(_ edit: TextEdit, actionName: String) {
+        guard let storage = textView.textStorage else { return }
+        let um = textView.undoManager
+        textView.breakUndoCoalescing()
+        um?.beginUndoGrouping()
+        if textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) {
+            storage.beginEditing()
+            storage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.replacement, attributes: baseAttributes()))
+            storage.endEditing()
+            textView.didChangeText()
+        }
+        um?.endUndoGrouping()
+        um?.setActionName(actionName)
+        let len = (textView.string as NSString).length
+        let s = NSRange(location: min(edit.selection.location, len), length: min(edit.selection.length, len - min(edit.selection.location, len)))
+        textView.setSelectedRange(s)
+        textView.scrollRangeToVisible(s)
+        colorizer.scheduleViewport()
+    }
+
+    /// ⌘X with nothing selected: cuts the caret's line (with its newline).
+    func cutLine() {
+        guard textView.isEditable else { NSSound.beep(); return }
+        let ns = textView.string as NSString
+        let sel = textView.selectedRange()
+        let block = LineOperations.lineBlock(sel, in: ns)
+        var line = ns.substring(with: block)
+        if !line.hasSuffix("\n") { line += "\n" }
+        guard !(block.length == 0 && ns.length == 0) else { NSSound.beep(); return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(line, forType: .string)
+        apply(LineOperations.deleteLines(sel, in: ns), actionName: String(localized: "Cut Line"))
+    }
+}
+
 // MARK: - Menu actions
 
 extension AppDelegate {
     @objc func markAllMenu(_ sender: Any?) { currentTab?.markAll() }
     @objc func clearMarksMenu(_ sender: Any?) { currentTab?.clearMarks() }
     @objc func toggleHighlightOccurrences(_ sender: Any?) { Settings.shared.highlightOccurrences.toggle() }
+    @objc func duplicateLineMenu(_ sender: Any?) { currentTab?.perform(.duplicate) }
+    @objc func moveLineUpMenu(_ sender: Any?) { currentTab?.perform(.moveUp) }
+    @objc func moveLineDownMenu(_ sender: Any?) { currentTab?.perform(.moveDown) }
+    @objc func deleteLineMenu(_ sender: Any?) { currentTab?.perform(.delete) }
+    @objc func toggleCommentMenu(_ sender: Any?) { currentTab?.perform(.toggleComment) }
 
     /// Validation for the editing extras; nil: not one of ours.
     func validateEditingItem(_ item: NSMenuItem) -> Bool? {
@@ -133,6 +212,11 @@ extension AppDelegate {
         switch item.action {
         case #selector(markAllMenu(_:)): return tab != nil
         case #selector(clearMarksMenu(_:)): return tab?.hasMarks == true
+        case #selector(duplicateLineMenu(_:)), #selector(moveLineUpMenu(_:)), #selector(moveLineDownMenu(_:)),
+             #selector(deleteLineMenu(_:)):
+            return tab?.textView.isEditable == true
+        case #selector(toggleCommentMenu(_:)):
+            return tab?.textView.isEditable == true && tab?.doc.language.commentSyntax != nil
         case #selector(toggleHighlightOccurrences(_:)):
             item.state = Settings.shared.highlightOccurrences ? .on : .off
             return true

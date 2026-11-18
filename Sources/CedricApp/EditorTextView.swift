@@ -114,6 +114,22 @@ final class EditorTextView: NSTextView {
 
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
 
+    /// ⌘X with nothing selected cuts the whole line (EditingFeatures.swift).
+    var onCutLine: (() -> Void)?
+
+    override func cut(_ sender: Any?) {
+        if selectedRange().length == 0, let onCutLine { onCutLine(); return }
+        super.cut(sender)
+    }
+
+    /// Cut stays enabled with an empty selection (it cuts the line).
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(cut(_:)), selectedRange().length == 0, onCutLine != nil {
+            return isEditable && (string as NSString).length > 0
+        }
+        return super.validateUserInterfaceItem(item)
+    }
+
     // MARK: Drawing
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {

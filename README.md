@@ -39,6 +39,11 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Occurrences). **Mark All** (⌃⌘M) marks every occurrence until Clear
   Marks (⌃⇧⌘M), with a count in the status bar. Only the visible text is
   searched, so typing stays fast in big files.
+- **Line operations** (Edit › Line): Duplicate Line (⇧⌘D), Move Line Up /
+  Down (⌃⌘↑ / ⌃⌘↓), Delete Line (⇧⌘K), Toggle Comment (⌘/, with the
+  language's own comment marker: `//`, `#`, `/* */` or `<!-- -->`). Each
+  works on every line the selection touches and is one undo step. ⌘X with
+  nothing selected cuts the whole line.
 - **Go to line** (⌘L, `42` or `42:7`), line numbers, current-line highlight,
   show invisibles (⌥⌘I), wrap lines (⌥Z).
 - **Encodings and line endings:** UTF-8 (with or without BOM), UTF-16 LE/BE

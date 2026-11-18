@@ -120,6 +120,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         scrollView.drawsBackground = true
         scrollView.borderType = .noBorder
         textView.delegate = self
+        textView.onCutLine = { [unowned self] in self.cutLine() }
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         gutter.textView = textView

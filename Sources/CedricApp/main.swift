@@ -107,6 +107,15 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Find in Files…"), #selector(AppDelegate.findInFilesMenu(_:)), "f", [.command, .shift]),
         item(String(localized: "Go to Line…"), #selector(AppDelegate.goToLine(_:)), "l"),
         .separator(),
+        submenu(String(localized: "Line"), [
+            item(String(localized: "Duplicate Line"), #selector(AppDelegate.duplicateLineMenu(_:)), "d", [.command, .shift]),
+            item(String(localized: "Move Line Up"), #selector(AppDelegate.moveLineUpMenu(_:)),
+                 String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), [.control, .command]),
+            item(String(localized: "Move Line Down"), #selector(AppDelegate.moveLineDownMenu(_:)),
+                 String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .command]),
+            item(String(localized: "Delete Line"), #selector(AppDelegate.deleteLineMenu(_:)), "k", [.command, .shift]),
+            item(String(localized: "Toggle Comment"), #selector(AppDelegate.toggleCommentMenu(_:)), "/"),
+        ]),
         submenu(String(localized: "Text Tools"), textToolItems()),
         submenu(String(localized: "Spelling and Grammar"), [
             item(String(localized: "Show Spelling and Grammar"), #selector(NSText.showGuessPanel(_:)), ":"),
