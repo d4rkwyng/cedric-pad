@@ -401,7 +401,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if let owl {
             owl.noteTyping()
             OwlHub.shared.activity(in: self)
-            spelling.schedule()
         }
         grammar.schedule()
         onChange?(self)
@@ -822,7 +821,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         owl?.detach()
         sniffTimer?.invalidate()
         editing.stop()
-        spelling.stop()
         spellStep?.closeWithTab()
         grammar.stop()
         grammarStep?.closeWithTab()

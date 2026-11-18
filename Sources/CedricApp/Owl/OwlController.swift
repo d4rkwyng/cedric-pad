@@ -348,24 +348,30 @@ final class OwlController: NSObject, NSPopoverDelegate {
     /// (through `applyPresented`, like any hint with a replacement). Once
     /// per document unless snoozed; never over another bubble, while
     /// quiet, or when turned off with "Don't show again".
-    func offerTypoFix(_ spelling: EditorSpelling, tab: EditorWindowController) {
+    @discardableResult
+    func offerTypoFix(_ spelling: EditorSpelling, tab: EditorWindowController) -> Bool {
         let hub = OwlHub.shared
-        guard bubble == nil, !hub.coordinator.isQuiet else { return }
+        guard bubble == nil, !popoverShown, !hub.coordinator.isQuiet else { return false }
         let window = tab.owlContextWindow()
         let ctx = window.context
         let probe = OwlHint(id: Self.typoFixID, kind: .fix, title: "", source: "rules")
-        guard hub.coordinator.isEligible(probe, documentID: tab.doc.id) else { return }
+        guard hub.coordinator.isEligible(probe, documentID: tab.doc.id) else { return false }
+        // Only in prose: in a log or a list of settings, Fix All would
+        // rewrite data (`dur=0ms` → `due=0ms`).
+        guard SpellScope.offersTypoFix(ctx.text as NSString, language: tab.doc.language,
+                                       fileName: tab.doc.fileURL?.lastPathComponent) else { return false }
         // Only what the owl can see in his context window.
         let ctxRange = NSRange(location: ctx.textStart, length: (ctx.text as NSString).length)
         let found = spelling.misspellings(in: ctxRange)
-        guard let fix = spelling.typoFix(found) else { return }
+        guard let fix = spelling.typoFix(found) else { return false }
         let local = NSRange(location: fix.range.location - ctx.textStart, length: fix.range.length)
-        guard local.location >= 0, NSMaxRange(local) <= (ctx.text as NSString).length else { return }
+        guard local.location >= 0, NSMaxRange(local) <= (ctx.text as NSString).length else { return false }
         let hint = OwlHint(id: Self.typoFixID, kind: .fix, title: String(localized: "Fix \(fix.count) typos?"),
                            detail: String(localized: "Fix Typos… goes through them one by one; Fix All uses the first suggestion for each, as one undo step."),
                            range: local, replacement: fix.replacement, source: "rules")
         hub.coordinator.markShown(hint, documentID: tab.doc.id)
         present(hint, context: ctx)
+        return true
     }
 
     private func buttons(for hint: OwlHint, tab: EditorWindowController) -> [OwlBubble.Button] {

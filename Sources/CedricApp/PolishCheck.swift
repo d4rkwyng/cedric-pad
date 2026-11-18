@@ -360,9 +360,11 @@ enum PolishCheck {
         let tv = tab.textView
         tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
         w.makeFirstResponder(tv)
-        // What typing does (textDidChange → spelling.schedule), without an
+        // What the owl's scheduled query does once typing pauses and the
+        // rules have nothing (OwlHub.fire → offerAfterPause), without an
         // open typing undo group: injected events never close one.
-        tab.spelling.schedule(after: 0.2)
+        TypingCheck.settle(0.2)
+        tab.spelling.offerAfterPause(skipPause: true)
         let original = tv.string
         let deadline = Date().addingTimeInterval(4)
         while owl.bubble == nil && Date() < deadline { TypingCheck.settle(0.1) }
