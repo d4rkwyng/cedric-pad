@@ -85,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidBecomeActive(_ notification: Notification) {
         tabs.forEach { $0.reloadIfChangedOnDisk() }
         pdfTabs.forEach { $0.reloadIfChangedOnDisk() }
+        tabs.forEach { $0.gitState?.scheduleRefresh() }
     }
 
     /// `cedric://open?path=/abs/file&line=12` (the command-line launcher)
@@ -628,7 +629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(useSelectionForFind(_:)),
              #selector(printDocument(_:)):
             return tab != nil
-        default: return validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
+        default: return validateGitItem(item) ?? validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
         }
         return true
     }

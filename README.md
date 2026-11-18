@@ -141,6 +141,21 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   so. PDF tabs come back with the session on their page and zoom (a PDF
   tab that isn't selected loads when you first click it); the owl stays
   out of them.
+- **Git, lightly:** for a file in a git repository (linked work trees
+  too) the status bar shows the branch, or the short commit when HEAD is
+  detached, with a dot when the file has uncommitted changes; clicking it
+  offers Copy Branch Name, Open Repository in Finder and Open on GitHub.
+  The gutter marks lines changed since the last commit as you type: green
+  for added, blue for modified, a small red triangle where lines were
+  deleted (Settings: "Show git changes in the gutter", on by default).
+  **File › Open on GitHub** and **Copy GitHub Link** link to the file
+  with `#L10` or `#L10-L20` for the selection (the branch if it has an
+  upstream, else the commit), for a github.com or GitHub Enterprise
+  `origin`; **View › Compare with Last Commit** shows the last commit
+  beside the current text. Cedric runs the local git only, after the
+  window is up, on a background queue; no network, no sign-in. Without
+  the developer tools (or another git) it does nothing, rather than
+  setting off the install prompt; very large documents are skipped.
 - **Drop a file on the text to open it** (in its own tab), rather than
   pasting its path; dropped text is inserted as before.
 - **Files changed on disk** reload by themselves when the tab has no unsaved

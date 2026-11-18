@@ -214,6 +214,7 @@ enum DevChecks {
         case "follow": follow(app)
         case "recent": recent(app)
         case "large": largeDocument(app)
+        case "git": gitCheck(app)
         default:
             if !editingCheck(name, app), !pdfCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
         }

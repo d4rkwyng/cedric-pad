@@ -26,6 +26,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let invisibles = NSButton(checkboxWithTitle: String(localized: "Show invisibles"), target: nil, action: nil)
     let lineNumbers = NSButton(checkboxWithTitle: String(localized: "Show line numbers"), target: nil, action: nil)
     let occurrences = NSButton(checkboxWithTitle: String(localized: "Highlight occurrences"), target: nil, action: nil)
+    let gitChanges = NSButton(checkboxWithTitle: String(localized: "Show git changes in the gutter"), target: nil, action: nil)
     let autoClose = NSButton(checkboxWithTitle: String(localized: "Auto-close brackets and quotes"), target: nil, action: nil)
     let spelling = NSButton(checkboxWithTitle: String(localized: "Check spelling while typing"), target: nil, action: nil)
     let indentKind = NSPopUpButton()
@@ -94,7 +95,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let fontRow = NSStackView(views: [fontPopup, fontSize, fontStepper, NSTextField(labelWithString: "pt")])
         fontRow.spacing = 6
 
-        for b in [wrap, invisibles, lineNumbers, occurrences, autoClose, spelling] { b.target = self; b.action = #selector(changed(_:)) }
+        for b in [wrap, invisibles, lineNumbers, occurrences, gitChanges, autoClose, spelling] { b.target = self; b.action = #selector(changed(_:)) }
         indentKind.addItems(withTitles: [String(localized: "Spaces"), String(localized: "Tabs")])
         indentKind.target = self; indentKind.action = #selector(changed(_:))
         for wdt in Indentation.widths { tabWidth.addItem(withTitle: "\(wdt)"); tabWidth.lastItem?.tag = wdt }
@@ -113,6 +114,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             [NSGridCell.emptyContentView, invisibles],
             [NSGridCell.emptyContentView, lineNumbers],
             [NSGridCell.emptyContentView, occurrences],
+            [NSGridCell.emptyContentView, gitChanges],
             [label(String(localized: "Editing:")), autoClose],
             [NSGridCell.emptyContentView, spelling],
             [label(String(localized: "Indent with:")), indentRow],
@@ -148,6 +150,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         invisibles.state = s.showInvisibles ? .on : .off
         lineNumbers.state = s.showLineNumbers ? .on : .off
         occurrences.state = s.highlightOccurrences ? .on : .off
+        gitChanges.state = s.showGitChanges ? .on : .off
         autoClose.state = s.autoCloseBrackets ? .on : .off
         spelling.state = s.checkSpellingWhileTyping ? .on : .off
         let ind = s.defaultIndentation
@@ -170,6 +173,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         case invisibles: s.showInvisibles = invisibles.state == .on
         case lineNumbers: s.showLineNumbers = lineNumbers.state == .on
         case occurrences: s.highlightOccurrences = occurrences.state == .on
+        case gitChanges: s.showGitChanges = gitChanges.state == .on
         case autoClose: s.autoCloseBrackets = autoClose.state == .on
         case spelling: s.checkSpellingWhileTyping = spelling.state == .on
         case indentKind, tabWidth:

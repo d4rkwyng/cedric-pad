@@ -98,6 +98,10 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Save All"), #selector(AppDelegate.saveAll(_:)), "s", [.command, .option]),
         item(String(localized: "Revert to Saved"), #selector(AppDelegate.revertToSaved(_:))),
         .separator(),
+        // Files in a git repository with a GitHub remote (GitIntegration.swift).
+        item(String(localized: "Open on GitHub"), #selector(AppDelegate.openOnGitHubMenu(_:))),
+        item(String(localized: "Copy GitHub Link"), #selector(AppDelegate.copyGitHubLinkMenu(_:))),
+        .separator(),
         item(String(localized: "Page Setup…"), #selector(AppDelegate.pageSetup(_:)), "p", [.command, .shift]),
         item(String(localized: "Print…"), #selector(AppDelegate.printDocument(_:)), "p"),
     ]))
@@ -182,6 +186,7 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Cedric AI Settings…"), #selector(AppDelegate.showAISettings(_:))),
         .separator(),
         item(String(localized: "Compare With…"), #selector(AppDelegate.compareWithMenu(_:)), "c", [.command, .option]),
+        item(String(localized: "Compare with Last Commit"), #selector(AppDelegate.compareWithLastCommitMenu(_:))),
         item(String(localized: "Next Difference"), #selector(CompareWindowController.nextDifference(_:)),
              String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.command, .option]),
         item(String(localized: "Previous Difference"), #selector(CompareWindowController.previousDifference(_:)),

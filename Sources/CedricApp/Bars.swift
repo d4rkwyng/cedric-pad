@@ -130,6 +130,9 @@ final class StatusBar: NSView {
     let encodingButton = NSPopUpButton(frame: .zero, pullsDown: true)
     let lineEndingButton = NSPopUpButton(frame: .zero, pullsDown: true)
     let zoom = NSTextField(labelWithString: "")
+    /// The git branch (or short SHA) with a dot for uncommitted changes;
+    /// a click shows a small menu (GitIntegration.swift). Hidden outside git.
+    let gitButton = NSButton(title: "", target: nil, action: nil)
     var background: NSColor = .windowBackgroundColor { didSet { needsDisplay = true } }
 
     override init(frame: NSRect) {
@@ -149,9 +152,17 @@ final class StatusBar: NSView {
             b.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             (b.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
         }
+        gitButton.isBordered = false
+        gitButton.controlSize = .small
+        gitButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        gitButton.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: String(localized: "Git branch"))?
+            .withSymbolConfiguration(.init(pointSize: NSFont.smallSystemFontSize, weight: .regular))
+        gitButton.imagePosition = .imageLeading
+        gitButton.contentTintColor = .secondaryLabelColor
+        gitButton.isHidden = true
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let stack = NSStackView(views: [position, counts, spacer, zoom, languageButton, encodingButton, lineEndingButton])
+        let stack = NSStackView(views: [position, counts, spacer, gitButton, zoom, languageButton, encodingButton, lineEndingButton])
         stack.spacing = 14
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 8)
         stack.translatesAutoresizingMaskIntoConstraints = false

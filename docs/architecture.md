@@ -342,6 +342,59 @@ table: the check then sends the matching menu item's action along the front
 window's responder chain, and selects the clicked row and sends the table's
 action, and says so in its output.
 
+## Git and GitHub links
+
+`CedricCore/Git.swift` (tested in `GitTests.swift`) and
+`CedricApp/GitIntegration.swift`. No network, no sign-in, no GitHub API.
+
+- **Finding the repository**: `GitLocation.find` walks up from the file's
+  folder to a `.git` folder (with a HEAD) or a `.git` file
+  (`gitdir: …`: a linked work tree or submodule). File lookups only.
+- **Which git**: `GitRunner` looks once, on the git queue, for a git
+  outside the system (`/opt/homebrew/bin`, `/usr/local/bin`, MacPorts, the
+  PATH), else `/usr/bin/git` only when `xcode-select -p` names a
+  developer folder that exists: without the tools that git is a stub that
+  pops up the install dialog, so Cedric does nothing instead. Each run sets
+  `GIT_OPTIONAL_LOCKS=0` (a status never takes the index lock),
+  `GIT_TERMINAL_PROMPT=0`, and has a 10 s timeout.
+- **When**: nothing at launch. A tab with a file queues
+  `gitTabShown` with `AfterFirstFrame`; 0.5 s later, if the window is on
+  screen and typing has paused, the first refresh runs (an unselected
+  restored tab starts when it is first selected). Never in large mode,
+  never for untitled tabs. A refresh (on save, app focus, reload, or a
+  change in the git folder) runs on one serial utility queue:
+  `status --porcelain=v2 --branch -z -- file` (branch, HEAD, upstream and
+  whether the file differs or is untracked, in one process),
+  `rev-parse --show-prefix` once per tab, `config --get remote.origin.url`,
+  and `show <HEAD>:./file` only when HEAD moved.
+- **Watching**: one `GitRepo` per git folder, shared by its tabs, holds a
+  vnode dispatch source on the git folder itself: git replaces HEAD and
+  index by renaming a `.lock` file, which is a write to the folder (a
+  source on the files would lose them at the first rename). Debounced
+  0.3 s, then the tabs refresh.
+- **Gutter**: the buffer is diffed against HEAD's text in-process with
+  `LineDiff`, off the main thread, 0.4 s after typing pauses (an immutable
+  copy of the text is taken on the main thread). `GitLineChanges.compute`
+  turns each hunk into marks: as many inserted lines as deleted are
+  modified, the rest added, and a surplus of deletions leaves a deleted
+  mark below the hunk. Until the next diff, an edit shifts the marks below
+  it (`shift`), so they don't sit on the wrong lines while typing. A result
+  computed from text that has since changed is dropped. The bars are 3 pt
+  at the gutter's right edge, clear of the bookmark tabs on the left and
+  the numbers, drawn clipped to the gutter; colours are GitHub's, lighter
+  on dark themes.
+- **Links**: `GitHubRemote.parse` reads https, scp-style and `ssh://`
+  remotes; any host with "github" in its name counts (github.com, GitHub
+  Enterprise hosts such as github.example.com), others disable the
+  GitHub items. The ref is the branch when it has an upstream, else
+  HEAD's commit. Lines come from the buffer (with no selection, the
+  caret's line), so they can drift from the commit's after edits.
+- Checked by `CEDRIC_CHECK=git` in tools-check: a temp repository with a
+  GitHub remote, the file edited with key events, the label and dirty dot,
+  the marks and their pixels, the copied link, Compare with Last Commit,
+  a commit and a detached checkout made outside the app (seen through
+  the watcher), and a file outside git.
+
 ## Where the remaining non-goals plug in
 
 - **Macros:** record the `NSTextView` insert/delete commands the window
