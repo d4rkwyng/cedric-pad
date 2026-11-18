@@ -315,6 +315,7 @@ extension DevChecks {
                 expect(FileManager.default.fileExists(atPath: marker), "cedric -w waits while the PDF tab is open")
                 s?.window?.performClose(nil)
                 expect(!FileManager.default.fileExists(atPath: marker), "closing it releases cedric -w")
+                expect(s?.window?.delegate == nil && s?.pdfView?.onZoom == nil, "a closed PDF tab's views are cut loose from it")
             },
             // Reopen Closed Tab brings a PDF tab back on its page.
             sync {

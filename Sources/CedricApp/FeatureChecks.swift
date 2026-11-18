@@ -286,6 +286,7 @@ extension DevChecks {
                 a.doc.markSaved(); b.doc.markSaved()
                 a.window?.performClose(nil)
                 expect(w?.isVisible == false, "closing the tab closes its detached preview")
+                expect(w?.delegate == nil && !(w?.contentView is PreviewPane), "and cuts that window loose (no delegate, no pane)")
             },
         ])
     }
