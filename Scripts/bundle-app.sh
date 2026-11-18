@@ -14,7 +14,10 @@
 # ships only with Xcode; then the script builds each architecture on its
 # own and joins them with lipo.
 #
-# Version: CEDRIC_VERSION, else the one below.
+# Version: CEDRIC_VERSION (the release workflow sets it from the tag), else
+# CedricVersion.source (Sources/CedricCore/Version.swift), the one place the
+# version is written down. CFBundleVersion is the same string, as in
+# Tankard, so About shows "Version 0.1.0" with no "(N)" after it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,14 +31,16 @@ while [ $# -gt 0 ]; do
         --arch) ARCH_ARGS+=(--arch "$2"); shift ;;
         --out) OUT=$2; shift ;;
         --no-sign) SIGN=none ;;
-        -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
         *) echo "bundle-app.sh: unknown option $1" >&2; exit 2 ;;
     esac
     shift
 done
 
-VERSION=${CEDRIC_VERSION:-0.1.0}
-BUILD=$(git rev-list --count HEAD 2>/dev/null || echo 1)
+SOURCE_VERSION=$(sed -n 's/.*static let source = "\([^"]*\)".*/\1/p' Sources/CedricCore/Version.swift)
+[ -n "$SOURCE_VERSION" ] || { echo "bundle-app.sh: no CedricVersion.source in Sources/CedricCore/Version.swift" >&2; exit 1; }
+VERSION=${CEDRIC_VERSION:-$SOURCE_VERSION}
+BUILD=$VERSION
 
 LIPO_FROM=()
 if [ $UNIVERSAL = 1 ]; then
@@ -73,9 +78,15 @@ fi
 # llama.cpp for the built-in AI engine: the pinned XCFramework's macOS
 # slice is already universal, so either architecture's copy will do. The
 # executable finds it through its @executable_path/../Frameworks rpath.
-[ -d "$BIN/llama.framework" ] || { echo "bundle-app.sh: missing $BIN/llama.framework" >&2; exit 1; }
+# A multi-arch build through xcbuild (Xcode, as on CI) may not copy the
+# framework next to the binary; then take it from the resolved XCFramework.
+FW_SRC="$BIN/llama.framework"
+if [ ! -d "$FW_SRC" ]; then
+    FW_SRC=$(find .build/artifacts -maxdepth 6 -type d -path '*llama.xcframework/macos-*/llama.framework' 2>/dev/null | head -1)
+fi
+[ -n "$FW_SRC" ] && [ -d "$FW_SRC" ] || { echo "bundle-app.sh: missing llama.framework (not in $BIN or .build/artifacts)" >&2; exit 1; }
 mkdir -p "$APP/Contents/Frameworks"
-ditto "$BIN/llama.framework" "$APP/Contents/Frameworks/llama.framework"
+ditto "$FW_SRC" "$APP/Contents/Frameworks/llama.framework"
 # The built-in engine's model list (downloads are pinned by URL + SHA-256).
 mkdir -p "$APP/Contents/Resources/AI"
 cp Resources/AI/models.json "$APP/Contents/Resources/AI/models.json"
@@ -157,6 +168,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
+SHORT=$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")
+LONG=$(plutil -extract CFBundleVersion raw "$APP/Contents/Info.plist")
+[ "$SHORT" = "$LONG" ] || { echo "bundle-app.sh: CFBundleVersion ($LONG) must equal CFBundleShortVersionString ($SHORT)" >&2; exit 1; }
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 if [ "$SIGN" = adhoc ]; then
@@ -166,4 +180,4 @@ if [ "$SIGN" = adhoc ]; then
     codesign --verify --deep --strict "$APP"
 fi
 
-echo "==> $APP ($VERSION, build $BUILD): $(lipo -archs "$APP/Contents/MacOS/Cedric"), signing: $SIGN"
+echo "==> $APP ($VERSION): $(lipo -archs "$APP/Contents/MacOS/Cedric"), signing: $SIGN"

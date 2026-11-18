@@ -1,0 +1,139 @@
+name: Release
+
+# Builds a universal Cedric.app, signs it with the owner's Developer ID
+# (hardened runtime, secure timestamp; llama.framework first, then the app),
+# notarizes and staples it, and attaches Cedric.zip to the GitHub Release
+# for the tag. A tag with a suffix (v0.1.0-rc1) makes a draft prerelease.
+#
+# Needs these repository secrets (Settings → Secrets and variables → Actions):
+#   CERT_P12_BASE64    base64 of the exported "Developer ID Application" .p12
+#   CERT_P12_PASSWORD  that .p12's password
+#   NOTARY_APPLE_ID    Apple ID used for notarization
+#   NOTARY_TEAM_ID     10-character Team ID
+#   NOTARY_PASSWORD    app-specific password from appleid.apple.com
+#
+# The signing and notarizing steps are Scripts/release.sh, the same script
+# the owner can run locally. Same pipeline as Tankard's.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach to (e.g. v0.1.0)"
+        required: true
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: write  # create the release and upload Cedric.zip
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - name: Check secrets
+        env:
+          CERT_P12_BASE64: ${{ secrets.CERT_P12_BASE64 }}
+          CERT_P12_PASSWORD: ${{ secrets.CERT_P12_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          missing=""
+          for s in CERT_P12_BASE64 CERT_P12_PASSWORD NOTARY_APPLE_ID NOTARY_TEAM_ID NOTARY_PASSWORD; do
+            [ -n "${!s}" ] || missing="$missing $s"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing. Add them under Settings → Secrets and variables → Actions (see docs/architecture.md, 'Signing a release')."
+            exit 1
+          fi
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Toolchain
+        run: swift --version && sw_vers && xcode-select -p && echo "macOS SDK $(xcrun --show-sdk-version) (Apple Intelligence engine needs 26+)"
+
+      # Fails the release when CHANGELOG.md has no section for the tag, so a
+      # release never ships without its list of changes.
+      - name: Release notes from CHANGELOG.md
+        run: |
+          Scripts/changelog-section.sh --self-test
+          {
+            echo "Cedric ${TAG}: a fast, native text editor for macOS 14 Sonoma and later (universal: Intel and Apple silicon). Signed with Developer ID and notarized."
+            echo
+            BASE="${TAG#v}"; BASE="${BASE%%-*}"   # v0.1.0-rc1 -> 0.1.0
+            Scripts/changelog-section.sh "$BASE"
+            echo
+            echo 'Install: download `Cedric.zip`, open it, and move Cedric.app to Applications.'
+          } > "$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md"
+
+      # See tests.yml: the llama.cpp binary target, cached, fetched with a
+      # timeout and retries.
+      - name: Cache SwiftPM binary artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm/artifacts
+          key: spm-artifacts-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+
+      - name: Resolve packages (timeout and retry)
+        timeout-minutes: 20
+        run: |
+          for i in 1 2 3; do
+            if perl -e 'alarm shift; exec @ARGV' 300 swift package resolve; then exit 0; fi
+            echo "::warning::swift package resolve: try $i failed or took over 5 minutes"
+            sleep 15
+          done
+          echo "::error::swift package resolve failed 3 times (the llama.cpp binary target?)"
+          exit 1
+
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@288b8ec97b82c66b6f2a6baaf7acc8dfbcbe331c  # v7
+        with:
+          p12-file-base64: ${{ secrets.CERT_P12_BASE64 }}
+          p12-password: ${{ secrets.CERT_P12_PASSWORD }}
+
+      - name: Tests
+        run: Scripts/test.sh
+
+      - name: Build, sign, notarize, staple
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          V="${TAG#v}"; export CEDRIC_VERSION="${V%%-*}"
+          ./Scripts/release.sh
+
+      # Apple's notarization answer and log, kept also when the step above
+      # failed (an Invalid submission's issues list is in the log). Apple's
+      # log has no credentials: id, status, archive name, sha256, cdhashes
+      # and the issues. Nothing to upload when the run stopped before
+      # notarizing.
+      - name: Keep the notarization log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: notary-${{ env.TAG }}
+          path: |
+            dist/notary-result.json
+            dist/notary-log.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upload to the release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3  # v3
+        with:
+          tag_name: ${{ env.TAG }}
+          files: dist/Cedric.zip
+          body_path: ${{ runner.temp }}/release-notes.md
+          # A tag with a suffix (v0.1.0-rc1) is a test build: a draft
+          # release, never "latest", so the cask and users don't see it.
+          draft: ${{ contains(env.TAG, '-') }}
+          prerelease: ${{ contains(env.TAG, '-') }}
