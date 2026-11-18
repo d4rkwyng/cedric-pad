@@ -1,8 +1,8 @@
 name: Release
 
-# Builds a universal Cedric.app, signs it with the owner's Developer ID
+# Builds a universal "Cedric Pad.app", signs it with the owner's Developer ID
 # (hardened runtime, secure timestamp; llama.framework first, then the app),
-# notarizes and staples it, and attaches Cedric.zip to the GitHub Release
+# notarizes and staples it, and attaches Cedric-Pad-<version>.zip to the GitHub Release
 # for the tag. A tag with a suffix (v0.1.0-rc1) makes a draft prerelease.
 #
 # Needs these repository secrets (Settings → Secrets and variables → Actions):
@@ -31,7 +31,7 @@ jobs:
     runs-on: macos-26   # macOS 26 SDK: the Apple Intelligence engine (FoundationModels) compiles in; tests.yml stays on macos-15 to guard Swift 6.1
     timeout-minutes: 90
     permissions:
-      contents: write  # create the release and upload Cedric.zip
+      contents: write  # create the release and upload Cedric-Pad-<version>.zip
     env:
       TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
@@ -65,12 +65,12 @@ jobs:
         run: |
           Scripts/changelog-section.sh --self-test
           {
-            echo "Cedric ${TAG}: a fast, native text editor for macOS 14 Sonoma and later (universal: Intel and Apple silicon). Signed with Developer ID and notarized."
+            echo "Cedric Pad ${TAG}: a fast, native text editor for macOS 14 Sonoma and later (universal: Intel and Apple silicon). Signed with Developer ID and notarized."
             echo
             BASE="${TAG#v}"; BASE="${BASE%%-*}"   # v0.1.0-rc1 -> 0.1.0
             Scripts/changelog-section.sh "$BASE"
             echo
-            echo 'Install: download `Cedric.zip`, open it, and move Cedric.app to Applications.'
+            echo "Install: download \`Cedric-Pad-${BASE}.zip\`, open it, and move Cedric Pad to Applications."
           } > "$RUNNER_TEMP/release-notes.md"
           cat "$RUNNER_TEMP/release-notes.md"
 
@@ -131,7 +131,7 @@ jobs:
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3  # v3
         with:
           tag_name: ${{ env.TAG }}
-          files: dist/Cedric.zip
+          files: dist/Cedric-Pad-*.zip
           body_path: ${{ runner.temp }}/release-notes.md
           # A tag with a suffix (v0.1.0-rc1) is a test build: a draft
           # release, never "latest", so the cask and users don't see it.

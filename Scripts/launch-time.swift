@@ -1,5 +1,5 @@
 // Measures launch-to-first-window for any app, the same way for each, so
-// Cedric can be compared with TextEdit and VS Code:
+// Cedric Pad can be compared with TextEdit and VS Code:
 //
 //   swift Scripts/launch-time.swift [--runs 5] APP.app [APP.app ...]
 //

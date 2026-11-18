@@ -62,22 +62,22 @@ let f2 = String(UnicodeScalar(UInt16(NSF2FunctionKey))!)
 @MainActor
 func buildMainMenu() -> NSMenu {
     let main = NSMenu()
-    let app = "Cedric"
+    let app = "Cedric Pad"
 
     // Filled by AppKit with the system's services (Cedric vends none).
     let services = submenu(String(localized: "Services"), [])
     main.addItem(submenu(app, [
-        item(String(localized: "About Cedric"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
+        item(String(localized: "About Cedric Pad"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
         .separator(),
         item(String(localized: "Settings…"), #selector(AppDelegate.showSettings(_:)), ","),
         .separator(),
         services,
         .separator(),
-        item(String(localized: "Hide Cedric"), #selector(NSApplication.hide(_:)), "h"),
+        item(String(localized: "Hide Cedric Pad"), #selector(NSApplication.hide(_:)), "h"),
         item(String(localized: "Hide Others"), #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
         item(String(localized: "Show All"), #selector(NSApplication.unhideAllApplications(_:))),
         .separator(),
-        item(String(localized: "Quit Cedric"), #selector(NSApplication.terminate(_:)), "q"),
+        item(String(localized: "Quit Cedric Pad"), #selector(NSApplication.terminate(_:)), "q"),
     ]))
 
     main.addItem(submenu(String(localized: "File"), [

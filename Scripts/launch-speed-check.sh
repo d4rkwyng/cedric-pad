@@ -1,5 +1,5 @@
 #!/bin/bash
-# Launch speed: times Cedric's cold launch (the app not running; the file
+# Launch speed: times Cedric Pad's cold launch (the app not running; the file
 # cache warm after the first run) in three scenarios and prints the median
 # of each phase over N runs, in ms since the process started (kernel start
 # time, so dyld and static initialisers count):
@@ -19,13 +19,13 @@
 #
 #   Scripts/launch-speed-check.sh [--runs N] [--limit-frame MS] [--limit-key MS] [APP]
 #
-# Default 7 runs, dist/Cedric.app. With --limit-*, exits 1 when a
+# Default 7 runs, "dist/Cedric Pad.app". With --limit-*, exits 1 when a
 # scenario's median first_frame / key_drawn is over the limit. Uses
 # throwaway session directories; never touches the real session. Needs a
 # GUI session (works with the screen locked).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-APP=dist/Cedric.app
+APP="dist/Cedric Pad.app"
 RUNS=7
 LIMIT_FRAME=
 LIMIT_KEY=

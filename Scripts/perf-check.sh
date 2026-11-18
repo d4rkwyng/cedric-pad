@@ -10,13 +10,13 @@
 #   scripted scroll, worst step <  50 ms, and it never snaps back
 #   idle CPU with the owl on    <   3 %
 #
-#   Scripts/perf-check.sh [--file PATH] [APP]     default dist/Cedric.app
+#   Scripts/perf-check.sh [--file PATH] [APP]     default "dist/Cedric Pad.app"
 #
 # Needs a GUI session (works with the screen locked). Numbers from a
 # loaded machine can be noisy: run it again before believing a failure.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-APP=dist/Cedric.app
+APP="dist/Cedric Pad.app"
 FILE=
 while [ $# -gt 0 ]; do
     case "$1" in

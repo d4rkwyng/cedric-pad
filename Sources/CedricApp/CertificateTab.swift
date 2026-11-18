@@ -102,7 +102,7 @@ final class CertificateDetailsView: NSView, NSTextViewDelegate {
                                                                        .foregroundColor: fg, .paragraphStyle: heading]))
             guard let c = item.certificate else {
                 if item == .privateKey {
-                    out.append(NSAttributedString(string: "\n" + String(localized: "Keep this file private. Cedric doesn’t read or show keys."),
+                    out.append(NSAttributedString(string: "\n" + String(localized: "Keep this file private. Cedric Pad doesn’t read or show keys."),
                                                   attributes: [.font: body, .foregroundColor: dim, .paragraphStyle: table]))
                 }
                 if case .request(let subject?) = item, !subject.isEmpty {
@@ -276,7 +276,7 @@ final class CertificateTabController: NSWindowController, NSWindowDelegate, NSMe
             return
         }
         items = Certificates.items(inDER: data)
-        details.show(items, pems: itemPEMs, palette: palette, emptyText: String(localized: "“\(fileURL.lastPathComponent)” isn’t a certificate Cedric can read."))
+        details.show(items, pems: itemPEMs, palette: palette, emptyText: String(localized: "“\(fileURL.lastPathComponent)” isn’t a certificate Cedric Pad can read."))
         let n = items.filter { $0.certificate != nil }.count
         statusBar.position.stringValue = n == 1 ? String(localized: "Certificate (DER)") : String(localized: "\(n) certificates (PKCS#7)")
         pemButton.isEnabled = n > 0

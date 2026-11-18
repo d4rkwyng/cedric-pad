@@ -8,21 +8,55 @@
 # directory and file; never touches the real session. Needs a GUI session
 # (works with the screen locked).
 #
-#   Scripts/session-check.sh [APP]     default dist/Cedric.app
+#   Scripts/session-check.sh [--from OLD.app] [APP]     default "dist/Cedric Pad.app"
+#
+# --from OLD.app first has another build (say a pre-rename Cedric.app)
+# save a session, by a normal quit and by a kill -9 after a hot close, and
+# checks that APP restores all of it, Reopen Closed Tab included.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-APP=${1:-dist/Cedric.app}
+FROM=""
+if [ "${1:-}" = "--from" ]; then FROM=${2%/}; shift 2; fi
+APP="${1:-dist/Cedric Pad.app}"
 BIN="$APP/Contents/MacOS/Cedric"
 [ -x "$BIN" ] || { echo "no app at $APP: run Scripts/bundle-app.sh first" >&2; exit 1; }
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
-printf 'first line\n' > "$W/notes.txt"
-export CEDRIC_SESSION_DIR="$W/session"
 fail=0
 check() { # description, pattern
     if grep -q -- "$2" "$W/dump.txt"; then echo "session-check: OK   $1"; else echo "session-check: FAIL $1 (no '$2')" >&2; fail=1; fi
 }
 dump() { env CEDRIC_SESSION_DUMP=1 CEDRIC_NO_SESSION_SAVE=1 "$BIN" -ApplePersistenceIgnoreState YES > "$W/dump.txt" 2>/dev/null; cat "$W/dump.txt"; }
+
+# 0. (--from) A session saved by another build, restored by this one.
+if [ -n "$FROM" ]; then
+    OLD_BIN="$FROM/Contents/MacOS/Cedric"
+    [ -x "$OLD_BIN" ] || { echo "no app at $FROM" >&2; exit 1; }
+    echo "session-check: saving with $FROM ($(plutil -extract CFBundleName raw "$FROM/Contents/Info.plist" 2>/dev/null)), restoring with $APP ($(plutil -extract CFBundleName raw "$APP/Contents/Info.plist" 2>/dev/null))"
+    export CEDRIC_SESSION_DIR="$W/session0"
+    printf 'old build line\n' > "$W/old.txt"
+    env CEDRIC_OPEN="$W/old.txt" CEDRIC_TEST_TYPE=" typed in the old build" CEDRIC_TEST_TYPE_UNTITLED='{"from": "old build"}' \
+        "$OLD_BIN" -ApplePersistenceIgnoreState YES >/dev/null 2>&1 &
+    pid=$!
+    sleep 4
+    osascript -l JavaScript -e "ObjC.import('AppKit'); var a = \$.NSRunningApplication.runningApplicationWithProcessIdentifier($pid); if (a) a.terminate; ''" >/dev/null
+    for _ in $(seq 1 10); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+    if kill -0 $pid 2>/dev/null; then echo "session-check: FAIL the old build did not quit" >&2; kill -9 $pid; fail=1; fi
+    env CEDRIC_TEST_TYPE_UNTITLED="closed in the old build" CEDRIC_TEST_CLOSE_LAST=1 "$OLD_BIN" -ApplePersistenceIgnoreState YES >/dev/null 2>&1 &
+    pid=$!
+    sleep 3
+    kill -9 $pid; wait $pid 2>/dev/null || true
+    dump
+    check "from old build: file tab restored with its unsaved edit" "file=$W/old.txt dirty=true .*text=old build line\\\\n typed in the old build"
+    check "from old build: untitled tab restored" 'name=Untitled.*file=- dirty=true language=json text={"from": "old build"}'
+    check "from old build: hot-closed tab remembered" "closed: name=Untitled.*unsaved=true text=closed in the old build"
+    env CEDRIC_TEST_REOPEN_CLOSED=1 CEDRIC_SESSION_DUMP=1 CEDRIC_NO_SESSION_SAVE=1 "$BIN" -ApplePersistenceIgnoreState YES > "$W/dump.txt" 2>/dev/null
+    cat "$W/dump.txt"
+    check "from old build: Reopen Closed Tab brings it back" "^tab: name=Untitled.*dirty=true .*text=closed in the old build"
+fi
+
+printf 'first line\n' > "$W/notes.txt"
+export CEDRIC_SESSION_DIR="$W/session"
 
 # 1. Crash: edit the file, type into an untitled tab, wait for the autosave, kill -9.
 env CEDRIC_OPEN="$W/notes.txt" CEDRIC_TEST_TYPE="typed but never saved" CEDRIC_TEST_TYPE_UNTITLED='{"pasted": "json", "n": 1}' \

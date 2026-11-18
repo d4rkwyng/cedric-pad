@@ -1,8 +1,9 @@
-# Cedric
+# Cedric Pad
 
 A fast, simple, native text editor for macOS, in the spirit of Notepad++: for
 quick work on files, not for projects or compiling. AppKit and TextKit 2, no
-dependencies outside Apple's frameworks.
+dependencies outside Apple's frameworks. Its assistant is Cedric, a small
+owl with a monocle (off by default).
 
 Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 
@@ -18,9 +19,9 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   unsaved changes and all, even after a quit or a crash. The last 50
   closed tabs are remembered (tabs without unsaved text are forgotten
   first; a closed tab with unsaved text is never forgotten).
-  Closing the last document window (text, PDF, image or Office tab) quits Cedric, as
+  Closing the last document window (text, PDF, image or Office tab) quits Cedric Pad, as
   Quit does: that tab, unsaved text and all, is open again next launch.
-  Detached previews, Settings and panels don't keep Cedric running.
+  Detached previews, Settings and panels don't keep Cedric Pad running.
   Settings › "Quit when the last window closes" turns this off.
 - **Fast to open.** TextKit 2 lays out only what is on screen; a 10 MB JSON
   file opens and is coloured in under 0.1 s, a 50 MB log in about 0.2 s on an
@@ -47,14 +48,14 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Scrolling either side scrolls the other to the same source line (by
   block, list item and quote). Relative images load from the document's
   folder (and only from there), and a link to a relative `.md` (or other
-  text) file opens it in a Cedric tab. The renderer follows CommonMark's
+  text) file opens it in a Cedric Pad tab. The renderer follows CommonMark's
   emphasis rules (`**bold *mix***` nests properly) and knows reference
   links, footnotes (`[^1]`), GitHub alerts (`> [!NOTE]`, `[!TIP]`,
   `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), task lists (disabled
   checkboxes) and YAML frontmatter, which shows as a small metadata table
   (and is coloured as YAML in the editor). Fenced code blocks are
   coloured by their language (```` ```swift ````, `py`, `js`, `bash`, …)
-  both in the editor and in the preview, by Cedric's own tokenizers and
+  both in the editor and in the preview, by Cedric Pad's own tokenizers and
   the theme's colours (no JavaScript highlighter). **Detach Preview** (View menu, ⇧⌥⌘P,
   or Detach in the preview's header) moves it into its own resizable
   window, "notes.md — Preview", still updating as you type; it stays
@@ -143,7 +144,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   purple and amber) and Dracula, the same set as Tankard. Every theme's text
   colours meet WCAG AA contrast (4.5:1), checked by a test. SF Mono by
   default, or any installed fixed-pitch font; ⌘+ / ⌘− / ⌘0 zoom.
-- **Settings** (Cedric › Settings…, ⌘,): theme, font and size, wrap,
+- **Settings** (Cedric Pad › Settings…, ⌘,): theme, font and size, wrap,
   invisibles, line numbers, highlight occurrences, auto-close brackets,
   spelling while typing, the default indentation, and whether closing the
   last window quits, in one window (the
@@ -259,7 +260,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Editing** on the bar makes it an ordinary text tab.
 - **PDFs open in a viewer tab** (read-only, PDFKit), from File › Open, a
   drop on a window or the Dock icon, `cedric file.pdf` (`file.pdf:3` for
-  page 3), Open Recent or Finder's Open With (Cedric is registered as an
+  page 3), Open Recent or Finder's Open With (Cedric Pad is registered as an
   alternate PDF viewer; Preview stays the default). A PDF is recognised by
   its `%PDF-` header, so one without the extension opens too. Continuous
   scroll; ⌘+ / ⌘− zoom, ⌘0 actual size, ⌘9 fit to the window; View › Show
@@ -267,7 +268,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Match Case); select and ⌘C copies text; ⌘L is Go to Page; the status bar
   shows page N of M and the zoom. **File › Open as Text** puts the PDF's
   text in a new untitled tab to edit (extracted in the background). Saving
-  and editing commands are off in a PDF tab, and Cedric never writes to a
+  and editing commands are off in a PDF tab, and Cedric Pad never writes to a
   PDF. A password-protected PDF asks for its password; a damaged one says
   so. PDF tabs come back with the session on their page and zoom (a PDF
   tab that isn't selected loads when you first click it); the owl stays
@@ -283,7 +284,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   with `#L10` or `#L10-L20` for the selection (the branch if it has an
   upstream, else the commit), for a github.com or GitHub Enterprise
   `origin`; **View › Compare with Last Commit** shows the last commit
-  beside the current text. Cedric runs the local git only, after the
+  beside the current text. Cedric Pad runs the local git only, after the
   window is up, on a background queue; no network, no sign-in. Without
   the developer tools (or another git) it does nothing, rather than
   setting off the install prompt; very large documents are skipped.
@@ -300,7 +301,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Preview (the file's default app); Print fits it to the page. A big
   image is decoded downsampled (about 32 megapixels at most) off the main
   thread, so a 12000×12000 PNG doesn't hold up typing in other tabs.
-  Cedric is an alternate image viewer (Preview stays the default) and
+  Cedric Pad is an alternate image viewer (Preview stays the default) and
   never writes to an image; image tabs come back with the session at
   their zoom and place.
 - **Office and iWork documents open in a Quick Look tab** (read-only):
@@ -309,7 +310,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   `[Content_Types].xml`, an OLE2 file) as well as the name. **File › Open
   as Text** takes a Word document's text into a new untitled tab; for an
   .xlsx the same item is **Open Sheet as CSV** (the first sheet, read
-  with Cedric's own zip and XML code: strings, numbers, booleans and
+  with Cedric Pad's own zip and XML code: strings, numbers, booleans and
   formulas' cached values; dates come out as their serial numbers). File ›
   Open in <default app>. Registered as an alternate viewer.
 - **Certificates.** A PEM file (`.pem` `.crt` `.cer` `.csr`, or any text
@@ -393,9 +394,9 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 Needs the Command Line Tools (Swift 6.0 or later); Xcode is not required.
 
 ```sh
-Scripts/bundle-app.sh               # dist/Cedric.app for this Mac, ad-hoc signed
+Scripts/bundle-app.sh               # "dist/Cedric Pad.app" for this Mac, ad-hoc signed
 Scripts/bundle-app.sh --universal   # arm64 + x86_64
-open dist/Cedric.app
+open "dist/Cedric Pad.app"
 ```
 
 Tests (Swift Testing; the script adds the paths the Command Line Tools need):
@@ -408,19 +409,19 @@ Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no
 Scripts/pdf-check.sh                # PDF tabs in the running app: find, copy, zoom, Open as Text, session
 Scripts/image-check.sh              # image and Office tabs: zoom, copy, GIFs, docx/xlsx text, session, a 12000² PNG vs typing
 Scripts/launch-speed-check.sh       # launch phase medians: empty, 8-tab session, 500 KB file
-swift Scripts/launch-time.swift dist/Cedric.app /System/Applications/TextEdit.app
+swift Scripts/launch-time.swift "dist/Cedric Pad.app" /System/Applications/TextEdit.app
 ```
 
 A local build is ad-hoc signed, not notarized. If macOS refuses to open a
-copied build, remove the quarantine flag: `xattr -dr com.apple.quarantine Cedric.app`.
+copied build, remove the quarantine flag: `xattr -dr com.apple.quarantine "Cedric Pad.app"`.
 
 ## The `cedric` command
 
-`Cedric.app/Contents/Resources/cedric` opens files in the running app (or
-starts it). Link it onto your PATH:
+`Cedric Pad.app/Contents/Resources/cedric` opens files in the running app (or
+starts it). The command keeps the name `cedric`. Link it onto your PATH:
 
 ```sh
-ln -s /Applications/Cedric.app/Contents/Resources/cedric /usr/local/bin/cedric
+ln -s "/Applications/Cedric Pad.app/Contents/Resources/cedric" /usr/local/bin/cedric
 cedric notes.md                 # open (a missing file opens as a new tab that saves there)
 cedric src/main.c:120           # open at line 120 (also: cedric +120 src/main.c)
 cedric src/main.c:120:7         # line 120, column 7 (grep -n / compiler output works too)
@@ -430,8 +431,8 @@ git config --global core.editor "cedric -w"   # -w / --wait: return when the tab
 
 It talks to the app through a `cedric://open?path=…&line=…&col=…` URL.
 With `-w` the script makes a `cedric-wait.*` marker file in the temp
-folder and passes it along; Cedric deletes it when that file's tab closes
-(or when Cedric quits), and the script returns.
+folder and passes it along; Cedric Pad deletes it when that file's tab closes
+(or when Cedric Pad quits), and the script returns.
 
 ## Design notes
 
@@ -478,7 +479,7 @@ Macros, Replace in Files, automatic updates. See
 
 ## Built with Claude
 
-Cedric is built with Claude: Claude Code agents under Derek's direction, with
+Cedric Pad is built with Claude: Claude Code agents under Derek's direction, with
 review and tests before release.
 
 ## License
@@ -488,7 +489,7 @@ BSD-2-Clause. See [LICENSE](LICENSE). The Dracula theme's colours are by
 
 The built-in AI engine uses [llama.cpp](https://github.com/ggml-org/llama.cpp)
 (MIT, © the ggml authors), bundled as `llama.framework`. Models are not
-bundled: the ones Cedric offers to download are Qwen models by Alibaba
+bundled: the ones Cedric Pad offers to download are Qwen models by Alibaba
 Cloud, each under its own licence, shown before download (Qwen2.5-Coder
 1.5B and 7B and Qwen3 4B: Apache-2.0; Qwen2.5-Coder 3B: Qwen Research
 License, non-commercial).

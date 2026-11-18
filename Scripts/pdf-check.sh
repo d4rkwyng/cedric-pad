@@ -9,11 +9,11 @@
 # tabs come back on their page and zoom, the unselected one not loaded
 # until shown. Throwaway session; works with the screen locked.
 #
-#   Scripts/pdf-check.sh [--out DIR] [APP]     default dist/Cedric.app
+#   Scripts/pdf-check.sh [--out DIR] [APP]     default "dist/Cedric Pad.app"
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=${TMPDIR:-/tmp}/cedric-pdf-check
-APP=dist/Cedric.app
+APP="dist/Cedric Pad.app"
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT=$2; shift ;;

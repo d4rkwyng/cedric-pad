@@ -348,7 +348,7 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
 
     static func damagedMessage(_ url: URL) -> String {
         FileManager.default.fileExists(atPath: url.path)
-            ? String(localized: "“\(url.lastPathComponent)” couldn’t be opened. It isn’t an image Cedric can show, or it is damaged.")
+            ? String(localized: "“\(url.lastPathComponent)” couldn’t be opened. It isn’t an image Cedric Pad can show, or it is damaged.")
             : String(localized: "“\(url.lastPathComponent)” couldn’t be opened: the file has gone.")
     }
 

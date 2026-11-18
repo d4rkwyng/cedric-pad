@@ -8,11 +8,11 @@
 # recent check puts the recent-documents list back as it found it.
 # Needs a GUI session (works with the screen locked).
 #
-#   Scripts/tools-check.sh [--out DIR] [APP]     default dist/Cedric.app
+#   Scripts/tools-check.sh [--out DIR] [APP]     default "dist/Cedric Pad.app"
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=${TMPDIR:-/tmp}/cedric-tools-check
-APP=dist/Cedric.app
+APP="dist/Cedric Pad.app"
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT=$2; shift ;;

@@ -1,4 +1,16 @@
-# Cedric architecture
+# Cedric Pad architecture
+
+**Name.** The app is Cedric Pad (`Cedric Pad.app`, CFBundleName and
+CFBundleDisplayName "Cedric Pad", the app menu's About / Hide / Quit). The
+owl assistant is Cedric. Everything users' data or tools hang on kept the
+old name on purpose, so a pre-rename build's settings, session and models
+carry over: bundle id `net.mindtricks.cedric` (the UserDefaults domain),
+the `cedric://` URL scheme, `~/Library/Application Support/Cedric/`
+(Session, Models), the `cedric` command, the executable
+`Contents/MacOS/Cedric` (crash reports, `pgrep -x Cedric`), the Swift
+modules (CedricCore, CedricAI, CedricApp), the theme names "Cedric" and
+"Cedric Night", and the model downloader's User-Agent `Cedric`.
+`Scripts/bundle-app.sh` unregisters and deletes a leftover `dist/Cedric.app`.
 
 Two targets, after Tankard's layout:
 
@@ -531,7 +543,7 @@ offers hints in a speech bubble.
   edit. Clicking the owl opens a popover with recent hints, "Quiet for 1
   Hour" and "Hide Cedric".
 - Art: `Resources/Owl` (from `tools/icon/cedric_icon.py`), copied into
-  Cedric.app/Contents/Resources/Owl by `bundle-app.sh`; `swift run` loads it
+  Cedric Pad.app/Contents/Resources/Owl by `bundle-app.sh`; `swift run` loads it
   from the source tree. On dark themes a faint disc behind the navy owl
   keeps it readable.
 
@@ -920,7 +932,7 @@ Then:
 
 ```sh
 Scripts/release.sh --dry-run          # print every step
-Scripts/release.sh                    # dist/Cedric.app (signed, notarized, stapled) and dist/Cedric.zip
+Scripts/release.sh                    # "dist/Cedric Pad.app" (signed, notarized, stapled) and dist/Cedric-Pad-<version>.zip
 CEDRIC_SIGN_ID=- Scripts/release.sh --skip-notarize   # ad-hoc test of the whole signing path
 ```
 
@@ -964,7 +976,7 @@ Accepted; staples; checks with `spctl -a -vv`; and zips the stapled app.
 tag) on `macos-15`: checks the five secrets, builds the release notes from
 `CHANGELOG.md` (`Scripts/changelog-section.sh`, after Tankard's), restores the SwiftPM
 artifact cache, resolves packages, imports the certificate, runs `Scripts/test.sh`, then
-`Scripts/release.sh` with `CEDRIC_VERSION` from the tag, and attaches `Cedric.zip` to the
+`Scripts/release.sh` with `CEDRIC_VERSION` from the tag, and attaches `Cedric-Pad-<version>.zip` to the
 release. A tag with a suffix (`v0.1.0-rc1`) makes a draft prerelease. `notary-result.json`
 and `notary-log.json` are kept as the workflow artifact `notary-<tag>` (90 days) with
 `if: always()`, so a failed notarization leaves Apple's issues list behind. Actions are

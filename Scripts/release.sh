@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds, signs (Developer ID), notarizes and staples Cedric.app, then zips
+# Builds, signs (Developer ID), notarizes and staples "Cedric Pad.app", then zips
 # it for distribution. Run on a Mac whose keychain holds a "Developer ID
 # Application" certificate. The GitHub release workflow runs this too.
 # After Tankard's Scripts/release.sh.
@@ -30,7 +30,8 @@
 #   TAG                     the release tag (CI); the built version must be
 #                           the tag's without "v" and any "-suffix"
 #
-# Output: dist/Cedric.app (stapled) and dist/Cedric.zip; when notarizing,
+# Output: "dist/Cedric Pad.app" (stapled) and dist/Cedric-Pad-<version>.zip
+# (no spaces in the download's name); when notarizing,
 # also dist/notary-result.json (notarytool submit's answer) and
 # dist/notary-log.json (Apple's log for that submission, accepted or not).
 #
@@ -62,7 +63,7 @@ for a in "$@"; do
         --host-arch) UNIVERSAL=0 ;;
         --skip-notarize) NOTARIZE=0 ;;
         --skip-launch-check) LAUNCH_CHECK=0 ;;
-        -h|--help) sed -n '2,52p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,53p' "$0"; exit 0 ;;
         *) echo "release.sh: unknown option $a" >&2; exit 2 ;;
     esac
 done
@@ -81,11 +82,10 @@ run() {
 
 fail() { echo "release.sh: $*" >&2; exit 1; }
 
-APP=dist/Cedric.app
+APP="dist/Cedric Pad.app"
 BIN="$APP/Contents/MacOS/Cedric"
 FW="$APP/Contents/Frameworks/llama.framework"
-ZIP=dist/Cedric.zip
-SUBMIT_ZIP=dist/Cedric-notarize.zip
+SUBMIT_ZIP=dist/Cedric-Pad-notarize.zip
 
 # 0. The version. A release's Info.plist (CEDRIC_VERSION, the tag's in CI)
 #    must be the source's.
@@ -97,6 +97,7 @@ if [ -n "${CEDRIC_VERSION:-}" ] && [ "$CEDRIC_VERSION" != "$SOURCE_VERSION" ]; t
     echo "(dry run) $msg" >&2
 fi
 echo "Version: ${CEDRIC_VERSION:-$SOURCE_VERSION}"
+ZIP="dist/Cedric-Pad-${CEDRIC_VERSION:-$SOURCE_VERSION}.zip"
 
 # 1. Signing identity.
 ID=${CEDRIC_SIGN_ID:-}

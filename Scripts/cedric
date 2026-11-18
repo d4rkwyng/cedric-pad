@@ -1,8 +1,8 @@
 #!/bin/bash
-# cedric: open files in Cedric from the command line (the running app if
+# cedric: open files in Cedric Pad from the command line (the running app if
 # there is one). Install with:
 #
-#   ln -s /Applications/Cedric.app/Contents/Resources/cedric /usr/local/bin/cedric
+#   ln -s "/Applications/Cedric Pad.app/Contents/Resources/cedric" /usr/local/bin/cedric
 #
 #   cedric file ...         open files (missing files open as new, empty tabs)
 #   cedric file:42          open at line 42 (also +42 before the file)
@@ -10,25 +10,27 @@
 #   cedric -w file ...      wait until each file's tab is closed (for
 #                           git and other tools: EDITOR="cedric -w")
 #   cedric -                read stdin into a new untitled tab
-#   cedric                  bring Cedric forward
+#   cedric                  bring Cedric Pad forward
 #
 # CEDRIC_DRY_RUN=1 prints the cedric:// URLs instead of opening them (tests).
 set -euo pipefail
 
-# The app this script lives in, else one Launch Services knows about.
+# The app this script lives in ("Cedric Pad.app", or a pre-rename
+# "Cedric.app"), else CEDRIC_APP (a name or path), else whichever copy
+# Launch Services knows by the bundle id, which the rename kept.
 here=$(cd "$(dirname "$(readlink "$0" 2>/dev/null || echo "$0")")" && pwd)
 case "$here" in
-    */Cedric.app/Contents/Resources) APP=${here%/Contents/Resources} ;;
-    *) APP=${CEDRIC_APP:-Cedric} ;;
+    *.app/Contents/Resources) TARGET=(-a "${here%/Contents/Resources}") ;;
+    *) if [ -n "${CEDRIC_APP:-}" ]; then TARGET=(-a "$CEDRIC_APP"); else TARGET=(-b net.mindtricks.cedric); fi ;;
 esac
 DRY=${CEDRIC_DRY_RUN:-}
 
 urlencode() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe="/"))' "$1"; }
-send() { if [ -n "$DRY" ]; then echo "$1"; else open -a "$APP" "$1"; fi; }
+send() { if [ -n "$DRY" ]; then echo "$1"; else open "${TARGET[@]}" "$1"; fi; }
 
 if [ $# -eq 0 ]; then
     [ -n "$DRY" ] && exit 0
-    exec open -a "$APP"
+    exec open "${TARGET[@]}"
 fi
 
 wait=""
@@ -42,7 +44,7 @@ for arg in "$@"; do
 done
 
 # Make sure the app is running (and has registered its URL scheme) first.
-[ -n "$DRY" ] || open -g -a "$APP"
+[ -n "$DRY" ] || open -g "${TARGET[@]}"
 
 # With -w: one marker file per file; the app deletes it when that tab closes.
 markers=()
@@ -80,7 +82,8 @@ done
 
 [ -n "$DRY" ] && [ ${#markers[@]} -gt 0 ] && rm -f "${markers[@]}"
 
-# Wait for every marker to go (or for Cedric to quit).
+# Wait for every marker to go (or for the app to quit; its executable is
+# still named Cedric).
 if [ -n "$wait" ] && [ -z "$DRY" ] && [ ${#markers[@]} -gt 0 ]; then
     trap 'rm -f "${markers[@]}"' EXIT
     while :; do
