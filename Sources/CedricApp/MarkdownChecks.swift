@@ -5,7 +5,7 @@ import CedricCore
 /// like the other DevChecks, with real key events (Return, Tab, ⇧Tab and
 /// the menus' key equivalents) and typed text.
 ///
-///   CEDRIC_CHECK=mdlists|mdformat|mdtable
+///   CEDRIC_CHECK=mdlists|mdformat|mdtable|mdpaste
 @MainActor
 extension DevChecks {
     static func markdownCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -13,6 +13,7 @@ extension DevChecks {
         case "mdlists": markdownLists(app)
         case "mdformat": markdownFormat(app)
         case "mdtable": markdownTable(app)
+        case "mdpaste": markdownPaste(app)
         default: return false
         }
         return true
@@ -217,6 +218,109 @@ extension DevChecks {
                 expect(!fenced.text.contains("| --- |"), "the table in the fence isn't reformatted", fenced.text)
             },
             snapshot("mdtable-fenced.png"),
+        ])
+    }
+
+    /// Paste and drop in Markdown. Uses the general pasteboard (its text is
+    /// put back afterwards) and a private drag pasteboard.
+    static func markdownPaste(_ app: AppDelegate) {
+        let tab = app.open(write("notes/paste.md", "Read the docs\n"))!
+        let swift = app.open(write("notes/code.swift", "let a = 1\n"))!
+        app.newTab(nil)
+        let untitled = app.tabs.last!
+        // A picture outside the document's folder, and a text file.
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                   isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let png = rep.representation(using: .png, properties: [:])!
+        let pic = dir.appendingPathComponent("elsewhere/my pic.png")
+        try? FileManager.default.createDirectory(at: pic.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? png.write(to: pic)
+        let inside = dir.appendingPathComponent("notes/local.png")
+        try? png.write(to: inside)
+        let txt = write("elsewhere/readme.txt", "hello\n")
+        let notes = dir.appendingPathComponent("notes")
+        sized(tab)
+        let tv = tab.textView
+        let general = NSPasteboard.general
+        let savedClip = general.string(forType: .string)
+        let drag = NSPasteboard(name: NSPasteboard.Name("cedric-check-mddrop-\(getpid())"))
+        func select(_ s: String) { tv.setSelectedRange((tab.text as NSString).range(of: s)) }
+        run([
+            sync {
+                focus(tab)
+                general.clearContents()
+                general.setString("https://example.com/docs", forType: .string)
+                select("docs")
+                key("v", [.command])
+                expect(tab.text == "Read the [docs](https://example.com/docs)\n", "a URL pasted over a selection makes a link", tab.text)
+            },
+            sync {
+                key("z", [.command])
+                expect(tab.text == "Read the docs\n", "one ⌘Z undoes it", tab.text)
+                // A plain paste still pastes.
+                general.clearContents()
+                general.setString("plain", forType: .string)
+                select("docs")
+                key("v", [.command])
+                expect(tab.text == "Read the plain\n", "other text pastes as before", tab.text)
+            },
+            sync {
+                caretAtEnd(tab)
+                general.clearContents()
+                general.writeObjects([pic as NSURL])
+                key("v", [.command])
+                let copied = notes.appendingPathComponent("images/my pic.png")
+                expect(tab.text.hasSuffix("\n![](images/my%20pic.png)"), "a pasted image file goes in as an image link", tab.text)
+                expect(FileManager.default.contentsEqual(atPath: copied.path, andPath: pic.path), "copied into images/ next to the document", copied.path)
+            },
+            sync {
+                general.clearContents()
+                general.setData(png, forType: .png)
+                key("v", [.command])
+                let names = (try? FileManager.default.contentsOfDirectory(atPath: notes.appendingPathComponent("images").path)) ?? []
+                let shot = names.first { $0.hasPrefix("image-") && $0.hasSuffix(".png") }
+                expect(shot != nil && tab.text.hasSuffix("![](images/\(shot ?? "?"))"), "a pasted bitmap is saved as images/image-….png and linked", "\(names) \(tab.text)")
+            },
+            sync {
+                // Drops: an image inside the document's folder is linked in place; a text file still opens.
+                tv.setSelectedRange(NSRange(location: 0, length: 0))
+                let before = app.tabs.count
+                drag.clearContents()
+                drag.writeObjects([inside as NSURL, txt as NSURL])
+                let (op, ok) = drop(drag, on: tab)
+                expect(op != [] && ok, "the Markdown text takes the drop", "op \(op.rawValue) ok \(ok)")
+                _ = before
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { next() } },
+            sync {
+                expect(tab.text.contains("![](local.png)"), "a dropped image inside the folder is linked where it is", tab.text)
+                expect(!FileManager.default.fileExists(atPath: notes.appendingPathComponent("images/local.png").path), "and not copied")
+                expect(app.tabs.contains { $0.doc.fileURL?.lastPathComponent == "readme.txt" }, "the dropped text file opens in a tab")
+                expect(!app.tabs.contains { $0.doc.fileURL?.lastPathComponent == "local.png" }, "the image doesn't open as a tab")
+                // In code, a dropped image still opens (only Markdown inserts).
+                drag.clearContents()
+                drag.writeObjects([pic as NSURL])
+                _ = drop(drag, on: swift)
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { next() } },
+            sync {
+                expect(swift.text == "let a = 1\n", "a Swift tab doesn't insert the image", swift.text)
+                // Untitled: nothing goes in; a sheet asks to save first.
+                focus(untitled)
+                _ = choose(#selector(AppDelegate.pickLanguageMenu(_:)), Language.markdown.rawValue)
+                expect(untitled.doc.language == .markdown, "the untitled tab is Markdown", untitled.doc.language.rawValue)
+                general.clearContents()
+                general.writeObjects([pic as NSURL])
+                key("v", [.command])
+                expect(untitled.text.isEmpty, "an untitled tab inserts nothing", untitled.text)
+                let sheet = untitled.window?.attachedSheet
+                expect(sheet != nil, "it asks to save first")
+                if let sheet { untitled.window?.endSheet(sheet, returnCode: .alertSecondButtonReturn) }
+                drag.releaseGlobally()
+                general.clearContents()
+                if let savedClip { general.setString(savedClip, forType: .string) }
+            },
+            snapshot("mdpaste.png", window: tab.window),
         ])
     }
 }

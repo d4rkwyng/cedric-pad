@@ -150,6 +150,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             guard index.length == self.textView.textStorage?.length else { return false }
             return MarkdownLists.isInFence(self.textView.string as NSString, index: index, line: index.line(containing: offset))
         }
+        textView.onImages = { [weak self] files, bitmap, at in self?.insertImages(files, bitmap: bitmap, at: at) }
         textView.onDropFiles = { urls in
             for u in urls { (NSApp.delegate as? AppDelegate)?.open(u) }
         }

@@ -71,6 +71,16 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     SF Mono's width, so on screen those rows can be a pixel or two off);
     alignment colons are kept. Tables in fenced code, and tables over
     2,000 lines, are left alone.
+  - **Smart paste:** a URL pasted over a selection makes
+    `[selection](url)` (not in code). An image pasted or dropped on a
+    Markdown tab (an image file, or a picture such as a screenshot on the
+    clipboard) is copied into an `images` folder next to the document and
+    goes in as `![](images/name.png)`; an image already inside the
+    document's folder is linked where it is, not copied. An untitled tab
+    has no folder yet: it inserts nothing and offers Save As. Undo takes
+    the link out but leaves the copied file. Other dropped files still
+    open in their own tabs, and in other languages a dropped image opens
+    as before.
 - **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
   or `.psv` file is a read-only grid: the first line is the header, row
   numbers stay at the left, columns resize, and a click on a header sorts
@@ -175,7 +185,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   tab that isn't selected loads when you first click it); the owl stays
   out of them.
 - **Drop a file on the text to open it** (in its own tab), rather than
-  pasting its path; dropped text is inserted as before.
+  pasting its path; dropped text is inserted as before. (On a Markdown
+  tab a dropped image is linked instead; see Markdown editing.)
 - **Files changed on disk** reload by themselves when the tab has no unsaved
   changes.
 - **`cedric` command-line launcher** (below), with `-w` so it can be

@@ -76,3 +76,65 @@ func markdownMenu() -> NSMenuItem {
         item(String(localized: "Format Table"), #selector(AppDelegate.formatTableMenu(_:))),
     ])
 }
+
+// Pasted and dropped images in Markdown: copied into an "images" folder
+// next to the document (a file already inside the document's folder is
+// linked where it is) and inserted as ![](images/name.png).
+
+extension EditorWindowController {
+    func insertImages(_ files: [URL], bitmap: Data?, at range: NSRange) {
+        guard textView.isEditable else { NSSound.beep(); return }
+        guard let docURL = doc.fileURL else { askToSaveForImages(files, bitmap: bitmap, at: range); return }
+        let dir = docURL.deletingLastPathComponent()
+        let images = dir.appendingPathComponent("images", isDirectory: true)
+        let fm = FileManager.default
+        var paths: [String] = []
+        func copyTarget(_ name: String) throws -> URL {
+            try fm.createDirectory(at: images, withIntermediateDirectories: true)
+            return images.appendingPathComponent(MarkdownPaste.uniqueName(name) { fm.fileExists(atPath: images.appendingPathComponent($0).path) })
+        }
+        do {
+            for f in files {
+                if let rel = MarkdownPaste.relativePath(of: f, from: dir) { paths.append(rel); continue }
+                let target = try copyTarget(f.lastPathComponent)
+                try fm.copyItem(at: f, to: target)
+                paths.append(MarkdownPaste.relativePath(of: target, from: dir) ?? "images/" + target.lastPathComponent)
+            }
+            if let bitmap {
+                guard let png = NSBitmapImageRep(data: bitmap)?.representation(using: .png, properties: [:]) else { NSSound.beep(); return }
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "en_US_POSIX")
+                f.dateFormat = "yyyyMMdd-HHmmss"
+                let target = try copyTarget("image-\(f.string(from: Date())).png")
+                try png.write(to: target, options: .atomic)
+                paths.append(MarkdownPaste.relativePath(of: target, from: dir) ?? "images/" + target.lastPathComponent)
+            }
+        } catch {
+            showError(error)
+            if paths.isEmpty { return }
+        }
+        guard !paths.isEmpty else { return }
+        let len = (textView.string as NSString).length
+        let r = NSRange(location: min(range.location, len), length: min(range.length, len - min(range.location, len)))
+        let s = MarkdownPaste.imageLinks(paths)
+        apply(TextEdit(range: r, replacement: s, selection: NSRange(location: r.location + (s as NSString).length, length: 0)),
+              actionName: String(localized: "Insert Image"))
+    }
+
+    /// An untitled tab has no folder for the image: say so, and offer Save As.
+    private func askToSaveForImages(_ files: [URL], bitmap: Data?, at range: NSRange) {
+        guard let window else { NSSound.beep(); return }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Save this document first")
+        alert.informativeText = String(localized: "Images are copied into an “images” folder next to the document, so it needs a folder. Nothing was inserted.")
+        alert.addButton(withTitle: String(localized: "Save As…"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.saveAs(), self.doc.fileURL != nil else { return }
+                self.insertImages(files, bitmap: bitmap, at: range)
+            }
+        }
+    }
+}

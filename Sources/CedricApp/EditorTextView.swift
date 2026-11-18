@@ -270,13 +270,42 @@ final class EditorTextView: NSTextView {
     /// (v0 rejected the edit in shouldChangeText and re-inserted it later,
     /// which silently dropped pastes.)
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        // Markdown: image files or a bitmap become image links (the window
+        // controller copies them next to the document); a URL pasted over
+        // a selection makes a link.
+        if language == .markdown, isEditable, let onImages {
+            let sel = selectedRange()
+            let files = Self.imageFiles(pboard)
+            if !files.isEmpty { onImages(files, nil, sel); return true }
+            if let s = pboard.string(forType: .string) {
+                if inFence?(sel.location) != true, let e = MarkdownPaste.linkPaste(in: string as NSString, selection: sel, pasted: s) {
+                    applyEdit(e, String(localized: "Paste"))
+                    return true
+                }
+            } else if let data = pboard.data(forType: .png) ?? pboard.data(forType: .tiff) {
+                onImages([], data, sel)
+                return true
+            }
+        }
         guard let s = pboard.string(forType: .string) else { return super.readSelection(from: pboard, type: type) }
         let normalized = TextCodec.normalizeLineEndings(s)
         insertText(normalized, replacementRange: selectedRange())
         return true
     }
 
-    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        language == .markdown && onImages != nil ? [.string, .fileURL, .png, .tiff] : [.string]
+    }
+
+    /// Markdown: image files (or bitmap data) pasted or dropped, to go in
+    /// at the range as image links. Set by the window controller.
+    var onImages: ((_ files: [URL], _ bitmap: Data?, _ at: NSRange) -> Void)?
+
+    /// The image files on a pasteboard (existing files with an image extension).
+    static func imageFiles(_ pboard: NSPasteboard) -> [URL] {
+        let urls = pboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return urls.filter { MarkdownPaste.isImageFile($0) && FileManager.default.fileExists(atPath: $0.path) }
+    }
 
     // MARK: Dropping files
 
@@ -313,6 +342,21 @@ final class EditorTextView: NSTextView {
     override func performDragOperation(_ info: NSDraggingInfo) -> Bool {
         let files = droppedFiles(info)
         guard !files.isEmpty, let onDropFiles else { return super.performDragOperation(info) }
+        // Markdown: image files go in as image links where they were
+        // dropped; other files still open in tabs.
+        if language == .markdown, isEditable, let onImages {
+            let images = files.filter(MarkdownPaste.isImageFile)
+            if !images.isEmpty {
+                let others = files.filter { !MarkdownPaste.isImageFile($0) }
+                var at = characterIndexForInsertion(at: convert(info.draggingLocation, from: nil))
+                if at == NSNotFound || at > (string as NSString).length { at = selectedRange().location }
+                DispatchQueue.main.async {
+                    onImages(images, nil, NSRange(location: at, length: 0))
+                    if !others.isEmpty { onDropFiles(others) }
+                }
+                return true
+            }
+        }
         // After the drag session ends (opening a tab inside it upsets AppKit's drag bookkeeping).
         DispatchQueue.main.async { onDropFiles(files) }
         return true
