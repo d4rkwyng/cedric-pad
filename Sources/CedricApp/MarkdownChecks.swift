@@ -415,6 +415,39 @@ extension DevChecks {
                     next()
                 }
             },
+            // 20 exports in a row: each one tears its offscreen page down cleanly.
+            { next in
+                var k = 0, ok = 0
+                @MainActor func one() {
+                    guard k < 20 else {
+                        expect(ok == 20, "20 PDF exports in a row all succeed", "\(ok) of 20")
+                        DispatchQueue.main.async { DispatchQueue.main.async {
+                            expect(MarkdownPDFExport.runningCount == 0, "and none is left running", "\(MarkdownPDFExport.runningCount)")
+                            next()
+                        } }
+                        return
+                    }
+                    k += 1
+                    let u = dir.appendingPathComponent("out/loop-\(k).pdf")
+                    MarkdownPDFExport.run(markdown: "# Run \(k)\n\ntext\n", folder: dir, title: "loop", to: u) { error in
+                        if error == nil, PDFDocument(url: u)?.string?.contains("Run \(k)") == true { ok += 1 }
+                        one()
+                    }
+                }
+                one()
+            },
+            // An export from a tab that closes while the PDF is being made.
+            { next in
+                let closing = app.open(write("closing.md", "# Closing\n\nbye\n"))!
+                let u = dir.appendingPathComponent("out/closing.pdf")
+                MarkdownPDFExport.run(markdown: closing.text, folder: dir, title: "closing", to: u) { error in
+                    expect(error == nil && PDFDocument(url: u)?.string?.contains("Closing") == true,
+                           "an export finishes after its tab closed", "\(error.map { "\($0)" } ?? "")")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { next() }
+                }
+                closing.doc.markSaved()
+                closing.window?.performClose(nil)
+            },
             sync {
                 pb.clearContents()
                 if let saved { pb.setString(saved, forType: .string) }

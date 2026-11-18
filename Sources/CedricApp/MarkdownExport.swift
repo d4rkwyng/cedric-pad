@@ -111,7 +111,13 @@ final class MarkdownPDFExport: NSObject {
                           backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         super.init()
-        window.contentView = preview.webView
+        // The window keeps its own content view for its whole life; the web
+        // view is a subview, taken out (never swapped out) at the end.
+        // (Replacing the content view under a WKWebView traps in WebKit's
+        // window-visibility observer.)
+        preview.webView.frame = window.contentView?.bounds ?? .zero
+        preview.webView.autoresizingMask = [.width, .height]
+        window.contentView?.addSubview(preview.webView)
     }
 
     static func run(markdown: String, folder: URL?, title: String, to url: URL, done: @escaping (Error?) -> Void) {
@@ -142,9 +148,10 @@ final class MarkdownPDFExport: NSObject {
           for (const e of document.querySelectorAll('body > *, li, tr, pre')) { const r = e.getBoundingClientRect(); out.push(r.bottom + y); }
           return [document.documentElement.scrollHeight, out]; })()
         """
+        guard !finished else { return }
         preview.webView.evaluateJavaScript(js, in: nil, in: .defaultClient) { [weak self] result in
             MainActor.assumeIsolated {
-                guard let self else { return }
+                guard let self, !self.finished else { return }
                 var total = h
                 var bottoms: [CGFloat] = []
                 if case .success(let v) = result, let a = v as? [Any] {
@@ -170,7 +177,7 @@ final class MarkdownPDFExport: NSObject {
             config.rect = CGRect(x: 0, y: y0, width: Self.pageWidth, height: y1 - y0)
             preview.webView.createPDF(configuration: config) { [weak self] result in
                 MainActor.assumeIsolated {
-                    guard let self else { return }
+                    guard let self, !self.finished else { return }
                     guard case .success(let data) = result, let part = PDFDocument(data: data), let page = part.page(at: 0) else {
                         if case .failure(let e) = result { self.finish(e) } else { self.finish(CocoaError(.fileWriteUnknown)) }
                         return
@@ -189,12 +196,25 @@ final class MarkdownPDFExport: NSObject {
         next()
     }
 
+    /// Ends the job (once): stops the page, takes the web view out of the
+    /// window, and lets the window go on the next turn of the run loop,
+    /// after WebKit is done with this one. Always on the main thread.
     private func finish(_ error: Error?) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard !finished else { return }
         finished = true
-        window.contentView = nil
-        window.close()
-        Self.running.removeAll { $0 === self }
+        preview.onLoaded = nil
+        preview.webView.stopLoading()
+        preview.webView.removeFromSuperview()
         done(error)
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                self.window.orderOut(nil)
+                Self.running.removeAll { $0 === self }
+            }
+        }
     }
+
+    /// Exports still running (for the checks).
+    static var runningCount: Int { running.count }
 }
