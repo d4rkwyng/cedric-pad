@@ -413,6 +413,15 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   applied as one undo step only if the document hasn't changed since you
   asked (otherwise **Ask Again**). History is per document, in memory
   only, with **Copy as Markdown** and **Clear**.
+  Cedric can also use six read-only tools on a frozen copy of the
+  document (get the selection or lines, search, outline, counts, and
+  propose an edit), at most three rounds per question, but only with
+  models that score at least 80% on a fixed 40-prompt set
+  (`Scripts/owl-tools-eval.sh`, scores in
+  `Resources/AI/owl-tool-scores.json`). Other models get the quick
+  actions without tools. Measured 2026-11-18: Apple Intelligence 70%,
+  Qwen2.5-Coder 1.5B on LM Studio 75%, the built-in Qwen2.5-Coder 3B 60%.
+  None is over the bar yet, so tools are off for all three.
 
 ## Build and run
 

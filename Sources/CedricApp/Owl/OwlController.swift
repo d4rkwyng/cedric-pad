@@ -259,7 +259,8 @@ final class OwlController: NSObject, NSPopoverDelegate {
 
     /// The in-process check runs with the screen locked, where the window
     /// server reports every window occluded and the app inactive.
-    static var assumeVisible = false
+    /// CEDRIC_OWL_ASSUME_VISIBLE=1: also for measuring idle cost with the screen locked.
+    static var assumeVisible = ProcessInfo.processInfo.environment["CEDRIC_OWL_ASSUME_VISIBLE"] == "1"
 
     /// The window can be seen and the app is in front.
     var canAnimate: Bool {

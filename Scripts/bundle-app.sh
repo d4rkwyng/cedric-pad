@@ -107,6 +107,7 @@ ditto "$FW_SRC" "$APP/Contents/Frameworks/llama.framework"
 # The built-in engine's model list (downloads are pinned by URL + SHA-256).
 mkdir -p "$APP/Contents/Resources/AI"
 cp Resources/AI/models.json "$APP/Contents/Resources/AI/models.json"
+cp Resources/AI/owl-tool-scores.json "$APP/Contents/Resources/AI/owl-tool-scores.json"
 # The command-line launcher ships inside the app; see Scripts/cedric.
 cp Scripts/cedric "$APP/Contents/Resources/cedric"
 chmod +x "$APP/Contents/Resources/cedric"

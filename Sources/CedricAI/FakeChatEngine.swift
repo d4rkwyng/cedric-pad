@@ -40,7 +40,9 @@ public struct FakeChatEngine: OwlChatEngine {
             .last { !$0.hasPrefix("Answer now") } ?? ""
         let results = messages.compactMap { m -> String? in if case .toolResult(_, let n, _) = m { return n }; return nil }
         let (first, last) = Self.shownLines(question)
-        if !names.isEmpty, results.isEmpty, let call = Self.choose(question, tools: names, first: first, last: last) {
+        // The question itself: after the attached text.
+        let asked = question.range(of: "```\n\n", options: .backwards).map { String(question[$0.upperBound...]) } ?? question
+        if !names.isEmpty, results.isEmpty, let call = Self.choose(asked, tools: names, first: first, last: last) {
             try await Task.sleep(nanoseconds: UInt64(delay * 1e9))
             return .toolCalls([call])
         }
@@ -97,7 +99,7 @@ public struct FakeChatEngine: OwlChatEngine {
         if tools.contains(.searchDocument), let quoted = quotedTerm(q), has(["find", "where", "search", "how many times", "occur", "mention", "uses of", "used"]) {
             return OwlToolCall(name: "search_document", arguments: .object(["query": .string(quoted)]))
         }
-        if tools.contains(.getLines), let n = lineRef, !(first...max(first, last)).contains(n) || has(["show me line", "read line", "what is on line", "lines "]) {
+        if tools.contains(.getLines), let n = lineRef, !(first...max(first, last)).contains(n) || has(["show me line", "read line", "read lines"]) {
             let end = firstNumber(after: "to", in: s) ?? n
             return OwlToolCall(name: "get_lines", arguments: .object(["start": .number(Double(n)), "end": .number(Double(max(n, end)))]))
         }
