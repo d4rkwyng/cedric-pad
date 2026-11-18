@@ -43,7 +43,8 @@ public struct LocalModelHintProvider: OwlHintProvider {
             let result = try await client.chat(model: model, messages: messages, maxTokens: maxTokens,
                                                jsonSchema: HintPrompt.schema, clock: clock)
             try Task.checkCancellation()
-            let hints = HintPrompt.parse(result.content, text: text, source: name, language: context.language)
+            let hints = HintPrompt.parse(result.content, text: text, source: name, language: context.language,
+                                     wholeDocument: context.isWholeDocument)
             AILog.logger.info("""
                 owl-ai ok model=\(model, privacy: .public) gen=\(context.editGeneration) \
                 sentBytes=\(sentBytes) promptTokens=\(result.promptTokens ?? -1) \

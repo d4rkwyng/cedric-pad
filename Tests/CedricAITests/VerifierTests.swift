@@ -153,4 +153,14 @@ import CedricCore
         #expect(HintSource.displayName("local:qwen2.5-coder-3b-instruct-q4_k_m", catalog: ModelCatalog.bundled())
                 == "AI suggestion · Qwen2.5 Coder 3B")
     }
+
+    @Test func jsonClaimsAboutAWindowAreDropped() {
+        // The start of a long file: a fragment never parses, so "invalid JSON" can't be checked there.
+        let fragment = "{\"items\": [{\"id\": 1, \"name\": \"a\"}, {\"id\": 2, \"na"
+        let claim: [String: Any] = ["kind": "warning", "category": "json", "title": "Invalid JSON",
+                                    "detail": "The JSON is not valid: it ends early.", "line": 1, "find": "\"na", "confidence": 0.9]
+        #expect(HintPrompt.parse(json([claim]), text: fragment, source: "apple", language: "json", wholeDocument: false).isEmpty)
+        // The same claim about a whole document that really is broken is kept.
+        #expect(HintPrompt.parse(json([claim]), text: fragment, source: "apple", language: "json").count == 1)
+    }
 }

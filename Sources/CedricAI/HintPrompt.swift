@@ -68,7 +68,7 @@ public enum HintPrompt {
     /// that isn't in `text` (so a replacement can never land outside the
     /// context), and no-op replacements. Ranges are UTF-16 offsets into
     /// `text` — the context the provider was given.
-    public static func parse(_ raw: String, text: String, source: String, language: String = "") -> [OwlHint] {
+    public static func parse(_ raw: String, text: String, source: String, language: String = "", wholeDocument: Bool = true) -> [OwlHint] {
         guard let json = extractJSON(raw),
               let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) else { return [] }
@@ -117,6 +117,10 @@ public enum HintPrompt {
             // Contradicted by the code ("`<html>` is not closed" when it is)?
             let categories = HintVerifier.categories(model: item["category"] as? String, title: title, detail: detail)
             guard HintVerifier.holds(categories, title: title, detail: detail, find: find, text: text, language: language) else { continue }
+            // "This JSON doesn't parse" about a window of a longer file: a
+            // fragment never parses, so the claim can't be checked (and its
+            // fix would only touch the window). Dropped.
+            if !wholeDocument, categories.contains(.json) { continue }
             if title.count > maxTitle { title = String(title.prefix(maxTitle - 1)) + "…" }
             // A replacement needs an anchor inside the context, and must change something.
             if range == nil || replacement.map({ squash($0) == squash(find) }) == true { replacement = nil }

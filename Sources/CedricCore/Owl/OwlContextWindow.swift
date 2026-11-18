@@ -63,7 +63,7 @@ public struct OwlContextWindow: Sendable {
         isWholeDocument = range.location == 0 && range.length == length
         context = OwlContext(fileName: fileName, language: language, text: full.substring(with: range), textStart: range.location,
                              visibleRange: local(visible), selection: selection.map(local),
-                             documentID: documentID, editGeneration: editGeneration)
+                             documentID: documentID, editGeneration: editGeneration, isWholeDocument: isWholeDocument)
     }
 }
 

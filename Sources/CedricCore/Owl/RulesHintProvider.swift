@@ -54,6 +54,12 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         if facts.isWholeDocument, let pretty = JSONFormatter.prettyIfMinified(c.text) {
             hint(Self.jsonID, .fix, String(localized: "Looks like JSON. Format it?"),
                  String(localized: "Pretty-prints it with two-space indents; key order is kept."), range: all, replacement: pretty)
+        } else if !facts.isWholeDocument, Self.startsLongOneLineJSON(c) {
+            // Only the start of a long one-line file is in view: no
+            // replacement here. Fix it formats the whole file (the app
+            // checks all of it first, see wholeDocumentJSONID).
+            hint(Self.jsonID, .fix, String(localized: "Looks like JSON. Format it?"),
+                 String(localized: "Pretty-prints the whole file with two-space indents; key order is kept. If the whole file isn’t valid JSON, nothing changes."))
         }
         let lines = Self.lines(text)
         moreHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
@@ -70,6 +76,15 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
                  String(localized: "Removes spaces and tabs at the ends of lines."), range: r.range, replacement: r.replacement)
         }
         fileHints(c, facts: facts, text: text) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
+        if !facts.isWholeDocument {
+            // A window of a longer file: say that a fix covers only it.
+            let note = String(localized: "Only the part of the file around what’s on screen is changed.")
+            out = out.map { h in
+                guard h.replacement != nil, h.range != nil else { return h }
+                return OwlHint(id: h.id, kind: h.kind, title: h.title, detail: [h.detail, note].compactMap { $0 }.joined(separator: " "),
+                               range: h.range, replacement: h.replacement, source: h.source)
+            }
+        }
         if facts.lineEnding == .crlf, !facts.mixedLineEndings {
             hint(Self.crlfID, .explain, String(localized: "Windows line endings (CRLF)."),
                  String(localized: "Cedric keeps CRLF when you save. Change it from the status bar."))
@@ -78,6 +93,29 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
     }
 
     // MARK: Rules
+
+    /// A window that is the start of a file whose first line runs past it,
+    /// beginning like a JSON object or array: a long minified JSON file.
+    public static func startsLongOneLineJSON(_ c: OwlContext) -> Bool {
+        guard c.language == "json", c.textStart == 0, !c.isWholeDocument else { return false }
+        let t = c.text.drop { $0 == " " || $0 == "\t" || $0 == "\u{FEFF}" }
+        return (t.first == "{" || t.first == "[") && !c.text.contains("\n")
+    }
+
+    /// Formats a whole document for the owl's Fix it on a long one-line
+    /// JSON file: the pretty text, or why not (the whole file must be
+    /// valid JSON). Pure; the app runs it off the main thread.
+    public static func formatWholeJSON(_ s: String) -> Result<String, TextToolError> {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let pretty = try JSONFormatter.format(trimmed, pretty: true)
+            return .success(pretty + (s.hasSuffix("\n") ? "\n" : ""))
+        } catch let e as TextToolError {
+            return .failure(e)
+        } catch {
+            return .failure(.invalidJSON(error.localizedDescription))
+        }
+    }
 
     /// "Dear …" and more than three lines.
     public static func isLetter(_ s: String) -> Bool {

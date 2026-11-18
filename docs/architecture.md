@@ -361,6 +361,14 @@ offers hints in a speech bubble.
   letter. Would you like help?" with "No thanks, I'm an owl" as the only
   button. The document facts it needs come in `OwlDocumentFacts` through
   `OwlFactsAwareProvider`.
+  In a window of a longer file (`OwlContext.isWholeDocument` false),
+  fixes say they change only the part around the screen; the JSON format
+  offer appears for a long one-line file whose start is in view, with no
+  replacement, and Fix it validates and formats the whole text off the
+  main thread (`RulesHintProvider.formatWholeJSON`, `formatWholeJSON` in
+  OwlController.swift, one undo step), or says the file isn't valid JSON.
+  AI claims that the JSON doesn't parse are dropped for a window (a
+  fragment never parses).
   `MoreRules.swift` adds (in the order offered): merge-conflict markers,
   secrets (warning, no fix), JSON that doesn't parse, brackets (a small
   lexer skipping strings, comments, JS and Swift regexes and Swift/JS

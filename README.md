@@ -123,7 +123,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     characters; trailing spaces; "It looks like you're writing a to-do
     list" → Markdown checkboxes; a word typed twice ("the the"); two spaces
     after some full stops but not others; no newline at the end of a saved
-    code file;
+    code file. Formatting JSON always does the whole file (checked
+    first: if the whole file isn't valid JSON, nothing changes); in a
+    file longer than his 8 KB view, the other fixes change only the part
+    around what's on screen, and say so;
   - offers and notes: plain text that is really Markdown, HTML or JSON
     (colour it that way); unsaved for two hours (save a copy); CRLF or
     mixed line endings; and, once ever, a letter.

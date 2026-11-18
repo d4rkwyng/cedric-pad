@@ -276,4 +276,40 @@ import Testing
         let each = Date().timeIntervalSince(start) / 20
         #expect(each < 0.05, "\(each * 1000) ms per check")
     }
+
+    func windowContext(_ text: String, language: String, textStart: Int = 0) -> OwlContext {
+        OwlContext(fileName: nil, language: language, text: text, textStart: textStart, visibleRange: NSRange(location: 0, length: 0),
+                   selection: nil, documentID: UUID(), editGeneration: 0, isWholeDocument: false)
+    }
+
+    @Test func longOneLineJSONIsFormattedWhole() throws {
+        let item = "{\"id\": 12345, \"name\": \"something\", \"tags\": [\"a\", \"b\"]}"
+        let full = "[" + Array(repeating: item, count: 300).joined(separator: ",") + "]\n"
+        #expect((full as NSString).length > OwlContextWindow.byteCap)
+        let window = OwlContextWindow(text: full as NSString, visible: NSRange(location: 0, length: 100), selection: nil,
+                                      fileName: "big.json", language: "json", documentID: UUID(), editGeneration: 0)
+        #expect(!window.isWholeDocument && !window.context.isWholeDocument)
+        let hints = rules.check(window.context, facts: .init(isWholeDocument: false))
+        let h = try #require(hints.first { $0.id == RulesHintProvider.jsonID })
+        // No replacement of the window: the app formats the whole file on Fix it.
+        #expect(h.replacement == nil && h.range == nil && h.detail?.contains("whole file") == true)
+        // No "doesn't parse" from the cut-off window either.
+        #expect(!hints.contains { $0.id == RulesHintProvider.jsonInvalidID })
+        // The whole-file format: valid, pretty, final newline kept; invalid says why.
+        let pretty = try RulesHintProvider.formatWholeJSON(full).get()
+        #expect(pretty.hasPrefix("[\n  {\n    \"id\": 12345") && pretty.hasSuffix("]\n"))
+        let broken = String(full.dropLast(3)) + "\n"
+        if case .success = RulesHintProvider.formatWholeJSON(broken) { Issue.record("a broken file was formatted") }
+        // Not for a window further down, nor for something that isn't JSON-shaped.
+        #expect(!RulesHintProvider.startsLongOneLineJSON(windowContext(String(full.prefix(8000)), language: "json", textStart: 500)))
+        #expect(!RulesHintProvider.startsLongOneLineJSON(windowContext("hello " + String(full.prefix(8000)), language: "json")))
+    }
+
+    @Test func fixesOnAWindowSaySo() throws {
+        let text = (1...6).map { "line \($0)   " }.joined(separator: "\n") + "\n"
+        let whole = try #require(find(RulesHintProvider.trailingID, text))
+        #expect(whole.detail?.contains("on screen") == false)
+        let part = try #require(find(RulesHintProvider.trailingID, text, facts: .init(isWholeDocument: false)))
+        #expect(part.detail?.contains("Only the part of the file around what’s on screen is changed.") == true)
+    }
 }

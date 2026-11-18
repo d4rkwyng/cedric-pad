@@ -88,7 +88,8 @@ public struct AppleFoundationModelsProvider: OwlHintProvider {
         try Task.checkCancellation()
         let raw = response.content.jsonString
         let seconds = Date().timeIntervalSince(start)
-        let hints = HintPrompt.parse(raw, text: text, source: name, language: context.language)
+        let hints = HintPrompt.parse(raw, text: text, source: name, language: context.language,
+                                     wholeDocument: context.isWholeDocument)
         AILog.logger.info("owl-ai ok engine=apple gen=\(context.editGeneration) latencyMs=\(Int(seconds * 1000)) hints=\(hints.count)")
         return (hints, raw, seconds)
     }

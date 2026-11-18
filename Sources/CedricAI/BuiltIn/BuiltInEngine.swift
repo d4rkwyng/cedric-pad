@@ -112,7 +112,8 @@ public struct BuiltInHintProvider: OwlHintProvider {
         do {
             let result = try await host.generate(modelAt: path, request)
             try Task.checkCancellation()
-            let hints = HintPrompt.parse(result.content, text: text, source: name, language: context.language)
+            let hints = HintPrompt.parse(result.content, text: text, source: name, language: context.language,
+                                     wholeDocument: context.isWholeDocument)
             AILog.logger.info("""
                 owl-ai ok engine=builtin model=\(model.id, privacy: .public) gen=\(context.editGeneration) \
                 promptTokens=\(result.promptTokens) completionTokens=\(result.completionTokens) \

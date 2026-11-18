@@ -341,6 +341,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     // MARK: Typos
 
     static let typoFixID = "spelling.fixTypos"
+    static let wholeJSONInvalidID = "rules.json-whole-invalid"
 
     /// Prose with three or more fixable misspellings in view: "Fix 3
     /// typos?", applying the first suggestion for each as one undo step
@@ -373,7 +374,20 @@ final class OwlController: NSObject, NSPopoverDelegate {
             return [.init(title: String(localized: "No thanks, I’m an owl"), isDefault: false) { [weak self] in self?.hideBubble() }]
         }
         var out: [OwlBubble.Button] = []
-        if hint.replacement != nil {
+        if hint.id == RulesHintProvider.jsonID, hint.replacement == nil {
+            // A long one-line JSON file, only its start in view: Fix it
+            // checks and formats the whole file.
+            out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self, weak tab] in
+                self?.hideBubble()
+                tab?.formatWholeJSON { [weak self, weak tab] problem in
+                    guard let self, let tab else { return }
+                    let h = OwlHint(id: Self.wholeJSONInvalidID, kind: .warning,
+                                    title: String(localized: "The whole file isn’t valid JSON, so it wasn’t formatted."),
+                                    detail: problem, source: "rules")
+                    self.present(h, context: tab.owlContextWindow().context)
+                }
+            })
+        } else if hint.replacement != nil {
             out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self, weak tab] in
                 guard let self, self.applyPresented() else { return }
                 // A to-do list in checkboxes reads best coloured as Markdown.
@@ -568,5 +582,34 @@ final class OwlController: NSObject, NSPopoverDelegate {
     @objc private func hideOwl() {
         popover?.close()
         Settings.shared.showOwl = false
+    }
+}
+
+extension EditorWindowController {
+    /// The owl's Fix it for a long one-line JSON file: validates and
+    /// pretty-prints the whole text off the main thread, then replaces it
+    /// as one undo step, if the text hasn't changed meanwhile. `invalid`
+    /// gets the parser's message when the whole file isn't valid JSON.
+    func formatWholeJSON(invalid: @escaping @MainActor (String) -> Void) {
+        let text = textView.string
+        guard (text as NSString).length <= LargeDocument.sizeThreshold, textView.isEditable else { NSSound.beep(); return }
+        let count = doc.changeCount
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = RulesHintProvider.formatWholeJSON(text)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { [weak self] in
+                    guard let self, self.window != nil, self.doc.changeCount == count else { return }
+                    switch result {
+                    case .success(let pretty):
+                        let all = NSRange(location: 0, length: (self.textView.string as NSString).length)
+                        self.replaceAsOneStep(all, with: pretty, actionName: String(localized: "Format JSON"))
+                        self.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                        self.textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+                    case .failure(let e):
+                        invalid(e.errorDescription ?? String(describing: e))
+                    }
+                }
+            }
+        }
     }
 }

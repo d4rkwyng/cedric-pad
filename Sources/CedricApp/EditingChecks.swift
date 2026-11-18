@@ -6,7 +6,7 @@ import CedricCore
 /// through the menus' key equivalents and the text view, then the text,
 /// the state and the drawn pixels are checked.
 ///
-///   CEDRIC_CHECK=highlight|lineops|bookmarks|closedtab|closefail|closedraw|autoedit|counts
+///   CEDRIC_CHECK=highlight|lineops|bookmarks|closedtab|closefail|closedraw|jsonwhole|autoedit|counts
 @MainActor
 extension DevChecks {
     static func editingCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -17,6 +17,7 @@ extension DevChecks {
         case "closedtab": closedTab(app)
         case "closefail": closeAfterFailedSave(app)
         case "closedraw": closedTabsStillDrawn(app)
+        case "jsonwhole": formatWholeJSONCheck(app)
         case "autoedit": autoEdit(app)
         case "counts": counts(app)
         default: return gapCheck(name, app)
@@ -554,6 +555,42 @@ extension DevChecks {
                 expect(true, "closed tabs' windows, gutters and text views drew after close without crashing")
             },
         ], gap: 0.4)
+    }
+
+    /// The owl's Fix it on a long one-line JSON file (only its start in
+    /// the owl's window) formats the whole file, as one undo step; a file
+    /// that isn't valid JSON as a whole is left alone and the owl says so.
+    static func formatWholeJSONCheck(_ app: AppDelegate) {
+        let item = "{\"id\": 12345, \"name\": \"something\", \"tags\": [\"a\", \"b\"]}"
+        let full = "[" + Array(repeating: item, count: 300).joined(separator: ",") + "]\n"
+        let tab = app.open(write("long.json", full))!
+        let broken = app.open(write("broken.json", String(full.dropLast(3)) + "\n"))!
+        sized(tab)
+        var said: String?
+        run([
+            sync {
+                let w = tab.owlContextWindow()
+                expect(!w.isWholeDocument, "the owl sees only the start of the file", "\((w.context.text as NSString).length)")
+                let hint = RulesHintProvider().check(w.context, facts: tab.owlFacts(wholeDocument: w.isWholeDocument))
+                    .first { $0.id == RulesHintProvider.jsonID }
+                expect(hint != nil && hint?.replacement == nil, "he offers to format it (the whole file, on Fix it)")
+                tab.formatWholeJSON { said = $0 }
+            },
+            sync {
+                let expectPretty = try? RulesHintProvider.formatWholeJSON(full).get()
+                expect(tab.text == expectPretty, "Fix it formatted the whole file", "\(tab.text.prefix(60))…\(tab.text.suffix(30))")
+                expect(tab.text.hasSuffix("  }\n]\n"), "to the very end")
+                tab.textView.undoManager?.undo()
+            },
+            sync {
+                expect(tab.text == full, "one undo puts the one-line file back")
+                broken.formatWholeJSON { said = $0 }
+            },
+            sync {
+                expect(broken.text == String(full.dropLast(3)) + "\n", "a file that isn't valid JSON as a whole is left alone")
+                expect(said != nil, "and the reason is given", said ?? "-")
+            },
+        ], gap: 0.6)
     }
 
     // MARK: Auto-indent, pairing, bracket match

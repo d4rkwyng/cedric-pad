@@ -28,9 +28,14 @@ public struct OwlContext: Sendable {
     public let textStart: Int         // UTF-16 offset of `text` in the document; hint ranges are relative to `text`
     public let visibleRange: NSRange; public let selection: NSRange?
     public let documentID: UUID; public let editGeneration: Int
+    /// `text` is the whole document (not a window of a longer one): a
+    /// claim about the whole file (it isn't valid JSON) can only be
+    /// checked then.
+    public let isWholeDocument: Bool
 
     public init(fileName: String?, language: String, text: String, textStart: Int, visibleRange: NSRange, selection: NSRange?,
-                documentID: UUID, editGeneration: Int) {
+                documentID: UUID, editGeneration: Int, isWholeDocument: Bool = true) {
+        self.isWholeDocument = isWholeDocument
         self.fileName = fileName
         self.language = language
         self.text = text
