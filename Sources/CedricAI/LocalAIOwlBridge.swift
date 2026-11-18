@@ -21,6 +21,7 @@ public struct ScheduledAIEntry: OwlHintProvider {
 @MainActor
 public final class LocalAIOwlBridge {
     public typealias ProviderFactory = @MainActor (LocalAISettings) async -> (any OwlHintProvider)?
+    public typealias EngineResolver = @MainActor (LocalAISettings) -> any AIEngine
 
     public let registry: OwlProviderRegistry
     public private(set) var settings: LocalAISettings = .default
@@ -46,6 +47,7 @@ public final class LocalAIOwlBridge {
     public var onStateChange: (() -> Void)?
 
     private let makeProvider: ProviderFactory
+    private let resolveEngine: EngineResolver
     private let clock: any OwlClock
     private let power: any PowerSource
     private var applyToken = 0
@@ -56,8 +58,10 @@ public final class LocalAIOwlBridge {
 
     public init(registry: OwlProviderRegistry,
                 clock: any OwlClock = SystemClock(), power: any PowerSource = SystemPowerSource(),
+                engine: @escaping EngineResolver = { AIEngines.engine(for: $0) },
                 makeProvider: @escaping ProviderFactory = { await LocalAIOwl.makeProvider(settings: $0) }) {
         self.registry = registry
+        self.resolveEngine = engine
         self.clock = clock
         self.power = power
         self.makeProvider = makeProvider
@@ -76,7 +80,7 @@ public final class LocalAIOwlBridge {
         teardown()
         lastProblem = nil
         guard new.enabled else { onStateChange?(); return }
-        let engine = AIEngines.engine(for: new)
+        let engine = resolveEngine(new)
         guard engine.isAvailable else {
             lastProblem = engine.unavailableReason ?? "That engine isn’t available on this Mac."
             onStateChange?(); return

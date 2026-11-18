@@ -58,11 +58,13 @@ import CedricCore
     @MainActor @Test func bridgeKeepsLargeDocumentsAcrossRebuilds() async {
         let registry = OwlProviderRegistry()
         let provider = FakeProvider()
-        let bridge = LocalAIOwlBridge(registry: registry, makeProvider: { _ in provider })
+        let bridge = LocalAIOwlBridge(registry: registry, engine: { _ in AppleIntelligenceEngine(status: .available) },
+                                      makeProvider: { _ in provider })
         let doc = UUID()
         bridge.setLargeDocument(doc, true)
         var s = LocalAISettings(enabled: true, backend: .apple, minInterval: 0.1, pauseDelay: 0.05, minIdle: 0)
         await bridge.apply(s)
+        #expect(bridge.isActive)
         bridge.contextChanged(context(gen: 1, doc: doc))
         s.timeout = 1
         await bridge.apply(s)   // a new scheduler: still large
