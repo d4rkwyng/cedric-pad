@@ -285,12 +285,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
         guard let tv = tab?.textView, let window = tv.window else { return }
         let sel = tv.selectedRange()
         let caretAt = sel.location + sel.length
-        // A caret scrolled out of view can't be near the owl. (Asking
-        // TextKit for its rect lays out up to it, and with a long line in
-        // chunks that re-anchored the viewport: scrolling stalled near
-        // the caret.)
+        // In a chunked long line (large mode), a caret scrolled out of
+        // view can't be near the owl. (Asking TextKit for its rect lays
+        // out up to it, which re-anchored the viewport there: scrolling
+        // stalled near the caret.)
         let caret: NSRect
-        if let vis = tv.visibleCharacterRange, !NSLocationInRange(caretAt, NSRange(location: vis.location, length: vis.length + 1)) {
+        if tv.contentStorage?.chunkLimit != nil, let vis = tv.visibleCharacterRange, !NSLocationInRange(caretAt, NSRange(location: vis.location, length: vis.length + 1)) {
             caret = NSRect(x: -10_000, y: -10_000, width: 0, height: 0)
         } else {
             let screen = tv.firstRect(forCharacterRange: NSRange(location: caretAt, length: 0), actualRange: nil)

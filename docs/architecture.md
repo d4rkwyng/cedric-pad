@@ -139,6 +139,9 @@ What Cedric does now:
   a composed character), so an edit only drops the cached chunk elements
   from the edit on. Chunk elements are `NSTextParagraph`s with their
   content and separator ranges supplied (TextKit raises without them).
+  Lines that fit in one chunk get TextKit's own paragraph (making those
+  ourselves broke its height estimates: scrolling a 6 MB many-line file
+  snapped back).
   Chunk size, measured: 500 → 31 ms per keystroke (too many elements),
   1,000 → 6–10 ms, 2,048 → 6.5 ms, 4,096 → 6.7 ms, 8,192 → 7.6 ms.
   Wrapping stays as the user set it: chunked, wrapped and unwrapped cost

@@ -46,16 +46,27 @@ final class ChunkedContentStorage: NSTextContentStorage {
     }
 
     /// The chunk holding `offset` (offset == length: the last chunk).
-    func chunkRange(at offset: Int, in text: NSString, limit: Int) -> NSRange {
+    /// `whole`: the line fits in one chunk.
+    func chunkRange(at offset: Int, in text: NSString, limit: Int) -> (NSRange, whole: Bool) {
         let probe = min(offset, max(0, text.length - 1))
         let para = lineRange?(probe).flatMap { NSLocationInRange(probe, $0) ? $0 : nil } ?? text.paragraphRange(for: NSRange(location: probe, length: 0))
-        return LargeDocument.chunk(containing: probe, line: para, in: text, limit: limit)
+        return (LargeDocument.chunk(containing: probe, line: para, in: text, limit: limit), para.length <= limit)
     }
 
-    private func element(for r: NSRange, in storage: NSTextStorage) -> NSTextParagraph? {
+    private func element(for r: NSRange, in storage: NSTextStorage, whole: Bool) -> NSTextElement? {
         if let c = cache[r.location], c.range == r { return c.element }
         let doc = documentRange.location
         guard let s = location(doc, offsetBy: r.location), let e = location(s, offsetBy: r.length) else { return nil }
+        if whole {
+            // A line that isn't cut: TextKit's own paragraph (its own
+            // caching and height estimates; ours made scrolling a
+            // many-line large file snap back).
+            var native: NSTextElement?
+            _ = super.enumerateTextElements(from: s, options: []) { native = $0; return false }
+            if let native, let nr = native.elementRange, nr.location.compare(s) == .orderedSame, nr.endLocation.compare(e) == .orderedSame {
+                return native
+            }
+        }
         let p = ChunkParagraph(attributedString: storage.attributedSubstring(from: r))
         p.elementRange = NSTextRange(location: s, end: e)
         // The content range is the chunk without its trailing newline, if any.
@@ -85,8 +96,8 @@ final class ChunkedContentStorage: NSTextContentStorage {
             // From a location, backwards: the element ending at or containing it.
             var at = offset - 1
             while at >= 0 {
-                let r = chunkRange(at: at, in: text, limit: limit)
-                guard let p = element(for: r, in: storage) else { return nil }
+                let (r, whole) = chunkRange(at: at, in: text, limit: limit)
+                guard let p = element(for: r, in: storage, whole: whole) else { return nil }
                 if !block(p) { return p.elementRange?.location }
                 at = r.location - 1
             }
@@ -95,8 +106,8 @@ final class ChunkedContentStorage: NSTextContentStorage {
         offset = max(0, min(offset, len))
         var at = offset == len ? max(0, len - 1) : offset
         while at < len {
-            let r = chunkRange(at: at, in: text, limit: limit)
-            guard let p = element(for: r, in: storage) else { return nil }
+            let (r, whole) = chunkRange(at: at, in: text, limit: limit)
+            guard let p = element(for: r, in: storage, whole: whole) else { return nil }
             if !block(p) { return p.elementRange?.endLocation }
             at = NSMaxRange(r)
         }
