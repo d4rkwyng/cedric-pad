@@ -61,6 +61,7 @@ Scripts/test.sh                     # unit tests: tokenizers, Markdown, codecs, 
 Scripts/session-check.sh            # end to end: unsaved tabs survive a kill -9 and a normal quit
 Scripts/typing-check.sh             # real key events in every theme; typed glyphs' pixels must be visible
 Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no crash report
+Scripts/launch-speed-check.sh       # launch phase medians: empty, 8-tab session, 500 KB file
 swift Scripts/launch-time.swift dist/Cedric.app /System/Applications/TextEdit.app
 ```
 
