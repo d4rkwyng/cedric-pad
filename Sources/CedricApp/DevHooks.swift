@@ -98,7 +98,20 @@ enum DevHooks {
         // waiting to be built (run with a long CEDRIC_RESTORE_DELAY).
         if env["CEDRIC_TEST_EARLY_CLOSE"] == "1" || env["CEDRIC_TEST_EARLY_REOPEN"] == "1" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if env["CEDRIC_TEST_EARLY_CLOSE"] == "1", let tab = app.currentTab ?? app.tabs.last { tab.window?.performClose(nil) }
+                if env["CEDRIC_TEST_EARLY_CLOSE"] == "1", let tab = app.currentTab ?? app.tabs.last {
+                    // Keep the closed tab's window and views and draw them
+                    // after close, while the deferred tabs are built (a
+                    // closed controller's views drawing once aborted the app).
+                    let views: [NSView?] = [tab.window?.contentView, tab.gutter, tab.textView]
+                    let window = tab.window
+                    window?.performClose(nil)
+                    for k in 1...5 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1 * Double(k)) {
+                            window?.display()
+                            for v in views { v?.needsDisplay = true; v?.display() }
+                        }
+                    }
+                }
                 if env["CEDRIC_TEST_EARLY_REOPEN"] == "1" { app.reopenClosedTab(nil) }
             }
         }

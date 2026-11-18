@@ -99,8 +99,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         PerfTrace.mark("build_views")
         colorizer = SyntaxColorizer(textView: textView, language: doc.language)
         textView.language = doc.language
-        colorizer.lineIndexProvider = { [unowned self] in self.lineIndex }
-        textView.contentStorage?.lineRange = { [unowned self] offset in
+        // [weak self] everywhere a view keeps a closure: AppKit can keep a
+        // closed tab's window and views alive (and drawing) after this
+        // controller is gone, and an unowned self there aborted the app.
+        colorizer.lineIndexProvider = { [weak self] in self?.lineIndex ?? LineIndex() }
+        textView.contentStorage?.lineRange = { [weak self] offset in
+            guard let self else { return nil }
             let index = self.lineIndex
             guard index.length == self.textView.textStorage?.length else { return nil }
             let line = index.line(containing: offset)
@@ -127,24 +131,24 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         scrollView.drawsBackground = true
         scrollView.borderType = .noBorder
         textView.delegate = self
-        textView.onCutLine = { [unowned self] in self.cutLine() }
-        textView.indentation = { [unowned self] in self.indentation }
-        textView.onShiftLines = { [unowned self] right in self.shiftLines(right: right) }
-        textView.tabInsertsSpaces = { [unowned self] in self.tabKeyInsertsSpaces }
+        textView.onCutLine = { [weak self] in self?.cutLine() }
+        textView.indentation = { [weak self] in self?.indentation ?? Settings.shared.defaultIndentation }
+        textView.onShiftLines = { [weak self] right in self?.shiftLines(right: right) }
+        textView.tabInsertsSpaces = { [weak self] in self?.tabKeyInsertsSpaces ?? false }
         textView.onDropFiles = { urls in
             for u in urls { (NSApp.delegate as? AppDelegate)?.open(u) }
         }
-        textView.lineStartFor = { [unowned self] offset in
-            let index = self.lineIndex
+        textView.lineStartFor = { [weak self] offset in
+            guard let index = self?.lineIndex, index.lineCount > 0 else { return 0 }
             return index.starts[index.line(containing: offset)]
         }
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         gutter.textView = textView
         gutter.clipsToBounds = true
-        gutter.lineIndex = { [unowned self] in self.lineIndex }
-        gutter.bookmarks = { [unowned self] in self.editing.bookmarks }
-        gutter.onClickLine = { [unowned self] line in self.toggleBookmark(line: line) }
+        gutter.lineIndex = { [weak self] in self?.lineIndex ?? LineIndex() }
+        gutter.bookmarks = { [weak self] in self?.editing.bookmarks ?? Bookmarks() }
+        gutter.onClickLine = { [weak self] line in self?.toggleBookmark(line: line) }
         container = EditorContainer(gutter: gutter, scrollView: scrollView)
 
         split.isVertical = true
@@ -750,6 +754,30 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         tail?.stop()
         tail = nil
         onClose?(self)
+        // Last: rememberClosed (onClose) still reads the selection and scroll place.
+        detachViews()
+    }
+
+    /// The window is closing: AppKit may keep it (and so the views) a
+    /// while longer, even drawing it (tab bar), after this controller is
+    /// freed. Cut every path from the views back to the controller and
+    /// take the views out of the window, so nothing draws or calls in.
+    private func detachViews() {
+        textView.onCutLine = nil
+        textView.indentation = nil
+        textView.onShiftLines = nil
+        textView.tabInsertsSpaces = nil
+        textView.onDropFiles = nil
+        textView.lineStartFor = nil
+        textView.contentStorage?.lineRange = nil
+        colorizer.lineIndexProvider = { LineIndex() }
+        gutter.lineIndex = { LineIndex() }
+        gutter.bookmarks = { Bookmarks() }
+        gutter.onClickLine = nil
+        gutter.textView = nil
+        if textView.delegate === self { textView.delegate = nil }
+        window?.delegate = nil
+        window?.contentView = NSView()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {

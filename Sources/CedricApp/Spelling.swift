@@ -13,7 +13,8 @@ import CedricCore
 /// a drawing attribute: the text's colours are never touched.
 @MainActor
 final class EditorSpelling {
-    private unowned let tab: EditorWindowController
+    /// Weak: a timer can fire after the tab is gone.
+    private weak var tab: EditorWindowController?
     private var timer: Timer?
 
     init(tab: EditorWindowController) {
@@ -22,6 +23,7 @@ final class EditorSpelling {
 
     /// The parts of `range` the checker may flag.
     func scope(for range: NSRange) -> [NSRange] {
+        guard let tab else { return [] }
         let ns = tab.textView.string as NSString
         let range = NSIntersectionRange(range, NSRange(location: 0, length: ns.length))
         let index = tab.lineIndex
@@ -39,6 +41,7 @@ final class EditorSpelling {
     /// Turns checking on or off for the tab (View › Check Spelling While Typing).
     func apply() {
         // Large mode: no checking passes over a huge line.
+        guard let tab else { return }
         let on = Settings.shared.checkSpellingWhileTyping && !tab.extrasPaused
         let tv = tab.textView
         tv.spelling = self
@@ -47,7 +50,7 @@ final class EditorSpelling {
 
     /// The text changed or the language did: the owl looks again shortly.
     func schedule(after delay: TimeInterval = 1.0) {
-        guard tab.owl != nil, !tab.extrasPaused, SpellScope.isProse(tab.doc.language), Settings.shared.checkSpellingWhileTyping else { return }
+        guard let tab, tab.owl != nil, !tab.extrasPaused, SpellScope.isProse(tab.doc.language), Settings.shared.checkSpellingWhileTyping else { return }
         timer?.invalidate()
         let t = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.offerTypoFix() }
@@ -63,7 +66,7 @@ final class EditorSpelling {
 
     /// Misspellings in scope within `range` (the visible lines by default).
     func misspellings(in range: NSRange? = nil) -> [NSRange] {
-        let tv = tab.textView
+        guard let tv = tab?.textView else { return [] }
         let ns = tv.string as NSString
         guard ns.length > 0 else { return [] }
         let r = range ?? tv.visibleCharacterRange ?? NSRange(location: 0, length: min(ns.length, 20_000))
@@ -80,7 +83,7 @@ final class EditorSpelling {
     /// The owl's "Fix N typos?": the fixable misspellings with a first
     /// suggestion, as one replacement over the span they cover.
     func typoFix(_ ranges: [NSRange]) -> (range: NSRange, replacement: String, count: Int)? {
-        let tv = tab.textView
+        guard let tv = tab?.textView else { return nil }
         let ns = tv.string as NSString
         var fixes: [(range: NSRange, replacement: String)] = []
         for r in ranges where NSMaxRange(r) <= ns.length {
@@ -96,7 +99,7 @@ final class EditorSpelling {
 
     private func offerTypoFix() {
         timer = nil
-        guard let owl = tab.owl, SpellScope.isProse(tab.doc.language) else { return }
+        guard let tab, let owl = tab.owl, SpellScope.isProse(tab.doc.language) else { return }
         owl.offerTypoFix(self, tab: tab)
     }
 
@@ -105,7 +108,7 @@ final class EditorSpelling {
     /// the spelling panel. The system's own checkSpelling: would stop on
     /// identifiers.
     func selectNext() {
-        let tv = tab.textView
+        guard let tv = tab?.textView else { return }
         let ns = tv.string as NSString
         let all = misspellings(in: NSRange(location: 0, length: min(ns.length, 500_000)))
         let after = NSMaxRange(tv.selectedRange())

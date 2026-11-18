@@ -6,7 +6,7 @@ import CedricCore
 /// through the menus' key equivalents and the text view, then the text,
 /// the state and the drawn pixels are checked.
 ///
-///   CEDRIC_CHECK=highlight|lineops|bookmarks|closedtab|closefail|autoedit|counts
+///   CEDRIC_CHECK=highlight|lineops|bookmarks|closedtab|closefail|closedraw|autoedit|counts
 @MainActor
 extension DevChecks {
     static func editingCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -16,6 +16,7 @@ extension DevChecks {
         case "bookmarks": bookmarks(app)
         case "closedtab": closedTab(app)
         case "closefail": closeAfterFailedSave(app)
+        case "closedraw": closedTabsStillDrawn(app)
         case "autoedit": autoEdit(app)
         case "counts": counts(app)
         default: return gapCheck(name, app)
@@ -480,6 +481,79 @@ extension DevChecks {
                 try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir)
             },
         ])
+    }
+
+    /// A closed tab's views drawn after its controller is gone (AppKit can
+    /// keep a closed window and draw it): this aborted the app (an
+    /// unowned self in the gutter's closures). Hot-closes a dirty tab, a
+    /// clean one and a reopened one, keeps their windows and views alive
+    /// as AppKit might, and draws them over several run-loop turns.
+    static func closedTabsStillDrawn(_ app: AppDelegate) {
+        let dirty = app.open(write("draw-dirty.txt", "one\ntwo\nthree\n"))!
+        let clean = app.open(write("draw-clean.swift", "let a = 1\n// two\nlet b = [a]\n"))!
+        sized(dirty)
+        var kept: [(NSWindow?, NSView, NSView)] = []
+        var gone: [() -> EditorWindowController?] = []
+        func keep(_ t: EditorWindowController) {
+            kept.append((t.window, t.gutter, t.textView))
+            weak var w = t
+            gone.append { w }
+        }
+        func drawAll() {
+            for (w, g, tv) in kept {
+                w?.display()
+                g.needsDisplay = true
+                g.display()
+                tv.needsDisplay = true
+                tv.display()
+                if let rep = g.bitmapImageRepForCachingDisplay(in: g.bounds.isEmpty ? NSRect(x: 0, y: 0, width: 40, height: 40) : g.bounds) {
+                    g.cacheDisplay(in: g.bounds, to: rep)
+                }
+            }
+        }
+        run([
+            sync {
+                focus(dirty)
+                dirty.editing.bookmarks = Bookmarks([1])
+                dirty.textView.setSelectedRange(NSRange(location: 3, length: 0))
+                type(" edited")
+                keep(dirty)
+                key("w", [.command])
+            },
+            sync {
+                expect(!app.tabs.contains { $0 === dirty }, "the dirty tab hot-closed")
+                drawAll()
+                focus(clean)
+                keep(clean)
+                key("w", [.command])
+            },
+            sync { drawAll() },
+            sync {
+                key("t", [.command, .shift])
+            },
+            sync {
+                let back = app.tabs.last
+                expect(back?.doc.fileURL?.lastPathComponent == "draw-clean.swift", "⇧⌘T reopened a tab", back?.doc.displayName ?? "-")
+                if let back { focus(back); keep(back) }
+                key("w", [.command])
+            },
+            sync { drawAll() },
+            sync { drawAll() },
+            sync {
+                let freed = gone.filter { $0() == nil }.count
+                print("check: note \(freed) of \(gone.count) closed controllers freed while their views were drawn")
+                drawAll()
+                // A tab built after launch (as the deferred restore does), closed at once.
+                let late = app.open(write("draw-late.txt", "late\n"))!
+                keep(late)
+                late.window?.performClose(nil)
+                drawAll()
+            },
+            sync {
+                drawAll()
+                expect(true, "closed tabs' windows, gutters and text views drew after close without crashing")
+            },
+        ], gap: 0.4)
     }
 
     // MARK: Auto-indent, pairing, bracket match
