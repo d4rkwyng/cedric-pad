@@ -74,6 +74,40 @@ extension DevChecks {
             return abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent) + abs(a.blueComponent - b.blueComponent) < 0.3
         }
 
+        let markers = dir.appendingPathComponent("markers")
+        try? FileManager.default.createDirectory(at: markers, withIntermediateDirectories: true)
+        var hostile: URL?
+        var hostileTab: EditorWindowController?
+        var offTab: EditorWindowController?
+        var hostileOpened = Date.distantFuture
+        let savedSetting = UserDefaults.standard.object(forKey: "showGitChanges")
+        func restoreSetting() { UserDefaults.standard.set(savedSetting, forKey: "showGitChanges") }
+        /// The audit's PoC: every command-running key writes a marker.
+        func makeHostileRepo() -> URL {
+            let h = dir.appendingPathComponent("hostile")
+            try? FileManager.default.createDirectory(at: h.appendingPathComponent("docs"), withIntermediateDirectories: true)
+            func hg(_ args: [String]) { _ = GitRunner.run(["-c", "user.name=c", "-c", "user.email=c@example.com", "-c", "commit.gpgsign=false"] + args, cwd: h) }
+            let f = write("hostile/docs/README.md", "# hi\n")
+            _ = write("hostile/.gitattributes", "*.md filter=evil diff=evil\n")
+            hg(["init", "-q", "-b", "main"])
+            hg(["add", "."])
+            hg(["commit", "-qm", "first"])
+            let m = markers.path
+            let real = realpath(h.path, nil).map { p -> String in defer { free(p) }; return String(cString: p) } ?? h.path
+            _ = write("hostile/.git/evil.inc", "[core]\n\tfsmonitor = \"touch \(m)/inc-fsmonitor; false\"\n[filter \"inc\"]\n\tclean = \"touch \(m)/inc-clean; cat\"\n")
+            let cfg = h.appendingPathComponent(".git/config")
+            var c = (try? String(contentsOf: cfg, encoding: .utf8)) ?? ""
+            c += "[core]\n\tfsmonitor = \"touch \(m)/fsmonitor; false\"\n"
+            c += "[filter \"evil\"]\n\tclean = \"touch \(m)/clean; cat\"\n\tsmudge = \"touch \(m)/smudge; cat\"\n\tprocess = \"touch \(m)/process\"\n"
+            c += "[diff \"evil\"]\n\ttextconv = \"touch \(m)/textconv; cat\"\n"
+            c += "[includeIf \"gitdir:\(real)/.git\"]\n\tpath = evil.inc\n"
+            try? c.write(to: cfg, atomically: true, encoding: .utf8)
+            // Stat data and content no longer match the index (as after an unzip).
+            try? "# hi\nchanged\n".write(to: f, atomically: true, encoding: .utf8)
+            hostileOpened = Date()
+            return f
+        }
+
         run([
             sync { focus(tab) },
             wait("the first git refresh") { (tab.gitState?.refreshCount ?? 0) > 0 },
@@ -163,6 +197,63 @@ extension DevChecks {
                 expect(p.gitState?.repo == nil && p.gitState?.changes.isEmpty == true, "and no repository or marks")
                 expect(menuItem("Copy GitHub Link").map { !app.validateMenuItem($0) } ?? false, "Copy GitHub Link is disabled there")
                 expect(menuItem("Compare with Last Commit").map { !app.validateMenuItem($0) } ?? false, "and Compare with Last Commit")
+                hostile = makeHostileRepo()
+                hostileTab = app.open(hostile!)
+                if let h = hostileTab { sized(h); focus(h) }
+            },
+            // Security audit H1: a repository whose config runs programs
+            // (fsmonitor, clean/smudge filters, a textconv driver, an
+            // includeIf'd file) runs nothing, and says git info is off.
+            wait("the hostile repo's refresh") { (hostileTab?.gitState?.refreshCount ?? 0) > 0 },
+            wait("a moment for anything git might have started") { Date().timeIntervalSince(hostileOpened) > 1.5 },
+            sync {
+                let h = hostileTab
+                expect(h?.gitState?.refused == true, "a repository asking to run commands: git refused")
+                let hl = h.map { $0.statusBar.gitButton.isHidden ? "" : $0.statusBar.gitButton.attributedTitle.string } ?? "-"
+                expect(hl == "Git info off", "the status bar says Git info off", hl)
+                expect(h?.gitState?.changes.isEmpty == true && h?.gitState?.baseText == nil, "no gutter marks there")
+                expect(menuItem("Compare with Last Commit").map { !app.validateMenuItem($0) } ?? false, "Compare with Last Commit is off there")
+                // Edit and save: refreshes again, still nothing runs.
+                h?.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                type("x")
+                key("s", [.command])
+                refreshes = h?.gitState?.refreshCount ?? 0
+            },
+            wait("the refresh after saving there") { (hostileTab?.gitState?.refreshCount ?? 0) > refreshes },
+            sync {
+                let m = (try? FileManager.default.contentsOfDirectory(atPath: markers.path)) ?? []
+                expect(m.isEmpty, "no marker file: none of the repository's programs ran", "\(m.sorted())")
+                // The PoC is real: a plain, unprotected git status runs them.
+                if let git = GitRunner.executable, let h = hostile {
+                    let p = Process()
+                    p.executableURL = URL(fileURLWithPath: git)
+                    p.arguments = ["status", "--porcelain"]
+                    p.currentDirectoryURL = h.deletingLastPathComponent()
+                    p.standardOutput = FileHandle.nullDevice
+                    p.standardError = FileHandle.nullDevice
+                    try? p.run()
+                    p.waitUntilExit()
+                    let after = (try? FileManager.default.contentsOfDirectory(atPath: markers.path)) ?? []
+                    expect(!after.isEmpty, "control: plain git status there does run them", "\(after.sorted())")
+                }
+                // The setting off: no git process at all for a new tab.
+                Settings.shared.showGitChanges = false
+                offTab = app.open(write("repo/src/other.swift", "x\n"))
+                if let o = offTab { sized(o); focus(o) }
+                hostileOpened = Date()
+            },
+            wait("a while with the setting off") { Date().timeIntervalSince(hostileOpened) > 2 },
+            sync {
+                expect(offTab?.gitState?.refreshCount == 0, "Show git changes off: git never ran for the tab",
+                       "\(offTab?.gitState?.refreshCount ?? -1)")
+                expect(offTab?.statusBar.gitButton.isHidden == true, "and no branch label")
+                expect(tab.gitState?.status == nil && tab.statusBar.gitButton.isHidden, "an open tab drops its git info")
+                Settings.shared.showGitChanges = true
+            },
+            wait("git back on") { (offTab?.gitState?.refreshCount ?? 0) > 0 && offTab?.gitState?.status != nil },
+            sync {
+                restoreSetting()
+                expect(offTab?.statusBar.gitButton.isHidden == false, "on again: the branch label is back")
             },
         ])
     }

@@ -290,6 +290,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   window is up, on a background queue; no network, no sign-in. Without
   the developer tools (or another git) it does nothing, rather than
   setting off the install prompt; very large documents are skipped.
+  A repository can't make Cedric Pad run its programs: git is only
+  asked read-only questions (`rev-parse`, `cat-file`, `ls-files`, never
+  `status` or `diff`), with fsmonitor, hooks, pagers and diff drivers
+  forced off, and a repository whose own config names a program to run
+  (fsmonitor, filters, textconv, through `include`/`includeIf` too) gets
+  no git at all: the status bar says "Git info off". With "Show git
+  changes" off, git never runs.
 - **Images open in a viewer tab** (read-only): PNG, JPEG, GIF, HEIC/HEIF,
   AVIF, WebP, TIFF, BMP, ICO, ICNS, JPEG 2000, PSD, TGA (whatever ImageIO
   decodes), from every route a PDF takes (Open, drops, the Dock,

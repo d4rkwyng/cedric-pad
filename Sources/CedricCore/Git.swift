@@ -305,6 +305,15 @@ public enum GitRunner {
         return "/usr/bin/git"
     }
 
+    /// Put before every git command: a repository's own config must never
+    /// make git run a program (a hostile repo's `core.fsmonitor`, hooks,
+    /// diff drivers, pager or credential helper). Cedric also never runs a
+    /// command that reads work-tree files through filters (`status`,
+    /// `diff`, `add`); see `GitProbe`.
+    public static let safetyArgs = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=",
+                                    "-c", "core.pager=cat", "-c", "credential.helper=", "-c", "protocol.allow=never",
+                                    "-c", "core.untrackedCache=false"]
+
     /// Runs `git args` in `cwd`. Nil if git is missing or couldn't start.
     public static func run(_ args: [String], cwd: URL, timeout: TimeInterval = 10) -> Result? {
         guard let git = executable else { return nil }
@@ -318,6 +327,18 @@ public enum GitRunner {
         if let cwd { p.currentDirectoryURL = cwd }
         var env = ProcessInfo.processInfo.environment
         // Never take the index lock for a status, never prompt, plain output.
+        // Git only: no system config, no external diff (see `safetyArgs`).
+        if path != "/usr/bin/xcode-select" {
+            p.arguments = safetyArgs + args
+            env["GIT_CONFIG_NOSYSTEM"] = "1"
+            env.removeValue(forKey: "GIT_EXTERNAL_DIFF")
+            env.removeValue(forKey: "GIT_CONFIG_PARAMETERS")
+            env.removeValue(forKey: "GIT_CONFIG_COUNT")
+            env.removeValue(forKey: "GIT_INDEX_FILE")
+            env.removeValue(forKey: "GIT_OBJECT_DIRECTORY")
+            env.removeValue(forKey: "GIT_ALTERNATE_OBJECT_DIRECTORIES")
+            env.removeValue(forKey: "GIT_COMMON_DIR")
+        }
         env["GIT_OPTIONAL_LOCKS"] = "0"
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["LC_ALL"] = "C"
@@ -337,5 +358,160 @@ public enum GitRunner {
         p.waitUntilExit()
         timer.cancel()
         return Result(status: p.terminationStatus, output: data)
+    }
+}
+
+/// A repository's own config (`.git/config`, `config.worktree` and every
+/// file they include) read as `git config --list --includes --show-scope
+/// -z` prints it: the keys that would make git run a program. Cedric
+/// overrides the ones it knows of on every call and never runs a command
+/// that uses the rest, but a repository that asks for any of them gets no
+/// git at all (a second layer). Global and system config are the user's
+/// own and are trusted.
+public enum GitConfigSafety {
+    public struct Entry: Equatable, Sendable {
+        public var scope: String
+        public var key: String
+        public var value: String?
+    }
+
+    /// Parses `scope\0key\nvalue\0` records (`key` alone for a valueless key).
+    public static func parse(_ z: String) -> [Entry] {
+        let parts = z.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
+        var out: [Entry] = []
+        var i = 0
+        while i + 1 < parts.count {
+            let scope = parts[i], kv = parts[i + 1]
+            if let nl = kv.firstIndex(of: "\n") {
+                out.append(Entry(scope: scope, key: String(kv[..<nl]), value: String(kv[kv.index(after: nl)...])))
+            } else if !kv.isEmpty {
+                out.append(Entry(scope: scope, key: kv, value: nil))
+            }
+            i += 2
+        }
+        return out
+    }
+
+    /// Scopes that come from the repository (and so from whoever made it).
+    static let repoScopes: Set<String> = ["local", "worktree"]
+
+    /// The repository-scoped keys that name a program to run.
+    public static func dangerousKeys(_ entries: [Entry]) -> [String] {
+        entries.filter { repoScopes.contains($0.scope) && isDangerous(key: $0.key, value: $0.value) }.map(\.key)
+    }
+
+    static func isBool(_ v: String?) -> Bool {
+        guard let v = v?.lowercased() else { return true }
+        return ["", "true", "false", "yes", "no", "on", "off", "1", "0"].contains(v)
+    }
+
+    public static func isDangerous(key rawKey: String, value: String?) -> Bool {
+        // Section and name are case-insensitive; a subsection is not.
+        let parts = rawKey.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 2 else { return false }
+        let section = parts[0].lowercased(), name = parts[parts.count - 1].lowercased()
+        let hasSub = parts.count > 2
+        let sub = hasSub ? parts[1..<(parts.count - 1)].joined(separator: ".") : ""
+        switch section {
+        case "core":
+            switch name {
+            // A boolean fsmonitor is git's own daemon, not a command.
+            case "fsmonitor": return !isBool(value)
+            case "sshcommand", "gitproxy", "askpass", "editor", "pager", "alternaterefscommand": return true
+            default: return false
+            }
+        case "filter":
+            guard hasSub, ["clean", "smudge", "process"].contains(name) else { return false }
+            // `git lfs install --local`: Git LFS's own, fixed commands.
+            if sub == "lfs", let v = value, ["git-lfs clean -- %f", "git-lfs smudge -- %f", "git-lfs filter-process"].contains(v) { return false }
+            return true
+        case "diff": return name == "external" || (hasSub && ["textconv", "command"].contains(name))
+        case "merge": return hasSub && name == "driver"
+        case "credential": return name == "helper"
+        case "gpg": return name == "program"
+        case "sequence": return name == "editor"
+        case "uploadpack": return name == "packobjectshook"
+        case "pager": return true
+        case "remote": return hasSub && ["uploadpack", "receivepack", "vcs"].contains(name)
+        case "ssh": return name == "variant"
+        default: return false
+        }
+    }
+
+    /// The value of `key` (exact, case-insensitive section/name) last set in any scope.
+    public static func value(_ entries: [Entry], _ key: String) -> String? {
+        entries.last { $0.key.caseInsensitiveCompare(key) == .orderedSame }?.value
+    }
+}
+
+/// What git says about one file, using only commands that never run a
+/// repository's programs or filters: `config --list` (read), `rev-parse`,
+/// `cat-file blob <id>` (raw bytes, no textconv or smudge) and `ls-files`
+/// (index only, fsmonitor off). No `status`, `diff` or `show`. Whether
+/// the file changed comes from comparing its bytes on disk with HEAD's.
+public struct GitProbe: Sendable {
+    /// Non-empty: the repository's config asks to run programs, so the
+    /// rest was not looked at.
+    public var refusedKeys: [String] = []
+    public var status = GitFileStatus()
+    /// The path from the work tree's root (when asked for).
+    public var relativePath: String?
+    public var remoteURL: String?
+    /// HEAD's blob for the file; nil when it isn't in HEAD.
+    public var blobID: String?
+    /// HEAD's bytes for the file: "" when it is only in the index, nil when
+    /// untracked or ignored.
+    public var base: Data?
+
+    public var refused: Bool { !refusedKeys.isEmpty }
+
+    /// `cached`: HEAD's blob id and bytes from the last probe (reused when
+    /// the blob hasn't changed, so `cat-file` runs only when it did).
+    public static func probe(file: URL, location: GitLocation, cached: (id: String, data: Data)? = nil) -> GitProbe? {
+        let dir = file.deletingLastPathComponent(), name = file.lastPathComponent
+        guard let cfg = GitRunner.run(["config", "--list", "--includes", "--show-scope", "-z"], cwd: dir), cfg.status == 0 else { return nil }
+        let entries = GitConfigSafety.parse(cfg.text)
+        var p = GitProbe()
+        p.refusedKeys = GitConfigSafety.dangerousKeys(entries)
+        if p.refused { return p }
+        p.remoteURL = GitConfigSafety.value(entries, "remote.origin.url")
+        guard let pre = GitRunner.run(["rev-parse", "--show-prefix"], cwd: dir), pre.status == 0 else { return nil }
+        let rel = pre.text.trimmingCharacters(in: .newlines) + name
+        p.relativePath = rel
+        let head = (try? String(contentsOf: location.gitDir.appendingPathComponent("HEAD"), encoding: .utf8)).flatMap(GitHead.parse)
+        if case .branch(let b) = head {
+            p.status.branch = b
+            p.status.upstream = GitConfigSafety.value(entries, "branch.\(b).merge")
+        }
+        if let h = GitRunner.run(["rev-parse", "-q", "--verify", "HEAD^{commit}"], cwd: dir), h.status == 0 {
+            p.status.headSHA = h.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if p.status.headSHA != nil,
+           let b = GitRunner.run(["rev-parse", "-q", "--verify", "HEAD:\(rel)"], cwd: dir), b.status == 0 {
+            let id = b.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            p.blobID = id
+            if let cached, cached.id == id {
+                p.base = cached.data
+            } else if let c = GitRunner.run(["cat-file", "blob", id], cwd: dir), c.status == 0 {
+                p.base = c.output
+            } else {
+                return nil
+            }
+        } else if let l = GitRunner.run(["ls-files", "-z", "--", name], cwd: dir), l.status == 0, !l.output.isEmpty {
+            // Staged, not yet committed: every line is new.
+            p.base = Data()
+        } else if let i = GitRunner.run(["ls-files", "-z", "-o", "-i", "--exclude-standard", "--", name], cwd: dir),
+                  i.status == 0, !i.output.isEmpty {
+            p.status.ignored = true
+        } else {
+            p.status.untracked = true
+        }
+        if p.status.untracked {
+            p.status.changed = true
+        } else if let base = p.base {
+            let disk = try? Data(contentsOf: file, options: .mappedIfSafe)
+            p.status.changed = disk != base
+        }
+        return p
     }
 }

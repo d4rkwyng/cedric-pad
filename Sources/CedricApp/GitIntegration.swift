@@ -84,9 +84,13 @@ struct GitRefreshResult: Sendable {
     var status: GitFileStatus
     var relativePath: String?
     var remote: GitHubRemote?
-    /// HEAD's text for the file (nil: not in HEAD, or unchanged since `baseSHA`).
+    /// HEAD's text for the file (nil: not in git, or HEAD's blob unchanged).
     var base: String?
     var baseFetched: Bool
+    /// HEAD's blob id and bytes, cached for the next refresh.
+    var blob: (id: String, data: Data)?
+    /// The repository's config asks git to run programs: no git for it.
+    var refused = false
 }
 
 /// One tab's git state.
@@ -99,7 +103,7 @@ final class GitTabState {
     private(set) var relativePath: String?
     /// HEAD's text for the file; nil when it isn't in HEAD.
     private(set) var baseText: String?
-    private var baseSHA: String?
+    private var baseBlob: (id: String, data: Data)?
     private(set) var changes = GitLineChanges()
     private var fileURL: URL?
     private var started = false
@@ -116,6 +120,9 @@ final class GitTabState {
     private(set) var diffCount = 0
     /// The last refresh found no repository (or no usable git).
     private(set) var notInGit = false
+    /// The repository's config asks git to run programs, so Cedric runs no
+    /// git there (the status bar says so).
+    private(set) var refused = false
 
     init(tab: EditorWindowController) { self.tab = tab }
 
@@ -130,7 +137,8 @@ final class GitTabState {
     }
 
     private func startIfIdle() {
-        guard !started, let tab, tab.window?.isVisible == true || ProcessInfo.processInfo.environment["CEDRIC_CHECK"] != nil else { return }
+        // The setting off: no git process at all.
+        guard !started, showsGutter, let tab, tab.window?.isVisible == true || ProcessInfo.processInfo.environment["CEDRIC_CHECK"] != nil else { return }
         if Date().timeIntervalSince(lastEdit) < 0.5 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.startIfIdle() }
             return
@@ -150,8 +158,9 @@ final class GitTabState {
 
     private func clear() {
         status = nil
+        refused = false
         baseText = nil
-        baseSHA = nil
+        baseBlob = nil
         relativePath = nil
         changes = GitLineChanges()
         if let repo { GitRepos.release(repo) }
@@ -163,7 +172,7 @@ final class GitTabState {
 
     func refresh() {
         guard started, let tab else { return }
-        guard let url = tab.doc.fileURL, !tab.isLargeDocument else { clear(); return }
+        guard showsGutter, let url = tab.doc.fileURL, !tab.isLargeDocument else { clear(); return }
         if refreshing { refreshAgain = true; return }
         if url != fileURL {
             if fileURL != nil { clear() }
@@ -172,45 +181,38 @@ final class GitTabState {
         refreshing = true
         let knownLoc = repo?.location
         let needPath = relativePath == nil
-        let haveSHA = baseText != nil ? baseSHA : nil
+        let cached = baseText != nil ? baseBlob : nil
         let encoding = tab.doc.encoding
         gitQueue.async { [weak self] in
-            let result = Self.work(url: url, knownLocation: knownLoc, needPath: needPath, baseSHA: haveSHA, encoding: encoding)
+            let result = Self.work(url: url, knownLocation: knownLoc, needPath: needPath, cached: cached, encoding: encoding)
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated { self?.apply(result, url: url) }
             }
         }
     }
 
-    nonisolated private static func work(url: URL, knownLocation: GitLocation?, needPath: Bool, baseSHA: String?,
+    nonisolated private static func work(url: URL, knownLocation: GitLocation?, needPath: Bool, cached: (id: String, data: Data)?,
                                          encoding: TextEncoding) -> GitRefreshResult? {
         guard let loc = knownLocation ?? GitLocation.find(for: url) else { return nil }
-        let dir = url.deletingLastPathComponent(), name = url.lastPathComponent
-        guard let st = GitRunner.run(["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all", "--", name], cwd: dir),
-              st.status == 0 else { return nil }
-        let status = GitFileStatus.parse(porcelainV2: st.text)
-        var result = GitRefreshResult(location: loc, status: status, baseFetched: false)
-        if needPath, let p = GitRunner.run(["rev-parse", "--show-prefix"], cwd: dir), p.status == 0 {
-            result.relativePath = p.text.trimmingCharacters(in: .newlines) + name
+        // Only commands that never run the repository's programs (GitProbe).
+        guard let p = GitProbe.probe(file: url, location: loc, cached: cached) else { return nil }
+        var result = GitRefreshResult(location: loc, status: p.status, baseFetched: false)
+        if p.refused {
+            result.refused = true
+            return result
         }
-        if let r = GitRunner.run(["config", "--get", "remote.origin.url"], cwd: dir), r.status == 0 {
-            result.remote = GitHubRemote.parse(r.text)
-        }
-        if let sha = status.headSHA, sha != baseSHA {
-            result.baseFetched = true
-            if !status.untracked, let show = GitRunner.run(["show", "\(sha):./\(name)"], cwd: dir) {
-                if show.status == 0 {
-                    result.base = (TextCodec.decode(show.output, as: encoding) ?? TextCodec.decode(show.output))?.text
-                } else {
-                    // In the index but not in HEAD: every line is new.
-                    result.base = ""
-                }
+        result.relativePath = needPath ? p.relativePath : nil
+        result.remote = p.remoteURL.flatMap(GitHubRemote.parse)
+        if let id = p.blobID, let data = p.base {
+            result.blob = (id, data)
+            if cached?.id != id {
+                result.baseFetched = true
+                result.base = (TextCodec.decode(data, as: encoding) ?? TextCodec.decode(data))?.text
             }
-        } else if status.headSHA == nil {
+        } else {
             result.baseFetched = true
-            result.base = status.untracked ? nil : ""
+            result.base = p.base == nil ? nil : ""
         }
-        if status.untracked { result.base = nil; result.baseFetched = true }
         return result
     }
 
@@ -232,13 +234,21 @@ final class GitTabState {
                 MainActor.assumeIsolated { self?.scheduleRefresh() }
             }
         }
+        refused = result.refused
+        if refused {
+            status = nil
+            baseText = nil
+            baseBlob = nil
+            changes = GitLineChanges()
+            repo?.remote = nil
+            tab.gitStateChanged()
+            return
+        }
         repo?.remote = result.remote
         status = result.status
         if let p = result.relativePath { relativePath = p }
-        if result.baseFetched {
-            baseText = result.base
-            baseSHA = result.status.headSHA
-        }
+        if result.baseFetched { baseText = result.base }
+        baseBlob = result.blob
         tab.gitStateChanged()
         diffNow()
     }
@@ -289,7 +299,14 @@ final class GitTabState {
     }
 
     func settingChanged() {
-        if showsGutter { diffNow() } else if !changes.isEmpty { changes = GitLineChanges(); tab?.gitStateChanged() }
+        if showsGutter {
+            if started { diffNow() } else { tabShown() }
+        } else {
+            // Off: no git process at all, and nothing from git shown.
+            refreshTimer?.invalidate()
+            diffTimer?.invalidate()
+            if started { started = false; clear() }
+        }
     }
 
     func stop() {
@@ -325,9 +342,9 @@ final class GitTabState {
     /// HEAD's text now, fetching it if the tab hasn't yet.
     func withBase(_ done: @escaping @MainActor (String?) -> Void) {
         if started, let baseText { done(baseText); return }
-        guard let url = tab?.doc.fileURL, let enc = tab?.doc.encoding else { done(nil); return }
+        guard showsGutter, !refused, let url = tab?.doc.fileURL, let enc = tab?.doc.encoding else { done(nil); return }
         gitQueue.async {
-            let r = Self.work(url: url, knownLocation: nil, needPath: false, baseSHA: nil, encoding: enc)
+            let r = Self.work(url: url, knownLocation: nil, needPath: false, cached: nil, encoding: enc)
             let base = r?.base
             DispatchQueue.main.async { MainActor.assumeIsolated { done(base) } }
         }
@@ -345,6 +362,15 @@ extension EditorWindowController {
 
     func updateGitLabel() {
         let b = statusBar.gitButton
+        if let git = gitState, git.refused {
+            let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+            b.attributedTitle = NSAttributedString(string: String(localized: "Git info off"),
+                                                   attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor])
+            b.toolTip = Self.gitRefusedNote
+            b.setAccessibilityLabel(Self.gitRefusedNote)
+            b.isHidden = false
+            return
+        }
         guard let git = gitState, let label = git.status?.label else {
             if !b.isHidden { b.isHidden = true }
             return
@@ -373,8 +399,15 @@ extension EditorWindowController {
         return (first + 1)...(last + 1)
     }
 
+    static let gitRefusedNote = String(localized: "Git info off for this repository (it asks to run commands)")
+
     @objc func showGitMenu(_ sender: NSButton) {
         let menu = NSMenu()
+        if gitState?.refused == true {
+            menu.addItem(NSMenuItem(title: Self.gitRefusedNote, action: nil, keyEquivalent: ""))
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 2), in: sender)
+            return
+        }
         func add(_ title: String, _ action: Selector, enabled: Bool = true) {
             let i = NSMenuItem(title: title, action: enabled ? action : nil, keyEquivalent: "")
             i.target = self
@@ -444,9 +477,9 @@ extension AppDelegate {
             return git?.gitHubLink(lines: nil) != nil
         case #selector(compareWithLastCommitMenu(_:)):
             // Before the tab's first look, git may still find it: let it try.
-            guard let tab = currentTab, tab.doc.fileURL != nil, !tab.isLargeDocument else { return false }
+            guard let tab = currentTab, tab.doc.fileURL != nil, !tab.isLargeDocument, Settings.shared.showGitChanges else { return false }
             guard let git else { return true }
-            return !git.notInGit && (git.status == nil || git.baseText != nil)
+            return !git.notInGit && !git.refused && (git.status == nil || git.baseText != nil)
         default: return nil
         }
     }
