@@ -9,6 +9,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "CedricCore", targets: ["CedricCore"]),
+        .library(name: "CedricAI", targets: ["CedricAI"]),
         .executable(name: "CedricApp", targets: ["CedricApp"]),
     ],
     targets: [
@@ -19,15 +20,28 @@ let package = Package(
         // only; no AppKit.
         .target(name: "CedricCore"),
 
+        // The owl's optional local-AI hint provider: an OpenAI-compatible
+        // client for LM Studio / Ollama (localhost or LAN, never cloud), the
+        // "only checks so often" scheduler, and an Apple Foundation Models
+        // stub. Foundation + URLSession + IOKit only. OFF by default.
+        .target(
+            name: "CedricAI",
+            dependencies: ["CedricCore"]
+        ),
+
         // The AppKit app. Scripts/bundle-app.sh wraps it in Cedric.app.
         .executableTarget(
             name: "CedricApp",
-            dependencies: ["CedricCore"]
+            dependencies: ["CedricCore", "CedricAI"]
         ),
 
         .testTarget(
             name: "CedricCoreTests",
             dependencies: ["CedricCore"]
+        ),
+        .testTarget(
+            name: "CedricAITests",
+            dependencies: ["CedricAI", "CedricCore"]
         ),
     ]
 )
