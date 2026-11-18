@@ -57,6 +57,16 @@ if pgrep -f "^$BIN_ABS" >/dev/null; then
 fi
 
 failed=0
+# The built-in engine's llama.framework isn't linked (dlopen on first use,
+# CLlamaLoader), so a missing or broken copy no longer stops the launch:
+# check that it loads from the bundle.
+if out=$("${ENV_CLEAN[@]}" CEDRIC_LLAMA_CHECK=1 CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 CEDRIC_SESSION_DIR="$(mktemp -d)" \
+        "$BIN_ABS" -ApplePersistenceIgnoreState YES 2>/dev/null) && [ "$out" = "llama: ok" ]; then
+    echo "launch-check: llama.framework loads from the bundle"
+else
+    echo "launch-check: FAILED llama.framework did not load: $out" >&2
+    failed=1
+fi
 for run in $(seq 1 "$RUNS"); do
     before=$(crash_reports)
     "${ENV_CLEAN[@]}" "$BIN_ABS" >/dev/null 2>&1 &

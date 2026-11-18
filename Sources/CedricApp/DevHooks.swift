@@ -1,5 +1,6 @@
 import AppKit
 import CedricCore
+import CedricAI
 import WebKit
 
 /// Launch-time switches for screenshots, perf measurement and the launch
@@ -47,6 +48,7 @@ import WebKit
 ///   CEDRIC_BUILTIN_CHECK=/out/dir the built-in engine's download rows (BuiltInCheck.swift); pair
 ///                                 with CEDRIC_MODELS_DIR=<temp dir>
 ///   CEDRIC_AI*                    run-only AI settings: see AIStore in Owl/OwlAISettings.swift
+///   CEDRIC_LLAMA_CHECK=1          load the built-in engine's llama.framework (dlopen), print "llama: ok", quit
 ///   CEDRIC_DUMP_SHORTCUTS=1       print every menu shortcut, exit 1 on a clash
 ///   CEDRIC_LAYER_DUMP=/out/dir    dump the view/layer tree and render it three ways (RenderDump.swift);
 ///                                 CEDRIC_LAYER_DUMP_OWL=1 turns the owl on first via the menu action
@@ -154,6 +156,12 @@ enum DevHooks {
             Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in MainActor.assumeIsolated { BuiltInCheck.run(app, out: out) } }
         }
         if let out = env["CEDRIC_SNAPSHOT"], !out.isEmpty { scheduleSnapshot(out) }
+        if env["CEDRIC_LLAMA_CHECK"] == "1" {
+            let problem = LlamaRuntime.loadCheck()
+            print(problem.map { "llama: FAIL \($0)" } ?? "llama: ok")
+            fflush(stdout)
+            exit(problem == nil ? 0 : 1)
+        }
         if env["CEDRIC_DUMP_SHORTCUTS"] == "1" { exit(DevChecks.dumpShortcuts() ? 0 : 1) }
         if let check = env["CEDRIC_CHECK"] { DevChecks.start(check, app) }
         if let out = env["CEDRIC_LAYER_DUMP"], !out.isEmpty {
