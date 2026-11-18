@@ -173,11 +173,15 @@ func buildMainMenu() -> NSMenu {
 
 @MainActor
 func runApp() {
+    LaunchTrace.mark("main")
     let app = NSApplication.shared
+    LaunchTrace.mark("nsapp")
     let delegate = AppDelegate()
     app.delegate = delegate
     app.setActivationPolicy(.regular)
+    LaunchTrace.mark("policy")
     app.mainMenu = buildMainMenu()
+    LaunchTrace.mark("menu_built")
     // NSApp.delegate is weak: keep the delegate alive for the whole run
     // (a release build may otherwise free it right after the assignment).
     withExtendedLifetime(delegate) { app.run() }

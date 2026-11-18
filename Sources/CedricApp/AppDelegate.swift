@@ -17,12 +17,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: Launch
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        LaunchTrace.mark("will_finish")
         NSWindow.allowsAutomaticWindowTabbing = true
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        LaunchTrace.mark("did_finish")
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { _, _ in
             Task { @MainActor in NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil) }
         }
@@ -30,7 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // before the first toggle (it was created lazily, so with the owl
         // off and only untitled tabs the menu item did nothing).
         _ = OwlHub.shared
+        LaunchTrace.mark("owl_hub")
         if env["CEDRIC_NO_RESTORE"] != "1" { restoreSession() }
+        LaunchTrace.mark("restored")
         var toOpen = pendingOpen
         if let list = env["CEDRIC_OPEN"], !list.isEmpty {
             toOpen += list.split(separator: ":").map { URL(fileURLWithPath: String($0)) }
@@ -38,9 +42,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         for url in toOpen { open(url) }
         pendingOpen = []
         if tabs.isEmpty { newTab(nil) }
+        LaunchTrace.mark("tabs_ready")
         rebuildRecentMenu()
+        LaunchTrace.mark("recent_menu")
         launched = true
         DevHooks.afterLaunch(self)
+        LaunchTrace.afterLaunch(self)
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
