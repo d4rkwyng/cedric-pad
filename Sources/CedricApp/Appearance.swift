@@ -118,6 +118,19 @@ final class Settings {
         }
     }
 
+    /// Settings › Editor: how new and undetected documents indent.
+    var defaultIndentation: Indentation {
+        get {
+            let w = defaults.integer(forKey: "tabWidth")
+            return Indentation(usesTabs: defaults.bool(forKey: "indentWithTabs"), width: w > 0 ? w : 4)
+        }
+        set {
+            defaults.set(newValue.width, forKey: "tabWidth")
+            defaults.set(newValue.usesTabs, forKey: "indentWithTabs")
+            changed()
+        }
+    }
+
     var font: NSFont { NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular) }
 
     /// The palette for a view, resolving System against its appearance.

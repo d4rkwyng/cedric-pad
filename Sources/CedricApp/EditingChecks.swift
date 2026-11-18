@@ -17,7 +17,7 @@ extension DevChecks {
         case "closedtab": closedTab(app)
         case "autoedit": autoEdit(app)
         case "counts": counts(app)
-        default: return false
+        default: return gapCheck(name, app)
         }
         return true
     }

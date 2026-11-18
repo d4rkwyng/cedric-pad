@@ -19,10 +19,12 @@ public enum AutoEdit {
         }
     }
 
-    /// One indent step: a tab if the line is indented with tabs, else
-    /// spaces (2 for YAML and Ruby, 4 otherwise).
-    public static func indentUnit(lineIndent: String, language: Language) -> String {
+    /// One indent step: a tab if the line is indented with tabs, else the
+    /// document's own step (`preferred`, from its indentation setting),
+    /// else spaces (2 for YAML and Ruby, 4 otherwise).
+    public static func indentUnit(lineIndent: String, language: Language, preferred: String? = nil) -> String {
         if lineIndent.contains("\t") { return "\t" }
+        if let preferred { return preferred }
         return language == .yaml || language == .ruby ? "  " : "    "
     }
 
@@ -31,7 +33,8 @@ public enum AutoEdit {
     /// bracket (or a ":" in Python and YAML). Between a bracket pair the
     /// closer goes on its own line. Returns the text and where the caret
     /// goes, as an offset into that text.
-    public static func newline(in text: NSString, lineStart: Int, caret: Int, after: Int, language: Language) -> (text: String, caret: Int) {
+    public static func newline(in text: NSString, lineStart: Int, caret: Int, after: Int, language: Language,
+                               unit preferred: String? = nil) -> (text: String, caret: Int) {
         // The line's indent (bounded: a 636 K line of spaces isn't an indent).
         var e = lineStart
         while e < caret, e - lineStart < 256, space.contains(text.character(at: e)) { e += 1 }
@@ -46,7 +49,7 @@ public enum AutoEdit {
             opens = openers[last] != nil || (last == 58 && (language == .python || language == .yaml)) // ":"
         }
         guard opens, let last else { return ("\n" + indent, 1 + (indent as NSString).length) }
-        let unit = indentUnit(lineIndent: indent, language: language)
+        let unit = indentUnit(lineIndent: indent, language: language, preferred: preferred)
         let inner = "\n" + indent + unit
         if let close = openers[last], next == close {
             return (inner + "\n" + indent, (inner as NSString).length)

@@ -67,7 +67,8 @@ extension AppDelegate {
                                language: d.languageIsManual ? d.language : nil,
                                selectionLocation: sel.location, selectionLength: sel.length, topLine: t.topLine,
                                fileModified: d.fileModified,
-                               bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines)
+                               bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines,
+                               indentation: d.indentation)
         let r = ClosedTabs.push(entry, onto: closedTabs)
         closedTabs = r.list
         for gone in r.dropped {
@@ -100,6 +101,7 @@ extension AppDelegate {
         var name = st.untitledName ?? st.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Untitled")
         if url == nil, openNames.contains(name) { name = UntitledNames.next(open: openNames, base: name) }
         let doc = EditorDocument(id: st.id, fileURL: url, untitledName: name)
+        doc.indentation = st.indentation
         if text == nil, let url, let (d, mod) = try? EditorDocument.read(url, encoding: st.encoding) {
             doc.apply(d)
             doc.fileModified = mod

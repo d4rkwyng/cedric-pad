@@ -119,10 +119,43 @@ final class EditorTextView: NSTextView {
         guard isEditable, !hasMarkedText(), let lineStartFor else { super.insertNewline(sender); return }
         let sel = selectedRange()
         let r = AutoEdit.newline(in: string as NSString, lineStart: lineStartFor(sel.location), caret: sel.location,
-                                 after: NSMaxRange(sel), language: language)
+                                 after: NSMaxRange(sel), language: language, unit: indentation?().unit)
         guard r.text != "\n" || r.caret != 1 else { super.insertNewline(sender); return }
         insertText(r.text, replacementRange: sel)
         setSelectedRange(NSRange(location: sel.location + r.caret, length: 0))
+    }
+
+    // MARK: Tab and Shift-Tab (Indentation.swift)
+
+    /// The document's indentation (tabs or spaces, width).
+    var indentation: (() -> Indentation)?
+    /// Indents (true) or outdents (false) the selected lines.
+    var onShiftLines: ((Bool) -> Void)?
+
+    /// Tab: with a selection over several lines, indents them; else a tab,
+    /// or with spaces indentation, spaces up to the next tab stop.
+    override func insertTab(_ sender: Any?) {
+        guard isEditable, !hasMarkedText(), let indentation, let lineStartFor else { super.insertTab(sender); return }
+        let sel = selectedRange()
+        let ns = string as NSString
+        if sel.length > 0, ns.rangeOfCharacter(from: .newlines, options: [], range: sel).location != NSNotFound {
+            onShiftLines?(true)
+            return
+        }
+        let ind = indentation()
+        guard !ind.usesTabs else { super.insertTab(sender); return }
+        // The caret's column, tabs counted to their stops (a bounded look back).
+        let start = lineStartFor(sel.location)
+        var col = 0
+        var i = max(start, sel.location - 4096)
+        while i < sel.location { col = ns.character(at: i) == 9 ? (col / ind.width + 1) * ind.width : col + 1; i += 1 }
+        insertText(String(repeating: " ", count: ind.width - col % ind.width), replacementRange: sel)
+    }
+
+    /// Shift-Tab: outdents the selected lines (or the caret's line).
+    override func insertBacktab(_ sender: Any?) {
+        guard isEditable, !hasMarkedText(), let onShiftLines else { super.insertBacktab(sender); return }
+        onShiftLines(false)
     }
 
     /// Typing an opener or quote pairs it, a closer steps over the one

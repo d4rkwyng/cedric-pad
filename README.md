@@ -48,6 +48,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   language's own comment marker: `//`, `#`, `/* */` or `<!-- -->`). Each
   works on every line the selection touches and is one undo step. ⌘X with
   nothing selected cuts the whole line.
+- **Indent and outdent:** Tab and ⇧Tab on a selection of several lines
+  (or Edit › Line › Indent ⌘] / Outdent ⌘[) shift every line by one step,
+  as one undo step. Each tab follows the file's own indentation (tabs, or
+  2, 3, 4 or 8 spaces, read from its first lines), else the default in
+  Settings; Format › Indentation picks spaces or tabs and the tab width for
+  one tab (kept with the session) and converts the whole file between
+  them. With spaces, Tab inserts spaces to the next tab stop.
 - **Bookmarks** (Edit › Bookmarks, as in Notepad++): Toggle Bookmark (⌘F2,
   or click a line number), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
   Bookmark All Matches (⌥⌘F2: every line matching the find bar's search,

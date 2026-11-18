@@ -23,11 +23,13 @@ public struct SessionTab: Codable, Equatable, Sendable {
     public var fileModified: Date?
     /// Bookmarked lines (0-based); nil in sessions saved before bookmarks.
     public var bookmarks: [Int]?
+    /// Indentation picked for this tab (nil: the file's own or the default).
+    public var indentation: Indentation?
 
     public init(id: UUID = UUID(), path: String? = nil, untitledName: String? = nil, hasBuffer: Bool = false,
                 encoding: TextEncoding = .utf8, lineEnding: LineEnding = .lf, language: Language? = nil,
                 selectionLocation: Int = 0, selectionLength: Int = 0, topLine: Int = 0, fileModified: Date? = nil,
-                bookmarks: [Int]? = nil) {
+                bookmarks: [Int]? = nil, indentation: Indentation? = nil) {
         self.id = id
         self.path = path
         self.untitledName = untitledName
@@ -40,6 +42,7 @@ public struct SessionTab: Codable, Equatable, Sendable {
         self.topLine = topLine
         self.fileModified = fileModified
         self.bookmarks = bookmarks
+        self.indentation = indentation
     }
 }
 

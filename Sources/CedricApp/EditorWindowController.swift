@@ -128,6 +128,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         scrollView.borderType = .noBorder
         textView.delegate = self
         textView.onCutLine = { [unowned self] in self.cutLine() }
+        textView.indentation = { [unowned self] in self.indentation }
+        textView.onShiftLines = { [unowned self] right in self.shiftLines(right: right) }
         textView.lineStartFor = { [unowned self] offset in
             let index = self.lineIndex
             return index.starts[index.line(containing: offset)]
@@ -210,6 +212,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Replaces the whole text (open, reload, restore): not a user edit.
     func setText(_ text: String) {
         loading = true
+        doc.detectedIndentation = nil
         // Large mode first, so TextKit never lays out a huge line whole.
         applyLargeMode(LargeDocument.reason(for: LineIndex(text as NSString)), newText: true)
         PerfTrace.mark("large_check")
@@ -238,7 +241,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     func baseAttributes() -> [NSAttributedString.Key: Any] {
         let font = Settings.shared.font
         let para = NSMutableParagraphStyle()
-        let space = ("    " as NSString).size(withAttributes: [.font: font]).width
+        let space = (String(repeating: " ", count: tabWidth) as NSString).size(withAttributes: [.font: font]).width
         para.tabStops = []
         para.defaultTabInterval = space
         return [.font: font, .paragraphStyle: para, .foregroundColor: NSColor(hex: palette.foreground)]
@@ -293,6 +296,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         // typed or pasted (LanguageChoice): a paste at once, typing when
         // it pauses. The sniff reads the first 4 KB, so edits further down
         // skip it.
+        // A paste may bring the first indented lines: look again when needed.
+        if lastEditLength > 1, case .some(nil) = doc.detectedIndentation { doc.detectedIndentation = nil }
         if doc.fileURL == nil, doc.languageChoice.isAuto, lastEditLocation < 4096, !extrasPaused {
             sniffTimer?.invalidate()
             if lastEditLength > 1 {
@@ -387,6 +392,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         textView.font = s.font
         textView.textColor = NSColor(hex: p.foreground)
         textView.typingAttributes = attrs
+        tabWidthChanged()
         applyWrap(s.wrapLines)
         updateGutterWidth()
         colorizer.setPalette(p)

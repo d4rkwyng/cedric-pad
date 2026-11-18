@@ -292,7 +292,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                               language: d.languageIsManual ? d.language : nil,
                                               selectionLocation: sel.location, selectionLength: sel.length,
                                               topLine: t.topLine, fileModified: d.fileModified,
-                                              bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines))
+                                              bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines,
+                                              indentation: d.indentation))
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
             }
             if !sessionTabs.isEmpty {
@@ -375,6 +376,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func restoreTab(_ st: SessionTab, into place: (host: NSWindow, index: Int)?) -> EditorWindowController? {
         let doc = EditorDocument(id: st.id, fileURL: st.path.map { URL(fileURLWithPath: $0) },
                                  untitledName: st.untitledName ?? st.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Untitled"))
+        doc.indentation = st.indentation
         var text: String?
         if st.hasBuffer { text = store.readBuffer(st.id) }
         if text == nil, let url = doc.fileURL, let (d, mod) = try? EditorDocument.read(url, encoding: st.encoding) {
@@ -537,7 +539,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)), #selector(showFind(_:)), #selector(showReplace(_:)),
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(goToLine(_:)), #selector(useSelectionForFind(_:)):
             return tab != nil
-        default: return validateEditingItem(item) ?? validateToolItem(item)
+        default: return validateEditingItem(item) ?? validateIndentationItem(item) ?? validateToolItem(item)
         }
         return true
     }

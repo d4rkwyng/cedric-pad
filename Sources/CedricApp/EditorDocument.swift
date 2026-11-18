@@ -35,6 +35,11 @@ final class EditorDocument {
     private(set) var unsavedSince: Date?
     /// The file changed on disk while the tab had unsaved edits (clean tabs just reload).
     var changedOnDisk = false
+    /// Format › Indentation, picked for this tab (nil: the file's own, else Settings').
+    var indentation: Indentation?
+    /// What the text's first lines use (Indentation.detect), read the first
+    /// time it is needed after the text was set, never at launch.
+    var detectedIndentation: Indentation??
 
     init(id: UUID = UUID(), fileURL: URL? = nil, untitledName: String) {
         self.id = id

@@ -119,6 +119,9 @@ func buildMainMenu() -> NSMenu {
                  String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .command]),
             item(String(localized: "Delete Line"), #selector(AppDelegate.deleteLineMenu(_:)), "k", [.command, .shift]),
             item(String(localized: "Toggle Comment"), #selector(AppDelegate.toggleCommentMenu(_:)), "/"),
+            .separator(),
+            item(String(localized: "Indent"), #selector(AppDelegate.indentLinesMenu(_:)), "]"),
+            item(String(localized: "Outdent"), #selector(AppDelegate.outdentLinesMenu(_:)), "["),
         ]),
         submenu(String(localized: "Bookmarks"), [
             item(String(localized: "Toggle Bookmark"), #selector(AppDelegate.toggleBookmarkMenu(_:)), f2, [.command]),
@@ -183,6 +186,17 @@ func buildMainMenu() -> NSMenu {
         submenu(String(localized: "Line Endings"), LineEnding.allCases.map {
             item($0.displayName, #selector(AppDelegate.pickLineEndingMenu(_:)), represented: $0.rawValue)
         }),
+        submenu(String(localized: "Indentation"), [
+            item(String(localized: "Indent Using Spaces"), #selector(AppDelegate.indentUsingSpacesMenu(_:))),
+            item(String(localized: "Indent Using Tabs"), #selector(AppDelegate.indentUsingTabsMenu(_:))),
+            .separator(),
+        ] + Indentation.widths.map {
+            item(String(localized: "Tab Width: \($0)"), #selector(AppDelegate.tabWidthMenu(_:)), represented: $0)
+        } + [
+            .separator(),
+            item(String(localized: "Convert Indentation to Spaces"), #selector(AppDelegate.convertIndentationToSpacesMenu(_:))),
+            item(String(localized: "Convert Indentation to Tabs"), #selector(AppDelegate.convertIndentationToTabsMenu(_:))),
+        ]),
     ]))
 
     let window = submenu(String(localized: "Window"), [
