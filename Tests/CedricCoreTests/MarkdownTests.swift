@@ -1,0 +1,83 @@
+import Foundation
+import Testing
+@testable import CedricCore
+
+/// The renderer's output with the data-line attributes stripped.
+func md(_ s: String) -> String {
+    Markdown.render(s).replacingOccurrences(of: #" data-line="\d+""#, with: "", options: .regularExpression)
+}
+
+@Suite struct MarkdownTests {
+    @Test func headings() {
+        #expect(md("# One\n## Two ##\n###### Six") == "<h1 id=\"one\">One</h1>\n<h2 id=\"two\">Two</h2>\n<h6 id=\"six\">Six</h6>\n")
+        #expect(md("#NoSpace") == "<p>#NoSpace</p>\n")
+        #expect(md("Title\n=====\nSub\n---") == "<h1 id=\"title\">Title</h1>\n<h2 id=\"sub\">Sub</h2>\n")
+    }
+
+    @Test func paragraphsAndBreaks() {
+        #expect(md("a\nb\n\nc") == "<p>a\nb</p>\n<p>c</p>\n")
+        #expect(md("hard  \nbreak") == "<p>hard<br>\nbreak</p>\n")
+    }
+
+    @Test func inlineFormatting() {
+        #expect(md("*em* _em_ **strong** __strong__ ~~del~~ `co*de*`")
+                == "<p><em>em</em> <em>em</em> <strong>strong</strong> <strong>strong</strong> <del>del</del> <code>co*de*</code></p>\n")
+        #expect(md("snake_case_name stays") == "<p>snake_case_name stays</p>\n")
+        #expect(md("***both***") == "<p><strong><em>both</em></strong></p>\n")
+    }
+
+    @Test func escapesHTMLAndBackslashes() {
+        #expect(md("a < b & \"c\" \\*not em\\*") == "<p>a &lt; b &amp; &quot;c&quot; *not em*</p>\n")
+        #expect(md("`<script>`") == "<p><code>&lt;script&gt;</code></p>\n")
+    }
+
+    @Test func links() {
+        #expect(md("[Cedric](https://example.com/a_b \"T\")") == "<p><a href=\"https://example.com/a_b\" title=\"T\">Cedric</a></p>\n")
+        #expect(md("![alt](img.png)") == "<p><img src=\"img.png\" alt=\"alt\"></p>\n")
+        #expect(md("<https://x.org>") == "<p><a href=\"https://x.org\">https://x.org</a></p>\n")
+        #expect(md("see https://x.org/p.") == "<p>see <a href=\"https://x.org/p\">https://x.org/p</a>.</p>\n")
+        #expect(md("[x](javascript:alert(1))").contains("href=\"#\""))
+    }
+
+    @Test func fencedCodeIsEscapedAndNotParsed() {
+        #expect(md("```swift\nlet a = 1 < 2 // *x*\n```") == "<pre><code class=\"language-swift\">let a = 1 &lt; 2 // *x*\n</code></pre>\n")
+        #expect(md("~~~\n# not a heading\n~~~") == "<pre><code># not a heading\n</code></pre>\n")
+    }
+
+    @Test func indentedCode() {
+        #expect(md("    code here\n    more") == "<pre><code>code here\nmore\n</code></pre>\n")
+    }
+
+    @Test func lists() {
+        #expect(md("- a\n- b\n  - nested\n- c") == "<ul>\n<li>a</li>\n<li>b\n<ul>\n<li>nested</li>\n</ul></li>\n<li>c</li>\n</ul>\n")
+        #expect(md("3. three\n4. four") == "<ol start=\"3\">\n<li>three</li>\n<li>four</li>\n</ol>\n")
+        #expect(md("- a\n\n- b") == "<ul>\n<li><p>a</p></li>\n<li><p>b</p></li>\n</ul>\n")
+        #expect(md("- [ ] todo\n- [x] done") == "<ul>\n<li><input type=\"checkbox\" disabled> todo</li>\n<li><input type=\"checkbox\" checked disabled> done</li>\n</ul>\n")
+    }
+
+    @Test func blockquote() {
+        #expect(md("> quoted *text*\n> more") == "<blockquote>\n<p>quoted <em>text</em>\nmore</p>\n</blockquote>\n")
+    }
+
+    @Test func thematicBreak() {
+        #expect(md("a\n\n---\n\n* * *") == "<p>a</p>\n<hr>\n<hr>\n")
+    }
+
+    @Test func tables() {
+        let out = md("| Name | Size |\n|:-----|-----:|\n| a | 1 |\n| `b|c` | 2 |")
+        #expect(out == "<table>\n<thead>\n<tr><th style=\"text-align:left\">Name</th><th style=\"text-align:right\">Size</th></tr>\n</thead>\n"
+                + "<tbody>\n<tr><td style=\"text-align:left\">a</td><td style=\"text-align:right\">1</td></tr>\n"
+                + "<tr><td style=\"text-align:left\"><code>b|c</code></td><td style=\"text-align:right\">2</td></tr>\n</tbody>\n</table>\n")
+    }
+
+    @Test func htmlBlockPassesThrough() {
+        #expect(md("<div class=\"x\">\n*raw*\n</div>\n\npara") == "<div class=\"x\">\n*raw*\n</div>\n<p>para</p>\n")
+    }
+
+    @Test func dataLineAttributesForScrollSync() {
+        let html = Markdown.render("# A\n\ntext\n\n- item")
+        #expect(html.contains("<h1 data-line=\"0\""))
+        #expect(html.contains("<p data-line=\"2\">"))
+        #expect(html.contains("<ul data-line=\"4\">"))
+    }
+}
