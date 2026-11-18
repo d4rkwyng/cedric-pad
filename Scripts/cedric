@@ -1,0 +1,49 @@
+#!/bin/bash
+# cedric: open files in Cedric from the command line (the running app if
+# there is one). Install with:
+#
+#   ln -s /Applications/Cedric.app/Contents/Resources/cedric /usr/local/bin/cedric
+#
+#   cedric file ...         open files (missing files open as new, empty tabs)
+#   cedric file:42          open at line 42 (also +42 before the file)
+#   cedric -                read stdin into a new untitled tab
+#   cedric                  bring Cedric forward
+set -euo pipefail
+
+# The app this script lives in, else one Launch Services knows about.
+here=$(cd "$(dirname "$(readlink "$0" 2>/dev/null || echo "$0")")" && pwd)
+case "$here" in
+    */Cedric.app/Contents/Resources) APP=${here%/Contents/Resources} ;;
+    *) APP=${CEDRIC_APP:-Cedric} ;;
+esac
+
+urlencode() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe="/"))' "$1"; }
+
+if [ $# -eq 0 ]; then
+    exec open -a "$APP"
+fi
+
+# Make sure the app is running (and has registered its URL scheme) first.
+open -g -a "$APP"
+
+line=""
+for arg in "$@"; do
+    case "$arg" in
+        +[0-9]*) line=${arg#+}; continue ;;
+        -)
+            tmp=$(mktemp "${TMPDIR:-/tmp}/cedric-stdin.XXXXXX")
+            cat > "$tmp"
+            open -a "$APP" "cedric://open?untitled=$(urlencode "$tmp")"
+            continue ;;
+    esac
+    path=$arg
+    if [[ "$arg" =~ ^(.+):([0-9]+)$ ]] && [ ! -e "$arg" ]; then
+        path=${BASH_REMATCH[1]}
+        line=${BASH_REMATCH[2]}
+    fi
+    case "$path" in /*) ;; *) path="$PWD/$path" ;; esac
+    url="cedric://open?path=$(urlencode "$path")"
+    [ -n "$line" ] && url="$url&line=$line"
+    open -a "$APP" "$url"
+    line=""
+done

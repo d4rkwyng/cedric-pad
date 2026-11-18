@@ -1,0 +1,200 @@
+import AppKit
+import CedricCore
+
+/// The editing surface: an NSTextView on TextKit 2 (NSTextLayoutManager),
+/// which lays out only what is near the viewport, so large files open
+/// quickly. Adds the current-line highlight and drawn invisibles; text
+/// colours come from `SyntaxColorizer` as rendering attributes.
+final class EditorTextView: NSTextView {
+    var palette: EditorPalette = EditorPalettes.light
+    var showInvisibles = false { didSet { needsDisplay = true } }
+    /// Called with the replacement for a paste or drop containing CR/CRLF.
+    var onNormalizedInsert: ((String) -> Void)?
+
+    static func make() -> EditorTextView {
+        let layoutManager = NSTextLayoutManager()
+        let content = NSTextContentStorage()
+        content.addTextLayoutManager(layoutManager)
+        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        layoutManager.textContainer = container
+        let tv = EditorTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), textContainer: container)
+        tv.isRichText = false
+        tv.importsGraphics = false
+        tv.allowsUndo = true
+        tv.usesFindBar = false
+        tv.isAutomaticQuoteSubstitutionEnabled = false
+        tv.isAutomaticDashSubstitutionEnabled = false
+        tv.isAutomaticTextReplacementEnabled = false
+        tv.isAutomaticSpellingCorrectionEnabled = false
+        tv.isContinuousSpellCheckingEnabled = false
+        tv.isGrammarCheckingEnabled = false
+        tv.isAutomaticLinkDetectionEnabled = false
+        tv.isAutomaticDataDetectionEnabled = false
+        tv.smartInsertDeleteEnabled = false
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.textContainerInset = NSSize(width: 4, height: 4)
+        tv.drawsBackground = true
+        return tv
+    }
+
+    var contentStorage: NSTextContentStorage? { textLayoutManager?.textContentManager as? NSTextContentStorage }
+
+    // MARK: Range conversion
+
+    func textRange(for range: NSRange) -> NSTextRange? {
+        guard let tlm = textLayoutManager, let tcm = tlm.textContentManager else { return nil }
+        let doc = tcm.documentRange.location
+        guard let start = tcm.location(doc, offsetBy: range.location),
+              let end = tcm.location(start, offsetBy: range.length) else { return nil }
+        return NSTextRange(location: start, end: end)
+    }
+
+    func offset(of location: NSTextLocation) -> Int {
+        guard let tcm = textLayoutManager?.textContentManager else { return 0 }
+        return tcm.offset(from: tcm.documentRange.location, to: location)
+    }
+
+    /// The character range laid out for the viewport (plus what TextKit
+    /// laid out around it).
+    var viewportCharacterRange: NSRange? {
+        guard let tlm = textLayoutManager, let vr = tlm.textViewportLayoutController.viewportRange else { return nil }
+        let start = offset(of: vr.location)
+        return NSRange(location: start, length: max(0, offset(of: vr.endLocation) - start))
+    }
+
+    // MARK: Paste normalisation
+
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        if let s = replacementString, s.utf8.contains(13) {
+            let normalized = TextCodec.normalizeLineEndings(s)
+            // Re-enter with the LF-only text (keeps undo and delegates intact).
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if self.shouldChangeText(in: affectedCharRange, replacementString: normalized) {
+                    self.textStorage?.replaceCharacters(in: affectedCharRange, with: normalized)
+                    self.didChangeText()
+                    self.setSelectedRange(NSRange(location: affectedCharRange.location + (normalized as NSString).length, length: 0))
+                }
+            }
+            return false
+        }
+        return super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
+    }
+
+    // MARK: Drawing
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        needsDisplay = true
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard let tlm = textLayoutManager else { return }
+        let origin = textContainerOrigin
+
+        // Current line: the paragraph holding the caret (only without a
+        // multi-character selection, as in most editors).
+        let sel = selectedRange()
+        if sel.length == 0, let loc = textRange(for: NSRange(location: sel.location, length: 0))?.location,
+           let frag = tlm.textLayoutFragment(for: loc) {
+            var f = frag.layoutFragmentFrame
+            // On the empty last line TextKit reports the previous paragraph; fine for v0.
+            f.origin.x = 0
+            f.size.width = bounds.width
+            f.origin.y += origin.y
+            NSColor(hex: palette.currentLine).setFill()
+            f.intersection(rect).fill()
+        }
+
+        if showInvisibles { drawInvisibles(in: rect, layoutManager: tlm) }
+    }
+
+    private func drawInvisibles(in rect: NSRect, layoutManager tlm: NSTextLayoutManager) {
+        guard let start = tlm.textViewportLayoutController.viewportRange?.location else { return }
+        let font = self.font ?? Settings.shared.font
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(hex: palette.invisibles)]
+        let dot = NSAttributedString(string: "·", attributes: attrs)
+        let arrow = NSAttributedString(string: "→", attributes: attrs)
+        let pilcrow = NSAttributedString(string: "¬", attributes: attrs)
+        let origin = textContainerOrigin
+        tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { frag in
+            let frame = frag.layoutFragmentFrame
+            if frame.minY + origin.y > rect.maxY { return false }
+            if frame.maxY + origin.y < rect.minY { return true }
+            guard let para = frag.textElement as? NSTextParagraph else { return true }
+            let units = para.attributedString.string as NSString
+            for line in frag.textLineFragments {
+                let r = line.characterRange
+                let lineOrigin = CGPoint(x: frame.minX + line.typographicBounds.minX + origin.x,
+                                         y: frame.minY + line.typographicBounds.minY + origin.y)
+                var i = r.location
+                while i < r.location + r.length {
+                    let c = units.character(at: i)
+                    if c == 32 || c == 9 || c == 10 {
+                        let p = line.locationForCharacter(at: i)
+                        let glyph = c == 32 ? dot : c == 9 ? arrow : pilcrow
+                        glyph.draw(at: CGPoint(x: lineOrigin.x + p.x, y: lineOrigin.y))
+                    }
+                    i += 1
+                }
+            }
+            return true
+        }
+    }
+}
+
+/// Line numbers, drawn beside the scroll view (not as an NSRulerView: a
+/// ruler can pull an NSTextView back to TextKit 1). Numbers come from the
+/// line index, positions from the visible layout fragments.
+final class GutterView: NSView {
+    weak var textView: EditorTextView?
+    var lineIndex: () -> LineIndex = { LineIndex() }
+    var palette: EditorPalette = EditorPalettes.light { didSet { needsDisplay = true } }
+
+    override var isFlipped: Bool { true }
+
+    /// Wide enough for the largest line number.
+    func requiredWidth(lines: Int, font: NSFont) -> CGFloat {
+        let digits = max(3, String(lines).count)
+        let w = ("8" as NSString).size(withAttributes: [.font: gutterFont(font)]).width
+        return ceil(CGFloat(digits) * w + 18)
+    }
+
+    private func gutterFont(_ f: NSFont) -> NSFont {
+        NSFont.monospacedDigitSystemFont(ofSize: max(8, f.pointSize - 1), weight: .regular)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(hex: palette.gutterBackground).setFill()
+        dirtyRect.fill()
+        guard let tv = textView, let tlm = tv.textLayoutManager, let scroll = tv.enclosingScrollView,
+              let start = tlm.textViewportLayoutController.viewportRange?.location else { return }
+        let index = lineIndex()
+        let font = gutterFont(tv.font ?? Settings.shared.font)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(hex: palette.gutterForeground)]
+        let currentAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(hex: palette.foreground)]
+        let currentLine = index.line(containing: tv.selectedRange().location)
+        let scrollY = scroll.contentView.bounds.minY
+        let originY = tv.textContainerOrigin.y
+        let textFont = tv.font ?? Settings.shared.font
+        tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { frag in
+            let frame = frag.layoutFragmentFrame
+            let y = frame.minY + originY - scrollY
+            if y > self.bounds.maxY { return false }
+            if y + frame.height < 0 { return true }
+            let line = index.line(containing: tv.offset(of: frag.rangeInElement.location))
+            let s = NSAttributedString(string: String(line + 1), attributes: line == currentLine ? currentAttrs : attrs)
+            let size = s.size()
+            // Align with the first line's baseline.
+            let baselineY = y + (frag.textLineFragments.first?.typographicBounds.minY ?? 0) + textFont.ascender - font.ascender
+            s.draw(at: CGPoint(x: self.bounds.width - size.width - 8, y: baselineY))
+            return true
+        }
+        // The last empty line after a trailing newline has no fragment in
+        // some TextKit versions; number it from the previous one.
+    }
+}

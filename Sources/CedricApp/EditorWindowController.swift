@@ -1,0 +1,676 @@
+import AppKit
+import CedricCore
+
+/// Holds the gutter beside the scroll view.
+final class EditorContainer: NSView {
+    let gutter: GutterView
+    let scrollView: NSScrollView
+    var gutterWidth: CGFloat = 40 { didSet { needsLayout = true } }
+    var showsGutter = true { didSet { gutter.isHidden = !showsGutter; needsLayout = true } }
+
+    init(gutter: GutterView, scrollView: NSScrollView) {
+        self.gutter = gutter
+        self.scrollView = scrollView
+        super.init(frame: .zero)
+        addSubview(gutter)
+        addSubview(scrollView)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func layout() {
+        super.layout()
+        let g = showsGutter ? gutterWidth : 0
+        gutter.frame = NSRect(x: 0, y: 0, width: g, height: bounds.height)
+        scrollView.frame = NSRect(x: g, y: 0, width: bounds.width - g, height: bounds.height)
+    }
+}
+
+/// One tab: a window (grouped with others by native window tabbing) with
+/// the editor, line numbers, the optional preview, the find bar and the
+/// status bar, for one `EditorDocument`.
+@MainActor
+final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTextViewDelegate, NSSplitViewDelegate {
+    let doc: EditorDocument
+    let textView = EditorTextView.make()
+    let scrollView = NSScrollView()
+    let gutter = GutterView()
+    private(set) var lineIndex = LineIndex()
+    private(set) var colorizer: SyntaxColorizer!
+    let findBar = FindBar()
+    let statusBar = StatusBar()
+    private let split = NSSplitView()
+    private var container: EditorContainer!
+    private(set) var preview: PreviewController?
+    var previewVisible: Bool { preview != nil && !(preview!.webView.isHidden) && split.subviews.count > 1 }
+    private var previewTimer: Timer?
+    private var observers: [NSObjectProtocol] = []
+    /// While loading text, edits aren't user changes.
+    private var loading = false
+    var onChange: ((EditorWindowController) -> Void)?
+    var onClose: ((EditorWindowController) -> Void)?
+
+    init(doc: EditorDocument, text: String) {
+        self.doc = doc
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: true)
+        window.tabbingMode = .preferred
+        window.tabbingIdentifier = "CedricEditor"
+        window.minSize = NSSize(width: 420, height: 240)
+        window.isRestorable = false
+        super.init(window: window)
+        window.delegate = self
+        buildViews()
+        colorizer = SyntaxColorizer(textView: textView, language: doc.language)
+        colorizer.lineIndexProvider = { [unowned self] in self.lineIndex }
+        setText(text)
+        applyAppearance()
+        observe()
+        updateTitle()
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    // MARK: Views
+
+    private func buildViews() {
+        guard let window else { return }
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = true
+        scrollView.borderType = .noBorder
+        textView.delegate = self
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        gutter.textView = textView
+        gutter.lineIndex = { [unowned self] in self.lineIndex }
+        container = EditorContainer(gutter: gutter, scrollView: scrollView)
+
+        split.isVertical = true
+        split.dividerStyle = .thin
+        split.delegate = self
+        split.addArrangedSubview(container)
+
+        findBar.isHidden = true
+        findBar.onChange = { [weak self] in self?.findChanged() }
+        findBar.onFind = { [weak self] back in self?.find(backwards: back) }
+        findBar.onReplace = { [weak self] in self?.replaceOne() }
+        findBar.onReplaceAll = { [weak self] in self?.replaceAll() }
+        findBar.onClose = { [weak self] in self?.hideFindBar() }
+
+        let stack = NSStackView(views: [findBar, split, statusBar])
+        stack.orientation = .vertical
+        stack.spacing = 0
+        stack.alignment = .width
+        stack.detachesHiddenViews = true
+        stack.setHuggingPriority(.defaultLow, for: .vertical)
+        split.setContentHuggingPriority(.init(1), for: .vertical)
+        window.contentView = stack
+        configureStatusBar()
+    }
+
+    private func observe() {
+        let nc = NotificationCenter.default
+        observers.append(nc.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: textView.textStorage, queue: nil) { [weak self] n in
+            MainActor.assumeIsolated { self?.storageEdited() }
+        })
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        observers.append(nc.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scrolled() }
+        })
+        observers.append(nc.addObserver(forName: NSView.frameDidChangeNotification, object: textView, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.gutter.needsDisplay = true; self?.colorizer.scheduleViewport() }
+        })
+        observers.append(nc.addObserver(forName: .cedricAppearanceChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyAppearance() }
+        })
+        observers.append(nc.addObserver(forName: NSTextView.willSwitchToNSLayoutManagerNotification, object: textView, queue: .main) { _ in
+            FileHandle.standardError.write(Data("warning: text view fell back to TextKit 1\n".utf8))
+        })
+    }
+
+    // MARK: Text
+
+    /// Replaces the whole text (open, reload, restore): not a user edit.
+    func setText(_ text: String) {
+        loading = true
+        let attrs = baseAttributes()
+        let storage = textView.textStorage!
+        storage.beginEditing()
+        storage.setAttributedString(NSAttributedString(string: text, attributes: attrs))
+        storage.endEditing()
+        lineIndex = LineIndex(storage.string as NSString)
+        textView.typingAttributes = attrs
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        textView.undoManager?.removeAllActions()
+        loading = false
+        updateGutterWidth()
+        colorizer.recolorAll()
+        updateStatus()
+    }
+
+    var text: String { textView.string }
+
+    private func baseAttributes() -> [NSAttributedString.Key: Any] {
+        let font = Settings.shared.font
+        let para = NSMutableParagraphStyle()
+        let space = ("    " as NSString).size(withAttributes: [.font: font]).width
+        para.tabStops = []
+        para.defaultTabInterval = space
+        return [.font: font, .paragraphStyle: para, .foregroundColor: NSColor(hex: palette.foreground)]
+    }
+
+    private func storageEdited() {
+        guard let storage = textView.textStorage, storage.editedMask.contains(.editedCharacters) else { return }
+        let edited = storage.editedRange
+        let delta = storage.changeInLength
+        let oldRange = NSRange(location: edited.location, length: edited.length - delta)
+        let oldLines = lineIndex.lineCount
+        let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
+        if loading { return }
+        colorizer.textDidChange(firstLine: first, lineDelta: lineIndex.lineCount - oldLines, lineCount: lineIndex.lineCount)
+        if lineIndex.lineCount != oldLines { updateGutterWidth() }
+    }
+
+    func textDidChange(_ notification: Notification) {
+        guard !loading else { return }
+        let wasDirty = doc.isDirty
+        doc.noteChange()
+        if wasDirty != doc.isDirty { updateTitle() }
+        // An untitled tab picks a language when text is pasted or typed.
+        if doc.fileURL == nil, !doc.languageIsManual, doc.language == .plain, lineIndex.length > 20 {
+            let guess = LanguageDetector.sniff(textView.string)
+            if guess != .plain { setLanguage(guess, manual: false) }
+        }
+        gutter.needsDisplay = true
+        updateStatus()
+        schedulePreview()
+        onChange?(self)
+    }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+        updateStatus()
+        gutter.needsDisplay = true
+    }
+
+    private func scrolled() {
+        colorizer.scheduleViewport()
+        gutter.needsDisplay = true
+        syncPreviewScroll()
+    }
+
+    // MARK: Appearance
+
+    var palette: EditorPalette { Settings.shared.palette(for: window?.effectiveAppearance) }
+
+    func applyAppearance() {
+        let s = Settings.shared
+        window?.appearance = s.windowAppearance
+        let p = palette
+        textView.palette = p
+        textView.backgroundColor = NSColor(hex: p.background)
+        scrollView.backgroundColor = NSColor(hex: p.background)
+        textView.insertionPointColor = NSColor(hex: p.caret)
+        textView.selectedTextAttributes = [.backgroundColor: NSColor(hex: p.selection)]
+        textView.showInvisibles = s.showInvisibles
+        gutter.palette = p
+        container.showsGutter = s.showLineNumbers
+        statusBar.background = NSColor(hex: p.statusBar)
+        // Font and foreground over the whole text: one attribute run.
+        let attrs = baseAttributes()
+        if let storage = textView.textStorage, storage.length > 0,
+           (storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont) != s.font
+            || (storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) != NSColor(hex: p.foreground) {
+            loading = true
+            storage.beginEditing()
+            storage.setAttributes(attrs, range: NSRange(location: 0, length: storage.length))
+            storage.endEditing()
+            loading = false
+        }
+        textView.typingAttributes = attrs
+        textView.font = s.font
+        applyWrap(s.wrapLines)
+        updateGutterWidth()
+        colorizer.setPalette(p)
+        statusBar.zoom.stringValue = "\(Int((s.fontSize / Settings.defaultFontSize * 100).rounded()))%"
+        textView.needsDisplay = true
+        if previewVisible { renderPreview() }
+    }
+
+    private func applyWrap(_ wrap: Bool) {
+        guard let container = textView.textContainer else { return }
+        if wrap {
+            scrollView.hasHorizontalScroller = false
+            textView.isHorizontallyResizable = false
+            textView.autoresizingMask = [.width]
+            container.widthTracksTextView = true
+            textView.frame.size.width = scrollView.contentSize.width
+        } else {
+            scrollView.hasHorizontalScroller = true
+            textView.isHorizontallyResizable = true
+            textView.autoresizingMask = []
+            container.widthTracksTextView = false
+            container.size = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        }
+    }
+
+    private func updateGutterWidth() {
+        container.gutterWidth = gutter.requiredWidth(lines: lineIndex.lineCount, font: Settings.shared.font)
+        gutter.needsDisplay = true
+    }
+
+    // MARK: Title and status
+
+    func updateTitle() {
+        guard let window else { return }
+        window.title = doc.displayName
+        window.representedURL = doc.fileURL
+        window.isDocumentEdited = doc.isDirty
+        window.tab.toolTip = doc.fileURL?.path
+    }
+
+    private func configureStatusBar() {
+        statusBar.languageButton.target = self
+        statusBar.encodingButton.target = self
+    }
+
+    func updateStatus() {
+        let sel = textView.selectedRange()
+        let line = lineIndex.line(containing: sel.location)
+        let col = sel.location - lineIndex.starts[line] + 1
+        var pos = String(localized: "Ln \(line + 1), Col \(col)")
+        if sel.length > 0 { pos += "  " + String(localized: "(\(sel.length) selected)") }
+        statusBar.position.stringValue = pos
+        StatusBar.fill(statusBar.languageButton, title: doc.language.displayName,
+                       items: Language.allCases.map { ($0.displayName, $0.rawValue, $0 == doc.language) },
+                       target: self, action: #selector(pickLanguage(_:)))
+        var encItems: [(String, Any?, Bool)] = [(String(localized: "Save with Encoding"), nil, false)]
+        encItems += TextEncoding.allCases.map { ($0.displayName, "save:" + $0.rawValue, $0 == doc.encoding) }
+        if doc.fileURL != nil {
+            encItems += [("-", nil, false), (String(localized: "Reopen with Encoding"), nil, false)]
+            encItems += TextEncoding.allCases.map { ($0.displayName, "reopen:" + $0.rawValue, false) }
+        }
+        StatusBar.fill(statusBar.encodingButton, title: doc.encoding.displayName, items: encItems,
+                       target: self, action: #selector(pickEncoding(_:)))
+        let leTitle = doc.mixedLineEndings ? String(localized: "\(doc.lineEnding.displayName) (mixed)") : doc.lineEnding.displayName
+        StatusBar.fill(statusBar.lineEndingButton, title: leTitle,
+                       items: [(String(localized: "Convert Line Endings To"), nil, false)]
+                        + LineEnding.allCases.map { ($0.displayName, $0.rawValue, $0 == doc.lineEnding) },
+                       target: self, action: #selector(pickLineEnding(_:)))
+    }
+
+    @objc func pickLanguage(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let l = Language(rawValue: raw) else { return }
+        setLanguage(l, manual: true)
+    }
+
+    func setLanguage(_ l: Language, manual: Bool) {
+        doc.language = l
+        doc.languageIsManual = manual
+        colorizer.setLanguage(l)
+        updateStatus()
+        if previewVisible, !l.hasPreview { togglePreview() }
+        onChange?(self)
+    }
+
+    @objc func pickEncoding(_ sender: NSMenuItem) {
+        guard let rep = sender.representedObject as? String else { return }
+        let parts = rep.split(separator: ":")
+        guard parts.count == 2, let enc = TextEncoding(rawValue: String(parts[1])) else { return }
+        if parts[0] == "save" {
+            convertEncoding(to: enc)
+        } else {
+            reopen(with: enc)
+        }
+    }
+
+    func convertEncoding(to enc: TextEncoding) {
+        guard enc != doc.encoding else { return }
+        if !TextCodec.canEncode(textView.string, as: enc) {
+            let a = NSAlert()
+            a.messageText = String(localized: "Some characters can’t be represented in \(enc.displayName).")
+            a.informativeText = String(localized: "Keep the current encoding, or remove those characters first.")
+            a.beginSheetModal(for: window!)
+            return
+        }
+        doc.encoding = enc
+        markConverted()
+    }
+
+    func reopen(with enc: TextEncoding) {
+        guard let url = doc.fileURL else { return }
+        if doc.isDirty {
+            let a = NSAlert()
+            a.messageText = String(localized: "Reopen “\(doc.displayName)” as \(enc.displayName)?")
+            a.informativeText = String(localized: "Your unsaved changes in this tab will be lost.")
+            a.addButton(withTitle: String(localized: "Reopen"))
+            a.addButton(withTitle: String(localized: "Cancel"))
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        do {
+            let (d, mod) = try EditorDocument.read(url, encoding: enc)
+            doc.apply(d)
+            doc.fileModified = mod
+            setText(d.text)
+            doc.markSaved()
+            updateTitle()
+            onChange?(self)
+        } catch {
+            showError(error)
+        }
+    }
+
+    @objc func pickLineEnding(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let le = LineEnding(rawValue: raw) else { return }
+        convertLineEndings(to: le)
+    }
+
+    func convertLineEndings(to le: LineEnding) {
+        guard le != doc.lineEnding || doc.mixedLineEndings else { return }
+        doc.lineEnding = le
+        doc.mixedLineEndings = false
+        markConverted()
+    }
+
+    /// Encoding and line endings apply on save: the tab becomes unsaved.
+    private func markConverted() {
+        doc.noteChange()
+        updateTitle()
+        updateStatus()
+        onChange?(self)
+    }
+
+    // MARK: Saving
+
+    @discardableResult
+    func save() -> Bool {
+        guard let url = doc.fileURL else { return saveAs() }
+        return write(to: url)
+    }
+
+    @discardableResult
+    func saveAs() -> Bool {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = doc.fileURL?.lastPathComponent ?? doc.untitledName + (doc.language == .markdown ? ".md" : ".txt")
+        panel.directoryURL = doc.fileURL?.deletingLastPathComponent()
+        panel.isExtensionHidden = false
+        panel.allowsOtherFileTypes = true
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+        return write(to: url)
+    }
+
+    private func write(to url: URL) -> Bool {
+        do {
+            try doc.write(textView.string, to: url)
+        } catch {
+            showError(error)
+            return false
+        }
+        if !doc.languageIsManual {
+            let l = LanguageDetector.detect(fileName: url.lastPathComponent, content: textView.string)
+            if l != doc.language { setLanguage(l, manual: false) }
+        }
+        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        updateTitle()
+        updateStatus()
+        onChange?(self)
+        return true
+    }
+
+    func showError(_ error: Error) {
+        let a = NSAlert(error: error)
+        if let window { a.beginSheetModal(for: window) } else { a.runModal() }
+    }
+
+    /// Reloads from disk if the file changed and the tab has no unsaved edits.
+    func reloadIfChangedOnDisk() {
+        guard let url = doc.fileURL, !doc.isDirty,
+              let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+              let known = doc.fileModified, mod > known,
+              let (d, newMod) = try? EditorDocument.read(url, encoding: doc.encoding) else { return }
+        let sel = textView.selectedRange()
+        doc.apply(d)
+        doc.fileModified = newMod
+        setText(d.text)
+        doc.markSaved()
+        let len = (textView.string as NSString).length
+        textView.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
+        if previewVisible { renderPreview() }
+    }
+
+    // MARK: Closing
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard doc.isDirty, !(doc.fileURL == nil && textView.string.isEmpty) else { return true }
+        let a = NSAlert()
+        a.messageText = String(localized: "Save changes to “\(doc.displayName)”?")
+        a.informativeText = String(localized: "Your changes are lost if you don’t save them.")
+        a.addButton(withTitle: String(localized: "Save"))
+        a.addButton(withTitle: String(localized: "Cancel"))
+        a.addButton(withTitle: String(localized: "Don’t Save"))
+        a.buttons[2].hasDestructiveAction = true
+        switch a.runModal() {
+        case .alertFirstButtonReturn: return save()
+        case .alertThirdButtonReturn: return true
+        default: return false
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers = []
+        previewTimer?.invalidate()
+        onClose?(self)
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        (NSApp.delegate as? AppDelegate)?.tabBecameKey(self)
+    }
+
+    // MARK: Navigation
+
+    var topLine: Int {
+        guard let vr = textView.viewportCharacterRange else { return 0 }
+        // The viewport range starts above the visible rect; use the visible rect's top instead.
+        let visibleTop = scrollView.contentView.bounds.minY
+        if let tlm = textView.textLayoutManager,
+           let frag = tlm.textLayoutFragment(for: CGPoint(x: 0, y: max(0, visibleTop - textView.textContainerOrigin.y))) {
+            return lineIndex.line(containing: textView.offset(of: frag.rangeInElement.location))
+        }
+        return lineIndex.line(containing: vr.location)
+    }
+
+    func scrollToLine(_ line: Int) {
+        let l = max(0, min(line, lineIndex.lineCount - 1))
+        let loc = lineIndex.starts[l]
+        guard let tlm = textView.textLayoutManager, let r = textView.textRange(for: NSRange(location: loc, length: 0)) else { return }
+        tlm.ensureLayout(for: r)
+        if let frag = tlm.textLayoutFragment(for: r.location) {
+            let y = frag.layoutFragmentFrame.minY + textView.textContainerOrigin.y
+            textView.scroll(NSPoint(x: 0, y: y))
+        } else {
+            textView.scrollRangeToVisible(NSRange(location: loc, length: 0))
+        }
+        colorizer.scheduleViewport()
+    }
+
+    func goToLine(_ line: Int, column: Int = 1) {
+        let l = max(0, min(line - 1, lineIndex.lineCount - 1))
+        let r = lineIndex.contentRange(ofLine: l)
+        let loc = r.location + max(0, min(column - 1, r.length))
+        textView.setSelectedRange(NSRange(location: loc, length: 0))
+        textView.scrollRangeToVisible(NSRange(location: loc, length: 0))
+        colorizer.scheduleViewport()
+    }
+
+    @objc func goToLinePrompt(_ sender: Any?) {
+        let a = NSAlert()
+        a.messageText = String(localized: "Go to Line")
+        a.informativeText = String(localized: "Line (1–\(lineIndex.lineCount)), optionally followed by :column.")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        field.placeholderString = "42 or 42:7"
+        a.accessoryView = field
+        a.addButton(withTitle: String(localized: "Go"))
+        a.addButton(withTitle: String(localized: "Cancel"))
+        a.window.initialFirstResponder = field
+        a.beginSheetModal(for: window!) { [weak self] resp in
+            guard resp == .alertFirstButtonReturn else { return }
+            let parts = field.stringValue.split(separator: ":").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            guard let line = parts.first else { return }
+            self?.goToLine(line, column: parts.count > 1 ? parts[1] : 1)
+            self?.window?.makeFirstResponder(self?.textView)
+        }
+    }
+
+    // MARK: Find
+
+    func showFindBar(replace: Bool) {
+        findBar.isHidden = false
+        findBar.showsReplace = replace
+        let sel = textView.selectedRange()
+        if sel.length > 0, sel.length < 200 {
+            findBar.findField.stringValue = (textView.string as NSString).substring(with: sel)
+        }
+        window?.makeFirstResponder(findBar.findField)
+        findBar.findField.selectText(nil)
+        findChanged()
+    }
+
+    func hideFindBar() {
+        findBar.isHidden = true
+        window?.makeFirstResponder(textView)
+    }
+
+    private func currentRegex() -> NSRegularExpression? {
+        do {
+            let re = try FindEngine.regex(findBar.findField.stringValue, findBar.options)
+            return re
+        } catch FindEngine.FindError.invalidPattern {
+            findBar.status.stringValue = String(localized: "Invalid pattern")
+            return nil
+        } catch {
+            findBar.status.stringValue = ""
+            return nil
+        }
+    }
+
+    private func findChanged() {
+        guard let re = currentRegex() else { return }
+        let n = FindEngine.matches(re, in: textView.string as NSString).count
+        findBar.status.stringValue = n == 1 ? String(localized: "1 match") : String(localized: "\(n) matches")
+        // Incremental: select the first match at or after the selection start.
+        if let r = FindEngine.next(re, in: textView.string as NSString, from: textView.selectedRange().location) {
+            select(r)
+        }
+    }
+
+    func find(backwards: Bool) {
+        if findBar.isHidden || findBar.findField.stringValue.isEmpty { showFindBar(replace: false); return }
+        guard let re = currentRegex() else { return }
+        let sel = textView.selectedRange()
+        let from = backwards ? sel.location : sel.location + sel.length
+        if let r = FindEngine.next(re, in: textView.string as NSString, from: from, backwards: backwards) {
+            select(r)
+        } else {
+            NSSound.beep()
+        }
+    }
+
+    private func select(_ r: NSRange) {
+        textView.setSelectedRange(r)
+        textView.scrollRangeToVisible(r)
+        textView.showFindIndicator(for: r)
+        colorizer.scheduleViewport()
+    }
+
+    private func replaceOne() {
+        guard let re = currentRegex() else { return }
+        let ns = textView.string as NSString
+        let sel = textView.selectedRange()
+        // Replace the selection if it is a match, then move to the next.
+        if sel.length > 0, let m = re.firstMatch(in: ns as String, options: [.anchored], range: sel), m.range == sel {
+            let rep = FindEngine.replacement(for: m, in: ns, template: findBar.replaceField.stringValue, regex: re, options: findBar.options)
+            if textView.shouldChangeText(in: sel, replacementString: rep) {
+                textView.textStorage?.replaceCharacters(in: sel, with: rep)
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: sel.location + (rep as NSString).length, length: 0))
+            }
+        }
+        find(backwards: false)
+        findChanged()
+    }
+
+    private func replaceAll() {
+        guard let re = currentRegex(), let storage = textView.textStorage else { return }
+        let ns = textView.string as NSString
+        let found = FindEngine.matches(re, in: ns)
+        guard !found.isEmpty else { NSSound.beep(); return }
+        let reps = found.map { FindEngine.replacement(for: $0, in: ns, template: findBar.replaceField.stringValue, regex: re, options: findBar.options) }
+        // One undo step: register the whole affected span as one change.
+        let span = NSRange(location: found.first!.range.location,
+                           length: found.last!.range.location + found.last!.range.length - found.first!.range.location)
+        let newSpan = NSMutableString(string: ns.substring(with: span))
+        for (m, rep) in zip(found, reps).reversed() {
+            newSpan.replaceCharacters(in: NSRange(location: m.range.location - span.location, length: m.range.length), with: rep)
+        }
+        if textView.shouldChangeText(in: span, replacementString: newSpan as String) {
+            storage.replaceCharacters(in: span, with: newSpan as String)
+            textView.didChangeText()
+        }
+        findBar.status.stringValue = String(localized: "Replaced \(found.count)")
+    }
+
+    // MARK: Preview
+
+    func togglePreview() {
+        if previewVisible {
+            preview?.webView.removeFromSuperview()
+            preview = nil
+            return
+        }
+        guard doc.language.hasPreview else { NSSound.beep(); return }
+        let p = PreviewController()
+        p.onLoaded = { [weak self] in self?.syncPreviewScroll() }
+        preview = p
+        split.addArrangedSubview(p.webView)
+        split.adjustSubviews()
+        let w = split.bounds.width
+        if w > 0 { split.setPosition(w / 2, ofDividerAt: 0) }
+        renderPreview()
+    }
+
+    var previewAllowsJavaScript: Bool {
+        get { preview?.allowJavaScript ?? false }
+        set { preview?.allowJavaScript = newValue; renderPreview() }
+    }
+
+    var previewAllowsNetwork: Bool {
+        get { preview?.allowNetwork ?? false }
+        set { preview?.allowNetwork = newValue; renderPreview() }
+    }
+
+    private func schedulePreview() {
+        guard previewVisible else { return }
+        previewTimer?.invalidate()
+        previewTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.renderPreview() }
+        }
+    }
+
+    func renderPreview() {
+        guard let preview else { return }
+        preview.show(text: textView.string, language: doc.language, palette: palette,
+                     baseURL: doc.fileURL?.deletingLastPathComponent())
+    }
+
+    private func syncPreviewScroll() {
+        guard let preview, previewVisible else { return }
+        let top = topLine
+        let fraction = lineIndex.lineCount > 1 ? Double(top) / Double(lineIndex.lineCount - 1) : 0
+        preview.sync(line: top, fraction: fraction, markdown: doc.language == .markdown)
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposed: CGFloat, ofSubviewAt i: Int) -> CGFloat { max(proposed, 200) }
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposed: CGFloat, ofSubviewAt i: Int) -> CGFloat { min(proposed, splitView.bounds.width - 200) }
+}
