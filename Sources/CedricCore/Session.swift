@@ -25,11 +25,14 @@ public struct SessionTab: Codable, Equatable, Sendable {
     public var bookmarks: [Int]?
     /// Indentation picked for this tab (nil: the file's own or the default).
     public var indentation: Indentation?
+    /// A PDF tab (a read-only viewer, never written): its page and zoom.
+    /// Nil for text tabs and in sessions saved before PDF tabs.
+    public var pdf: PDFTabState?
 
     public init(id: UUID = UUID(), path: String? = nil, untitledName: String? = nil, hasBuffer: Bool = false,
                 encoding: TextEncoding = .utf8, lineEnding: LineEnding = .lf, language: Language? = nil,
                 selectionLocation: Int = 0, selectionLength: Int = 0, topLine: Int = 0, fileModified: Date? = nil,
-                bookmarks: [Int]? = nil, indentation: Indentation? = nil) {
+                bookmarks: [Int]? = nil, indentation: Indentation? = nil, pdf: PDFTabState? = nil) {
         self.id = id
         self.path = path
         self.untitledName = untitledName
@@ -43,6 +46,7 @@ public struct SessionTab: Codable, Equatable, Sendable {
         self.fileModified = fileModified
         self.bookmarks = bookmarks
         self.indentation = indentation
+        self.pdf = pdf
     }
 }
 

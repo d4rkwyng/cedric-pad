@@ -141,6 +141,19 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
+            <!-- PDFs open in a read-only viewer tab. Alternate: Preview stays the default. -->
+            <key>CFBundleTypeName</key>
+            <string>PDF Document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.adobe.pdf</string>
+            </array>
+        </dict>
+        <dict>
             <key>CFBundleTypeName</key>
             <string>Text</string>
             <key>CFBundleTypeRole</key>

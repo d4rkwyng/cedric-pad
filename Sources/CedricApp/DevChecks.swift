@@ -215,7 +215,7 @@ enum DevChecks {
         case "recent": recent(app)
         case "large": largeDocument(app)
         default:
-            if !editingCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
+            if !editingCheck(name, app), !pdfCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
         }
     }
 
