@@ -922,3 +922,44 @@ final class MarkdownRenderer {
         return url
     }
 }
+
+/// Cleans rendered HTML that leaves Cedric (security audit L4, M3). The
+/// preview never runs page script (CSP and WebKit settings), but an
+/// exported page or copied HTML is opened elsewhere, so raw HTML blocks'
+/// `<script>`, `<iframe>`, `<object>`, `<embed>`, `on…=` handlers and
+/// `javascript:` URLs are removed. For rich text, remote resources go too
+/// (an `<img src="https://tracker/…">` must not phone home on copy).
+public enum HTMLScrub {
+    static func regex(_ p: String) -> NSRegularExpression { try! NSRegularExpression(pattern: p, options: [.caseInsensitive, .dotMatchesLineSeparators]) }
+    nonisolated(unsafe) static let pairs = regex(#"<(script|iframe|object|embed|noscript)\b[^>]*>.*?</\1\s*>"#)
+    nonisolated(unsafe) static let singles = regex(#"<(script|iframe|object|embed|frame|frameset|base)\b[^>]*/?>"#)
+    nonisolated(unsafe) static let refresh = regex(#"<meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*>"#)
+    nonisolated(unsafe) static let handlers = regex(#"\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)"#)
+    nonisolated(unsafe) static let jsURL = regex(#"(\s(?:href|src|action|formaction|xlink:href)\s*=\s*)("\s*(?:javascript|vbscript):[^"]*"|'\s*(?:javascript|vbscript):[^']*'|(?:javascript|vbscript):[^\s>]*)"#)
+    nonisolated(unsafe) static let remoteAttr = regex(#"\s(?:src|href|srcset|background|poster|data|xlink:href)\s*=\s*("\s*(?:https?:|ftp:|//)[^"]*"|'\s*(?:https?:|ftp:|//)[^']*'|(?:https?:|ftp:|//)[^\s>]*)"#)
+    nonisolated(unsafe) static let links = regex(#"<link\b[^>]*>"#)
+    nonisolated(unsafe) static let remoteCSS = regex(#"(@import\s+)?url\(\s*["']?\s*(?:https?:|ftp:|//)[^)]*\)|@import\s+["']\s*(?:https?:|ftp:|//)[^"']*["']"#)
+
+    static func replace(_ r: NSRegularExpression, in s: String, with t: String) -> String {
+        r.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: t)
+    }
+
+    /// No script, frames, handlers or script URLs.
+    public static func noScript(_ html: String) -> String {
+        var s = replace(pairs, in: html, with: "")
+        s = replace(singles, in: s, with: "")
+        s = replace(refresh, in: s, with: "")
+        s = replace(handlers, in: s, with: "")
+        s = replace(jsURL, in: s, with: "$1\"#\"")
+        return s
+    }
+
+    /// `noScript`, and nothing that loads from the network.
+    public static func noScriptNoRemote(_ html: String) -> String {
+        var s = noScript(html)
+        s = replace(links, in: s, with: "")
+        s = replace(remoteAttr, in: s, with: "")
+        s = replace(remoteCSS, in: s, with: "none")
+        return s
+    }
+}

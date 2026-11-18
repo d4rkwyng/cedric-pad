@@ -477,10 +477,14 @@ extension DevChecks {
                 expect(colours.count >= 2, "with the code's colours", "\(colours.count) colours")
                 expect(pb.string(forType: .html)?.contains("tk-keyword") == true && pb.string(forType: .string)?.contains("let answer") == true,
                        "and HTML and plain text too")
-                // Export as HTML: a standalone light page, no CSP, no script.
+                // Export as HTML: a standalone light page; script forbidden by CSP, none in it.
                 let page = EditorWindowController.exportPage(markdown: tab.text, title: tab.exportBaseName)
-                expect(page.contains("<title>report</title>") && page.contains("color-scheme: light") && !page.contains("Content-Security-Policy")
+                expect(page.contains("<title>report</title>") && page.contains("color-scheme: light") && page.contains("script-src 'none'")
                        && !page.contains("<script"), "Export as HTML writes a standalone, light page")
+                // Security audit L4: raw HTML blocks' script and handlers don't survive export.
+                let hostile = EditorWindowController.exportPage(markdown: "<script>alert(1)</script>\n\n<img src=\"a.png\" onerror=\"alert(2)\">\n", title: "x")
+                expect(!hostile.contains("<script") && !hostile.contains("onerror") && hostile.contains("a.png"),
+                       "an exported page has no <script> or on…= handlers from the Markdown")
                 expect(page.contains("class=\"frontmatter\"") && page.contains("tk-keyword") && page.contains("id=\"fn-1\""),
                        "rendered as the preview renders it")
             },
