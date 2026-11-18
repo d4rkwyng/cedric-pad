@@ -78,6 +78,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var largePending = false
     var isLargeDocument: Bool { largeReason != nil }
     let largeBar = LargeDocumentBar()
+    /// Highlight-all, marks, bookmarks and the other editing extras
+    /// (EditingFeatures.swift).
+    let editing = EditingState()
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -92,6 +95,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         buildViews()
         PerfTrace.mark("build_views")
         colorizer = SyntaxColorizer(textView: textView, language: doc.language)
+        textView.language = doc.language
         colorizer.lineIndexProvider = { [unowned self] in self.lineIndex }
         textView.contentStorage?.lineRange = { [unowned self] offset in
             let index = self.lineIndex
@@ -120,11 +124,18 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         scrollView.drawsBackground = true
         scrollView.borderType = .noBorder
         textView.delegate = self
+        textView.onCutLine = { [unowned self] in self.cutLine() }
+        textView.lineStartFor = { [unowned self] offset in
+            let index = self.lineIndex
+            return index.starts[index.line(containing: offset)]
+        }
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         gutter.textView = textView
         gutter.clipsToBounds = true
         gutter.lineIndex = { [unowned self] in self.lineIndex }
+        gutter.bookmarks = { [unowned self] in self.editing.bookmarks }
+        gutter.onClickLine = { [unowned self] line in self.toggleBookmark(line: line) }
         container = EditorContainer(gutter: gutter, scrollView: scrollView)
 
         split.isVertical = true
@@ -206,6 +217,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         PerfTrace.mark("set_text_storage")
         lineIndex = LineIndex(storage.string as NSString)
         PerfTrace.mark("line_index")
+        editing.bookmarks.clamp(lineCount: lineIndex.lineCount)
         textView.typingAttributes = attrs
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         textView.undoManager?.removeAllActions()
@@ -250,8 +262,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let oldLines = lineIndex.lineCount
         lastEditLocation = edited.location
         lastEditLength = edited.length
+        editing.documentCounts = nil
+        // Bookmarks follow their lines (EditingFeatures.swift).
+        var bookmarkEdit: (first: Int, removed: Int, wholeLines: Bool)?
+        if !loading, !editing.bookmarks.isEmpty {
+            let a = lineIndex.line(containing: oldRange.location), b = lineIndex.line(containing: NSMaxRange(oldRange))
+            bookmarkEdit = (a, b - a, lineIndex.starts[a] == oldRange.location && lineIndex.starts[b] == NSMaxRange(oldRange))
+        }
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
         if loading { return }
+        if let e = bookmarkEdit {
+            editing.bookmarks.adjust(firstLine: e.first, removed: e.removed, inserted: lineIndex.lineCount - oldLines + e.removed,
+                                     wholeLines: e.wholeLines)
+        }
         colorizer.textDidChange(firstLine: first, lineDelta: lineIndex.lineCount - oldLines, lineCount: lineIndex.lineCount)
         if lineIndex.lineCount != oldLines { updateGutterWidth() }
         checkLargeAfterEdit(lines: first..<(first + max(1, lineIndex.lineCount - oldLines + 1)))
@@ -279,6 +302,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             }
         }
         gutter.needsDisplay = true
+        editingTextChanged()
         updateStatus()
         schedulePreview()
         if let owl {
@@ -297,6 +321,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         updateStatus()
         gutter.needsDisplay = true
         owl?.caretMoved(byUser: true)
+        scheduleHighlights()
+        updateBracketMatch()
     }
 
     /// The line at the top when the user last scrolled: kept there when
@@ -318,6 +344,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.colorizer.colorViewport()
             self?.gutter.needsDisplay = true
+            self?.refreshHighlights()
         }
         gutter.needsDisplay = true
         syncPreviewScroll()
@@ -414,7 +441,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let line = lineIndex.line(containing: sel.location)
         let col = sel.location - lineIndex.starts[line] + 1
         var pos = String(localized: "Ln \(line + 1), Col \(col)")
-        if sel.length > 0 { pos += "  " + String(localized: "(\(sel.length) selected)") }
+        if let marks = editing.markCount { pos += "  " + String(localized: "\(marks) marked") }
+        scheduleCounts()
         statusBar.position.stringValue = pos
         StatusBar.fill(statusBar.languageButton, title: doc.languageChoice.displayTitle,
                        items: Language.allCases.map { ($0.displayName, $0.rawValue, $0 == doc.language) },
@@ -448,6 +476,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private func languageChanged() {
         let l = doc.language
         colorizer.setLanguage(l)
+        textView.language = l
         // What counts as a word changed (code vs prose): check again.
         if textView.isContinuousSpellCheckingEnabled { textView.isContinuousSpellCheckingEnabled = false; textView.isContinuousSpellCheckingEnabled = true }
         textView.markedMisspellings = []
@@ -659,6 +688,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard doc.isDirty, !(doc.fileURL == nil && textView.string.isEmpty) else { return true }
+        // Hot close (ClosedTabs.swift): the unsaved text is kept for File ›
+        // Reopen Closed Tab. Only if it can't be written do we ask.
+        if (NSApp.delegate as? AppDelegate)?.keepTextForClose(self) == true { return true }
         let a = NSAlert()
         a.messageText = String(localized: "Save changes to “\(doc.displayName)”?")
         a.informativeText = String(localized: "Your changes are lost if you don’t save them.")
@@ -679,6 +711,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         previewTimer?.invalidate()
         owl?.detach()
         sniffTimer?.invalidate()
+        editing.stop()
         spelling.stop()
         OwlHub.shared.closed(self)
         tail?.stop()

@@ -4,7 +4,7 @@ import CedricCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private(set) var tabs: [EditorWindowController] = []
-    private let store = SessionStore(directory: SessionStore.defaultDirectory())
+    let store = SessionStore(directory: SessionStore.defaultDirectory())
     private let env = ProcessInfo.processInfo.environment
     private var sessionTimer: Timer?
     private var appearanceObservation: NSKeyValueObservation?
@@ -15,6 +15,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var recentRebuildScheduled = false
     /// Set once quitting: windows closed by termination keep their buffers.
     private var terminating = false
+    /// File › Reopen Closed Tab (ClosedTabs.swift): closed tabs, newest
+    /// last, saved with the session; their unsaved text stays in their
+    /// buffer files. `closedTexts` holds the text in memory instead when
+    /// session saving is off (the checks).
+    var closedTabs: [SessionTab] = []
+    var closedTexts: [UUID: String] = [:]
 
     // MARK: Launch
 
@@ -130,8 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         tab.onClose = { [weak self] t in
             guard let self, !self.terminating else { return }
             self.tabs.removeAll { $0 === t }
-            self.store.removeBuffer(t.doc.id)
-            self.scheduleSessionSave()
+            // Hot close: remembered for Reopen Closed Tab, unsaved text and all.
+            self.rememberClosed(t)
         }
         tabs.append(tab)
         guard let window = tab.window else { return tab }
@@ -248,7 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// Session writes, in order, off the main thread (a 636 KB unsaved
     /// buffer is a few ms of disk work); quit waits for them.
-    private let sessionQueue = DispatchQueue(label: "cedric.session-save", qos: .utility)
+    let sessionQueue = DispatchQueue(label: "cedric.session-save", qos: .utility)
 
     /// Snapshots the tabs on the main thread, then writes the changed
     /// buffers, the session and the prune on `sessionQueue`, in that order.
@@ -285,14 +291,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                               hasBuffer: needsBuffer, encoding: d.encoding, lineEnding: d.lineEnding,
                                               language: d.languageIsManual ? d.language : nil,
                                               selectionLocation: sel.location, selectionLength: sel.length,
-                                              topLine: t.topLine, fileModified: d.fileModified))
+                                              topLine: t.topLine, fileModified: d.fileModified,
+                                              bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines))
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
             }
             if !sessionTabs.isEmpty {
                 windows.append(SessionWindow(tabs: sessionTabs, selectedTab: selected, frame: group.first?.window?.frameDescriptor))
             }
         }
-        let session = Session(windows: windows)
+        for c in closedTabs where c.hasBuffer { keep.insert(c.id) }
+        let session = Session(windows: windows, closedTabs: closedTabs.isEmpty ? nil : closedTabs)
         let store = self.store
         let toWrite = buffers, keeping = keep
         let write: @Sendable () -> Void = {
@@ -338,6 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func restoreSession() {
         guard let session = store.load() else { return }
+        closedTabs = session.closedTabs ?? []
         for w in session.windows {
             // The selected tab first (it is what shows); if its file has
             // gone, the next one that still restores.
@@ -390,6 +399,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         tab.updateTitle()
         let len = (body as NSString).length
         tab.textView.setSelectedRange(NSRange(location: min(st.selectionLocation, len), length: min(st.selectionLength, max(0, len - st.selectionLocation))))
+        if let marks = st.bookmarks {
+            tab.editing.bookmarks = Bookmarks(marks)
+            tab.editing.bookmarks.clamp(lineCount: tab.lineIndex.lineCount)
+        }
         let top = st.topLine
         DispatchQueue.main.async { tab.scrollToLine(top) }
         return tab
@@ -520,10 +533,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(pickLanguageMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.language.rawValue ? .on : .off
         case #selector(pickLineEndingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.lineEnding.rawValue ? .on : .off
         case #selector(pickEncodingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.encoding.rawValue ? .on : .off
+        case #selector(reopenClosedTab(_:)): return !closedTabs.isEmpty
         case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)), #selector(showFind(_:)), #selector(showReplace(_:)),
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(goToLine(_:)), #selector(useSelectionForFind(_:)):
             return tab != nil
-        default: return validateToolItem(item)
+        default: return validateEditingItem(item) ?? validateToolItem(item)
         }
         return true
     }

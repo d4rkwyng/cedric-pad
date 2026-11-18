@@ -56,6 +56,9 @@ func textToolItems() -> [NSMenuItem] {
     }
 }
 
+/// F2, as a key equivalent (bookmarks, as in Notepad++: F2 / ⇧F2 / ⌘F2).
+let f2 = String(UnicodeScalar(UInt16(NSF2FunctionKey))!)
+
 @MainActor
 func buildMainMenu() -> NSMenu {
     let main = NSMenu()
@@ -80,6 +83,7 @@ func buildMainMenu() -> NSMenu {
         submenu(AppDelegate.recentMenuTitle, []),
         .separator(),
         item(String(localized: "Close Tab"), #selector(NSWindow.performClose(_:)), "w"),
+        item(String(localized: "Reopen Closed Tab"), #selector(AppDelegate.reopenClosedTab(_:)), "t", [.command, .shift]),
         item(String(localized: "Save"), #selector(AppDelegate.saveDocument(_:)), "s"),
         item(String(localized: "Save As…"), #selector(AppDelegate.saveDocumentAs(_:)), "s", [.command, .shift]),
     ]))
@@ -90,6 +94,9 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Find Next"), #selector(AppDelegate.findNextMatch(_:)), "g"),
         item(String(localized: "Find Previous"), #selector(AppDelegate.findPreviousMatch(_:)), "g", [.command, .shift]),
         item(String(localized: "Use Selection for Find"), #selector(AppDelegate.useSelectionForFind(_:)), "e"),
+        .separator(),
+        item(String(localized: "Mark All"), #selector(AppDelegate.markAllMenu(_:)), "m", [.control, .command]),
+        item(String(localized: "Clear Marks"), #selector(AppDelegate.clearMarksMenu(_:)), "m", [.control, .command, .shift]),
     ]
     main.addItem(submenu(String(localized: "Edit"), [
         item(String(localized: "Undo"), Selector(("undo:")), "z"),
@@ -104,7 +111,24 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Find in Files…"), #selector(AppDelegate.findInFilesMenu(_:)), "f", [.command, .shift]),
         item(String(localized: "Go to Line…"), #selector(AppDelegate.goToLine(_:)), "l"),
         .separator(),
+        submenu(String(localized: "Line"), [
+            item(String(localized: "Duplicate Line"), #selector(AppDelegate.duplicateLineMenu(_:)), "d", [.command, .shift]),
+            item(String(localized: "Move Line Up"), #selector(AppDelegate.moveLineUpMenu(_:)),
+                 String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), [.control, .command]),
+            item(String(localized: "Move Line Down"), #selector(AppDelegate.moveLineDownMenu(_:)),
+                 String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .command]),
+            item(String(localized: "Delete Line"), #selector(AppDelegate.deleteLineMenu(_:)), "k", [.command, .shift]),
+            item(String(localized: "Toggle Comment"), #selector(AppDelegate.toggleCommentMenu(_:)), "/"),
+        ]),
+        submenu(String(localized: "Bookmarks"), [
+            item(String(localized: "Toggle Bookmark"), #selector(AppDelegate.toggleBookmarkMenu(_:)), f2, [.command]),
+            item(String(localized: "Next Bookmark"), #selector(AppDelegate.nextBookmarkMenu(_:)), f2, []),
+            item(String(localized: "Previous Bookmark"), #selector(AppDelegate.previousBookmarkMenu(_:)), f2, [.shift]),
+            item(String(localized: "Bookmark All Matches"), #selector(AppDelegate.bookmarkAllMatchesMenu(_:)), f2, [.command, .option]),
+            item(String(localized: "Clear Bookmarks"), #selector(AppDelegate.clearBookmarksMenu(_:)), f2, [.command, .shift]),
+        ]),
         submenu(String(localized: "Text Tools"), textToolItems()),
+        item(String(localized: "Auto-Close Brackets and Quotes"), #selector(AppDelegate.toggleAutoCloseBrackets(_:))),
         submenu(String(localized: "Spelling and Grammar"), [
             item(String(localized: "Show Spelling and Grammar"), #selector(NSText.showGuessPanel(_:)), ":"),
             item(String(localized: "Check Document Now"), #selector(AppDelegate.checkDocumentNow(_:)), ";"),
@@ -121,6 +145,7 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.option]),
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
         item(String(localized: "Show Line Numbers"), #selector(AppDelegate.toggleLineNumbers(_:))),
+        item(String(localized: "Highlight Occurrences"), #selector(AppDelegate.toggleHighlightOccurrences(_:))),
         item(String(localized: "Check Spelling While Typing"), #selector(AppDelegate.toggleSpellingWhileTyping(_:))),
         .separator(),
         item(String(localized: "Show Cedric the Owl"), #selector(AppDelegate.toggleOwl(_:))),

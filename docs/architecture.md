@@ -34,7 +34,13 @@ them; orphan buffers are pruned after each save.
   change count moved since their last buffer write are rewritten.
 - Quit (`applicationShouldTerminate`) saves synchronously and returns
   `.terminateNow`: no prompts. Windows closed by termination keep their
-  buffers; a tab the user closes drops its buffer.
+  buffers. A tab the user closes doesn't ask (hot close): its unsaved
+  text is written to its buffer synchronously before the window goes, it
+  joins `Session.closedTabs` (newest last, `ClosedTabs.limit` 50, clean
+  tabs dropped first) and the session is saved at once, so the buffer is
+  never pruned and a kill -9 right after keeps it. File › Reopen Closed
+  Tab (⇧⌘T) pops the newest, with the same id (the buffer stays its
+  buffer). If writing the buffer fails, closing asks as before.
 - On launch the session is restored before anything else opens. A file tab
   with a buffer gets the buffer's text and stays unsaved; a clean file tab
   reopens the file from disk; a file that has gone and had no buffer is

@@ -12,8 +12,12 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   save: every tab, including untitled tabs and unsaved changes, is restored on
   the next launch, as Notepad++ does. Unsaved text is autosaved to
   `~/Library/Application Support/Cedric/Session/` about 1.5 seconds after you
-  stop typing, so a crash or power cut loses at most that. Closing a tab with
-  unsaved changes still asks.
+  stop typing, so a crash or power cut loses at most that. Closing a tab
+  doesn't ask either (hot close): its unsaved text is written to the
+  session first, and **File › Reopen Closed Tab** (⇧⌘T) brings it back,
+  unsaved changes and all, even after a quit or a crash. The last 50
+  closed tabs are remembered (tabs without unsaved text are forgotten
+  first).
 - **Fast to open.** TextKit 2 lays out only what is on screen; a 10 MB JSON
   file opens and is coloured in under 0.1 s, a 50 MB log in about 0.2 s on an
   M-series Mac (see Performance below).
@@ -34,6 +38,33 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Find and replace** in the current document, with regular expressions
   (ICU syntax, `$1` in replacements), match case and whole word; ⌘F, ⌥⌘F,
   ⌘G / ⇧⌘G, ⌘E. Replace All is one undo step.
+- **Highlight occurrences:** other occurrences of the selection, or of the
+  word under the caret, are tinted on screen (View › Highlight
+  Occurrences). **Mark All** (⌃⌘M) marks every occurrence until Clear
+  Marks (⌃⇧⌘M), with a count in the status bar. Only the visible text is
+  searched, so typing stays fast in big files.
+- **Line operations** (Edit › Line): Duplicate Line (⇧⌘D), Move Line Up /
+  Down (⌃⌘↑ / ⌃⌘↓), Delete Line (⇧⌘K), Toggle Comment (⌘/, with the
+  language's own comment marker: `//`, `#`, `/* */` or `<!-- -->`). Each
+  works on every line the selection touches and is one undo step. ⌘X with
+  nothing selected cuts the whole line.
+- **Bookmarks** (Edit › Bookmarks, as in Notepad++): Toggle Bookmark (⌘F2,
+  or click a line number), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
+  Bookmark All Matches (⌥⌘F2: every line matching the find bar's search,
+  or the selection or word under the caret), Clear Bookmarks (⇧⌘F2).
+  Bookmarks stay on their lines as you edit, move with Move Line, and are
+  kept with the session.
+- **Auto-indent and pairing:** Return keeps the line's indent, one step
+  more after `{` `[` `(` (and `:` in Python and YAML); Return between a
+  pair puts the closer on its own line. In code, brackets and quotes close
+  themselves, typing the closer steps over it, Backspace between a pair
+  deletes both, and typing one with a selection wraps it (Edit ›
+  Auto-Close Brackets and Quotes; never in plain text or Markdown). The
+  bracket next to the caret and its partner are boxed.
+- **Word, line and character counts** in the status bar, of the
+  selection when there is one (characters are Unicode scalars). Documents
+  over a million characters show lines only, so typing never waits on a
+  count; over 50,000 they are counted when typing pauses.
 - **Go to line** (⌘L, `42` or `42:7`), line numbers, current-line highlight,
   show invisibles (⌥⌘I), wrap lines (⌥Z).
 - **Encodings and line endings:** UTF-8 (with or without BOM), UTF-16 LE/BE

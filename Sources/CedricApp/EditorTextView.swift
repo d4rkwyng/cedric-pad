@@ -12,6 +12,12 @@ final class EditorTextView: NSTextView {
     weak var spelling: EditorSpelling?
     /// Misspellings the checker has marked (in scope), for the checks.
     var markedMisspellings: [NSRange] = []
+    /// Drawn behind the text (EditingFeatures.swift): other occurrences of
+    /// the selection or word, Mark All's marks, and the bracket pair at
+    /// the caret. Only ranges in or near the visible text.
+    var occurrenceRanges: [NSRange] = []
+    var markRanges: [NSRange] = []
+    var bracketRanges: [NSRange] = []
 
     static func make() -> EditorTextView {
         let layoutManager = NSTextLayoutManager()
@@ -93,6 +99,70 @@ final class EditorTextView: NSTextView {
         return result
     }
 
+    // MARK: Auto-indent, bracket and quote pairing (AutoEdit in CedricCore)
+
+    /// The document's language (pairing is for code, not prose).
+    var language: Language = .plain
+    /// Where the line holding an offset starts (from the line index: O(log n)).
+    var lineStartFor: ((Int) -> Int)?
+
+    private var pairing: Bool { Settings.shared.autoCloseBrackets && AutoEdit.pairs(in: language) }
+
+    private func unit(at i: Int) -> unichar? {
+        let ns = string as NSString
+        return i >= 0 && i < ns.length ? ns.character(at: i) : nil
+    }
+
+    /// Return: a newline with the line's indent (one step more after an
+    /// opening bracket; between a pair, the closer on its own line).
+    override func insertNewline(_ sender: Any?) {
+        guard isEditable, !hasMarkedText(), let lineStartFor else { super.insertNewline(sender); return }
+        let sel = selectedRange()
+        let r = AutoEdit.newline(in: string as NSString, lineStart: lineStartFor(sel.location), caret: sel.location,
+                                 after: NSMaxRange(sel), language: language)
+        guard r.text != "\n" || r.caret != 1 else { super.insertNewline(sender); return }
+        insertText(r.text, replacementRange: sel)
+        setSelectedRange(NSRange(location: sel.location + r.caret, length: 0))
+    }
+
+    /// Typing an opener or quote pairs it, a closer steps over the one
+    /// already there, and with a selection both go around it. Only for
+    /// single typed characters (not paste, not input methods).
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        guard pairing, isEditable, !hasMarkedText(), replacementRange.location == NSNotFound,
+              let s = (string as? String) ?? (string as? NSAttributedString)?.string, s.utf16.count == 1,
+              let c = s.utf16.first else {
+            super.insertText(string, replacementRange: replacementRange)
+            return
+        }
+        let sel = selectedRange()
+        switch AutoEdit.typing(c, before: unit(at: sel.location - 1), after: unit(at: NSMaxRange(sel)), hasSelection: sel.length > 0,
+                               language: language) {
+        case .skip?:
+            setSelectedRange(NSRange(location: sel.location + 1, length: 0))
+        case .pair(let pair)?:
+            super.insertText(pair, replacementRange: sel)
+            setSelectedRange(NSRange(location: sel.location + 1, length: 0))
+        case .wrap(let open, let close)?:
+            let inner = (self.string as NSString).substring(with: sel)
+            super.insertText(open + inner + close, replacementRange: sel)
+            setSelectedRange(NSRange(location: sel.location + 1, length: sel.length))
+        case nil:
+            super.insertText(string, replacementRange: replacementRange)
+        }
+    }
+
+    /// Backspace between a pair ("(|)", "\"|\"") deletes both.
+    override func deleteBackward(_ sender: Any?) {
+        let sel = selectedRange()
+        if pairing, isEditable, !hasMarkedText(), sel.length == 0,
+           AutoEdit.deletesPair(before: unit(at: sel.location - 1), after: unit(at: sel.location), language: language) {
+            super.insertText("", replacementRange: NSRange(location: sel.location - 1, length: 2))
+            return
+        }
+        super.deleteBackward(sender)
+    }
+
     // MARK: Paste normalisation
 
     /// Paste and drop: plain text only, with CRLF/CR turned into LF
@@ -107,6 +177,22 @@ final class EditorTextView: NSTextView {
     }
 
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
+
+    /// ⌘X with nothing selected cuts the whole line (EditingFeatures.swift).
+    var onCutLine: (() -> Void)?
+
+    override func cut(_ sender: Any?) {
+        if selectedRange().length == 0, let onCutLine { onCutLine(); return }
+        super.cut(sender)
+    }
+
+    /// Cut stays enabled with an empty selection (it cuts the line).
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(cut(_:)), selectedRange().length == 0, onCutLine != nil {
+            return isEditable && (string as NSString).length > 0
+        }
+        return super.validateUserInterfaceItem(item)
+    }
 
     // MARK: Drawing
 
@@ -134,7 +220,60 @@ final class EditorTextView: NSTextView {
             f.intersection(rect).fill()
         }
 
+        drawHighlights(in: rect, layoutManager: tlm)
         if showInvisibles { drawInvisibles(in: rect, layoutManager: tlm) }
+    }
+
+    /// Marks, occurrences and the matching bracket pair, clipped to the
+    /// view (since macOS 14 `rect` can be larger than the bounds).
+    private func drawHighlights(in rect: NSRect, layoutManager tlm: NSTextLayoutManager) {
+        guard !markRanges.isEmpty || !occurrenceRanges.isEmpty || !bracketRanges.isEmpty else { return }
+        let clip = rect.intersection(bounds)
+        guard !clip.isEmpty else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: clip).addClip()
+        let match = NSColor(hex: palette.findMatch)
+        let sel = selectedRange()
+        forEachSegment(markRanges, clip: clip, layoutManager: tlm) { f in
+            match.setFill()
+            NSBezierPath(roundedRect: f, xRadius: 2, yRadius: 2).fill()
+        }
+        forEachSegment(occurrenceRanges.filter { $0 != sel }, clip: clip, layoutManager: tlm) { f in
+            match.withAlphaComponent(0.55).setFill()
+            NSBezierPath(roundedRect: f, xRadius: 2, yRadius: 2).fill()
+        }
+        let caret = NSColor(hex: palette.caret)
+        forEachSegment(bracketRanges, clip: clip, layoutManager: tlm) { f in
+            caret.withAlphaComponent(0.18).setFill()
+            NSBezierPath(rect: f).fill()
+            caret.withAlphaComponent(0.7).setStroke()
+            let p = NSBezierPath(rect: f.insetBy(dx: 0.5, dy: 0.5))
+            p.lineWidth = 1
+            p.stroke()
+        }
+    }
+
+    /// Draws the segments of `ranges` that lie in TextKit's viewport (the
+    /// laid-out text); anything else is skipped, so a stale or far-away
+    /// range never makes TextKit lay out other parts of a big document.
+    /// Locations are found from the viewport's start, not the document's.
+    private func forEachSegment(_ ranges: [NSRange], clip: NSRect, layoutManager tlm: NSTextLayoutManager, _ draw: (NSRect) -> Void) {
+        guard !ranges.isEmpty, let tcm = tlm.textContentManager,
+              let vp = tlm.textViewportLayoutController.viewportRange else { return }
+        let vpStart = offset(of: vp.location)
+        let vpEnd = vpStart + tcm.offset(from: vp.location, to: vp.endLocation)
+        let origin = textContainerOrigin
+        for r in ranges where r.location >= vpStart && NSMaxRange(r) <= vpEnd {
+            guard let start = tcm.location(vp.location, offsetBy: r.location - vpStart),
+                  let end = tcm.location(start, offsetBy: r.length),
+                  let tr = NSTextRange(location: start, end: end) else { continue }
+            tlm.enumerateTextSegments(in: tr, type: .highlight, options: []) { _, frame, _, _ in
+                let f = frame.offsetBy(dx: origin.x, dy: origin.y)
+                if f.intersects(clip) { draw(f) }
+                return true
+            }
+        }
     }
 
     private func drawInvisibles(in rect: NSRect, layoutManager tlm: NSTextLayoutManager) {
@@ -178,8 +317,25 @@ final class GutterView: NSView {
     weak var textView: EditorTextView?
     var lineIndex: () -> LineIndex = { LineIndex() }
     var palette: EditorPalette = EditorPalettes.light { didSet { needsDisplay = true } }
+    /// Bookmarked lines, drawn as a marker left of the number; a click on
+    /// a line number toggles its bookmark.
+    var bookmarks: () -> Bookmarks = { Bookmarks() }
+    var onClickLine: ((Int) -> Void)?
 
     override var isFlipped: Bool { true }
+
+    /// The line whose number is drawn at `y` (view coordinates).
+    func line(atY y: CGFloat) -> Int? {
+        guard let tv = textView, let tlm = tv.textLayoutManager, let scroll = tv.enclosingScrollView else { return nil }
+        let point = CGPoint(x: 0, y: y + scroll.contentView.bounds.minY - tv.textContainerOrigin.y)
+        guard let frag = tlm.textLayoutFragment(for: point) else { return nil }
+        return lineIndex().line(containing: tv.offset(of: frag.rangeInElement.location))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        if let line = line(atY: p.y) { onClickLine?(line) } else { super.mouseDown(with: event) }
+    }
 
     /// Wide enough for the largest line number.
     func requiredWidth(lines: Int, font: NSFont) -> CGFloat {
@@ -207,6 +363,8 @@ final class GutterView: NSView {
         let scrollY = scroll.contentView.bounds.minY
         let originY = tv.textContainerOrigin.y
         let textFont = tv.font ?? Settings.shared.font
+        let marks = bookmarks()
+        let markColor = NSColor(hex: palette.caret)
         tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { frag in
             let frame = frag.layoutFragmentFrame
             let y = frame.minY + originY - scrollY
@@ -222,6 +380,12 @@ final class GutterView: NSView {
             // Align with the first line's baseline.
             let baselineY = y + (frag.textLineFragments.first?.typographicBounds.minY ?? 0) + textFont.ascender - font.ascender
             s.draw(at: CGPoint(x: self.bounds.width - size.width - 8, y: baselineY))
+            if marks.contains(line) {
+                // A bookmark: a rounded tab at the gutter's left edge, as tall as the line.
+                let h = max(6, min(frame.height, textFont.boundingRectForFont.height))
+                markColor.setFill()
+                NSBezierPath(roundedRect: NSRect(x: 2, y: y + 1, width: 5, height: h - 2), xRadius: 2, yRadius: 2).fill()
+            }
             return true
         }
         // The last empty line after a trailing newline has no fragment in

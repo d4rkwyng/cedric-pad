@@ -124,6 +124,8 @@ final class FindBar: NSView, NSSearchFieldDelegate {
 /// language, encoding and line ending.
 final class StatusBar: NSView {
     let position = NSTextField(labelWithString: "")
+    /// Words, lines and characters of the document or the selection.
+    let counts = NSTextField(labelWithString: "")
     let languageButton = NSPopUpButton(frame: .zero, pullsDown: true)
     let encodingButton = NSPopUpButton(frame: .zero, pullsDown: true)
     let lineEndingButton = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -135,6 +137,10 @@ final class StatusBar: NSView {
         clipsToBounds = true
         position.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         position.textColor = .secondaryLabelColor
+        counts.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        counts.textColor = .secondaryLabelColor
+        counts.lineBreakMode = .byTruncatingTail
+        counts.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         zoom.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         zoom.textColor = .secondaryLabelColor
         for b in [languageButton, encodingButton, lineEndingButton] {
@@ -145,7 +151,7 @@ final class StatusBar: NSView {
         }
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let stack = NSStackView(views: [position, spacer, zoom, languageButton, encodingButton, lineEndingButton])
+        let stack = NSStackView(views: [position, counts, spacer, zoom, languageButton, encodingButton, lineEndingButton])
         stack.spacing = 14
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 8)
         stack.translatesAutoresizingMaskIntoConstraints = false

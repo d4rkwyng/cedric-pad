@@ -32,7 +32,10 @@ enum DevChecks {
     static let keyCodes: [Character: UInt16] = [
         "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12, "w": 13,
         "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37,
-        "j": 38, "k": 40, "n": 45, "m": 46, "\r": 36, " ": 49,
+        "j": 38, "k": 40, "n": 45, "m": 46, "\r": 36, " ": 49, "/": 44, "(": 25, ")": 29, "{": 33, "}": 30,
+        "[": 33, "]": 30, "\"": 39, "'": 39, "\t": 48, "\u{7f}": 51,
+        Character(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!): 126, Character(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!): 125,
+        Character(UnicodeScalar(UInt16(NSF2FunctionKey))!): 120,
     ]
 
     static var frontWindow: NSWindow? {
@@ -76,7 +79,9 @@ enum DevChecks {
                              windowNumber: w?.windowNumber ?? 0, context: nil, characters: ch, charactersIgnoringModifiers: ch.lowercased(),
                              isARepeat: false, keyCode: code)
         }
-        if mods.isEmpty {
+        // A function key (F2…) with no modifiers is a menu key equivalent too.
+        let functionKey = ch.utf16.first.map { $0 >= 0xF700 && $0 <= 0xF8FF } ?? false
+        if mods.isEmpty && !functionKey {
             guard let w, let down = event(.keyDown) else { return false }
             // Return in a sheet or alert: its default button.
             if ch == "\r", w.performKeyEquivalent(with: down) { return true }
@@ -209,7 +214,8 @@ enum DevChecks {
         case "follow": follow(app)
         case "recent": recent(app)
         case "large": largeDocument(app)
-        default: print("check: unknown check \(name)"); exit(2)
+        default:
+            if !editingCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
         }
     }
 
@@ -593,6 +599,7 @@ enum DevChecks {
             case NSUpArrowFunctionKey?: s += "↑"
             case NSDownArrowFunctionKey?: s += "↓"
             case 32?: s += "␣"
+            case NSF2FunctionKey?: s += "F2"
             default: s += i.keyEquivalent.uppercased()
             }
             return s
