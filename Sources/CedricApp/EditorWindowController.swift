@@ -256,8 +256,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private var lastEditLength = 0
     /// Character edits seen by the storage, and how many textDidChange has
     /// handled: NSTextView's undo and redo change the text without calling
-    /// textDidChange, so storageEdited catches up for them (else an undo
-    /// after a save left the tab marked saved, and its text unsaved).
+    /// textDidChange, so storageEdited catches up for them on the next turn
+    /// (else an undo after a save left the tab marked saved, and its text
+    /// unsaved).
     private var storageEdits = 0
     private var handledEdits = 0
     private var sniffTimer: Timer?
@@ -289,9 +290,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if loading { return }
         storageEdits += 1
         let seen = storageEdits
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.handledEdits < seen, self.window != nil else { return }
-            self.textDidChange(Notification(name: NSText.didChangeNotification, object: self.textView))
+        // Only undo and redo: Follow File appends on purpose without a
+        // user change (the tab stays clean).
+        if let um = textView.undoManager, um.isUndoing || um.isRedoing {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.handledEdits < seen, self.window != nil else { return }
+                self.textDidChange(Notification(name: NSText.didChangeNotification, object: self.textView))
+            }
         }
         if let e = bookmarkEdit {
             editing.bookmarks.adjust(firstLine: e.first, removed: e.removed, inserted: lineIndex.lineCount - oldLines + e.removed,
