@@ -1,5 +1,11 @@
 import AppKit
 import CedricCore
+import QuartzCore
+
+extension Notification.Name {
+    /// The owl was moved: every tab's owl follows.
+    static let cedricOwlPlacementChanged = Notification.Name("CedricOwlPlacementChanged")
+}
 
 /// Holds the owl and its bubble over the editor's bottom-right corner.
 /// Clicks pass through everywhere else.
@@ -51,6 +57,10 @@ final class OwlController: NSObject, NSPopoverDelegate {
         overlay.controller = self
         overlay.addSubview(owl)
         owl.onClick = { [weak self] in self?.showPopover() }
+        owl.onDoubleClick = { [weak self] in self?.closePopover(); self?.resetPosition() }
+        owl.onDragBegan = { [weak self] in self?.dragBegan() }
+        owl.onDragMoved = { [weak self] d in self?.dragMoved(d) }
+        owl.onDragEnded = { [weak self] in self?.dragEnded() }
         let nc = NotificationCenter.default
         for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
                      NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
@@ -63,6 +73,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
                 MainActor.assumeIsolated { self?.updateTimer() }
             })
         }
+        observers.append(nc.addObserver(forName: .cedricOwlPlacementChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.owl.isDragging else { return }
+                self.overlay.needsLayout = true
+            }
+        })
         updateTimer()
     }
 
@@ -80,15 +96,88 @@ final class OwlController: NSObject, NSPopoverDelegate {
 
     func layoutViews() {
         let b = overlay.bounds
-        let s = Self.size
-        owl.frame = NSRect(x: b.maxX - s - 6, y: 2, width: s, height: s)
-        if let bubble {
-            let size = bubble.fit()
-            // Right-aligned over the owl's head, covering the little "…"
-            // bubble in the talking art; the tail points down at the owl.
-            let x = max(4, b.maxX - size.width - 4)
-            bubble.frame = NSRect(x: x, y: owl.frame.maxY - s * 0.3, width: size.width, height: size.height)
+        let size = NSSize(width: Self.size, height: Self.size)
+        if let drag = dragStart {
+            let o = OwlPlacement.clamp(NSPoint(x: drag.x + dragDelta.width, y: drag.y + dragDelta.height), size: size, in: b)
+            owl.frame = NSRect(origin: o, size: size)
+        } else if !settling {
+            owl.frame = NSRect(origin: Settings.shared.owlPlacement.origin(in: b, size: size), size: size)
         }
+        if let bg = tab?.palette.background {
+            let c = NSColor(hex: bg)
+            owl.onDarkBackground = (0.2126 * c.redComponent + 0.7152 * c.greenComponent + 0.0722 * c.blueComponent) < 0.4
+        }
+        layoutBubble()
+    }
+
+    private func layoutBubble() {
+        guard let bubble else { return }
+        let size = bubble.fit()
+        let place = OwlPlacement.bubble(owl: owl.frame, size: size, in: overlay.bounds)
+        bubble.tailOnTop = place.tailOnTop
+        bubble.tailAtLeft = place.tailAtLeft
+        bubble.frame = place.frame
+    }
+
+    // MARK: Dragging
+
+    /// The owl's frame origin when the drag began, and the pointer's movement since.
+    private var dragStart: NSPoint?
+    private var dragDelta = NSSize.zero
+    /// The snap animation is running: layout leaves his frame alone.
+    private var settling = false
+    var isDragging: Bool { dragStart != nil }
+
+    private func dragBegan() {
+        closePopover()
+        dragStart = owl.frame.origin
+        dragDelta = .zero
+        // Full strength while you hold him.
+        owlFaded = false
+        owl.alphaValue = 1
+    }
+
+    private func dragMoved(_ d: NSSize) {
+        dragDelta = d
+        layoutViews()
+    }
+
+    private func dragEnded() {
+        let size = owl.frame.size
+        let place = OwlPlacement.snapped(origin: owl.frame.origin, size: size, in: overlay.bounds)
+        dragStart = nil
+        dragDelta = .zero
+        moveTo(place)
+    }
+
+    /// Double-click, or "Reset Position" in his popover: back bottom right.
+    func resetPosition() {
+        moveTo(.default)
+    }
+
+    /// Saves the placement and slides him there.
+    func moveTo(_ place: OwlPlacement) {
+        Settings.shared.owlPlacement = place
+        let target = NSRect(origin: place.origin(in: overlay.bounds, size: owl.frame.size), size: owl.frame.size)
+        if canAnimate {
+            settling = true
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.16
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                owl.animator().frame = target
+            }, completionHandler: { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.settling = false
+                    self?.layoutViews()
+                }
+            })
+        } else {
+            owl.frame = target
+        }
+        layoutBubble()
+        NotificationCenter.default.post(name: .cedricOwlPlacementChanged, object: self)
+        // Never left sitting on the caret: fade if he landed near it.
+        caretMoved(byUser: true)
     }
 
     // MARK: Idle behaviour
@@ -184,7 +273,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     /// `byUser`: a selection change or typing (ends the just-turned-on hold).
     func caretMoved(byUser: Bool = false) {
         if byUser { holdVisible = false }
-        guard !holdVisible || bubble != nil else { return }
+        guard !holdVisible || bubble != nil, !isDragging else { return }
         guard let tv = tab?.textView, let window = tv.window else { return }
         let sel = tv.selectedRange()
         let screen = tv.firstRect(forCharacterRange: NSRange(location: sel.location + sel.length, length: 0), actualRange: nil)
@@ -231,6 +320,35 @@ final class OwlController: NSObject, NSPopoverDelegate {
         showBubble(hint, buttons: buttons(for: hint, tab: tab))
     }
 
+    // MARK: Typos
+
+    static let typoFixID = "spelling.fixTypos"
+
+    /// Prose with three or more fixable misspellings in view: "Fix 3
+    /// typos?", applying the first suggestion for each as one undo step
+    /// (through `applyPresented`, like any hint with a replacement). Once
+    /// per document unless snoozed; never over another bubble, while
+    /// quiet, or when turned off with "Don't show again".
+    func offerTypoFix(_ spelling: EditorSpelling, tab: EditorWindowController) {
+        let hub = OwlHub.shared
+        guard bubble == nil, !hub.coordinator.isQuiet else { return }
+        let window = tab.owlContextWindow()
+        let ctx = window.context
+        let probe = OwlHint(id: Self.typoFixID, kind: .fix, title: "", source: "rules")
+        guard hub.coordinator.isEligible(probe, documentID: tab.doc.id) else { return }
+        // Only what the owl can see in his context window.
+        let ctxRange = NSRange(location: ctx.textStart, length: (ctx.text as NSString).length)
+        let found = spelling.misspellings(in: ctxRange)
+        guard let fix = spelling.typoFix(found) else { return }
+        let local = NSRange(location: fix.range.location - ctx.textStart, length: fix.range.length)
+        guard local.location >= 0, NSMaxRange(local) <= (ctx.text as NSString).length else { return }
+        let hint = OwlHint(id: Self.typoFixID, kind: .fix, title: String(localized: "Fix \(fix.count) typos?"),
+                           detail: String(localized: "Uses the first spelling suggestion for each, as one undo step."),
+                           range: local, replacement: fix.replacement, source: "rules")
+        hub.coordinator.markShown(hint, documentID: tab.doc.id)
+        present(hint, context: ctx)
+    }
+
     private func buttons(for hint: OwlHint, tab: EditorWindowController) -> [OwlBubble.Button] {
         let hub = OwlHub.shared
         if hint.id == RulesHintProvider.letterID {
@@ -238,7 +356,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
         }
         var out: [OwlBubble.Button] = []
         if hint.replacement != nil {
-            out.append(.init(title: String(localized: "Apply"), isDefault: true) { [weak self] in self?.applyPresented() })
+            out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self] in self?.applyPresented() })
         } else if hint.id == RulesHintProvider.reloadID {
             out.append(.init(title: String(localized: "Reload"), isDefault: true) { [weak self, weak tab] in tab?.reloadFromDisk(); self?.hideBubble() })
         } else if hint.id == RulesHintProvider.saveCopyID {
@@ -343,7 +461,10 @@ final class OwlController: NSObject, NSPopoverDelegate {
         quiet.controlSize = .small
         let hide = NSButton(title: String(localized: "Hide Cedric"), target: self, action: #selector(hideOwl))
         hide.controlSize = .small
-        let row = NSStackView(views: [quiet, hide])
+        let reset = NSButton(title: String(localized: "Reset Position"), target: self, action: #selector(resetFromPopover))
+        reset.controlSize = .small
+        reset.isEnabled = Settings.shared.owlPlacement != .default
+        let row = NSStackView(views: [quiet, reset, hide])
         stack.setCustomSpacing(10, after: stack.arrangedSubviews.last!)
         stack.addArrangedSubview(row)
         stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
@@ -357,6 +478,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
     }
 
     var popoverShown: Bool { popover?.isShown == true }
+    /// At once, no fade: he's being picked up, or reset.
+    func closePopover() {
+        popover?.animates = false
+        popover?.close()
+        popover = nil
+    }
 
     @objc private func quietHour() {
         OwlHub.shared.coordinator.quiet(for: 3600)
@@ -367,6 +494,11 @@ final class OwlController: NSObject, NSPopoverDelegate {
     @objc private func resume() {
         OwlHub.shared.endQuiet()
         popover?.close()
+    }
+
+    @objc private func resetFromPopover() {
+        popover?.close()
+        resetPosition()
     }
 
     @objc private func hideOwl() {

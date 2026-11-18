@@ -720,3 +720,71 @@ when the SDK has `FoundationModels` (macOS 26 SDK, Xcode 26). `macos-15` with Sw
 builds the placeholder, so a release built there offers Apple Intelligence as
 unavailable. A release that should include it must be built with the macOS 26 SDK (a
 `macos-26` runner, or on the owner's Mac).
+
+## Owl placement, language auto-detect, spelling, Cedric themes
+
+**Dragging the owl.** `OwlView` tells a click from a drag by
+`OwlPlacement.dragThreshold` (3 pt): a press that moves less opens the
+popover; more picks him up (closed-hand cursor, open hand on hover). On
+release `OwlPlacement.snapped` puts him on the nearest edge of the editor,
+keeping his position along it, and into the corner when he is within
+`cornerPull` (56 pt) of one; he slides there in 0.16 s. Snapping rather
+than "stay where dropped": in the middle he would sit over text and the
+fade-near-caret would fire constantly; on an edge he is out of the text but
+still where you put him. The placement is stored (UserDefaults
+`owlPlacement`, shared by all tabs) as a corner plus an inset from that
+corner's two edges, so a resize keeps him the same distance from the same
+corner, clamped inside when the window gets small. Double-click, or "Reset
+Position" in his popover, puts him back bottom right. The bubble opens
+above him when there is room (else below) and towards the wider side, its
+tail pointing at him (`OwlPlacement.bubble`). The fade-near-caret still
+runs after every drop, so he never sits on the caret at full strength.
+The disc that used to sit behind him on dark themes is gone; the sprite
+gets a soft light rim (a 2.5 pt white shadow) on dark editors and a faint
+drop shadow on light ones. Checks that move him don't save
+(`CEDRIC_NO_SESSION_SAVE`).
+
+**Language auto-detect** (`LanguageChoice`, CedricCore): a tab's language
+has a source. `.auto` (untitled, nobody chose): typing re-sniffs when it
+pauses (0.4 s), a paste at once; the status bar shows "HTML (auto)".
+`.manual` (picked from the status bar or Format › Language): never switched
+again, not by typing, pasting or saving. `.file`: the extension decides on
+save (or the content once, without a known extension), and sniffing stops.
+Markdown sniffing (`MarkdownSignals`) needs two kinds of evidence (ATX
+headings, bold, lists, links, quotes; a fence counts alone), each kind
+capped, so a shell script's `# comments` or a YAML `- item` list doesn't
+turn into Markdown, while "# Title / ## Sub Title / **Test**" does.
+
+**Spelling.** NSTextView's own continuous checking (NSSpellChecker: local,
+nothing sent anywhere), on by default (View › Check Spelling While Typing,
+saved; also in Edit › Spelling and Grammar with Show Spelling and Grammar
+and Check Document Now). Every batch of results passes through
+`EditorTextView.handleTextCheckingResults`, which keeps only misspellings
+inside `SpellScope.ranges`: prose in Plain Text and Markdown (minus code,
+links and markup tokens), only comments and strings in code. The marks are
+the text view's spelling state, a drawing attribute, so text colours are
+never touched; suggestions, Learn and Ignore are the standard context menu.
+Check Document Now walks our scope (the system's would stop on
+identifiers). With the owl on, prose with three or more fixable
+misspellings in his context window gets "Fix 3 typos?": the first
+suggestion for each, as one replacement over their span, so one undo step.
+`SpellScope.isFixable` skips ALL-CAPS words, words with digits, URLs, paths
+and addresses. Offered once per document unless snoozed.
+
+**Themes.** Cedric (peach paper from the logo's coral plate, navy text,
+gold/coral/navy tokens, the chest chevron's grey-blue for comments) and
+Cedric Night (the owl's navy as the page, sepia text). Both pass the AA
+tests with the other palettes.
+
+**Checks** (in `Scripts/render-check.sh`, `PolishCheck.swift`): the owl
+dragged to the top left with real mouse-down/drag/up events (snapped there,
+faded over the caret with the text still readable, full strength once the
+caret moves away), a 2 pt press opens the popover, the bubble opens below
+and right with "Fix it" and its source line, a resize keeps him top left, a
+double-click resets him; "<html>" typed shows "HTML (auto)", Plain Text
+picked from the menu stays put through more typed and pasted HTML, Derek's
+Markdown is detected, a pasted JSON switches at once; Swift, Markdown with
+preview and HTML in both Cedric themes; spelling marks in a Swift file
+(comment and string, not the identifier) and in Markdown (prose, not code
+or the link), colours unchanged, in light and dark; the owl's "Fix 3
+typos?" applied and undone with one undo.

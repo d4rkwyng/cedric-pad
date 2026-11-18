@@ -64,6 +64,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var onClose: ((EditorWindowController) -> Void)?
     /// Cedric the owl, while View › Show Cedric the Owl is on.
     private(set) var owl: OwlController?
+    /// Spell checking in scope (Spelling.swift).
+    private(set) lazy var spelling = EditorSpelling(tab: self)
     /// View › Follow File (EditorTools.swift).
     var tail: FileTail?
 
@@ -191,12 +193,28 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         return [.font: font, .paragraphStyle: para, .foregroundColor: NSColor(hex: palette.foreground)]
     }
 
+    /// Where the last edit began and how much it inserted (the language
+    /// sniff only reads the start; a paste sniffs at once).
+    private var lastEditLocation = 0
+    private var lastEditLength = 0
+    private var sniffTimer: Timer?
+
+    /// Auto-detection for an untitled tab (see textDidChange).
+    func sniffLanguage() {
+        sniffTimer?.invalidate()
+        sniffTimer = nil
+        guard doc.fileURL == nil, doc.languageChoice.textChanged(textView.string, isUntitled: true) else { return }
+        languageChanged()
+    }
+
     private func storageEdited() {
         guard let storage = textView.textStorage, storage.editedMask.contains(.editedCharacters) else { return }
         let edited = storage.editedRange
         let delta = storage.changeInLength
         let oldRange = NSRange(location: edited.location, length: edited.length - delta)
         let oldLines = lineIndex.lineCount
+        lastEditLocation = edited.location
+        lastEditLength = edited.length
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
         if loading { return }
         colorizer.textDidChange(firstLine: first, lineDelta: lineIndex.lineCount - oldLines, lineCount: lineIndex.lineCount)
@@ -208,10 +226,21 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let wasDirty = doc.isDirty
         doc.noteChange()
         if wasDirty != doc.isDirty { updateTitle() }
-        // An untitled tab picks a language when text is pasted or typed.
-        if doc.fileURL == nil, !doc.languageIsManual, doc.language == .plain, lineIndex.length > 20 {
-            let guess = LanguageDetector.sniff(textView.string)
-            if guess != .plain { setLanguage(guess, manual: false) }
+        // An untitled tab nobody picked a language for follows what is
+        // typed or pasted (LanguageChoice): a paste at once, typing when
+        // it pauses. The sniff reads the first 4 KB, so edits further down
+        // skip it.
+        if doc.fileURL == nil, doc.languageChoice.isAuto, lastEditLocation < 4096 {
+            sniffTimer?.invalidate()
+            if lastEditLength > 1 {
+                sniffLanguage()
+            } else {
+                let t = Timer(timeInterval: 0.4, repeats: false) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.sniffLanguage() }
+                }
+                RunLoop.main.add(t, forMode: .common)
+                sniffTimer = t
+            }
         }
         gutter.needsDisplay = true
         updateStatus()
@@ -219,6 +248,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if let owl {
             owl.noteTyping()
             OwlHub.shared.activity(in: self)
+            spelling.schedule()
         }
         onChange?(self)
     }
@@ -296,6 +326,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         statusBar.zoom.stringValue = "\(Int((s.fontSize / Settings.defaultFontSize * 100).rounded()))%"
         textView.needsDisplay = true
         if previewVisible { renderPreview() }
+        owl?.layoutViews()
+        spelling.apply()
     }
 
     private func applyWrap(_ wrap: Bool) {
@@ -342,7 +374,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         var pos = String(localized: "Ln \(line + 1), Col \(col)")
         if sel.length > 0 { pos += "  " + String(localized: "(\(sel.length) selected)") }
         statusBar.position.stringValue = pos
-        StatusBar.fill(statusBar.languageButton, title: doc.language.displayName,
+        StatusBar.fill(statusBar.languageButton, title: doc.languageChoice.displayTitle,
                        items: Language.allCases.map { ($0.displayName, $0.rawValue, $0 == doc.language) },
                        target: self, action: #selector(pickLanguage(_:)))
         var encItems: [(String, Any?, Bool)] = [(String(localized: "Save with Encoding"), nil, false)]
@@ -362,13 +394,21 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     @objc func pickLanguage(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let l = Language(rawValue: raw) else { return }
-        setLanguage(l, manual: true)
+        setLanguage(l)
     }
 
-    func setLanguage(_ l: Language, manual: Bool) {
-        doc.language = l
-        doc.languageIsManual = manual
+    /// Picked by the user (status bar or Format › Language): fixed from now on.
+    func setLanguage(_ l: Language) {
+        doc.languageChoice.choose(l)
+        languageChanged()
+    }
+
+    private func languageChanged() {
+        let l = doc.language
         colorizer.setLanguage(l)
+        // What counts as a word changed (code vs prose): check again.
+        if textView.isContinuousSpellCheckingEnabled { textView.isContinuousSpellCheckingEnabled = false; textView.isContinuousSpellCheckingEnabled = true }
+        textView.markedMisspellings = []
         updateStatus()
         if previewVisible, !l.hasPreview { togglePreview() }
         onChange?(self)
@@ -467,10 +507,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             showError(error)
             return false
         }
-        if !doc.languageIsManual {
-            let l = LanguageDetector.detect(fileName: url.lastPathComponent, content: textView.string)
-            if l != doc.language { setLanguage(l, manual: false) }
-        }
+        if doc.languageChoice.saved(fileName: url.lastPathComponent, content: textView.string) { languageChanged() }
         (NSApp.delegate as? AppDelegate)?.noteRecent(url)
         updateTitle()
         updateStatus()
@@ -599,6 +636,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observers = []
         previewTimer?.invalidate()
         owl?.detach()
+        sniffTimer?.invalidate()
+        spelling.stop()
         OwlHub.shared.closed(self)
         tail?.stop()
         tail = nil

@@ -17,9 +17,11 @@ final class EditorDocument {
     var encoding: TextEncoding = .utf8
     var lineEnding: LineEnding = .lf
     var mixedLineEndings = false
-    var language: Language = .plain
-    /// Picked from the menu: don't re-detect on save or paste.
-    var languageIsManual = false
+    /// The language and who decided it (auto-detected, picked, the file's).
+    var languageChoice = LanguageChoice()
+    var language: Language { languageChoice.language }
+    /// Picked from the menu: never re-detected (typing, paste, save).
+    var languageIsManual: Bool { languageChoice.isManual }
     var fileModified: Date?
 
     /// Edits since open; compared with the count at the last save.

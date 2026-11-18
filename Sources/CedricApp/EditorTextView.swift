@@ -8,6 +8,10 @@ import CedricCore
 final class EditorTextView: NSTextView {
     var palette: EditorPalette = EditorPalettes.light
     var showInvisibles = false { didSet { needsDisplay = true } }
+    /// Limits continuous spell checking to comments, strings and prose (Spelling.swift).
+    weak var spelling: EditorSpelling?
+    /// Misspellings the checker has marked (in scope), for the checks.
+    var markedMisspellings: [NSRange] = []
 
     static func make() -> EditorTextView {
         let layoutManager = NSTextLayoutManager()

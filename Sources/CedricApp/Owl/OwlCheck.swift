@@ -62,7 +62,7 @@ enum OwlCheck {
         guard let owl = tab.owl, let bubble = owl.bubble, let window = tab.window else { check(false, "bubble shown"); finish(out); return }
         check(owl.owl.pose == .talking, "owl is in the talking pose")
         snapshot(window, "\(out)/1-bubble.png") {
-            guard let apply = bubble.buttons.first(where: { $0.title == String(localized: "Apply") }) else {
+            guard let apply = bubble.buttons.first(where: { $0.title == String(localized: "Fix it") }) else {
                 check(false, "bubble has Apply"); finish(out); return
             }
             click(apply)

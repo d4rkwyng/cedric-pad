@@ -122,6 +122,10 @@ func tempDir() -> URL {
         #expect(EditorTheme.system.palette(systemIsDark: true).name == "dark")
         #expect(EditorTheme.system.palette(systemIsDark: false).name == "light")
         #expect(EditorTheme.tankard.palette(systemIsDark: false).isDark)
+        #expect(EditorTheme.cedric.palette(systemIsDark: true).name == "cedric")
+        #expect(!EditorTheme.cedric.palette(systemIsDark: true).isDark)
+        #expect(EditorTheme.cedricNight.palette(systemIsDark: false).isDark)
+        #expect(EditorPalettes.all.count == EditorTheme.allCases.count - 1) // every theme but System
     }
 
     @Test func everyTokenKindHasAColour() {

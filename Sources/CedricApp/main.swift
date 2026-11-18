@@ -105,6 +105,12 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Go to Line…"), #selector(AppDelegate.goToLine(_:)), "l"),
         .separator(),
         submenu(String(localized: "Text Tools"), textToolItems()),
+        submenu(String(localized: "Spelling and Grammar"), [
+            item(String(localized: "Show Spelling and Grammar"), #selector(NSText.showGuessPanel(_:)), ":"),
+            item(String(localized: "Check Document Now"), #selector(AppDelegate.checkDocumentNow(_:)), ";"),
+            .separator(),
+            item(String(localized: "Check Spelling While Typing"), #selector(AppDelegate.toggleSpellingWhileTyping(_:))),
+        ]),
     ]))
 
     main.addItem(submenu(String(localized: "View"), [
@@ -115,6 +121,7 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.option]),
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
         item(String(localized: "Show Line Numbers"), #selector(AppDelegate.toggleLineNumbers(_:))),
+        item(String(localized: "Check Spelling While Typing"), #selector(AppDelegate.toggleSpellingWhileTyping(_:))),
         .separator(),
         item(String(localized: "Show Cedric the Owl"), #selector(AppDelegate.toggleOwl(_:))),
         submenu(String(localized: "Owl Hint Source"), OwlHintSource.allCases.map {
