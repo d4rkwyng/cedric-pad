@@ -20,7 +20,8 @@ extension Notification.Name {
 final class Settings {
     static let shared = Settings()
     private let defaults = UserDefaults.standard
-    private let themeOverride: EditorTheme?
+    /// CEDRIC_THEME, or set by the typing check: used for this run, not saved.
+    var themeOverride: EditorTheme?
 
     static let defaultFontSize: CGFloat = 13
 

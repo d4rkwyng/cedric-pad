@@ -201,6 +201,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
+        // New text starts in the theme's text colour, never in the colour
+        // of the token before the caret (or a default black); the
+        // highlighter recolours it a moment later.
+        if !textView.hasMarkedText() { textView.typingAttributes = baseAttributes() }
         updateStatus()
         gutter.needsDisplay = true
     }
@@ -257,8 +261,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             storage.endEditing()
             loading = false
         }
-        textView.typingAttributes = attrs
         textView.font = s.font
+        textView.textColor = NSColor(hex: p.foreground)
+        textView.typingAttributes = attrs
         applyWrap(s.wrapLines)
         updateGutterWidth()
         colorizer.setPalette(p)

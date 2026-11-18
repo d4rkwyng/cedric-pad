@@ -59,6 +59,7 @@ Tests (Swift Testing; the script adds the paths the Command Line Tools need):
 ```sh
 Scripts/test.sh                     # unit tests: tokenizers, Markdown, codecs, find, session store, themes
 Scripts/session-check.sh            # end to end: unsaved tabs survive a kill -9 and a normal quit
+Scripts/typing-check.sh             # real key events in every theme; typed glyphs' pixels must be visible
 Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no crash report
 swift Scripts/launch-time.swift dist/Cedric.app /System/Applications/TextEdit.app
 ```
@@ -93,8 +94,9 @@ It talks to the app through a `cedric://open?path=…&line=…` URL.
   line start, so an edit only invalidates from the edited line down, and
   colouring the viewport only scans from the last known state. Languages
   without cross-line state (JSON, YAML, plain) never scan above the viewport.
-  Colours are applied as TextKit 2 rendering attributes: no text-storage
-  edits, no undo entries, no re-layout. Tree-sitter would parse more
+  Colours are applied as foreground-colour attributes on the visible lines
+  (not registered with undo); new text starts in the theme's text colour.
+  Tree-sitter would parse more
   correctly (real grammars, nesting, embedded languages) but brings a C
   runtime plus one generated parser per language (several MB of C each),
   parses whole files up front, and would be the project's first external

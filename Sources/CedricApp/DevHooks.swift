@@ -24,6 +24,7 @@ import WebKit
 ///   CEDRIC_TEST_TYPE=text         type this at the end of the frontmost tab (session tests)
 ///   CEDRIC_TEST_TYPE_UNTITLED=t   open a new untitled tab and type this
 ///   CEDRIC_SESSION_DUMP=1         print the restored tabs and quit
+///   CEDRIC_TYPE_CHECK=1           run the typing check (TypingCheck.swift), print results, quit
 ///   CEDRIC_LAUNCH_METRICS=1       print "metric launch_ms=…" (process start → first window drawn)
 ///   CEDRIC_QUIT_AFTER_LAUNCH=1    quit right after that
 ///   CEDRIC_PERF_OPEN=/big.json    time open + colour + jump to end + typing, print metrics, quit
@@ -95,6 +96,12 @@ enum DevHooks {
                 metric("launch_ms", (now() - processStart()) * 1000)
                 if env["CEDRIC_QUIT_AFTER_LAUNCH"] == "1" { exit(0) }
             }
+        }
+        if env["CEDRIC_TYPE_CHECK"] == "1" {
+            // From a timer, not a main-queue block: the check spins the run
+            // loop, and main-queue work (deferred colouring) can't run
+            // inside a main-queue block.
+            Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { _ in MainActor.assumeIsolated { TypingCheck.run(app) } }
         }
         if let path = env["CEDRIC_PERF_OPEN"] { DispatchQueue.main.async { perfOpen(app, path) } }
         if let out = env["CEDRIC_SNAPSHOT"], !out.isEmpty { scheduleSnapshot(out) }

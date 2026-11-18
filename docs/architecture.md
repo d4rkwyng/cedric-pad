@@ -74,9 +74,15 @@ How it works: `Tokenizer.tokenize(line, state:inout, into:)` scans UTF-16
 code units; `state` carries open block comments, multi-line strings, code
 fences or HTML modes to the next line. `HighlightEngine` caches the state at
 each line start; an edit drops the cache from the edited line down.
-`SyntaxColorizer` colours the viewport plus a margin as TextKit 2 rendering
-attributes, remembers which lines are coloured, and uncolours from an edit
-down. Lines longer than 20,000 characters are coloured up to that point.
+`SyntaxColorizer` colours the viewport plus a margin as foreground-colour
+attributes on the text storage (not registered with undo, skipped while an
+input method has marked text), remembers which lines are coloured, and
+uncolours from an edit down. Typing attributes are reset to the theme's text
+colour on every selection change, so new text never inherits a token's colour
+or a default black. (v0 used TextKit 2 rendering attributes; after the
+"typed text invisible" report on the first test build they were replaced by
+the ordinary attribute path, which TextKit re-lays out and redraws like any
+edit. `Scripts/typing-check.sh` checks typing in every theme.) Lines longer than 20,000 characters are coloured up to that point.
 
 A tree-sitter tokenizer could later implement the same protocol for one
 language where lexical colouring isn't enough.

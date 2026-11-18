@@ -130,3 +130,30 @@ func tempDir() -> URL {
         }
     }
 }
+
+/// What the typing check verifies in pixels, checked here on the palettes:
+/// the caret and the selection band must be visible on every theme.
+@Suite struct CaretAndSelectionTests {
+    @Test func caretVisibleOnBackgroundAndCurrentLine() {
+        for p in EditorPalettes.all {
+            #expect(EditorPalettes.contrast(p.caret, p.background) >= 3, "\(p.name) caret on background")
+            #expect(EditorPalettes.contrast(p.caret, p.currentLine) >= 3, "\(p.name) caret on current line")
+        }
+    }
+
+    @Test func selectionBandDistinctAndTextReadableOnIt() {
+        for p in EditorPalettes.all {
+            #expect(EditorPalettes.contrast(p.selection, p.background) >= 1.25, "\(p.name) selection band")
+            #expect(EditorPalettes.contrast(p.foreground, p.selection) >= 4.5, "\(p.name) text on selection")
+        }
+    }
+
+    @Test func foregroundIsNeverTheBackground() {
+        for p in EditorPalettes.all {
+            #expect(EditorPalettes.contrast(p.foreground, p.background) >= 7, "\(p.name) text")
+            for k in TokenKind.allCases where k != .plain {
+                #expect(p.color(for: k) != p.background, "\(p.name) \(k)")
+            }
+        }
+    }
+}

@@ -2,9 +2,12 @@ import AppKit
 import CedricCore
 
 /// Colours the text view from the highlight engine: only the lines near
-/// the viewport (the visible range plus a margin), as TextKit 2 rendering
-/// attributes, which change drawing without touching the text storage
-/// (no undo entries, no re-layout). Tracks which lines are coloured so
+/// the viewport (the visible range plus a margin), as foreground-colour
+/// attributes on the text storage. (v0 used TextKit 2 rendering attributes;
+/// typed text was invisible on screen in Derek's test build, so colouring
+/// now goes through the ordinary attribute path that TextKit 2 re-lays out
+/// and redraws like any edit. Attribute changes made directly on the
+/// storage are not registered with undo.) Tracks which lines are coloured so
 /// scrolling back is free; an edit uncolours from the edited line down
 /// (or only the edited lines for languages without cross-line state).
 @MainActor
@@ -13,6 +16,7 @@ final class SyntaxColorizer {
     let engine: HighlightEngine
     private var colored = IndexSet()
     private var colors: [TokenKind: NSColor] = [:]
+    private var foreground: NSColor = .textColor
     private var pending = false
     /// Lines beyond the viewport to colour, above and below.
     static let margin = 80
@@ -24,6 +28,7 @@ final class SyntaxColorizer {
 
     func setPalette(_ p: EditorPalette) {
         colors = Dictionary(uniqueKeysWithValues: TokenKind.allCases.map { ($0, NSColor(hex: p.color(for: $0))) })
+        foreground = NSColor(hex: p.foreground)
         recolorAll()
     }
 
@@ -33,8 +38,12 @@ final class SyntaxColorizer {
     }
 
     func recolorAll() {
-        guard let tv = textView, let tlm = tv.textLayoutManager, let tcm = tlm.textContentManager else { return }
-        tlm.removeRenderingAttribute(.foregroundColor, for: tcm.documentRange)
+        guard let tv = textView, let storage = tv.textStorage else { return }
+        if storage.length > 0, !tv.hasMarkedText() {
+            storage.beginEditing()
+            storage.addAttribute(.foregroundColor, value: foreground, range: NSRange(location: 0, length: storage.length))
+            storage.endEditing()
+        }
         colored = IndexSet()
         engine.invalidateAll()
         colorViewport()
@@ -69,9 +78,13 @@ final class SyntaxColorizer {
     /// number of lines coloured (for the perf hooks).
     @discardableResult
     func colorViewport() -> Int {
-        guard let tv = textView, let tlm = tv.textLayoutManager, let storage = tv.textStorage else { return 0 }
+        guard let tv = textView, let storage = tv.textStorage else { return 0 }
+        // Never restyle under an input method's marked text: try again later.
+        if tv.hasMarkedText() { scheduleLater(); return 0 }
+        guard storage.editedMask.isEmpty else { scheduleViewport(); return 0 }
         guard let vr = tv.visibleCharacterRange else { return 0 }
         let index = lineIndexProvider()
+        guard index.length == storage.length else { scheduleViewport(); return 0 }
         let first = max(0, index.line(containing: vr.location) - Self.margin)
         let last = min(index.lineCount, index.line(containing: vr.location + vr.length) + Self.margin + 1)
         var todo = IndexSet(integersIn: first..<last)
@@ -79,21 +92,25 @@ final class SyntaxColorizer {
         guard !todo.isEmpty else { return 0 }
         let text = storage.string as NSString
         var count = 0
+        storage.beginEditing()
         for r in todo.rangeView {
-            // Clear old colours on these lines, then apply the new tokens.
+            // The theme's text colour on these lines, then the tokens' colours.
             let start = index.starts[r.lowerBound]
             let end = r.upperBound < index.lineCount ? index.starts[r.upperBound] : index.length
-            if let whole = tv.textRange(for: NSRange(location: start, length: end - start)) {
-                tlm.removeRenderingAttribute(.foregroundColor, for: whole)
-            }
+            if end > start { storage.addAttribute(.foregroundColor, value: foreground, range: NSRange(location: start, length: end - start)) }
             let tokens = engine.tokens(forLines: r, in: text, index: index)
             for t in tokens {
-                guard let range = tv.textRange(for: NSRange(location: t.start, length: t.length)), let c = colors[t.kind] else { continue }
-                tlm.addRenderingAttribute(.foregroundColor, value: c, for: range)
+                guard let c = colors[t.kind], t.start + t.length <= storage.length else { continue }
+                storage.addAttribute(.foregroundColor, value: c, range: NSRange(location: t.start, length: t.length))
             }
             count += r.count
         }
+        storage.endEditing()
         colored.formUnion(todo)
         return count
+    }
+
+    private func scheduleLater() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.scheduleViewport() }
     }
 }

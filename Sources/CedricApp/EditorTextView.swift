@@ -4,12 +4,10 @@ import CedricCore
 /// The editing surface: an NSTextView on TextKit 2 (NSTextLayoutManager),
 /// which lays out only what is near the viewport, so large files open
 /// quickly. Adds the current-line highlight and drawn invisibles; text
-/// colours come from `SyntaxColorizer` as rendering attributes.
+/// colours come from `SyntaxColorizer` as text-storage attributes.
 final class EditorTextView: NSTextView {
     var palette: EditorPalette = EditorPalettes.light
     var showInvisibles = false { didSet { needsDisplay = true } }
-    /// Called with the replacement for a paste or drop containing CR/CRLF.
-    var onNormalizedInsert: ((String) -> Void)?
 
     static func make() -> EditorTextView {
         let layoutManager = NSTextLayoutManager()
@@ -93,22 +91,18 @@ final class EditorTextView: NSTextView {
 
     // MARK: Paste normalisation
 
-    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
-        if let s = replacementString, s.utf8.contains(13) {
-            let normalized = TextCodec.normalizeLineEndings(s)
-            // Re-enter with the LF-only text (keeps undo and delegates intact).
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if self.shouldChangeText(in: affectedCharRange, replacementString: normalized) {
-                    self.textStorage?.replaceCharacters(in: affectedCharRange, with: normalized)
-                    self.didChangeText()
-                    self.setSelectedRange(NSRange(location: affectedCharRange.location + (normalized as NSString).length, length: 0))
-                }
-            }
-            return false
-        }
-        return super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
+    /// Paste and drop: plain text only, with CRLF/CR turned into LF
+    /// before it reaches the text (inserted as one undoable typing edit).
+    /// (v0 rejected the edit in shouldChangeText and re-inserted it later,
+    /// which silently dropped pastes.)
+    override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard let s = pboard.string(forType: .string) else { return super.readSelection(from: pboard, type: type) }
+        let normalized = TextCodec.normalizeLineEndings(s)
+        insertText(normalized, replacementRange: selectedRange())
+        return true
     }
+
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
 
     // MARK: Drawing
 
