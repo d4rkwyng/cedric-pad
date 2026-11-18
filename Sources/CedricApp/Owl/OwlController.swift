@@ -422,7 +422,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
             out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self, weak tab] in
                 guard let self, self.applyPresented() else { return }
                 // A to-do list in checkboxes reads best coloured as Markdown.
-                if hint.id == RulesHintProvider.todoListID, let tab, tab.doc.language == .plain { tab.setLanguage(.markdown) }
+                if hint.id == RulesHintProvider.todoListID, let tab, tab.doc.language == .plain { tab.setLanguageWithUndo(.markdown) }
             })
             if hint.id == RulesHintProvider.duplicateWordID {
                 // Where it is, before fixing blind: selects the doubled words.

@@ -575,6 +575,26 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         languageChanged()
     }
 
+    /// A language change that belongs to an edit (the owl's to-do fix
+    /// colours the tab as Markdown): registered in the same undo group,
+    /// so one ⌘Z restores the text and the language, and ⇧⌘Z redoes both.
+    func setLanguageWithUndo(_ l: Language) {
+        let old = doc.languageChoice
+        setLanguage(l)
+        registerLanguageUndo(back: old)
+    }
+
+    private func registerLanguageUndo(back old: LanguageChoice) {
+        guard let um = textView.undoManager else { return }
+        um.registerUndo(withTarget: self) { [weak self] _ in
+            guard let self else { return }
+            let now = self.doc.languageChoice
+            self.doc.languageChoice = old
+            self.languageChanged()
+            self.registerLanguageUndo(back: now)
+        }
+    }
+
     private func languageChanged() {
         let l = doc.language
         colorizer.setLanguage(l)

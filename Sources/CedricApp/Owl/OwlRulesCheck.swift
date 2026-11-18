@@ -7,7 +7,8 @@ import CedricCore
 ///
 ///   1. Types three "- item" lines under the title; waits for "It looks
 ///      like you're writing a to-do list"; clicks Fix it: the lines are
-///      Markdown checkboxes and the tab is Markdown. ⌘Z undoes the edit.
+///      Markdown checkboxes and the tab is Markdown. ⌘Z undoes the edit
+///      and the language; ⇧⌘Z redoes both.
 ///   2. Types "Fix the the bug"; waits for the doubled-word hint; Show Me
 ///      selects "the the"; then Fix it.
 ///   3. Types merge-conflict markers; waits for the warning; Show Me
@@ -69,7 +70,10 @@ enum OwlRulesCheck {
                 check(tab.doc.language == .markdown, "and the tab is now Markdown (\(tab.doc.language))")
                 OwlCheck.key(window, "z", code: 6, [.command])
                 check(tab.text == typed, "one ⌘Z restores the typed list")
+                check(tab.doc.language == .plain, "and the tab is Plain Text again (\(tab.doc.language))")
                 OwlCheck.key(window, "z", code: 6, [.command, .shift])
+                check(tab.text == "Todo\n- [ ] milk\n- [ ] eggs\n- [ ] call Mum\n", "⇧⌘Z redoes the checkboxes")
+                check(tab.doc.language == .markdown, "and Markdown (\(tab.doc.language))")
                 step2(tab, out: out)
             }
         }
