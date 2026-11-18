@@ -83,6 +83,9 @@ enum LargeDocPerf {
         tab.window?.displayIfNeeded()
         var frames: [Double] = []
         let clip = tab.scrollView.contentView
+        // Steps where the view ended up above where it was: a scroll
+        // that snaps back (TextKit re-anchoring the viewport).
+        var backsteps = 0, lastY = clip.bounds.minY
         for i in 0..<steps {
             let s = DevHooks.now()
             let page = clip.bounds.size
@@ -99,9 +102,12 @@ enum LargeDocPerf {
             spin(0)
             tab.window?.displayIfNeeded()
             frames.append((DevHooks.now() - s) * 1000)
+            if clip.bounds.minY < lastY - 1 { backsteps += 1 }
+            lastY = clip.bounds.minY
             if env["CEDRIC_PERF_SCROLL_LOG"] == "1" { print(String(format: "scroll step %d: wanted y=%.0f now y=%.0f", i, p.y, clip.bounds.minY)) }
         }
         report("scroll", frames)
+        DevHooks.metric("scroll_backsteps", Double(backsteps))
         print(String(format: "perf: scrolled to x=%.0f y=%.0f of %.0fx%.0f", clip.bounds.minX, clip.bounds.minY, tab.textView.frame.width, tab.textView.frame.height))
 
         // Idle CPU with the owl on (and assumed visible).

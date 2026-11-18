@@ -284,9 +284,19 @@ final class OwlController: NSObject, NSPopoverDelegate {
         guard !holdVisible || bubble != nil, !isDragging else { return }
         guard let tv = tab?.textView, let window = tv.window else { return }
         let sel = tv.selectedRange()
-        let screen = tv.firstRect(forCharacterRange: NSRange(location: sel.location + sel.length, length: 0), actualRange: nil)
-        guard screen != .zero else { return }
-        let caret = overlay.convert(window.convertFromScreen(screen), from: nil)
+        let caretAt = sel.location + sel.length
+        // A caret scrolled out of view can't be near the owl. (Asking
+        // TextKit for its rect lays out up to it, and with a long line in
+        // chunks that re-anchored the viewport: scrolling stalled near
+        // the caret.)
+        let caret: NSRect
+        if let vis = tv.visibleCharacterRange, !NSLocationInRange(caretAt, NSRange(location: vis.location, length: vis.length + 1)) {
+            caret = NSRect(x: -10_000, y: -10_000, width: 0, height: 0)
+        } else {
+            let screen = tv.firstRect(forCharacterRange: NSRange(location: caretAt, length: 0), actualRange: nil)
+            guard screen != .zero else { return }
+            caret = overlay.convert(window.convertFromScreen(screen), from: nil)
+        }
         let nearOwl = caret.insetBy(dx: -28, dy: -18).intersects(owl.frame)
         let nearBubble = bubble.map { caret.insetBy(dx: -12, dy: -12).intersects($0.frame) } ?? false
         if nearOwl != owlFaded {

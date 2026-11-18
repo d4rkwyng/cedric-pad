@@ -7,7 +7,7 @@
 #
 #   first window (open)         < 300 ms
 #   keystroke, median           <  16 ms   (start, middle and end of the line)
-#   scripted scroll, worst step <  50 ms
+#   scripted scroll, worst step <  50 ms, and it never snaps back
 #   idle CPU with the owl on    <   3 %
 #
 #   Scripts/perf-check.sh [--file PATH] [APP]     default dist/Cedric.app
@@ -59,6 +59,7 @@ for f in "$FILE" "$W/many-lines.txt"; do
     check open_total_ms "$(m open_total_ms)" 300
     for p in start middle end; do check "type_${p}_median_ms" "$(m type_${p}_median_ms)" 16; done
     check scroll_max_ms "$(m scroll_max_ms)" 50
+    check scroll_backsteps "$(m scroll_backsteps)" 1
     check idle_cpu_pct "$(m idle_cpu_pct)" 3
     echo "$out" | grep "^metric" | sed 's/^metric /  /' > "$W/$(basename "$f").metrics"
 done
