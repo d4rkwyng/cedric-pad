@@ -373,6 +373,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
         owl.nod()
     }
 
+    /// Nothing found where the user asked: a quiet "no" (a glance aside and back).
+    func shake() {
+        guard canAnimate, bubble == nil, chatState == nil else { return }
+        owl.glance(4)
+    }
+
     func setThinking(_ on: Bool) {
         guard bubble == nil, chatState == nil else { return }
         owl.setPose(on ? .thinking : .idle)
@@ -701,6 +707,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
             g.toolTip = String(localized: "Shows a grammar suggestion for the text in view.")
             stack.addArrangedSubview(g)
         }
+        if let tab, tab.canCheckGrammarWithAI {
+            let g = NSButton(title: String(localized: "Check Grammar with AI"), target: self, action: #selector(grammarWithAI))
+            g.controlSize = .small
+            g.toolTip = String(localized: "Asks the AI engine about the grammar of the prose in view; the macOS checker stays on too.")
+            stack.addArrangedSubview(g)
+        }
         if let tab, tab.canAskCedric {
             let chat = NSButton(title: String(localized: "Ask Cedric…"), target: self, action: #selector(askCedric))
             chat.controlSize = .small
@@ -758,6 +770,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
         closePopover()   // at once: a fast answer must not find it still up
         guard let tab else { return }
         OwlHub.shared.askAI(in: tab)
+    }
+
+    @objc func grammarWithAI() {
+        closePopover()
+        hideBubble()
+        tab?.checkGrammarWithAI()
     }
 
     @objc func askCedric() {

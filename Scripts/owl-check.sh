@@ -49,6 +49,12 @@ CEDRIC_SESSION_DIR="$WORK/session-chat" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SA
 CEDRIC_OPEN="$WORK/Sum.swift" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=1 CEDRIC_OWL_TOOLS=1 \
 CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_OWL_CHAT_FAKE_DELAY=0.12 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
 CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/chat" CEDRIC_OWL_CHECK_CHAT=1 "$BIN" || status=1
+# Check Grammar with AI (fake engine) on a letter.
+printf 'Dear Sam,\n\nThe trip took longer then I expected, but the weather was kind to us and the views were lovely. We will send photos when we are home again next week.\n\nBest wishes,\nAlex\n' > "$WORK/letter.txt"
+CEDRIC_SESSION_DIR="$WORK/session-grammar-ai" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
+CEDRIC_OPEN="$WORK/letter.txt" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=1 CEDRIC_GRAMMAR_FAKE=1 CEDRIC_GRAMMAR_PAUSE=0.3 \
+CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
+CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/grammar-ai" CEDRIC_OWL_CHECK_CHAT=grammar "$BIN" || status=1
 defaults delete "$SUITE" >/dev/null 2>&1 || true
 rm -f "$HOME/Library/Preferences/$SUITE.plist"
 echo "owl-check: snapshots in $OUT"

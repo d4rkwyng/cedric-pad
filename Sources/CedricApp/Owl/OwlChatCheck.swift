@@ -151,6 +151,46 @@ enum OwlChatCheck {
         }
     }
 
+    /// CEDRIC_OWL_CHECK_CHAT=grammar: Check Grammar with AI on a prose file
+    /// (the fake engine "finds" "then I expected"): an underline, the
+    /// owl's grammar bubble, Fix it, one ⌘Z.
+    static func runGrammar(_ tab: EditorWindowController, out: String) {
+        guard let window = tab.window else { return }
+        let deadline = Date().addingTimeInterval(15)
+        func waitProse() {
+            if tab.grammar.lastSawProse == true {
+                check(tab.canCheckGrammarWithAI, "Check Grammar with AI is available in prose")
+                let original = tab.text
+                NSApp.sendAction(#selector(AppDelegate.checkGrammarWithAIMenu(_:)), to: nil, from: nil)
+                check(tab.grammar.aiPasses == 1, "the menu item starts one AI pass")
+                waitBubble(original)
+                return
+            }
+            if Date() > deadline { check(false, "the text was found to be prose"); OwlCheck.finish(out); return }
+            after(0.2, waitProse)
+        }
+        func waitBubble(_ original: String) {
+            if let b = tab.owl?.bubble, GrammarMap.isGrammarHint(b.hint.id) {
+                check(b.hint.replacement == "than I expected", "the owl offers the AI's grammar fix (\(b.hint.title))")
+                let r = (tab.text as NSString).range(of: "then I expected")
+                check(tab.textView.grammarRanges.contains(r), "the AI's finding is underlined like the system's")
+                OwlCheck.snapshot(window, "\(out)/grammar-ai.png") {
+                    guard let fix = b.buttons.first(where: { $0.title == String(localized: "Fix it") }) else { check(false, "Fix it"); OwlCheck.finish(out); return }
+                    OwlCheck.click(fix)
+                    check(tab.text.contains("than I expected") && !tab.text.contains("then I expected"), "Fix it applied the AI's correction")
+                    window.makeFirstResponder(tab.textView)
+                    OwlCheck.key(window, "z", code: 6, [.command])
+                    check(tab.text == original, "one ⌘Z undoes it")
+                    OwlCheck.finish(out)
+                }
+                return
+            }
+            if Date() > deadline { check(false, "a grammar bubble from the AI within 15 s"); OwlCheck.finish(out); return }
+            after(0.2) { waitBubble(original) }
+        }
+        waitProse()
+    }
+
     /// Hook for later steps.
     static var extra: @MainActor (EditorWindowController, String) -> Void = { tab, out in animations(tab, out: out) }
 

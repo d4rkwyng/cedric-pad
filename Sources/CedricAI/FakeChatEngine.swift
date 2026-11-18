@@ -20,9 +20,21 @@ public struct FakeChatEngine: OwlChatEngine {
     public var contextBudget: Int { 6_000 }
 
     public static let commentText = "Cedric: checked"
+    /// What the fake grammar check "finds".
+    public static let grammarFixes = [("we was", "we were"), ("He go ", "He goes "), ("then I expected", "than I expected")]
 
     public func turn(_ messages: [OwlChatMessage], tools: [OwlToolSpec], toolbox: OwlToolbox?, maxTokens: Int,
                      onText: @escaping @Sendable (String) -> Void) async throws -> OwlTurn {
+        // The grammar task: a few fixed mistakes, as JSON.
+        if case .system(let sys)? = messages.first, sys.contains("find grammar mistakes") {
+            let text = messages.compactMap { m -> String? in if case .user(let s) = m { return s }; return nil }.last ?? ""
+            var issues: [OwlJSON] = []
+            for (find, rep) in Self.grammarFixes where text.contains(find) {
+                issues.append(.object(["find": .string(find), "replacement": .string(rep), "why": .string("Fake grammar fix.")]))
+            }
+            try await Task.sleep(nanoseconds: UInt64(delay * 1e9))
+            return .answer(OwlJSON.object(["issues": .array(issues)]).jsonString)
+        }
         let names = Set(tools.map(\.name))
         let question = messages.compactMap { m -> String? in if case .user(let s) = m { return s }; return nil }
             .last { !$0.hasPrefix("Answer now") } ?? ""

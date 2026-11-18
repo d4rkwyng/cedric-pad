@@ -241,6 +241,12 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   catches only what macOS's catches ("a elephant", doubled words, some
   agreement errors); it misses many others, such as "Their going too the
   store".
+  With Owl chat (beta) on and an AI engine set up, **Check Grammar with
+  AI** (Edit › Spelling and Grammar, or the owl's popover) asks the model
+  about the prose in view; what it finds (only exact words from the text,
+  a few words at a time) gets the same underline, **Fix it** and **Fix
+  Grammar…**. It runs on its own only where automatic AI checks are on
+  (never on Intel Macs by default); the macOS checker stays on as well.
 - **Print** (File › Print…, ⌘P; Page Setup…, ⇧⌘P): the text in the
   editor's font, dark on white (not the theme's colours), wrapped to the
   page, with the file name, date and page numbers; line numbers are an
