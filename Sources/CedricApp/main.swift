@@ -77,6 +77,12 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
         item(String(localized: "Show Line Numbers"), #selector(AppDelegate.toggleLineNumbers(_:))),
         .separator(),
+        item(String(localized: "Show Cedric the Owl"), #selector(AppDelegate.toggleOwl(_:))),
+        submenu(String(localized: "Owl Hint Source"), OwlHintSource.allCases.map {
+            item($0 == .rules ? String(localized: "Rules") : String(localized: "Rules + AI"),
+                 #selector(AppDelegate.pickOwlHintSource(_:)), represented: $0.rawValue)
+        }),
+        .separator(),
         item(String(localized: "Zoom In"), #selector(AppDelegate.zoomIn(_:)), "="),
         item(String(localized: "Zoom Out"), #selector(AppDelegate.zoomOut(_:)), "-"),
         item(String(localized: "Actual Size"), #selector(AppDelegate.zoomReset(_:)), "0"),
