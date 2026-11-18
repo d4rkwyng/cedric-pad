@@ -139,16 +139,30 @@ public enum HintVerifier {
         return re.numberOfMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length))
     }
 
+    /// Whether `name` is declared in `text`: the name being declared (left
+    /// of any `=`, including destructuring), a function, type or class
+    /// name, a parameter (also of an arrow function), a loop variable, an
+    /// import, or a plain assignment at the start of a line. A use on the
+    /// right of `=` (`const user = await db.find(id)`) is not.
     static func isDeclared(_ name: String, in text: String) -> Bool {
         let n = NSRegularExpression.escapedPattern(for: name)
+        let w = "(?<![A-Za-z0-9_$.])\(n)(?![A-Za-z0-9_$])"
         let patterns = [
-            "\\b(let|var|const|func|function|def|class|struct|enum|import|from|fn|val|type|interface)\\s+[^\\n]*?(?<![A-Za-z0-9_$])\(n)(?![A-Za-z0-9_$])",
+            // let/var/const/val: the targets, up to the = (or ; or the line end).
+            "\\b(let|var|const|val)\\s+[^=;\\n]*?\(w)",
+            // Further declarators in the same statement: "var a = 1, db = 2".
+            "\\b(let|var|const)\\s+[^;\\n]*,\\s*\(n)\\s*(=|,|;|$)",
+            // Named things.
+            "\\b(func|function|def|class|struct|enum|fn|type|interface|protocol|typealias)\\s+\(n)\\b",
+            // Imports: up to a quoted path (never the path itself).
+            "\\bimport\\s+[^'\"\\n]*?\(w)",
             "(?m)^\\s*\(n)\\s*=[^=]",                      // Python/Ruby/shell assignment
-            "\\b(func|def|function|fn)\\b[^\\n(]*\\([^)\\n]*(?<![A-Za-z0-9_$])\(n)(?![A-Za-z0-9_$])",   // a parameter
+            "\\b(func|def|function|fn)\\b[^\\n(]*\\([^)\\n]*\(w)",   // a parameter
+            "\\(([^()\\n]*\(w)[^()\\n]*)?\\)\\s*=>|\(w)\\s*=>",   // an arrow function's parameter
             "\\bfor\\s+\\(?\\s*(let|var|const)?\\s*\(n)\\b",   // a loop variable
         ]
         return patterns.contains { p in
-            (try? NSRegularExpression(pattern: p))?.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
+            (try? NSRegularExpression(pattern: p, options: [.anchorsMatchLines]))?.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
         }
     }
 }

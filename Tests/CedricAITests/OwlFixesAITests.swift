@@ -35,4 +35,24 @@ import CedricCore
     }
 
     // F-M5: `db` used on the right of `=` is not declared there.
+    @Test func useOnTheRightIsNotADeclaration() {
+        let app = "const express = require('express');\nconst app = express();\n\napp.get('/u/:id', async (req, res) => {\n  const user = await db.find(req.params.id);\n  res.json(user);\n});\n"
+        #expect(!HintVerifier.isDeclared("db", in: app))
+        let hint: [String: Any] = ["kind": "warning", "category": "undefined", "title": "`db` is not defined",
+                                   "detail": "The variable `db` is used but never declared or imported.", "line": 5,
+                                   "find": "db.find", "replacement": "", "confidence": 0.9]
+        #expect(HintPrompt.parse(json([hint]), text: app, source: "s", language: "javascript").count == 1)
+        // Real declarations still count.
+        for decl in ["const db = connect();", "let db;", "var a = 1, db = 2;", "const { db, cache } = deps;",
+                     "const [db] = pool;", "import db from './db';", "import { db } from './db';",
+                     "function load(db, id) {}", "async (db) => db.close()", "from storage import db",
+                     "import db", "def run(db):", "func open(db: Database) {}", "let db: Database = .shared",
+                     "class db {}", "for (const db of dbs) {}", "db = connect()"] {
+            #expect(HintVerifier.isDeclared("db", in: decl), "\(decl)")
+        }
+        for use in ["const user = await db.find(id);", "let x = db;", "var rows = query(db, sql);",
+                    "const total = items.length + db.count;", "import { other } from './db';"] {
+            #expect(!HintVerifier.isDeclared("db", in: use), "\(use)")
+        }
+    }
 }
