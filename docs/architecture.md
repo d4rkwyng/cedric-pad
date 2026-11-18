@@ -987,3 +987,50 @@ preview and HTML in both Cedric themes; spelling marks in a Swift file
 (comment and string, not the identifier) and in Markdown (prose, not code
 or the link), colours unchanged, in light and dark; the owl's "Fix 3
 typos?" applied and undone with one undo.
+
+## PDF tabs
+
+A PDF opens in a `PDFTabController` (PDFTab.swift), not an
+`EditorWindowController`: its own window in the same tab group
+(`tabbingIdentifier` "CedricEditor"), with a PDFKit `PDFView`
+(`singlePageContinuous`), a `PDFThumbnailView` sidebar, Cedric's
+`FindBar` (Regex and Whole Word hidden: PDFKit searches plain text) and
+`StatusBar` (only the page and the zoom). `AppDelegate.pdfTabs` holds them
+beside `tabs`; `currentTab` is nil while a PDF tab is in front, so every
+editor command that checks it is off without more code, and the PDF
+controller answers (as nothing, disabled) the few that don't check
+(Format menus, Show Preview, Find and Replace, Save, Find in Files).
+
+- **Which files:** `DocumentKind.detect(url:)` (CedricCore, tested) reads
+  the first 8 bytes: `%PDF-` at the start, or a `.pdf` name (so a damaged
+  `.pdf` gets the viewer's "damaged" alert rather than binary text in the
+  editor). `AppDelegate.open` routes every path through it: File › Open,
+  drops on text or on a PDF, the Dock, `cedric://open` (with `line` as the
+  page, and `-w` waiting on the PDF tab's id), Open Recent.
+- **Never written:** there is no save path; `saveDocument:` and friends
+  are validated off on the PDF controller. Open as Text extracts with a
+  second `PDFDocument` on a background queue (PDFKit objects stay on one
+  thread) and opens the text as a new unsaved untitled tab.
+- **Find:** the count comes from `beginFindString` (PDFKit's own thread,
+  `PDFDocumentDidFindMatch` notifications); next / previous use
+  `findString(_:fromSelection:)`, wrapping. Matches are highlighted.
+- **Zoom:** ⌘+ / ⌘− step by 25% (the view's own `zoomIn:` is routed to
+  the controller, so the steps are Cedric's, clamped to 10%–1600%); ⌘0 is
+  100%; ⌘9 fits the width (`autoScales`, how a PDF opens).
+- **Session:** `SessionTab.pdf` (`PDFTabState`: page, scale or nil for
+  fit, sidebar) marks a PDF tab; older sessions decode without it, and a
+  `.pdf` tab with no buffer from before PDF tabs restores as one. Only a
+  window's selected tab is built at launch, as for text; a PDF tab loads
+  its document only when first shown (`loadIfShown`, checked on the next
+  run-loop turn, since inserting a tab into a group makes it key for a
+  moment), so a session full of PDFs costs nothing until they are clicked.
+  PDFKit itself is linked (2 more images from the shared cache), but no
+  PDFKit object is created at launch unless the selected tab is a PDF.
+- **Locked and damaged:** an encrypted PDF shows a message and a password
+  sheet (wrong passwords ask again, Cancel leaves an Enter Password…
+  button); `PDFDocument(url:)` returning nil is an alert on open (no tab)
+  or a message in a restored tab.
+- `Scripts/pdf-check.sh` drives all of it in the running app with PDFs it
+  draws with Core Graphics, then relaunches to check the session;
+  `render-check.sh` renders a PDF tab in every theme (white page, themed
+  chrome).

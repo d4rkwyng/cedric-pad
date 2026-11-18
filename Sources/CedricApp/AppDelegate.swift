@@ -4,6 +4,8 @@ import CedricCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private(set) var tabs: [EditorWindowController] = []
+    /// PDF viewer tabs (PDFTab.swift), in the same windows' tab groups.
+    var pdfTabs: [PDFTabController] = []
     let store = SessionStore(directory: SessionStore.defaultDirectory())
     private let env = ProcessInfo.processInfo.environment
     private var sessionTimer: Timer?
@@ -14,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Open Recent rebuild queued (EditorTools.swift).
     var recentRebuildScheduled = false
     /// Set once quitting: windows closed by termination keep their buffers.
-    private var terminating = false
+    private(set) var terminating = false
     /// File › Reopen Closed Tab (ClosedTabs.swift): closed tabs, newest
     /// last, saved with the session; their unsaved text stays in their
     /// buffer files. `closedTexts` holds the text in memory instead when
@@ -49,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         for url in toOpen { open(url) }
         pendingOpen = []
-        if tabs.isEmpty { newTab(nil) }
+        if tabs.isEmpty && pdfTabs.isEmpty { newTab(nil) }
         schedulePendingRestore()
         LaunchTrace.mark("tabs_ready")
         recentMenu?.delegate = self
@@ -82,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         tabs.forEach { $0.reloadIfChangedOnDisk() }
+        pdfTabs.forEach { $0.reloadIfChangedOnDisk() }
     }
 
     /// `cedric://open?path=/abs/file&line=12` (the command-line launcher)
@@ -104,6 +107,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 tab.updateTitle()
             }
             let tab = tabs.first { $0.doc.fileURL?.standardizedFileURL == url.standardizedFileURL }
+            // A PDF: `cedric file.pdf:3` opens it at page 3; -w waits for its tab.
+            if tab == nil, let pdf = pdfTab(for: url) {
+                if let page = q["line"].flatMap(Int.init) { pdf.goToPage(page - 1) }
+                if let marker = q["wait"] { addWaiter(marker, forID: pdf.id) }
+            }
             if let line = q["line"].flatMap(Int.init) { tab?.goToLine(line, column: q["col"].flatMap(Int.init) ?? 1) }
             // `cedric -w`: the script waits until this marker file goes.
             if let marker = q["wait"], let tab { addWaiter(marker, for: tab) }
@@ -185,6 +193,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var currentTab: EditorWindowController? {
         // A detached preview's window: its tab (View › Attach Preview).
         if let key = NSApp.keyWindow, let t = tabs.first(where: { $0.previewWindow?.window === key }) { return t }
+        // A PDF tab in front: no text tab is current (the editor's commands are off).
+        if currentPDFTab != nil { return nil }
         return tabs.first { $0.window === NSApp.keyWindow } ?? tabs.first { $0.window === NSApp.mainWindow }
             // Not active (launched from a script, screen locked): the
             // frontmost tab. The owl check (CEDRIC_OWL_ASSUME_VISIBLE) may
@@ -201,6 +211,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func open(_ url: URL) -> EditorWindowController? {
         let std = url.standardizedFileURL
         restorePendingTab(for: std)
+        // A PDF (by its first bytes, or its name) opens in a viewer tab.
+        if DocumentKind.detect(url: std) == .pdf {
+            openPDF(std)
+            return nil
+        }
         if let existing = tabs.first(where: { $0.doc.fileURL?.standardizedFileURL == std }) {
             existing.window?.makeKeyAndOrderFront(nil)
             return existing
@@ -247,13 +262,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// The windows in on-screen order, each with its tabs in tab-bar order.
     func tabGroups() -> [[EditorWindowController]] {
+        windowGroups().map { $0.compactMap { win in tabs.first { $0.window === win } } }.filter { !$0.isEmpty }
+    }
+
+    /// The same, as windows: text and PDF tabs both.
+    func windowGroups() -> [[NSWindow]] {
         var seen = Set<ObjectIdentifier>()
-        var groups: [[EditorWindowController]] = []
-        let ordered = NSApp.orderedWindows + tabs.compactMap(\.window)
-        for w in ordered {
-            guard !seen.contains(ObjectIdentifier(w)), tabs.contains(where: { $0.window === w }) else { continue }
-            let members = (w.tabbedWindows ?? [w]).compactMap { win in tabs.first { $0.window === win } }
-            for m in members { if let mw = m.window { seen.insert(ObjectIdentifier(mw)) } }
+        var groups: [[NSWindow]] = []
+        let ours = tabs.compactMap(\.window) + pdfTabs.compactMap(\.window)
+        let isOurs = { (w: NSWindow) in ours.contains { $0 === w } }
+        for w in NSApp.orderedWindows + ours {
+            guard !seen.contains(ObjectIdentifier(w)), isOurs(w) else { continue }
+            let members = (w.tabbedWindows ?? [w]).filter(isOurs)
+            for m in members { seen.insert(ObjectIdentifier(m)) }
             if !members.isEmpty { groups.append(members) }
         }
         return groups
@@ -275,10 +296,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         var keep = Set<UUID>()
         var buffers: [(UUID, String)] = []
         var written: [UUID: (EditorDocument, Int)] = [:]
-        for group in tabGroups() {
+        for group in windowGroups() {
             var sessionTabs: [SessionTab] = []
             var selected = 0
-            for (i, t) in group.enumerated() {
+            for win in group {
+                if let p = pdfTabs.first(where: { $0.window === win }) {
+                    sessionTabs.append(p.sessionTab)
+                    if win === NSApp.keyWindow || win.tabGroup?.selectedWindow === win { selected = sessionTabs.count - 1 }
+                    continue
+                }
+                guard let t = tabs.first(where: { $0.window === win }) else { continue }
                 let d = t.doc
                 let isEmpty = (t.textView.textStorage?.length ?? 0) == 0
                 let needsBuffer = d.isDirty || d.fileURL == nil && !isEmpty
@@ -312,7 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
             }
             if !sessionTabs.isEmpty {
-                windows.append(SessionWindow(tabs: sessionTabs, selectedTab: selected, frame: group.first?.window?.frameDescriptor))
+                windows.append(SessionWindow(tabs: sessionTabs, selectedTab: selected, frame: group.first?.frameDescriptor))
             }
         }
         for c in closedTabs where c.hasBuffer { keep.insert(c.id) }
@@ -412,7 +439,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// `place` nil: in a new window (not ordered in). Else into that
     /// window's tab group at that position.
     @discardableResult
-    private func restoreTab(_ st: SessionTab, into place: (host: NSWindow, index: Int)?) -> EditorWindowController? {
+    private func restoreTab(_ st: SessionTab, into place: (host: NSWindow, index: Int)?) -> NSWindowController? {
+        // A PDF tab (or, from before PDF tabs, a .pdf file opened as text with nothing unsaved).
+        if st.pdf != nil || !st.hasBuffer && st.path.map(DocumentKind.hasPDFExtension) == true {
+            return restorePDFTab(st, into: place)
+        }
         let doc = EditorDocument(id: st.id, fileURL: st.path.map { URL(fileURLWithPath: $0) },
                                  untitledName: st.untitledName ?? st.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Untitled"))
         doc.indentation = st.indentation
@@ -477,7 +508,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func restorePending(_ p: PendingTab) {
         // The saved window's tabs still open (the user may have closed some).
-        let live = p.group.built.filter { b in tabs.contains { $0.window === b.window } }
+        let live = p.group.built.filter { b in tabs.contains { $0.window === b.window } || pdfTabs.contains { $0.window === b.window } }
         guard let anchor = live.first?.window, let tg = anchor.tabGroup else {
             // All of them closed before this one was built: it gets its own window.
             if let tab = restoreTab(p.tab, into: nil), let w = tab.window {
@@ -588,8 +619,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(pickLineEndingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.lineEnding.rawValue ? .on : .off
         case #selector(pickEncodingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.encoding.rawValue ? .on : .off
         case #selector(reopenClosedTab(_:)): return !closedTabs.isEmpty
+        case #selector(goToLine(_:)):
+            item.title = String(localized: "Go to Line…") // a PDF tab shows "Go to Page…"
+            return tab != nil
         case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)), #selector(showFind(_:)), #selector(showReplace(_:)),
-             #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(goToLine(_:)), #selector(useSelectionForFind(_:)),
+             #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(useSelectionForFind(_:)),
              #selector(printDocument(_:)):
             return tab != nil
         default: return validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)

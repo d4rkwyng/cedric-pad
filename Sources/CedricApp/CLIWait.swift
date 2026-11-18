@@ -17,9 +17,12 @@ extension AppDelegate {
         return name.hasPrefix("cedric-wait.") && temps.contains(dir)
     }
 
-    func addWaiter(_ marker: String, for tab: EditorWindowController) {
+    func addWaiter(_ marker: String, for tab: EditorWindowController) { addWaiter(marker, forID: tab.doc.id) }
+
+    /// A tab by its id (a PDF tab's, too).
+    func addWaiter(_ marker: String, forID id: UUID) {
         guard Self.isWaitMarker(marker), FileManager.default.fileExists(atPath: marker) else { return }
-        Self.waiters[tab.doc.id, default: []].append(marker)
+        Self.waiters[id, default: []].append(marker)
     }
 
     func releaseWaiters(for id: UUID) {

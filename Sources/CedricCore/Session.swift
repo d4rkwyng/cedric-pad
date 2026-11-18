@@ -29,11 +29,14 @@ public struct SessionTab: Codable, Equatable, Sendable {
     /// that window's frame (NSWindow's frame descriptor). Nil otherwise.
     public var previewDetached: Bool?
     public var previewFrame: String?
+    /// A PDF tab (a read-only viewer, never written): its page and zoom.
+    /// Nil for text tabs and in sessions saved before PDF tabs.
+    public var pdf: PDFTabState?
 
     public init(id: UUID = UUID(), path: String? = nil, untitledName: String? = nil, hasBuffer: Bool = false,
                 encoding: TextEncoding = .utf8, lineEnding: LineEnding = .lf, language: Language? = nil,
                 selectionLocation: Int = 0, selectionLength: Int = 0, topLine: Int = 0, fileModified: Date? = nil,
-                bookmarks: [Int]? = nil, indentation: Indentation? = nil, previewDetached: Bool? = nil, previewFrame: String? = nil) {
+                bookmarks: [Int]? = nil, indentation: Indentation? = nil, previewDetached: Bool? = nil, previewFrame: String? = nil, pdf: PDFTabState? = nil) {
         self.id = id
         self.path = path
         self.untitledName = untitledName
@@ -49,6 +52,7 @@ public struct SessionTab: Codable, Equatable, Sendable {
         self.indentation = indentation
         self.previewDetached = previewDetached
         self.previewFrame = previewFrame
+        self.pdf = pdf
     }
 }
 

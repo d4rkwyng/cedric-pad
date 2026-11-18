@@ -142,6 +142,8 @@ enum RenderDump {
         PolishCheck.language(app, out: out, report: report)
         PolishCheck.themeShowcase(app, out: out, report: report)
         PolishCheck.spelling(app, out: out, report: report)
+        // A PDF tab (PDFCheck.swift): white page, themed chrome.
+        PDFRenderCheck.run(app, out: out, report: report)
         // Untitled numbering: the lowest free number among open untitled tabs.
         for t in app.tabs { t.doc.markSaved(); t.window?.close() }
         TypingCheck.settle(0.05)

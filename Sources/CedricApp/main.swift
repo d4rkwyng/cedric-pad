@@ -87,6 +87,8 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Open…"), #selector(AppDelegate.openDocument(_:)), "o"),
         // Filled by AppDelegate.rebuildRecentMenu from the system recent-documents list.
         submenu(AppDelegate.recentMenuTitle, []),
+        // A PDF tab's text in a new editable tab (PDFTab.swift).
+        item(String(localized: "Open as Text"), #selector(PDFTabController.openAsText(_:))),
         .separator(),
         item(String(localized: "Close Tab"), #selector(NSWindow.performClose(_:)), "w"),
         item(String(localized: "Close Window"), #selector(AppDelegate.closeWindow(_:)), "w", [.command, .shift]),
@@ -189,6 +191,9 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Zoom In"), #selector(AppDelegate.zoomIn(_:)), "="),
         item(String(localized: "Zoom Out"), #selector(AppDelegate.zoomOut(_:)), "-"),
         item(String(localized: "Actual Size"), #selector(AppDelegate.zoomReset(_:)), "0"),
+        // PDF tabs only (PDFTab.swift).
+        item(String(localized: "Zoom to Fit"), #selector(PDFTabController.zoomToFit(_:)), "9"),
+        item(String(localized: "Show Page Thumbnails"), #selector(PDFTabController.togglePDFThumbnails(_:)), "b", [.command, .option]),
         .separator(),
         submenu(String(localized: "Theme"), EditorTheme.allCases.map {
             item($0.displayName, #selector(AppDelegate.pickTheme(_:)), represented: $0.rawValue)
