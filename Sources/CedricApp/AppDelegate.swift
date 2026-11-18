@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Files handed over before launch finished (Finder, `open`).
     private var pendingOpen: [URL] = []
     private var launched = false
+    /// Set once quitting: windows closed by termination keep their buffers.
+    private var terminating = false
 
     // MARK: Launch
 
@@ -52,6 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// No "save changes?" on quit: every tab, saved or not, comes back next launch.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         saveSession()
+        terminating = true
+        sessionTimer?.invalidate()
         return .terminateNow
     }
 
@@ -106,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let tab = EditorWindowController(doc: doc, text: text)
         tab.onChange = { [weak self] _ in self?.scheduleSessionSave() }
         tab.onClose = { [weak self] t in
-            guard let self else { return }
+            guard let self, !self.terminating else { return }
             self.tabs.removeAll { $0 === t }
             self.store.removeBuffer(t.doc.id)
             self.scheduleSessionSave()

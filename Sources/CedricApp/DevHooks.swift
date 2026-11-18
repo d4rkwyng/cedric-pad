@@ -21,6 +21,9 @@ import WebKit
 ///   CEDRIC_SNAPSHOT_DELAY=2       seconds after launch (default 2)
 ///   CEDRIC_SNAPSHOT_SIZE=1100x700 window content size first
 ///   CEDRIC_SNAPSHOT_QUIT=1        quit after writing
+///   CEDRIC_TEST_TYPE=text         type this at the end of the frontmost tab (session tests)
+///   CEDRIC_TEST_TYPE_UNTITLED=t   open a new untitled tab and type this
+///   CEDRIC_SESSION_DUMP=1         print the restored tabs and quit
 ///   CEDRIC_LAUNCH_METRICS=1       print "metric launch_ms=…" (process start → first window drawn)
 ///   CEDRIC_QUIT_AFTER_LAUNCH=1    quit right after that
 ///   CEDRIC_PERF_OPEN=/big.json    time open + colour + jump to end + typing, print metrics, quit
@@ -61,6 +64,25 @@ enum DevHooks {
                 tab.findBar.findField.stringValue = f
                 if env["CEDRIC_FIND_REGEX"] == "1" { tab.findBar.regexBox.state = .on }
                 tab.findBar.onChange?()
+            }
+        }
+        // Session tests: type into the frontmost tab and/or a new untitled
+        // tab through the normal editing path, or print what was restored.
+        if let t = env["CEDRIC_TEST_TYPE"], let tab = app.currentTab ?? app.tabs.last {
+            tab.textView.setSelectedRange(NSRange(location: (tab.text as NSString).length, length: 0))
+            tab.textView.insertText(t, replacementRange: tab.textView.selectedRange())
+        }
+        if let t = env["CEDRIC_TEST_TYPE_UNTITLED"] {
+            app.newTab(nil)
+            if let tab = app.tabs.last { tab.textView.insertText(t, replacementRange: NSRange(location: 0, length: 0)) }
+        }
+        if env["CEDRIC_SESSION_DUMP"] == "1" {
+            DispatchQueue.main.async {
+                for t in app.tabs {
+                    let body = t.text.replacingOccurrences(of: "\n", with: "\\n")
+                    print("tab: name=\(t.doc.displayName) file=\(t.doc.fileURL?.path ?? "-") dirty=\(t.doc.isDirty) language=\(t.doc.language.rawValue) text=\(body.prefix(60))")
+                }
+                exit(0)
             }
         }
         if env["CEDRIC_LAUNCH_METRICS"] == "1" {
