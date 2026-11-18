@@ -4,7 +4,7 @@
 # after the autosave) and a normal quit; a tab closed with unsaved text
 # (hot close) must survive a crash and come back with Reopen Closed Tab; a
 # detached preview comes back in its window with its frame; closing the
-# last window quits and keeps everything. Uses a throwaway session
+# last window quits, and the tabs closed stay closed (⇧⌘T has them). Uses a throwaway session
 # directory and file; never touches the real session. Needs a GUI session
 # (works with the screen locked).
 #
@@ -207,11 +207,13 @@ check "detached preview restored in its window, same frame, after the first fram
     "^preview: name=doc.md detached=true visible=true title=doc.md — Preview frame=140,120,520,410 before-first-frame=0"
 
 # 8. Closing the last window quits (Settings › "Quit when the last window
-#    closes", on by default), as Quit does: every tab one by one, as ⌘W,
-#    with a detached preview and the Settings window open (neither keeps
-#    the app alive), an unsaved untitled tab and a `cedric -w` waiter. The
-#    app must exit by itself, release the waiter, and the next launch
-#    bring the unsaved text back. With the setting off it stays running.
+#    closes", on by default): every tab one by one, as ⌘W, with a detached
+#    preview and the Settings window open (neither keeps the app alive), an
+#    unsaved untitled tab and a `cedric -w` waiter. The app must exit by
+#    itself and release the waiter. Unlike Quit (⌘Q, step 2), the closed tabs
+#    are closes like any other: the next launch opens an empty Untitled tab,
+#    not them, and Reopen Closed Tab (⇧⌘T) brings the last one back with its
+#    unsaved text. With the setting off it stays running.
 export CEDRIC_SESSION_DIR="$W/session8"
 marker="${TMPDIR:-/tmp}/cedric-wait.sessioncheck$$"
 marker=$(python3 -c 'import os,sys; print(os.path.normpath(sys.argv[1]))' "$marker")
@@ -227,9 +229,31 @@ else echo "session-check: FAIL closing the last window didn't quit" >&2; kill -9
 [ -e "$marker" ] && { echo "session-check: FAIL the cedric -w waiter wasn't released" >&2; rm -f "$marker"; fail=1; } \
     || echo "session-check: OK   the cedric -w waiter released"
 dump
-check "last window closed: the unsaved text comes back next launch" '^tab: name=Untitled.*dirty=true .*text=closed last, kept'
-grep -q "^closed: .*closed last, kept" "$W/dump.txt" && { echo "session-check: FAIL the last tab went to the closed list" >&2; fail=1; } \
-    || echo "session-check: OK   the last tab stays open (as Quit), not in the closed list"
+grep -q "^tab: .*closed last, kept" "$W/dump.txt" && { echo "session-check: FAIL the last closed tab came back as an open tab" >&2; fail=1; } \
+    || echo "session-check: OK   the last closed tab doesn't come back as open"
+grep -q "^tab: .*file=$W/doc.md" "$W/dump.txt" && { echo "session-check: FAIL the closed file came back as an open tab" >&2; fail=1; } \
+    || echo "session-check: OK   the closed file doesn't come back as open"
+check "last window closed: the next launch opens an empty Untitled tab" '^tab: name=Untitled file=- dirty=false .*text=$'
+check "last window closed: the unsaved tab is in the closed list with its text" '^closed: name=Untitled.*unsaved=true text=closed last, kept'
+check "last window closed: the file tab is in the closed list too" "^closed: name=- file=$W/doc.md unsaved=false"
+env CEDRIC_TEST_REOPEN_CLOSED=1 CEDRIC_SESSION_DUMP=1 CEDRIC_NO_SESSION_SAVE=1 "$BIN" -ApplePersistenceIgnoreState YES > "$W/dump.txt" 2>/dev/null
+cat "$W/dump.txt"
+check "last window closed: Reopen Closed Tab brings it back with its unsaved text" '^tab: name=Untitled.*dirty=true .*text=closed last, kept'
+# 8a. The last tab a saved file (no unsaved text): closing it quits, and
+#     the next launch doesn't reopen it.
+export CEDRIC_SESSION_DIR="$W/session8a"
+printf 'saved and closed\n' > "$W/last.txt"
+env -u CEDRIC_TEST_TYPE CEDRIC_OPEN="$W/last.txt" CEDRIC_TEST_CLOSE_LAST=1 CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1 \
+    "$BIN" -ApplePersistenceIgnoreState YES -quitWhenLastWindowCloses YES >/dev/null 2>&1 &
+pid=$!
+quit=0
+for _ in $(seq 1 16); do kill -0 $pid 2>/dev/null || { quit=1; break; }; sleep 0.5; done
+if [ $quit = 1 ]; then echo "session-check: OK   closing the last (saved) file quit"
+else echo "session-check: FAIL closing the last (saved) file didn't quit" >&2; kill -9 $pid; fail=1; fi
+dump
+grep -q "^tab: .*file=$W/last.txt" "$W/dump.txt" && { echo "session-check: FAIL the closed saved file was reopened" >&2; fail=1; } \
+    || echo "session-check: OK   the closed saved file isn't reopened"
+check "last saved file closed: Reopen Closed Tab has it" "^closed: .*file=$W/last.txt unsaved=false"
 # The setting off: the app stays up with no windows.
 export CEDRIC_SESSION_DIR="$W/session8b"
 env -u CEDRIC_TEST_TYPE CEDRIC_TEST_TYPE_UNTITLED="x" CEDRIC_TEST_CLOSE_ALL=1 CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1 \
@@ -252,8 +276,10 @@ for _ in $(seq 1 16); do kill -0 $pid 2>/dev/null || { quit=1; break; }; sleep 0
 if [ $quit = 1 ]; then echo "session-check: OK   closing the last viewer tabs (image, Office) quit"
 else echo "session-check: FAIL closing the last viewer tabs (image, Office) didn't quit" >&2; kill -9 $pid; fail=1; fi
 dump >/dev/null
-# The image tab closed first (Reopen Closed Tab has it); the Office tab, closed last, stays open as Quit leaves it.
-check "viewer tabs: the last one (Office) stays open in the session, as Quit" "^viewer: file=.*memo.docx"
+# Both are closes like any other: in the closed list, neither reopened.
+grep -q "^viewer: " "$W/dump.txt" && { echo "session-check: FAIL a closed viewer tab came back as open" >&2; fail=1; } \
+    || echo "session-check: OK   viewer tabs: neither comes back as open"
+check "viewer tabs: the last one (Office) is in the closed list" "^closed: .*file=.*memo.docx"
 check "viewer tabs: the image tab closed first is in the closed list" "^closed: .*file=.*pic.png"
 
 [ $fail = 0 ] && echo "session-check: all OK"

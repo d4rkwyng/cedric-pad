@@ -27,10 +27,10 @@ extension AppDelegate {
     var hasUnsavedTabs: Bool { tabs.contains { $0.doc.isDirty } }
 
     /// Closes every tab in the front window (each hot-closes: unsaved text
-    /// is kept for Reopen Closed Tab).
+    /// is kept for Reopen Closed Tab). On the last window the app quits
+    /// after the last tab, and none of them reopen next launch (⇧⌘T has them).
     @objc func closeWindow(_ sender: Any?) {
         guard let w = currentTab?.window else { return }
-        if quitIfClosingLastWindow(w) { return }
         for win in w.tabbedWindows ?? [w] { win.performClose(nil) }
     }
 

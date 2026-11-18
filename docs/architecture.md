@@ -302,16 +302,21 @@ one) and `edgeDelimiters` (every line a `| … |` pipe row). The parser and
 `fieldOffset` both follow it, so a click still lands in the right field.
 Table-driven samples in `CSVDialectTests`.
 
-**Closing the last window** (`AppDelegate.quitIfLastDocument`): a text or
-PDF tab's `onClose`, when no other document tab exists and no restored tab
-is still pending, runs the quit path (`prepareToQuit`: synchronous session
-save, waiters released) with the closing tab still listed, so it is saved
-as an open tab, then `NSApp.terminate` on the next turn. Other windows
+**Closing the last window** (`AppDelegate.isClosingLastDocument`,
+`quitAfterLastClose`): a document tab's `onClose` (text, PDF, image,
+Office, certificate) asks, before the tab leaves its list, whether no other
+document tab exists and no restored tab is still pending. The tab is then
+hot-closed like any other (`rememberClosed`/`rememberClosedViewer`: in the
+closed list, unsaved text in its buffer), and only then does the quit path
+run (`prepareToQuit`: synchronous session save, waiters released) and
+`NSApp.terminate` on the next turn. So the next launch has no open tab
+(an empty Untitled one) and ⇧⌘T brings the closed one back; Quit (⌘Q)
+alone keeps every open tab open. Other windows
 (detached previews, Settings, panels, the owl) don't count.
 `applicationShouldTerminateAfterLastWindowClosed` gives the same answer
 for AppKit's own case (e.g. Settings closed last). Off before launch has
 finished, under the dev hooks (unless `CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1`)
-and with the setting off. File › Close Window on the only window is Quit.
+and with the setting off. File › Close Window on the only window hot-closes each tab, then quits.
 
 ## Editor tools
 

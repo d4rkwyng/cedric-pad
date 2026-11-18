@@ -78,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// AppKit asks once no window at all is left (Settings, About and the
     /// like included). Closing the last document tab quits on its own
-    /// (`quitIfLastDocument`), whatever auxiliary windows are open; this
+    /// (`quitAfterLastClose`), whatever auxiliary windows are open; this
     /// covers, say, Settings closed last after the setting was turned on.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         quitsOnLastClose && tabs.isEmpty && viewerTabs.isEmpty
@@ -86,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// No "save changes?" on quit: every tab, saved or not, comes back next launch.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // Closing the last window already saved (quitIfLastDocument).
+        // Closing the last window already saved (quitAfterLastClose).
         if !terminating { prepareToQuit() }
         return .terminateNow
     }
@@ -117,24 +117,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         (tabs.compactMap(\.window) + viewerTabs.compactMap(\.window)).filter { $0 !== window }.count
     }
 
-    /// A document tab is closing (its views still intact): if it is the
-    /// last one, quit as Quit does: it stays in the session as an open tab,
-    /// unsaved text and all, and comes back next launch. True if quitting.
-    func quitIfLastDocument(closing window: NSWindow?) -> Bool {
-        guard quitsOnLastClose, otherDocumentWindows(than: window) == 0 else { return false }
-        prepareToQuit()
-        DispatchQueue.main.async { NSApp.terminate(nil) }
-        return true
+    /// A document tab is closing (its views still intact): whether it is
+    /// the last one, so the app quits once it has closed. Ask before the
+    /// tab leaves `tabs`/`viewerTabs`.
+    func isClosingLastDocument(_ window: NSWindow?) -> Bool {
+        quitsOnLastClose && otherDocumentWindows(than: window) == 0
     }
 
-    /// File › Close Window on the only window left: Quit (every tab kept),
-    /// not one hot close per tab and then a quit. True if quitting.
-    func quitIfClosingLastWindow(_ window: NSWindow) -> Bool {
-        let members = window.tabbedWindows ?? [window]
-        let docs = tabs.compactMap(\.window) + viewerTabs.compactMap(\.window)
-        guard quitsOnLastClose, docs.allSatisfy({ d in members.contains { $0 === d } }) else { return false }
-        NSApp.terminate(nil)
-        return true
+    /// The last document tab has closed: it was hot-closed like any other
+    /// (in the closed list for ⇧⌘T, unsaved text kept), so it is not an
+    /// open tab next launch. Quit now, the session written first.
+    /// (Quit itself, ⌘Q, keeps every open tab open.)
+    func quitAfterLastClose() {
+        prepareToQuit()
+        DispatchQueue.main.async { NSApp.terminate(nil) }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -262,11 +258,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         tab.onClose = { [weak self] t in
             self?.releaseWaiters(for: t.doc.id)
             guard let self, !self.terminating else { return }
-            // The last document window: quit, the tab kept open in the session.
-            if self.quitIfLastDocument(closing: t.window) { return }
+            let last = self.isClosingLastDocument(t.window)
             self.tabs.removeAll { $0 === t }
             // Hot close: remembered for Reopen Closed Tab, unsaved text and all.
             self.rememberClosed(t)
+            // The last document window: quit, the tab in the closed list, not reopened next launch.
+            if last { self.quitAfterLastClose() }
         }
         tabs.append(tab)
         guard let window = tab.window else { return tab }

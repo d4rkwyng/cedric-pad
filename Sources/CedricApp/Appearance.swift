@@ -100,8 +100,8 @@ final class Settings {
     }
 
     /// "Quit when the last window closes": closing the last document
-    /// window (text, PDF, image or Office tab) quits, as Quit does (every tab kept for
-    /// next launch). On by default.
+    /// window (text, PDF, image or Office tab) quits after closing it like
+    /// any other tab (in Reopen Closed Tab, not reopened next launch). On by default.
     var quitWhenLastWindowCloses: Bool {
         // bool(forKey:): a `-quitWhenLastWindowCloses NO` argument is a string.
         get { defaults.object(forKey: "quitWhenLastWindowCloses") == nil || defaults.bool(forKey: "quitWhenLastWindowCloses") }

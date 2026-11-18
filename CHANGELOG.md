@@ -4,6 +4,11 @@ All notable changes to Cedric Pad. The format follows [Keep a Changelog](https:/
 and Cedric Pad uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
+## [Unreleased]
+
+### Changed
+- **Closing the last tab no longer brings it back.** Closing the last document tab or window still quits Cedric Pad, but it is now a close like any other: the tab goes to File › Reopen Closed Tab (⇧⌘T) with any unsaved text kept, and the next launch opens an empty Untitled tab. Quit (⌘Q) still restores every open tab.
+
 ## [0.1.0]
 
 The first release: a fast, simple, native text editor for macOS 14 Sonoma and later, in the

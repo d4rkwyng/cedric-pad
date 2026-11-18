@@ -593,7 +593,6 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
     /// File › Close Window (⇧⌘W): every tab in this window.
     @objc func closeWindow(_ sender: Any?) {
         guard let w = window else { return }
-        if (NSApp.delegate as? AppDelegate)?.quitIfClosingLastWindow(w) == true { return }
         for win in w.tabbedWindows ?? [w] { win.performClose(nil) }
     }
 
@@ -729,9 +728,10 @@ extension AppDelegate {
         tab.onClose = { [weak self] t in
             self?.releaseWaiters(for: t.id)
             guard let self, !self.terminating else { return }
-            if self.quitIfLastDocument(closing: t.window) { return }
+            let last = self.isClosingLastDocument(t.window)
             self.pdfTabs.removeAll { $0 === t }
             self.rememberClosedViewer(t)
+            if last { self.quitAfterLastClose() }
         }
         pdfTabs.append(tab)
         guard let window = tab.window else { return tab }

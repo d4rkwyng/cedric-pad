@@ -21,8 +21,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   first; a closed tab with unsaved text is never forgotten).
   The first time in a launch that a file tab with unsaved edits is closed,
   the tab in front says the file wasn't written, with **Save Now**.
-  Closing the last document window (text, PDF, image or Office tab) quits Cedric Pad, as
-  Quit does: that tab, unsaved text and all, is open again next launch.
+  Closing the last document window (text, PDF, image or Office tab) quits Cedric Pad.
+  It is a close like any other: the tab goes to Reopen Closed Tab (⇧⌘T) with
+  its unsaved text kept, and the next launch opens an empty Untitled tab.
+  Quit (⌘Q) with tabs open brings them all back next launch.
   Detached previews, Settings and panels don't keep Cedric Pad running.
   Settings › "Quit when the last window closes" turns this off.
 - **Fast to open.** TextKit 2 lays out only what is on screen; a 10 MB JSON
@@ -156,7 +158,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   last window quits, in one window (the
   menu toggles still work and the window follows them).
 - **Mac file basics:** Save All (⌥⌘S), Revert to Saved (undoable with ⌘Z),
-  Close Window (⇧⌘W: every tab in the window, each hot-closed; on the last window, Quit), and the
+  Close Window (⇧⌘W: every tab in the window, each hot-closed; on the last window, then quits, ⇧⌘T has the tabs), and the
   system Services in the app menu.
 - **Find and replace** in the current document, with regular expressions
   (ICU syntax, `$1` in replacements), match case and whole word; ⌘F, ⌥⌘F,
