@@ -49,6 +49,10 @@ public enum CSV {
         public var truncated = false
         public var delimiter: UInt16 = 44
         public var dialect = Dialect()
+        /// The 0-based line where a quoted field opens and never closes
+        /// (the rest of the file is then one field, as in Excel and
+        /// Python's csv), nil when every quote closes.
+        public var unclosedQuoteLine: Int?
 
         public init() {}
     }
@@ -205,18 +209,21 @@ public enum CSV {
         parse(text, dialect: Dialect(delimiter: delimiter), maxRows: maxRows)
     }
 
-    public static func parse(_ text: NSString, dialect: Dialect, maxRows: Int = .max) -> Table {
+    /// `stopUnclosedQuoteAtLineEnd` (the preview grid): a quoted field that
+    /// never closes ends at its line's end instead of swallowing the rest
+    /// of the file, so the rows after it still show (the warning says where).
+    public static func parse(_ text: NSString, dialect: Dialect, maxRows: Int = .max, stopUnclosedQuoteAtLineEnd: Bool = false) -> Table {
         let n = text.length
         var buf = [UInt16](repeating: 0, count: n)
         text.getCharacters(&buf, range: NSRange(location: 0, length: n))
-        return parse(buf, dialect: dialect, maxRows: maxRows)
+        return parse(buf, dialect: dialect, maxRows: maxRows, stopUnclosedQuoteAtLineEnd: stopUnclosedQuoteAtLineEnd)
     }
 
     public static func parse(_ u: [UInt16], delimiter d: UInt16 = 44, maxRows: Int = .max) -> Table {
         parse(u, dialect: Dialect(delimiter: d), maxRows: maxRows)
     }
 
-    public static func parse(_ u: [UInt16], dialect: Dialect, maxRows: Int = .max) -> Table {
+    public static func parse(_ u: [UInt16], dialect: Dialect, maxRows: Int = .max, stopUnclosedQuoteAtLineEnd: Bool = false) -> Table {
         var t = Table()
         let d = dialect.delimiter
         t.delimiter = d
@@ -250,16 +257,29 @@ public enum CSV {
                     // Quoted: up to the closing quote; "" is a quote.
                     sawQuote = true
                     i += 1
+                    let open = i, openLine = line
+                    var closed = false
                     while i < n {
                         let c = u[i]
                         if c == 34 {
                             if i + 1 < n, u[i + 1] == 34 { field.append(34); i += 2; continue }
                             i += 1
+                            closed = true
                             break
                         }
                         if c == 10 || (c == 13 && !(i + 1 < n && u[i + 1] == 10)) { line += 1 }
                         field.append(c)
                         i += 1
+                    }
+                    if !closed {
+                        if t.unclosedQuoteLine == nil { t.unclosedQuoteLine = openLine }
+                        if stopUnclosedQuoteAtLineEnd {
+                            // Back to the quote: the field is the rest of its line.
+                            i = open
+                            line = openLine
+                            field.removeAll(keepingCapacity: true)
+                            while i < n, u[i] != 10, u[i] != 13 { field.append(u[i]); i += 1 }
+                        }
                     }
                     kept = field.count
                 }

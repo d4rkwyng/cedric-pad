@@ -211,6 +211,20 @@ import Testing
         #expect(OwlPlacement.bubble(owl: owl, size: size, in: editor, avoid: everything) == plain)
     }
 
+    // MARK: F-L6 CSV with an unclosed quote
+
+    @Test func csvUnclosedQuote() {
+        let text = "name,note\nann,ok\nbob,\"never closed\ncat,x\ndan,y\n" as NSString
+        let swallowed = CSV.parse(text)
+        #expect(swallowed.unclosedQuoteLine == 2)
+        #expect(swallowed.rows.count == 3) // as before: the rest is one field
+        let preview = CSV.parse(text, dialect: CSV.Dialect(), stopUnclosedQuoteAtLineEnd: true)
+        #expect(preview.unclosedQuoteLine == 2)
+        #expect(preview.rows == [["name", "note"], ["ann", "ok"], ["bob", "never closed"], ["cat", "x"], ["dan", "y"]])
+        let fine = CSV.parse("a,b\n\"x\ny\",2\n" as NSString, dialect: CSV.Dialect(), stopUnclosedQuoteAtLineEnd: true)
+        #expect(fine.unclosedQuoteLine == nil)
+        #expect(fine.rows == [["a", "b"], ["x\ny", "2"]])
+    }
 }
 
 extension OwlFixesTests {

@@ -93,7 +93,9 @@ final class CSVPreview: NSObject, PreviewRenderer, NSTableViewDataSource, NSTabl
         let sort = table.sortDescriptors.first
         Self.queue.async {
             let dialect = CSV.dialect(for: snapshot, fileName: fileName)
-            var t = CSV.parse(snapshot, dialect: dialect, maxRows: Self.maxRows + 1)
+            // An unclosed quote ends at its line in the grid (with a warning),
+            // instead of swallowing every row after it.
+            var t = CSV.parse(snapshot, dialect: dialect, maxRows: Self.maxRows + 1, stopUnclosedQuoteAtLineEnd: true)
             if cut { t.truncated = true }
             let order = Self.order(t.rows, sort)
             DispatchQueue.main.async {
@@ -135,12 +137,18 @@ final class CSVPreview: NSObject, PreviewRenderer, NSTableViewDataSource, NSTabl
         ruler.ruleThickness = max(28, CGFloat(String(t.rows.count).count) * 7.5 + 12)
         ruler.needsDisplay = true
         let shown = min(order.count, Self.maxRows)
-        if t.truncated || order.count > Self.maxRows {
-            note.stringValue = String(localized: "Showing the first \(shown.formatted()) rows. The preview is read-only.")
-            note.isHidden = false
-        } else {
-            note.isHidden = true
+        var notes: [String] = []
+        if let line = t.unclosedQuoteLine {
+            notes.append(String(localized: "Unclosed quote on line \(line + 1). The preview ends that field at the end of its line."))
         }
+        if t.truncated || order.count > Self.maxRows {
+            notes.append(String(localized: "Showing the first \(shown.formatted()) rows. The preview is read-only."))
+        }
+        note.stringValue = notes.joined(separator: " ")
+        note.textColor = t.unclosedQuoteLine != nil ? .systemOrange : .secondaryLabelColor
+        note.toolTip = t.unclosedQuoteLine != nil
+            ? String(localized: "A field starts with a quote that never closes, so spreadsheet apps would read the rest of the file as one cell.") : nil
+        note.isHidden = notes.isEmpty
         container.needsLayout = true
         renders += 1
     }
