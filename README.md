@@ -64,8 +64,8 @@ Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no
 swift Scripts/launch-time.swift dist/Cedric.app /System/Applications/TextEdit.app
 ```
 
-The app is ad-hoc signed, not notarized. If macOS refuses to open a copied
-build, remove the quarantine flag: `xattr -dr com.apple.quarantine Cedric.app`.
+A local build is ad-hoc signed, not notarized. If macOS refuses to open a
+copied build, remove the quarantine flag: `xattr -dr com.apple.quarantine Cedric.app`.
 
 ## The `cedric` command
 
@@ -112,11 +112,17 @@ It talks to the app through a `cedric://open?path=…&line=…` URL.
 
 More in [docs/architecture.md](docs/architecture.md).
 
-## Not in v0 (designed for, not built)
+## Releases
 
-Find in files, compare tabs, text tools (sort, case, trim, base64), tail mode,
-macros, the owl assistant and local AI. See `docs/architecture.md` for where
-each one plugs in.
+Signed with Developer ID and notarized, from `Scripts/release.sh` (locally or
+by the Release workflow on a `v*` tag); see `CHANGELOG.md` for what each
+version has, including its known gaps, and *Signing a release* in
+`docs/architecture.md` for the pipeline.
+
+## Not built yet
+
+Macros, printing, Replace in Files, automatic updates. See
+`docs/architecture.md` for where they plug in.
 
 ## Built with Claude
 

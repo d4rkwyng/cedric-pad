@@ -1,5 +1,6 @@
 import AppKit
 import CedricCore
+import CedricAI
 
 /// The speech bubble beside the owl: title, optional detail, and buttons.
 /// The tail at the bottom right points at the owl.
@@ -17,9 +18,22 @@ final class OwlBubble: NSView {
     let hint: OwlHint
     private(set) var buttons: [NSButton] = []
     private(set) var closeButton: NSButton?
+    /// The hint's source line, if it has one (AI hints).
+    private(set) var sourceLabel: NSTextField?
+    /// Model names for local hints, read once.
+    static let catalog: ModelCatalog? = ModelCatalog.bundled()
     private var actions: [() -> Void] = []
     private var onClose: (() -> Void)?
     private let stack = NSStackView()
+    /// The tail is on the side towards the owl: top when the bubble is
+    /// below him, left when it extends to his right.
+    var tailOnTop = false { didSet { if oldValue != tailOnTop { updateInsets(); needsDisplay = true } } }
+    var tailAtLeft = false { didSet { if oldValue != tailAtLeft { needsDisplay = true } } }
+
+    private func updateInsets() {
+        stack.edgeInsets.top = 10 + (tailOnTop ? Self.tail : 0)
+        stack.edgeInsets.bottom = 10 + (tailOnTop ? 0 : Self.tail)
+    }
 
     init(hint: OwlHint, buttons specs: [Button], onClose: (() -> Void)?) {
         self.hint = hint
@@ -30,6 +44,16 @@ final class OwlBubble: NSView {
         title.textColor = .labelColor
         title.preferredMaxLayoutWidth = Self.maxWidth - 24 - (onClose == nil ? 0 : 16)
         var rows: [NSView] = [title]
+        // Where it came from, quietly: "AI suggestion · Apple Intelligence".
+        // The owl's own rules need no label.
+        if let src = HintSource.displayName(hint.source, catalog: Self.catalog) {
+            let label = NSTextField(labelWithString: src)
+            label.font = .systemFont(ofSize: 10)
+            label.textColor = .tertiaryLabelColor
+            label.lineBreakMode = .byTruncatingTail
+            sourceLabel = label
+            rows.append(label)
+        }
         if let d = hint.detail, !d.isEmpty {
             let detail = NSTextField(wrappingLabelWithString: d)
             detail.font = .systemFont(ofSize: 11)
@@ -100,14 +124,18 @@ final class OwlBubble: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let body = NSRect(x: 0.5, y: Self.tail + 0.5, width: bounds.width - 1, height: bounds.height - Self.tail - 1)
+        let t = Self.tail
+        let body = NSRect(x: 0.5, y: (tailOnTop ? 0 : t) + 0.5, width: bounds.width - 1, height: bounds.height - t - 1)
         let path = NSBezierPath(roundedRect: body, xRadius: 10, yRadius: 10)
-        // The tail, bottom right, towards the owl.
-        let tx = body.maxX - 30
+        // The tail, towards the owl.
+        let tx = tailAtLeft ? body.minX + 30 : body.maxX - 30
+        let lean: CGFloat = tailAtLeft ? -1 : 1
+        let base = tailOnTop ? body.maxY - 1 : body.minY + 1
+        let tip = tailOnTop ? bounds.height - 0.5 : 0.5
         let tail = NSBezierPath()
-        tail.move(to: NSPoint(x: tx - 9, y: body.minY + 1))
-        tail.line(to: NSPoint(x: tx + 6, y: 0.5))
-        tail.line(to: NSPoint(x: tx + 4, y: body.minY + 1))
+        tail.move(to: NSPoint(x: tx - 9 * lean, y: base))
+        tail.line(to: NSPoint(x: tx + 6 * lean, y: tip))
+        tail.line(to: NSPoint(x: tx + 4 * lean, y: base))
         tail.close()
         path.append(tail)
         NSGraphicsContext.saveGraphicsState()
@@ -122,6 +150,20 @@ final class OwlBubble: NSView {
         NSColor.separatorColor.setStroke()
         path.lineWidth = 1
         NSBezierPath(roundedRect: body, xRadius: 10, yRadius: 10).stroke()
+        // The tail's two outer edges, so it reads on dark editors too.
+        let edge = NSBezierPath()
+        edge.move(to: NSPoint(x: tx - 9 * lean, y: base))
+        edge.line(to: NSPoint(x: tx + 6 * lean, y: tip))
+        edge.line(to: NSPoint(x: tx + 4 * lean, y: base))
+        edge.lineWidth = 1
+        edge.stroke()
+        // Open the body's border where the tail joins it.
+        NSColor.controlBackgroundColor.setStroke()
+        let gap = NSBezierPath()
+        gap.move(to: NSPoint(x: min(tx - 9 * lean, tx + 4 * lean) + 1, y: tailOnTop ? body.maxY : body.minY))
+        gap.line(to: NSPoint(x: max(tx - 9 * lean, tx + 4 * lean) - 1, y: tailOnTop ? body.maxY : body.minY))
+        gap.lineWidth = 1.5
+        gap.stroke()
     }
 }
 

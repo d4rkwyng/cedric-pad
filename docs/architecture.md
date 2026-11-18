@@ -622,3 +622,169 @@ and a just-turned-on owl shows at full strength (`OwlController.appeared`),
 whatever the occlusion state or the caret, until the user types or moves
 the caret. Occlusion only ever gated the idle animation timers, not
 visibility.
+
+## Signing a release
+
+Same pipeline as Tankard's, sharing `Scripts/release.sh` between the owner's Mac and CI.
+
+**Version.** One source: `CedricVersion.source` in `Sources/CedricCore/Version.swift`.
+`Scripts/bundle-app.sh` writes it (or `CEDRIC_VERSION`) into Info.plist as both
+`CFBundleShortVersionString` and `CFBundleVersion`. `release.sh` refuses to sign a build
+whose Info.plist differs from the source, from `CEDRIC_VERSION`, or from the tag (`TAG`
+in CI, without the `v` and any `-rcN` suffix). `CHANGELOG.md` must have a `## [X.Y.Z]`
+section for it (a test checks the source's version; the workflow checks the tag's).
+
+**On your Mac** (Developer ID certificate in the login keychain). Once:
+
+```sh
+xcrun notarytool store-credentials cedric
+# Apple ID, Team ID, and an app-specific password made at appleid.apple.com
+```
+
+Then:
+
+```sh
+Scripts/release.sh --dry-run          # print every step
+Scripts/release.sh                    # dist/Cedric.app (signed, notarized, stapled) and dist/Cedric.zip
+CEDRIC_SIGN_ID=- Scripts/release.sh --skip-notarize   # ad-hoc test of the whole signing path
+```
+
+It builds universal (`--host-arch` for this Mac only), finds the "Developer ID
+Application:" identity (override: `CEDRIC_SIGN_ID`), and signs inside out with
+`codesign --force --options runtime --timestamp`, never `--deep`: first
+`Contents/Frameworks/llama.framework` (and any other nested framework, dylib or XPC
+service a later version adds), then the app. It then checks `codesign --verify --strict
+--deep`, that the app and the framework carry the same Team ID and the hardened runtime,
+and that neither has entitlements; real-launches the signed app five times
+(`Scripts/launch-check.sh`); submits a zip with `notarytool --wait` (profile
+`CEDRIC_NOTARY_PROFILE`, default `cedric`); fetches Apple's log after every submission,
+accepted or not (`dist/notary-log.json`, next to `dist/notary-result.json`); fails unless
+Accepted; staples; checks with `spctl -a -vv`; and zips the stapled app.
+
+**Entitlements: none.** Checked 2026-11-17 on the M4 Pro:
+
+- *Library validation* (part of the hardened runtime) only loads code signed by Apple or
+  by the app's own Team ID. `llama.framework` is re-signed with our Developer ID, so it
+  passes. An ad-hoc signature has no Team ID, and an ad-hoc hardened-runtime build
+  doesn't start at all (`dyld: Library not loaded: @rpath/llama.framework/... mapping
+  process and mapped file (non-platform) have different Team IDs`). So the ad-hoc test
+  mode (`CEDRIC_SIGN_ID=-`) alone adds `com.apple.security.cs.disable-library-validation`
+  to the app, and `release.sh` asserts a Developer ID build has no entitlements.
+- *Metal shaders compiled at run time* need neither `allow-jit` nor
+  `allow-unsigned-executable-memory`: ggml's embedded Metal source is compiled by Metal's
+  compiler service (a separate process) into GPU code; the app maps no writable and
+  executable memory. Checked with a hardened-runtime build carrying only
+  disable-library-validation: in the app, Settings › Test Connection with the built-in
+  engine loaded Qwen2.5-Coder-3B and answered in 4.1 s; a small C program linking the same
+  framework, signed the same way, logged `ggml_metal_library_init: using embedded metal
+  library`, compiled its pipelines, `offloaded 37/37 layers to GPU`, and decoded a prompt.
+- *The WKWebView preview* needs nothing outside the App Sandbox: WebKit's content and
+  network processes are Apple's own XPC services with their own entitlements.
+  (`com.apple.security.network.client` exists only for sandboxed apps.)
+- *Models* are downloaded at run time into `~/Library/Application Support/Cedric/Models`,
+  never bundled; a GGUF is data that llama.cpp maps read-only, not code, so neither
+  signing nor notarization sees it.
+
+**On GitHub.** `.github/workflows/release.yml` runs on a `v*` tag push (or by hand with a
+tag) on `macos-15`: checks the five secrets, builds the release notes from
+`CHANGELOG.md` (`Scripts/changelog-section.sh`, after Tankard's), restores the SwiftPM
+artifact cache, resolves packages, imports the certificate, runs `Scripts/test.sh`, then
+`Scripts/release.sh` with `CEDRIC_VERSION` from the tag, and attaches `Cedric.zip` to the
+release. A tag with a suffix (`v0.1.0-rc1`) makes a draft prerelease. `notary-result.json`
+and `notary-log.json` are kept as the workflow artifact `notary-<tag>` (90 days) with
+`if: always()`, so a failed notarization leaves Apple's issues list behind. Actions are
+pinned by commit SHA. `.github/workflows/tests.yml` runs `Scripts/test.sh` on pushes to
+`main` and `release-*` and on pull requests, and logs `swift --version`.
+
+The llama.cpp binary target (a 65 MB zip from the llama.cpp GitHub releases) has hung
+while fetching on the build Mac. Both workflows cache SwiftPM's global artifact cache
+(`~/Library/Caches/org.swift.swiftpm/artifacts`, keyed on `Package.swift`, where the URL
+and checksum are pinned); SwiftPM extracts a cached zip without the network. Then
+`swift package resolve` gets five minutes per try (killed by a `perl alarm`, since macOS
+has no `timeout`), three tries, before the build starts.
+
+Secrets (Settings › Secrets and variables › Actions), the same five as Tankard's:
+
+| secret | value |
+|---|---|
+| `CERT_P12_BASE64` | `base64 -i DeveloperID.p12` of the exported Developer ID Application certificate and key |
+| `CERT_P12_PASSWORD` | the .p12 password |
+| `NOTARY_APPLE_ID` | Apple ID |
+| `NOTARY_TEAM_ID` | Team ID |
+| `NOTARY_PASSWORD` | app-specific password |
+
+No secrets live in the repository.
+
+**Apple Intelligence and the CI SDK.** The Apple Intelligence engine is compiled only
+when the SDK has `FoundationModels` (macOS 26 SDK, Xcode 26). `macos-15` with Swift 6.1
+builds the placeholder, so a release built there offers Apple Intelligence as
+unavailable. A release that should include it must be built with the macOS 26 SDK (a
+`macos-26` runner, or on the owner's Mac).
+
+## Owl placement, language auto-detect, spelling, Cedric themes
+
+**Dragging the owl.** `OwlView` tells a click from a drag by
+`OwlPlacement.dragThreshold` (3 pt): a press that moves less opens the
+popover; more picks him up (closed-hand cursor, open hand on hover). On
+release `OwlPlacement.snapped` puts him on the nearest edge of the editor,
+keeping his position along it, and into the corner when he is within
+`cornerPull` (56 pt) of one; he slides there in 0.16 s. Snapping rather
+than "stay where dropped": in the middle he would sit over text and the
+fade-near-caret would fire constantly; on an edge he is out of the text but
+still where you put him. The placement is stored (UserDefaults
+`owlPlacement`, shared by all tabs) as a corner plus an inset from that
+corner's two edges, so a resize keeps him the same distance from the same
+corner, clamped inside when the window gets small. Double-click, or "Reset
+Position" in his popover, puts him back bottom right. The bubble opens
+above him when there is room (else below) and towards the wider side, its
+tail pointing at him (`OwlPlacement.bubble`). The fade-near-caret still
+runs after every drop, so he never sits on the caret at full strength.
+The disc that used to sit behind him on dark themes is gone; the sprite
+gets a soft light rim (a 2.5 pt white shadow) on dark editors and a faint
+drop shadow on light ones. Checks that move him don't save
+(`CEDRIC_NO_SESSION_SAVE`).
+
+**Language auto-detect** (`LanguageChoice`, CedricCore): a tab's language
+has a source. `.auto` (untitled, nobody chose): typing re-sniffs when it
+pauses (0.4 s), a paste at once; the status bar shows "HTML (auto)".
+`.manual` (picked from the status bar or Format › Language): never switched
+again, not by typing, pasting or saving. `.file`: the extension decides on
+save (or the content once, without a known extension), and sniffing stops.
+Markdown sniffing (`MarkdownSignals`) needs two kinds of evidence (ATX
+headings, bold, lists, links, quotes; a fence counts alone), each kind
+capped, so a shell script's `# comments` or a YAML `- item` list doesn't
+turn into Markdown, while "# Title / ## Sub Title / **Test**" does.
+
+**Spelling.** NSTextView's own continuous checking (NSSpellChecker: local,
+nothing sent anywhere), on by default (View › Check Spelling While Typing,
+saved; also in Edit › Spelling and Grammar with Show Spelling and Grammar
+and Check Document Now). Every batch of results passes through
+`EditorTextView.handleTextCheckingResults`, which keeps only misspellings
+inside `SpellScope.ranges`: prose in Plain Text and Markdown (minus code,
+links and markup tokens), only comments and strings in code. The marks are
+the text view's spelling state, a drawing attribute, so text colours are
+never touched; suggestions, Learn and Ignore are the standard context menu.
+Check Document Now walks our scope (the system's would stop on
+identifiers). With the owl on, prose with three or more fixable
+misspellings in his context window gets "Fix 3 typos?": the first
+suggestion for each, as one replacement over their span, so one undo step.
+`SpellScope.isFixable` skips ALL-CAPS words, words with digits, URLs, paths
+and addresses. Offered once per document unless snoozed.
+
+**Themes.** Cedric (peach paper from the logo's coral plate, navy text,
+gold/coral/navy tokens, the chest chevron's grey-blue for comments) and
+Cedric Night (the owl's navy as the page, sepia text). Both pass the AA
+tests with the other palettes.
+
+**Checks** (in `Scripts/render-check.sh`, `PolishCheck.swift`): the owl
+dragged to the top left with real mouse-down/drag/up events (snapped there,
+faded over the caret with the text still readable, full strength once the
+caret moves away), a 2 pt press opens the popover, the bubble opens below
+and right with "Fix it" and its source line, a resize keeps him top left, a
+double-click resets him; "<html>" typed shows "HTML (auto)", Plain Text
+picked from the menu stays put through more typed and pasted HTML, Derek's
+Markdown is detected, a pasted JSON switches at once; Swift, Markdown with
+preview and HTML in both Cedric themes; spelling marks in a Swift file
+(comment and string, not the identifier) and in Markdown (prose, not code
+or the link), colours unchanged, in light and dark; the owl's "Fix 3
+typos?" applied and undone with one undo.

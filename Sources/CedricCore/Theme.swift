@@ -3,7 +3,7 @@ import Foundation
 /// The theme choices, the same set as Tankard's: System (light or dark
 /// with macOS), Light, Dark, Tankard (deep purple and amber) and Dracula.
 public enum EditorTheme: String, CaseIterable, Codable, Sendable {
-    case system, light, dark, tankard, dracula
+    case system, light, dark, tankard, dracula, cedric, cedricNight
 
     public static let defaultsKey = "theme"
 
@@ -14,6 +14,8 @@ public enum EditorTheme: String, CaseIterable, Codable, Sendable {
         case .dark: return String(localized: "Dark")
         case .tankard: return "Tankard"
         case .dracula: return "Dracula"
+        case .cedric: return "Cedric"
+        case .cedricNight: return "Cedric Night"
         }
     }
 
@@ -25,6 +27,8 @@ public enum EditorTheme: String, CaseIterable, Codable, Sendable {
         case .dark: return EditorPalettes.dark
         case .tankard: return EditorPalettes.tankard
         case .dracula: return EditorPalettes.dracula
+        case .cedric: return EditorPalettes.cedric
+        case .cedricNight: return EditorPalettes.cedricNight
         }
     }
 }
@@ -120,7 +124,38 @@ public enum EditorPalettes {
             .link: 0x8be9fd, .code: 0x50fa7b, .punctuation: 0xff79c6,
         ])
 
-    public static let all = [light, dark, tankard, dracula]
+    /// The owl's own colours (tools/icon/cedric_icon.py): warm peach paper
+    /// from the coral plate (#ff7c5c), navy text (#27295a), gold (#ffc533,
+    /// darkened to read on paper) for keywords and numbers, coral for
+    /// strings, the wing and body navies for types and functions, the chest
+    /// chevron's grey-blue (#5d5f83) for comments.
+    public static let cedric = EditorPalette(
+        name: "cedric", isDark: false,
+        background: 0xfbeee4, foreground: 0x27295a, gutterBackground: 0xf4e2d4, gutterForeground: 0x5d5f83,
+        currentLine: 0xf6e3d4, selection: 0xf2cf7a, caret: 0x27295a, invisibles: 0xd9c2b1, findMatch: 0xffc533,
+        statusBar: 0xf4e2d4,
+        tokens: [
+            .keyword: 0x8a5300, .type: 0x2f4f9a, .string: 0xb2391d, .number: 0x855400, .constant: 0x8a5300,
+            .comment: 0x5d5f83, .function: 0x3b3e7c, .attribute: 0x8a5300, .variable: 0x3b4f8a, .preprocessor: 0x9a3412,
+            .tag: 0xb2391d, .key: 0x2f4f9a, .heading: 0x3b3e7c, .emphasis: 0x5a3e8c, .strong: 0x9a3412,
+            .link: 0x2f4f9a, .code: 0xb2391d, .punctuation: 0x5d5f83,
+        ])
+
+    /// Cedric at night: the owl's navy as the page, sepia text, gold and
+    /// coral accents.
+    public static let cedricNight = EditorPalette(
+        name: "cedricNight", isDark: true,
+        background: 0x1b1c3d, foreground: 0xf3e3d3, gutterBackground: 0x17183a, gutterForeground: 0x9a9cc0,
+        currentLine: 0x24264f, selection: 0x4d4426, caret: 0xffc533, invisibles: 0x3b3e7c, findMatch: 0x6b5320,
+        statusBar: 0x22234a,
+        tokens: [
+            .keyword: 0xffc533, .type: 0xa9b4ff, .string: 0xff8d6b, .number: 0xffd36e, .constant: 0xffb48a,
+            .comment: 0x9a9cc0, .function: 0xc9c2ff, .attribute: 0xffb46b, .variable: 0xd6ccff, .preprocessor: 0xff9e7d,
+            .tag: 0xff8d6b, .key: 0xa9b4ff, .heading: 0xffc533, .emphasis: 0xe8d5ff, .strong: 0xffd9b0,
+            .link: 0x8fb0ff, .code: 0xff9e7d, .punctuation: 0x9a9cc0,
+        ])
+
+    public static let all = [light, dark, tankard, dracula, cedric, cedricNight]
 
     /// WCAG relative-luminance contrast ratio of two sRGB colours.
     public static func contrast(_ a: UInt32, _ b: UInt32) -> Double {

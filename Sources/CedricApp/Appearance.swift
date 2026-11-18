@@ -68,6 +68,31 @@ final class Settings {
         set { defaults.set(newValue, forKey: "showOwl"); NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil) }
     }
 
+    /// View › Check Spelling While Typing: on by default.
+    var checkSpellingWhileTyping: Bool {
+        get { defaults.object(forKey: "checkSpellingWhileTyping") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "checkSpellingWhileTyping"); changed() }
+    }
+
+    /// The checks move the owl without saving where he is.
+    var owlPlacementInMemory: OwlPlacement?
+    var owlPlacementSaves = ProcessInfo.processInfo.environment["CEDRIC_NO_SESSION_SAVE"] != "1"
+
+    /// Where the owl sits over the editor (shared by every tab), as a
+    /// corner plus an inset, so it survives window resizes.
+    var owlPlacement: OwlPlacement {
+        get {
+            if !owlPlacementSaves { return owlPlacementInMemory ?? .default }
+            guard let data = defaults.data(forKey: "owlPlacement"),
+                  let p = try? JSONDecoder().decode(OwlPlacement.self, from: data) else { return .default }
+            return p
+        }
+        set {
+            if !owlPlacementSaves { owlPlacementInMemory = newValue; return }
+            if let data = try? JSONEncoder().encode(newValue) { defaults.set(data, forKey: "owlPlacement") }
+        }
+    }
+
     /// CEDRIC_OWL_SOURCE=rulesAndAI: the hint source for this run, not saved.
     var owlSourceOverride = ProcessInfo.processInfo.environment["CEDRIC_OWL_SOURCE"].flatMap(OwlHintSource.init(rawValue:))
 
@@ -93,7 +118,8 @@ final class Settings {
         switch theme {
         case .system: return nil
         case .light: return NSAppearance(named: .aqua)
-        case .dark, .tankard, .dracula: return NSAppearance(named: .darkAqua)
+        case .dark, .tankard, .dracula, .cedricNight: return NSAppearance(named: .darkAqua)
+        case .cedric: return NSAppearance(named: .aqua)
         }
     }
 

@@ -97,6 +97,7 @@ public enum LanguageDetector {
         }
         let lines = head.split(separator: "\n", maxSplits: 80, omittingEmptySubsequences: true)
         var score: [Language: Int] = [:]
+        var md = MarkdownSignals()
         for raw in lines {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("#include") || line.hasPrefix("#define") || line.hasPrefix("#pragma") { score[.c, default: 0] += 3 }
@@ -109,18 +110,51 @@ public enum LanguageDetector {
             if line.hasPrefix("import ") && !line.contains(" from ") && !line.hasSuffix(";") && !line.contains("{") { score[.python, default: 0] += 1 }
             if line.hasPrefix("const ") || line.hasPrefix("function ") || line.contains("=> {") || line.hasPrefix("export ") { score[.javascript, default: 0] += 2 }
             if line.hasPrefix("interface ") || line.contains(": string") || line.contains(": number") { score[.typescript, default: 0] += 3 }
-            if line.hasPrefix("# ") || line.hasPrefix("## ") || line.hasPrefix("```") || line.hasPrefix("- [") { score[.markdown, default: 0] += 2 }
+            md.note(line, indented: raw.first == " " || raw.first == "\t")
             if line.hasPrefix("<div") || line.hasPrefix("<p>") || line.hasPrefix("<body") || line.hasPrefix("<head") { score[.html, default: 0] += 3 }
             if line.hasSuffix("{"), line.contains(":") == false, (line.hasPrefix(".") || line.hasPrefix("#") || line.hasPrefix("body")) { score[.css, default: 0] += 2 }
             if line.range(of: #"^[a-z-]+\s*:\s*[^;]+;$"#, options: .regularExpression) != nil { score[.css, default: 0] += 1 }
             if line.range(of: #"^[A-Za-z_][A-Za-z0-9_-]*:(\s|$)"#, options: .regularExpression) != nil { score[.yaml, default: 0] += 1 }
             if line == "---" { score[.yaml, default: 0] += 1 }
-            if line.hasPrefix("echo ") || line.hasPrefix("export ") || line.hasPrefix("fi") || line.contains("$(") { score[.shell, default: 0] += 1 }
+            if line.hasPrefix("echo ") || line.hasPrefix("export ") || line == "fi" || line.contains("$(") { score[.shell, default: 0] += 1 }
+            if line.hasPrefix("set -") || line.hasPrefix("if [") || line.hasSuffix("; then") || line.hasSuffix("; do") || line == "done"
+                || line.range(of: #"\$\{?[A-Za-z_]"#, options: .regularExpression) != nil { score[.shell, default: 0] += 1 }
         }
+        if md.score > 0 { score[.markdown] = md.score }
         guard let best = score.max(by: { $0.value < $1.value || ($0.value == $1.value && $0.key.rawValue > $1.key.rawValue) }), best.value >= 2 else {
             return .plain
         }
         return best.key
+    }
+}
+
+/// Markdown evidence in typed or pasted text. One kind of signal alone
+/// (a `# comment`, a `- item`) is not enough: a shell script or a YAML
+/// list has those too. Two kinds (a heading and bold, a list and a link)
+/// are, and so is a fenced code block.
+struct MarkdownSignals {
+    private(set) var kinds: Set<String> = []
+    private var points: [String: Int] = [:]
+
+    /// `indented`: list items nested under a key are YAML's, not Markdown's.
+    mutating func note(_ line: String, indented: Bool) {
+        // Each kind adds at most 4, so a long list or many comments can't
+        // outvote the other languages on their own.
+        func hit(_ kind: String, _ p: Int) { kinds.insert(kind); points[kind] = min(4, points[kind, default: 0] + p) }
+        if line.range(of: #"^#{2,6} \S"#, options: .regularExpression) != nil { hit("h2", 2) }
+        else if line.range(of: #"^# \S"#, options: .regularExpression) != nil { hit("h1", 1) }
+        if line.hasPrefix("```") || line.hasPrefix("~~~") { hit("fence", 2) }
+        if line.range(of: #"\*\*[^*\s][^*]*\*\*|__[^_\s][^_]*__"#, options: .regularExpression) != nil { hit("bold", 2) }
+        if line.range(of: #"\[[^\]]+\]\([^)\s]+\)"#, options: .regularExpression) != nil { hit("link", 2) }
+        if !indented, line.range(of: #"^([-*+]|\d{1,3}\.) \S"#, options: .regularExpression) != nil { hit("list", 1) }
+        if line.hasPrefix("> ") { hit("quote", 1) }
+    }
+
+    /// 0 unless there are two kinds of signal (or a fence).
+    var score: Int {
+        let total = points.values.reduce(0, +)
+        if kinds.contains("fence") && total >= 4 { return total }
+        return kinds.count >= 2 ? total : 0
     }
 }
 

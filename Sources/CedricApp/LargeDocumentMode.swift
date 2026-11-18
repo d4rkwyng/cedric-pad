@@ -66,7 +66,7 @@ final class LargeDocumentBar: NSView {
 extension EditorWindowController {
     /// Large and the user hasn't asked for the extras back: colouring,
     /// spell check and the owl's rules and AI pause.
-    var extrasPaused: Bool { largeReason != nil && !largeOverride }
+    var extrasPaused: Bool { (largeReason != nil || largePending) && !largeOverride }
 
     /// The owl's rules and AI stay off for this tab (unless clicked).
     var owlIdleForSpeed: Bool { extrasPaused }
@@ -75,6 +75,7 @@ extension EditorWindowController {
         let wasPaused = extrasPaused
         let wasChunked = textView.contentStorage?.chunkLimit != nil
         largeReason = reason
+        largePending = false
         if newText { largeOverride = false }
         let chunk = reason != nil ? LargeDocument.chunkLength : nil
         textView.contentStorage?.chunkLimit = chunk
@@ -87,13 +88,9 @@ extension EditorWindowController {
         if let reason, extrasPaused { largeBar.show(reason) }
         largeBar.isHidden = !extrasPaused
         colorizer.paused = extrasPaused
-        if extrasPaused {
-            if !wasPaused { spellCheckBeforePause = textView.isContinuousSpellCheckingEnabled }
-            textView.isContinuousSpellCheckingEnabled = false
-            textView.isGrammarCheckingEnabled = false
-        } else if wasPaused {
-            textView.isContinuousSpellCheckingEnabled = spellCheckBeforePause
-        }
+        // Spell checking (Spelling.swift) follows extrasPaused.
+        spelling.apply()
+        if extrasPaused { spelling.stop() }
         if extrasPaused != wasPaused { OwlHub.shared.largeModeChanged(self) }
     }
 
@@ -109,7 +106,10 @@ extension EditorWindowController {
     /// threshold turns large mode on (once per run loop turn, after
     /// TextKit has finished with the edit).
     func checkLargeAfterEdit(lines: Range<Int>) {
-        guard largeReason == nil, let reason = LargeDocument.reason(afterEditOf: lines, in: lineIndex) else { return }
+        guard largeReason == nil, !largePending, let reason = LargeDocument.reason(afterEditOf: lines, in: lineIndex) else { return }
+        // Paused from now (no sniff, spell check or owl for this edit);
+        // TextKit switches to chunks once it's done with the edit.
+        largePending = true
         DispatchQueue.main.async { [weak self] in
             guard let self, self.largeReason == nil else { return }
             self.applyLargeMode(reason, newText: false)

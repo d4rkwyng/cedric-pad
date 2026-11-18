@@ -1,0 +1,105 @@
+import Foundation
+import CoreGraphics
+
+/// Where the owl sits over the editor, as a corner plus an inset from that
+/// corner's two edges. Stored this way (not as an absolute point) so a
+/// window resize keeps him the same distance from the same corner.
+///
+/// Dropping him snaps to the nearest edge, keeping his position along it,
+/// and to the corner itself when he is dropped near one. Why not "stay
+/// where dropped": in the middle of the editor he sits over text and the
+/// fade-near-caret would keep firing as you type; along an edge he is out
+/// of the text's way but still where you put him.
+///
+/// Coordinates are y-up (AppKit's default), origin bottom-left.
+public struct OwlPlacement: Codable, Equatable, Sendable {
+    public enum Corner: String, Codable, CaseIterable, Sendable {
+        case bottomRight, bottomLeft, topRight, topLeft
+        public var isRight: Bool { self == .bottomRight || self == .topRight }
+        public var isTop: Bool { self == .topRight || self == .topLeft }
+    }
+
+    public var corner: Corner
+    /// Distance from the corner's vertical edge (width) and horizontal edge (height).
+    public var inset: CGSize
+
+    public init(corner: Corner, inset: CGSize) {
+        self.corner = corner
+        self.inset = CGSize(width: max(0, inset.width), height: max(0, inset.height))
+    }
+
+    /// Bottom right, where he has always been.
+    public static let margin = CGSize(width: 6, height: 2)
+    public static let `default` = OwlPlacement(corner: .bottomRight, inset: margin)
+    /// Dropped within this of a corner (along the edge he snaps to): into the corner.
+    public static let cornerPull: CGFloat = 56
+    /// Mouse movement before a press on the owl becomes a drag rather than a click.
+    public static let dragThreshold: CGFloat = 3
+
+    public static func isDrag(from a: CGPoint, to b: CGPoint, threshold: CGFloat = dragThreshold) -> Bool {
+        hypot(b.x - a.x, b.y - a.y) >= threshold
+    }
+
+    /// The owl's frame origin for this placement in `bounds`, clamped so he
+    /// is always wholly inside (a window shrunk smaller than his inset).
+    public func origin(in bounds: CGRect, size: CGSize) -> CGPoint {
+        let x = corner.isRight ? bounds.maxX - size.width - inset.width : bounds.minX + inset.width
+        let y = corner.isTop ? bounds.maxY - size.height - inset.height : bounds.minY + inset.height
+        return Self.clamp(CGPoint(x: x, y: y), size: size, in: bounds)
+    }
+
+    /// Keeps a frame of `size` at `origin` inside `bounds` (pinned to the
+    /// bottom-left when bounds are smaller than the owl).
+    public static func clamp(_ origin: CGPoint, size: CGSize, in bounds: CGRect) -> CGPoint {
+        CGPoint(x: max(bounds.minX, min(origin.x, bounds.maxX - size.width)),
+                y: max(bounds.minY, min(origin.y, bounds.maxY - size.height)))
+    }
+
+    /// The placement for an owl dropped with its frame at `origin`: snapped
+    /// to the nearest edge (corner when close to one), then described from
+    /// the nearest corner.
+    public static func snapped(origin: CGPoint, size: CGSize, in bounds: CGRect) -> OwlPlacement {
+        let o = clamp(origin, size: size, in: bounds)
+        let left = o.x - bounds.minX, right = bounds.maxX - (o.x + size.width)
+        let bottom = o.y - bounds.minY, top = bounds.maxY - (o.y + size.height)
+        let isRight = right < left, isTop = top < bottom
+        var dx = isRight ? right : left
+        var dy = isTop ? top : bottom
+        // Snap the nearer edge to the margin; the other axis stays put
+        // unless it is near the corner too.
+        if dx <= dy {
+            dx = margin.width
+            if dy <= cornerPull { dy = margin.height }
+        } else {
+            dy = margin.height
+            if dx <= cornerPull { dx = margin.width }
+        }
+        let corner: Corner = isTop ? (isRight ? .topRight : .topLeft) : (isRight ? .bottomRight : .bottomLeft)
+        return OwlPlacement(corner: corner, inset: CGSize(width: dx, height: dy))
+    }
+
+    /// Where the speech bubble goes: above the owl when there's room (else
+    /// below), and towards the side of the editor with more room, its tail
+    /// pointing at him.
+    public struct Bubble: Equatable, Sendable {
+        public var frame: CGRect
+        public var tailOnTop: Bool
+        public var tailAtLeft: Bool
+    }
+
+    public static func bubble(owl: CGRect, size: CGSize, in bounds: CGRect) -> Bubble {
+        // Over his head, overlapping the top 30% of the art (as before).
+        let overlap = owl.height * 0.3
+        let roomAbove = bounds.maxY - (owl.maxY - overlap)
+        let roomBelow = (owl.minY + 2) - bounds.minY
+        let above = roomAbove >= size.height || roomAbove >= roomBelow
+        // Extends away from the nearer side wall.
+        let towardsLeft = (bounds.maxX - owl.midX) < (owl.midX - bounds.minX)
+        var x = towardsLeft ? owl.maxX - size.width + 2 : owl.minX - 2
+        x = max(bounds.minX + 4, min(x, bounds.maxX - size.width - 4))
+        // Below: just under his feet (the art fills the view's bottom edge).
+        let y = above ? owl.maxY - overlap : owl.minY + 2 - size.height
+        return Bubble(frame: CGRect(x: x, y: y, width: size.width, height: size.height),
+                      tailOnTop: !above, tailAtLeft: !towardsLeft)
+    }
+}

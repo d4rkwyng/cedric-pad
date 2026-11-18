@@ -81,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             } else {
                 // A new file: an empty tab that saves there.
                 let doc = EditorDocument(fileURL: url, untitledName: url.lastPathComponent)
-                doc.language = LanguageDetector.language(forFileName: url.lastPathComponent) ?? .plain
+                doc.languageChoice = .forFile(named: url.lastPathComponent, content: "")
                 let tab = makeTab(doc, text: "")
                 doc.markDirtyFromSession()
                 tab.updateTitle()
@@ -92,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let (d, _) = try? EditorDocument.read(url) {
                 let doc = newDocument()
                 doc.apply(d)
-                doc.language = LanguageDetector.sniff(d.text)
+                doc.languageChoice = .untitled(content: d.text)
                 makeTab(doc, text: d.text)
                 doc.markDirtyFromSession()
                 tabs.last?.updateTitle()
@@ -183,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             doc.apply(d)
             doc.fileModified = mod
             PerfTrace.mark("read_decode")
-            doc.language = LanguageDetector.detect(fileName: std.lastPathComponent, content: d.text)
+            doc.languageChoice = .forFile(named: std.lastPathComponent, content: d.text)
             PerfTrace.mark("detect_language")
             let blank = tabs.count == 1 && tabs[0].doc.fileURL == nil && !tabs[0].doc.isDirty && tabs[0].text.isEmpty ? tabs[0] : nil
             let tab = makeTab(doc, text: d.text)
@@ -298,10 +298,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 guard let body = text else { continue } // the file is gone and there was no buffer
                 if let l = st.language {
-                    doc.language = l
-                    doc.languageIsManual = true
+                    doc.languageChoice.choose(l)
+                } else if let url = doc.fileURL {
+                    doc.languageChoice = .forFile(named: url.lastPathComponent, content: body)
                 } else {
-                    doc.language = LanguageDetector.detect(fileName: doc.fileURL?.lastPathComponent, content: body)
+                    doc.languageChoice = .untitled(content: body)
                 }
                 let tab = makeTab(doc, text: body, in: host, newWindow: host == nil, show: false)
                 if st.hasBuffer { doc.markDirtyFromSession(); doc.sessionChangeCount = doc.changeCount }
@@ -342,6 +343,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func toggleWrap(_ sender: Any?) { Settings.shared.wrapLines.toggle() }
     @objc func toggleInvisibles(_ sender: Any?) { Settings.shared.showInvisibles.toggle() }
     @objc func toggleLineNumbers(_ sender: Any?) { Settings.shared.showLineNumbers.toggle() }
+    @objc func toggleSpellingWhileTyping(_ sender: Any?) { Settings.shared.checkSpellingWhileTyping.toggle() }
+    @objc func checkDocumentNow(_ sender: Any?) { currentTab?.spelling.selectNext() }
     @objc func toggleOwl(_ sender: Any?) { Settings.shared.showOwl.toggle() }
     @objc func showAISettings(_ sender: Any?) { AISettingsSheet.show(on: currentTab?.window) }
     @objc func pickOwlHintSource(_ sender: NSMenuItem) {
@@ -354,7 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let raw = sender.representedObject as? String, let t = EditorTheme(rawValue: raw) { Settings.shared.theme = t }
     }
     @objc func pickLanguageMenu(_ sender: NSMenuItem) {
-        if let raw = sender.representedObject as? String, let l = Language(rawValue: raw) { currentTab?.setLanguage(l, manual: true) }
+        if let raw = sender.representedObject as? String, let l = Language(rawValue: raw) { currentTab?.setLanguage(l) }
     }
     @objc func pickLineEndingMenu(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let le = LineEnding(rawValue: raw) { currentTab?.convertLineEndings(to: le) }
@@ -370,6 +373,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleWrap(_:)): item.state = s.wrapLines ? .on : .off
         case #selector(toggleInvisibles(_:)): item.state = s.showInvisibles ? .on : .off
         case #selector(toggleLineNumbers(_:)): item.state = s.showLineNumbers ? .on : .off
+        case #selector(toggleSpellingWhileTyping(_:)): item.state = s.checkSpellingWhileTyping ? .on : .off
+        case #selector(checkDocumentNow(_:)): return tab != nil
         case #selector(toggleOwl(_:)): item.state = s.showOwl ? .on : .off
         case #selector(pickOwlHintSource(_:)):
             // "Rules + AI" stays off until an AI provider registers.
