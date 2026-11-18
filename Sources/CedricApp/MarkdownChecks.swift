@@ -143,6 +143,24 @@ extension DevChecks {
                 expect(tab.text.hasSuffix(")**x**"), "⌘B at the caret types inside a new pair", tab.text)
             },
             sync {
+                // ⌘↩: task boxes.
+                tab.textView.string = ""
+                tab.textView.insertText("- [ ] milk\n- eggs\nbread", replacementRange: NSRange(location: 0, length: 0))
+                tv.setSelectedRange(NSRange(location: 3, length: 0))
+                key("\r", [.command])
+                expect(tab.text == "- [x] milk\n- eggs\nbread", "⌘↩ checks the box", tab.text)
+                expect(tv.selectedRange().location == 3, "the caret stays put", "\(tv.selectedRange())")
+            },
+            sync {
+                tv.setSelectedRange(NSRange(location: 0, length: (tab.text as NSString).length))
+                key("\r", [.command])
+                expect(tab.text == "- [ ] milk\n- [ ] eggs\n- [ ] bread", "on several lines: unchecks, adds a box to an item, makes a plain line a task", tab.text)
+            },
+            sync {
+                key("z", [.command])
+                expect(tab.text == "- [x] milk\n- eggs\nbread", "one ⌘Z undoes it", tab.text)
+            },
+            sync {
                 // Not in other languages.
                 focus(swift)
                 swift.textView.setSelectedRange(NSRange(location: 4, length: 1))

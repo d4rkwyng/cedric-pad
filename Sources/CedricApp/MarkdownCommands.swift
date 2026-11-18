@@ -16,6 +16,13 @@ extension EditorWindowController {
         apply(e, actionName: names[style] ?? "")
     }
 
+    /// ⌘↩: checks or unchecks the task boxes on the selected lines.
+    func toggleCheckboxes() {
+        guard markdownEditable,
+              let e = MarkdownLists.toggleTasks(in: textView.string as NSString, selection: textView.selectedRange()) else { NSSound.beep(); return }
+        apply(e, actionName: String(localized: "Toggle Checkbox"))
+    }
+
     func markdownLink() {
         guard markdownEditable else { NSSound.beep(); return }
         let clip = NSPasteboard.general.string(forType: .string)
@@ -30,10 +37,11 @@ extension AppDelegate {
     @objc func markdownStrikethroughMenu(_ sender: Any?) { currentTab?.toggleMarkdown(.strikethrough) }
     @objc func markdownCodeMenu(_ sender: Any?) { currentTab?.toggleMarkdown(.code) }
     @objc func markdownLinkMenu(_ sender: Any?) { currentTab?.markdownLink() }
+    @objc func toggleCheckboxMenu(_ sender: Any?) { currentTab?.toggleCheckboxes() }
 
     static let markdownActions: Set<Selector> = [
         #selector(markdownBoldMenu(_:)), #selector(markdownItalicMenu(_:)), #selector(markdownStrikethroughMenu(_:)),
-        #selector(markdownCodeMenu(_:)), #selector(markdownLinkMenu(_:)),
+        #selector(markdownCodeMenu(_:)), #selector(markdownLinkMenu(_:)), #selector(toggleCheckboxMenu(_:)),
     ]
 
     func validateMarkdownItem(_ item: NSMenuItem) -> Bool? {
@@ -52,5 +60,7 @@ func markdownMenu() -> NSMenuItem {
         item(String(localized: "Strikethrough"), #selector(AppDelegate.markdownStrikethroughMenu(_:)), "x", [.command, .shift]),
         item(String(localized: "Inline Code"), #selector(AppDelegate.markdownCodeMenu(_:)), "`", [.control]),
         item(String(localized: "Link"), #selector(AppDelegate.markdownLinkMenu(_:)), "k"),
+        .separator(),
+        item(String(localized: "Toggle Checkbox"), #selector(AppDelegate.toggleCheckboxMenu(_:)), "\r"),
     ])
 }

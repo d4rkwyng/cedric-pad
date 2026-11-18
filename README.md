@@ -56,6 +56,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     stack another pair. ⌘K turns the selection into `[text](|)` with the
     caret in the URL, or uses the URL on the clipboard; a selected URL
     becomes `[](url)`; in a link it unlinks. Only in Markdown tabs.
+  - **Checkboxes:** Format › Markdown › Toggle Checkbox (⌘↩) checks
+    or unchecks `- [ ]` / `- [x]` on the caret's line or every selected
+    line, adds a box to a list item without one, and turns a plain line
+    into `- [ ] line`. One undo step.
 - **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
   or `.psv` file is a read-only grid: the first line is the header, row
   numbers stay at the left, columns resize, and a click on a header sorts
