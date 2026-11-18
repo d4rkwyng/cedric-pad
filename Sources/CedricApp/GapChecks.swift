@@ -5,7 +5,7 @@ import CedricCore
 /// like the other DevChecks: real key events where a key does it (Tab,
 /// ⇧Tab and the menus' key equivalents), menu items' actions otherwise.
 ///
-///   CEDRIC_CHECK=indent|print|macbasics|filterlines|encodings|cli
+///   CEDRIC_CHECK=indent|print|macbasics|filterlines|encodings|cli|dropfile
 @MainActor
 extension DevChecks {
     static func gapCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -16,6 +16,7 @@ extension DevChecks {
         case "filterlines": filterLinesCheck(app)
         case "encodings": encodings(app)
         case "cli": cli(app)
+        case "dropfile": dropFile(app)
         default: return false
         }
         return true
@@ -525,6 +526,88 @@ extension DevChecks {
                 openURL(app, "cedric://open?path=\(enc(file.path))&wait=\(enc(m2))")
                 app.releaseAllWaiters()
                 expect(!FileManager.default.fileExists(atPath: m2), "quitting releases waiting scripts")
+            },
+        ])
+    }
+
+    // MARK: Dropping a file onto the text
+
+    /// A drag as AppKit hands it to the destination view: a pasteboard and a point.
+    final class FakeDrag: NSObject, NSDraggingInfo {
+        let pb: NSPasteboard
+        let window: NSWindow?
+        let point: NSPoint
+        init(_ pb: NSPasteboard, window: NSWindow?, point: NSPoint) { self.pb = pb; self.window = window; self.point = point }
+        var draggingDestinationWindow: NSWindow? { window }
+        var draggingSourceOperationMask: NSDragOperation { [.copy, .generic, .link] }
+        var draggingLocation: NSPoint { point }
+        var draggedImageLocation: NSPoint { point }
+        var draggedImage: NSImage? { nil }
+        var draggingPasteboard: NSPasteboard { pb }
+        var draggingSource: Any? { nil }
+        var draggingSequenceNumber: Int { 1 }
+        func slideDraggedImage(to screenPoint: NSPoint) {}
+        var draggingFormation: NSDraggingFormation = .default
+        var animatesToDestination = false
+        var numberOfValidItemsForDrop = 1
+        func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?, classes classArray: [AnyClass],
+                                    searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+                                    using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {
+            let objects = pb.readObjects(forClasses: classArray, options: searchOptions) ?? []
+            var stop: ObjCBool = false
+            for (i, o) in objects.enumerated() {
+                guard let w = o as? NSPasteboardWriting else { continue }
+                block(NSDraggingItem(pasteboardWriter: w), i, &stop)
+                if stop.boolValue { break }
+            }
+        }
+        var springLoadingHighlight: NSSpringLoadingHighlight { .none }
+        func resetSpringLoading() {}
+    }
+
+    static func drop(_ pb: NSPasteboard, on tab: EditorWindowController) -> (NSDragOperation, Bool) {
+        let tv = tab.textView
+        let p = tv.convert(NSPoint(x: 40, y: 10), to: nil)
+        let info = FakeDrag(pb, window: tab.window, point: p)
+        let op = tv.draggingEntered(info)
+        _ = tv.draggingUpdated(info)
+        guard op != [] else { tv.draggingExited(info); return (op, false) }
+        let ok = tv.prepareForDragOperation(info) && tv.performDragOperation(info)
+        tv.concludeDragOperation(info)
+        return (op, ok)
+    }
+
+    static func dropFile(_ app: AppDelegate) {
+        let target = app.open(write("target.txt", "existing text\n"))!
+        let dropped = write("dropped.swift", "let dropped = 1\n")
+        sized(target)
+        let pb = NSPasteboard(name: NSPasteboard.Name("cedric-check-drop-\(getpid())"))
+        run([
+            sync {
+                focus(target)
+                pb.clearContents()
+                pb.writeObjects([dropped as NSURL])
+                let (op, ok) = drop(pb, on: target)
+                expect(op != [] && ok, "the text view takes a dropped file", "op \(op.rawValue) ok \(ok)")
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { next() } },
+            sync {
+                expect(target.text == "existing text\n", "the file's path isn't inserted into the text", target.text)
+                let opened = app.tabs.first { $0.doc.fileURL?.standardizedFileURL == dropped.standardizedFileURL }
+                expect(opened != nil, "the dropped file opens in a tab")
+                expect(opened?.text == "let dropped = 1\n" && opened?.doc.language == .swift, "with its text and language")
+                // Text isn't taken over: it goes to NSTextView's own drop handling (not opened as a file).
+                pb.clearContents()
+                pb.setString("plain words", forType: .string)
+                let before = app.tabs.count
+                _ = drop(pb, on: target)
+                expect(app.tabs.count == before, "a text drop opens nothing")
+                // A folder isn't opened as a file.
+                pb.clearContents()
+                pb.writeObjects([dir as NSURL])
+                _ = drop(pb, on: target)
+                expect(app.tabs.count == before, "a folder drop opens nothing")
+                pb.releaseGlobally()
             },
         ])
     }

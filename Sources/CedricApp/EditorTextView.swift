@@ -211,6 +211,51 @@ final class EditorTextView: NSTextView {
 
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
 
+    // MARK: Dropping files
+
+    /// Opens files dropped on the text (each in its tab), as Notepad++
+    /// does, instead of inserting their paths. Set by the window controller.
+    var onDropFiles: (([URL]) -> Void)?
+
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+        var types = super.acceptableDragTypes
+        if !types.contains(.fileURL) { types.append(.fileURL) }
+        return types
+    }
+
+    /// The file URLs a drag carries (none for text, or for a drag that
+    /// started in this text view).
+    private func droppedFiles(_ info: NSDraggingInfo) -> [URL] {
+        guard onDropFiles != nil, (info.draggingSource as? NSView) !== self else { return [] }
+        let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return urls.filter { u in var dir: ObjCBool = false; return FileManager.default.fileExists(atPath: u.path, isDirectory: &dir) && !dir.boolValue }
+    }
+
+    override func draggingEntered(_ info: NSDraggingInfo) -> NSDragOperation {
+        droppedFiles(info).isEmpty ? super.draggingEntered(info) : .copy
+    }
+
+    override func draggingUpdated(_ info: NSDraggingInfo) -> NSDragOperation {
+        droppedFiles(info).isEmpty ? super.draggingUpdated(info) : .copy
+    }
+
+    override func prepareForDragOperation(_ info: NSDraggingInfo) -> Bool {
+        droppedFiles(info).isEmpty ? super.prepareForDragOperation(info) : true
+    }
+
+    override func performDragOperation(_ info: NSDraggingInfo) -> Bool {
+        let files = droppedFiles(info)
+        guard !files.isEmpty, let onDropFiles else { return super.performDragOperation(info) }
+        // After the drag session ends (opening a tab inside it upsets AppKit's drag bookkeeping).
+        DispatchQueue.main.async { onDropFiles(files) }
+        return true
+    }
+
+    override func concludeDragOperation(_ info: NSDraggingInfo?) {
+        if let info, !droppedFiles(info).isEmpty { return }
+        super.concludeDragOperation(info)
+    }
+
     /// ⌘X with nothing selected cuts the whole line (EditingFeatures.swift).
     var onCutLine: (() -> Void)?
 

@@ -130,6 +130,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         textView.onCutLine = { [unowned self] in self.cutLine() }
         textView.indentation = { [unowned self] in self.indentation }
         textView.onShiftLines = { [unowned self] right in self.shiftLines(right: right) }
+        textView.onDropFiles = { urls in
+            for u in urls { (NSApp.delegate as? AppDelegate)?.open(u) }
+        }
         textView.lineStartFor = { [unowned self] offset in
             let index = self.lineIndex
             return index.starts[index.line(containing: offset)]

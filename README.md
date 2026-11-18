@@ -96,6 +96,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   makes sense of its accented letters and quotes) and shown in the status bar,
   with menus to convert (applied on save) or reopen with another encoding.
   Mixed line endings are shown as such and written as one kind on save.
+- **Drop a file on the text to open it** (in its own tab), rather than
+  pasting its path; dropped text is inserted as before.
 - **Files changed on disk** reload by themselves when the tab has no unsaved
   changes.
 - **`cedric` command-line launcher** (below), with `-w` so it can be
