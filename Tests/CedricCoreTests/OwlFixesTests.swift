@@ -50,6 +50,45 @@ import Testing
         #expect(!SpellScope.offersTypoFix(Self.email as NSString, language: .swift, fileName: "a.swift"))
     }
 
+    // MARK: F-H2 / F-L8 whitespace fixes that would destroy data
+
+    @Test func noTrailingTrimInPatchesLogsOrConfig() {
+        let patch = "--- a/x.txt\n+++ b/x.txt\n@@ -1,6 +1,6 @@\n context one  \n context two \n-old line \n+new line \n context three  \n context four \n"
+        #expect(find(RulesHintProvider.trailingID, patch, language: "diff", fileName: "fix.patch") == nil)
+        #expect(find(RulesHintProvider.trailingID, patch, language: "diff", fileName: nil) == nil)
+        // A patch opened as Plain Text by name.
+        #expect(find(RulesHintProvider.trailingID, patch, language: "plain", fileName: "fix.diff") == nil)
+        let log = (0..<8).map { "10:00:0\($0) INFO line \($0)  " }.joined(separator: "\n")
+        #expect(find(RulesHintProvider.trailingID, log, language: "plain", fileName: "server.log") == nil)
+        let env = (0..<6).map { "KEY_\($0)=value \n" }.joined()
+        #expect(find(RulesHintProvider.trailingID, env, language: "ini", fileName: ".env") == nil)
+        // Still offered in ordinary text and code.
+        let text = "a  \nb\t\nc \nd   \ne \nf\n"
+        #expect(find(RulesHintProvider.trailingID, text) != nil)
+        #expect(find(RulesHintProvider.trailingID, text, language: "python", fileName: "a.py") != nil)
+    }
+
+    @Test func noIndentOrInvisibleFixesInPatches() {
+        // Bytes in a patch are what it matches: a stray BOM or tabs vs
+        // spaces in it are the change itself, never something to tidy.
+        let patch = "@@ -1,4 +1,4 @@\n\tkeep\n    spaces\n    more\n-old\u{FEFF}line\n+new line\n"
+        #expect(!check(patch).map(\.id).filter { [RulesHintProvider.mixedIndentID, RulesHintProvider.invisibleID].contains($0) }.isEmpty)
+        let ids = check(patch, language: "diff", fileName: "a.patch").map(\.id)
+        #expect(!ids.contains(RulesHintProvider.mixedIndentID))
+        #expect(!ids.contains(RulesHintProvider.invisibleID))
+        #expect(!ids.contains(RulesHintProvider.trailingID))
+    }
+
+    @Test func markdownTrimKeepsHardLineBreaks() throws {
+        // "Roses  \nare red" is a hard break: kept. One space, a tab, or two
+        // spaces before a blank line or the end are stray: trimmed.
+        let md = "Roses are red,  \nviolets are blue. \nOne \nTwo\t\nThree \nFour  \n\nEnd  \n"
+        let h = try #require(find(RulesHintProvider.trailingID, md, language: "markdown"))
+        #expect(apply(h, to: md) == "Roses are red,  \nviolets are blue.\nOne\nTwo\nThree\nFour\n\nEnd\n")
+        // Only hard breaks: nothing to trim.
+        let poem = (0..<6).map { "line \($0)  " }.joined(separator: "\n") + "\nlast\n"
+        #expect(find(RulesHintProvider.trailingID, poem, language: "markdown") == nil)
+    }
 
 
 
@@ -58,6 +97,12 @@ import Testing
 
 
 
+}
 
-
+extension OwlFixesTests {
+    @Test func noProseFixesInLogs() {
+        let log = "10:00:01 INFO id id=4 the the cache\n10:00:02 INFO ok\n"
+        #expect(find(RulesHintProvider.duplicateWordID, log, fileName: "server.log") == nil)
+        #expect(find(RulesHintProvider.duplicateWordID, log, fileName: "notes.txt") != nil)
+    }
 }

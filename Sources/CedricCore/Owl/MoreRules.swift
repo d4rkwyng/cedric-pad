@@ -555,7 +555,7 @@ extension RulesHintProvider {
                    hint: (String, OwlHint.Kind, String, String?, NSRange?, String?) -> Void) {
         let lang = c.language
         let isCode = Self.codeLanguages.contains(lang) && lang != "html"
-        if let r = Self.invisibles(text, code: isCode) {
+        if !Self.isPatch(c), let r = Self.invisibles(text, code: isCode) {
             hint(Self.invisibleID, .fix, String(localized: "Invisible characters in here. Remove them?"),
                  isCode ? String(localized: "\(r.count) zero-width or non-breaking spaces, easy to paste and hard to see. They break code and searches.")
                         : String(localized: "\(r.count) stray byte-order marks, easy to paste and hard to see."),
@@ -575,13 +575,15 @@ extension RulesHintProvider {
                      nil, nil)
             }
         }
-        if Self.proseLanguages.contains(lang), let r = Self.duplicateWords(text, lines: lines, markdown: lang == "markdown") {
+        // A log or data file opened as Plain Text: its words are data.
+        let data = Self.isWhitespaceSignificant(c)
+        if Self.proseLanguages.contains(lang), !data, let r = Self.duplicateWords(text, lines: lines, markdown: lang == "markdown") {
             hint(Self.duplicateWordID, .fix,
                  r.count == 1 ? String(localized: "“\(String(r.word.prefix(24)))”? A word typed twice. Fix it?")
                               : String(localized: "\(r.count) words typed twice. Fix them?"),
                  String(localized: "Removes the second copy of each."), r.range, r.replacement)
         }
-        if Self.proseLanguages.contains(lang), let r = Self.doubleSpaces(text, lines: lines, markdown: lang == "markdown") {
+        if Self.proseLanguages.contains(lang), !data, let r = Self.doubleSpaces(text, lines: lines, markdown: lang == "markdown") {
             hint(Self.doubleSpaceID, .fix, String(localized: "Two spaces after some full stops. Make it one?"),
                  String(localized: "\(r.count) sentences start after two spaces, the rest after one."), r.range, r.replacement)
         }
