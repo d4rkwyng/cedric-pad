@@ -183,7 +183,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     var currentTab: EditorWindowController? {
-        tabs.first { $0.window === NSApp.keyWindow } ?? tabs.first { $0.window === NSApp.mainWindow }
+        // A detached preview's window: its tab (View › Attach Preview).
+        if let key = NSApp.keyWindow, let t = tabs.first(where: { $0.previewWindow?.window === key }) { return t }
+        return tabs.first { $0.window === NSApp.keyWindow } ?? tabs.first { $0.window === NSApp.mainWindow }
             // Not active (launched from a script, screen locked): the
             // frontmost tab. The owl check (CEDRIC_OWL_ASSUME_VISIBLE) may
             // run with no window ordered in; it falls back to the newest tab.
@@ -298,7 +300,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                               selectionLocation: sel.location, selectionLength: sel.length,
                                               topLine: t.topLine, fileModified: d.fileModified,
                                               bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines,
-                                              indentation: d.indentation))
+                                              indentation: d.indentation,
+                                              previewDetached: t.previewDetached ? true : nil,
+                                              previewFrame: t.previewWindow?.window?.frameDescriptor))
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
             }
             if !sessionTabs.isEmpty {
@@ -412,6 +416,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let top = st.topLine
         DispatchQueue.main.async { tab.scrollToLine(top) }
+        // A detached preview comes back in its window, after the first
+        // frame: no preview work on the launch path.
+        if st.previewDetached == true {
+            let frame = st.previewFrame
+            AfterFirstFrame.run { [weak tab] in tab?.detachPreview(frame: frame, activate: false) }
+        }
         return tab
     }
 
@@ -483,6 +493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     @objc func goToLine(_ sender: Any?) { currentTab?.goToLinePrompt(sender) }
     @objc func togglePreview(_ sender: Any?) { currentTab?.togglePreview() }
+    @objc func toggleDetachPreview(_ sender: Any?) { currentTab?.toggleDetachPreviewAction(sender) }
     @objc func togglePreviewJavaScript(_ sender: Any?) { currentTab.map { $0.previewAllowsJavaScript.toggle() } }
     @objc func togglePreviewNetwork(_ sender: Any?) { currentTab.map { $0.previewAllowsNetwork.toggle() } }
     @objc func toggleWrap(_ sender: Any?) { Settings.shared.wrapLines.toggle() }
@@ -531,6 +542,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(pickTheme(_:)): item.state = (item.representedObject as? String) == s.theme.rawValue ? .on : .off
         case #selector(togglePreview(_:)):
             item.state = tab?.previewVisible == true ? .on : .off
+            return tab?.doc.language.hasPreview == true
+        case #selector(toggleDetachPreview(_:)):
+            item.title = tab?.previewDetached == true ? String(localized: "Attach Preview") : String(localized: "Detach Preview")
             return tab?.doc.language.hasPreview == true
         case #selector(togglePreviewJavaScript(_:)):
             item.state = tab?.previewAllowsJavaScript == true ? .on : .off

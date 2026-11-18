@@ -60,8 +60,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     let statusBar = StatusBar()
     let split = NSSplitView()
     private var container: EditorContainer!
-    private(set) var preview: PreviewController?
-    var previewVisible: Bool { preview != nil && !(preview!.webView.isHidden) && split.subviews.count > 1 }
+    /// The preview with its header, docked in `split` or in `previewWindow`.
+    private(set) var previewPane: PreviewPane?
+    /// The web preview (Markdown, HTML), for its JavaScript and network switches.
+    var preview: PreviewController? { previewPane?.renderer as? PreviewController }
+    /// The detached preview's window (View › Detach Preview).
+    private(set) var previewWindow: PreviewWindowController?
+    var previewDetached: Bool { previewWindow != nil }
+    var previewVisible: Bool { previewPane != nil && (previewDetached || split.subviews.count > 1) }
     private var previewTimer: Timer?
     private var observers: [NSObjectProtocol] = []
     /// While loading text, edits aren't user changes.
@@ -464,6 +470,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         window.representedURL = doc.fileURL
         window.isDocumentEdited = doc.isDirty
         window.tab.toolTip = doc.fileURL?.path
+        previewWindow?.updateTitle()
     }
 
     private func configureStatusBar() {
@@ -516,7 +523,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if textView.isContinuousSpellCheckingEnabled { textView.isContinuousSpellCheckingEnabled = false; textView.isContinuousSpellCheckingEnabled = true }
         textView.markedMisspellings = []
         updateStatus()
-        if previewVisible, !l.hasPreview { togglePreview() }
+        previewLanguageChanged()
         onChange?(self)
     }
 
@@ -745,6 +752,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         previewTimer?.invalidate()
+        if let pw = previewWindow { previewWindow = nil; pw.closeQuietly() }
         owl?.detach()
         sniffTimer?.invalidate()
         editing.stop()
@@ -939,20 +947,96 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     // MARK: Preview
 
+    /// View › Show Preview (⌥⌘P): docked beside the text, or closed
+    /// (detached too).
     func togglePreview() {
-        if previewVisible {
-            preview?.webView.removeFromSuperview()
-            preview = nil
-            return
-        }
+        if previewPane != nil { closePreview(); return }
         guard doc.language.hasPreview else { NSSound.beep(); return }
+        dock(makePreviewPane())
+        renderPreview()
+        onChange?(self)
+    }
+
+    private func makePreviewPane() -> PreviewPane {
+        let pane = PreviewPane(renderer: makeRenderer(for: doc.language))
+        pane.detachButton.target = self
+        pane.detachButton.action = #selector(toggleDetachPreviewAction(_:))
+        pane.applyPalette(palette)
+        previewPane = pane
+        return pane
+    }
+
+    private func makeRenderer(for language: Language) -> PreviewRenderer {
         let p = PreviewController()
         p.onLoaded = { [weak self] in self?.syncPreviewScroll() }
-        preview = p
-        split.addArrangedSubview(p.webView)
+        return p
+    }
+
+    private func dock(_ pane: PreviewPane) {
+        pane.setDetached(false)
+        split.addArrangedSubview(pane)
         split.adjustSubviews()
         let w = split.bounds.width
         if w > 0 { split.setPosition(w / 2, ofDividerAt: 0) }
+    }
+
+    func closePreview() {
+        previewTimer?.invalidate()
+        if let pw = previewWindow {
+            previewWindow = nil
+            pw.window?.contentView = NSView()
+            pw.closeQuietly()
+        }
+        previewPane?.removeFromSuperview()
+        previewPane = nil
+        onChange?(self)
+    }
+
+    /// View › Detach Preview (⇧⌥⌘P), or the header's Detach: the preview
+    /// in its own window, bound to this tab's document. `frame`: where it
+    /// was (session restore); `activate` false leaves the focus alone.
+    func detachPreview(frame: String? = nil, activate: Bool = true) {
+        guard !previewDetached else { return }
+        guard doc.language.hasPreview else { NSSound.beep(); return }
+        let pane = previewPane ?? makePreviewPane()
+        pane.removeFromSuperview()
+        let pw = PreviewWindowController(tab: self, pane: pane, frame: frame)
+        previewWindow = pw
+        pw.window?.orderFront(nil)
+        if activate { window?.makeKeyAndOrderFront(nil) }
+        renderPreview()
+        onChange?(self)
+    }
+
+    /// View › Attach Preview, or the detached window's Attach: docked again.
+    func attachPreview() {
+        guard let pw = previewWindow, let pane = previewPane else { return }
+        previewWindow = nil
+        pw.window?.contentView = NSView()
+        pw.closeQuietly()
+        dock(pane)
+        window?.makeKeyAndOrderFront(nil)
+        renderPreview()
+        onChange?(self)
+    }
+
+    @objc func toggleDetachPreviewAction(_ sender: Any?) {
+        if previewDetached { attachPreview() } else { detachPreview() }
+    }
+
+    /// The user closed the detached window: the preview is closed.
+    func previewWindowClosedByUser() {
+        previewWindow = nil
+        previewPane = nil
+        previewTimer?.invalidate()
+        onChange?(self)
+    }
+
+    /// The language changed: another renderer if this one doesn't draw it.
+    private func previewLanguageChanged() {
+        guard let pane = previewPane else { return }
+        if !doc.language.hasPreview { closePreview(); return }
+        if !pane.renderer.handles(doc.language) { pane.replaceRenderer(makeRenderer(for: doc.language)) }
         renderPreview()
     }
 
@@ -975,16 +1059,18 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     func renderPreview() {
-        guard let preview else { return }
-        preview.show(text: textView.string, language: doc.language, palette: palette,
-                     baseURL: doc.fileURL?.deletingLastPathComponent())
+        guard let pane = previewPane else { return }
+        pane.applyPalette(palette)
+        previewWindow?.updateTitle()
+        pane.renderer.render(text: textView.string, language: doc.language, palette: palette,
+                             baseURL: doc.fileURL?.deletingLastPathComponent(), fileName: doc.fileURL?.lastPathComponent)
     }
 
     private func syncPreviewScroll() {
-        guard let preview, previewVisible else { return }
+        guard let pane = previewPane, previewVisible else { return }
         let top = topLine
         let fraction = lineIndex.lineCount > 1 ? Double(top) / Double(lineIndex.lineCount - 1) : 0
-        preview.sync(line: top, fraction: fraction, markdown: doc.language == .markdown)
+        pane.renderer.sync(line: top, fraction: fraction, language: doc.language)
     }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposed: CGFloat, ofSubviewAt i: Int) -> CGFloat { max(proposed, 200) }

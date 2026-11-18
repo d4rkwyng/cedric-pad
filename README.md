@@ -31,7 +31,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Live preview** for Markdown and HTML, side by side (View › Show Preview,
   ⌥⌘P). JavaScript and network access in the preview are **off** by default
   and can be turned on per tab (View menu). Scrolling the editor scrolls the
-  preview to roughly the same place.
+  preview to roughly the same place. **Detach Preview** (View menu, ⇧⌥⌘P,
+  or Detach in the preview's header) moves it into its own resizable
+  window, "notes.md — Preview", still updating as you type; it stays
+  with its own document whichever tab is in front, and closes with that
+  tab. Attach Preview docks it again; closing its window closes the
+  preview. A detached preview and its window's frame are kept with the
+  session (restored just after the window first shows).
 - **Themes:** System (light or dark with macOS), Light, Dark, Tankard (deep
   purple and amber) and Dracula, the same set as Tankard. Every theme's text
   colours meet WCAG AA contrast (4.5:1), checked by a test. SF Mono by

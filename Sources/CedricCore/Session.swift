@@ -25,11 +25,15 @@ public struct SessionTab: Codable, Equatable, Sendable {
     public var bookmarks: [Int]?
     /// Indentation picked for this tab (nil: the file's own or the default).
     public var indentation: Indentation?
+    /// The preview was in its own window (View › Detach Preview), and
+    /// that window's frame (NSWindow's frame descriptor). Nil otherwise.
+    public var previewDetached: Bool?
+    public var previewFrame: String?
 
     public init(id: UUID = UUID(), path: String? = nil, untitledName: String? = nil, hasBuffer: Bool = false,
                 encoding: TextEncoding = .utf8, lineEnding: LineEnding = .lf, language: Language? = nil,
                 selectionLocation: Int = 0, selectionLength: Int = 0, topLine: Int = 0, fileModified: Date? = nil,
-                bookmarks: [Int]? = nil, indentation: Indentation? = nil) {
+                bookmarks: [Int]? = nil, indentation: Indentation? = nil, previewDetached: Bool? = nil, previewFrame: String? = nil) {
         self.id = id
         self.path = path
         self.untitledName = untitledName
@@ -43,6 +47,8 @@ public struct SessionTab: Codable, Equatable, Sendable {
         self.fileModified = fileModified
         self.bookmarks = bookmarks
         self.indentation = indentation
+        self.previewDetached = previewDetached
+        self.previewFrame = previewFrame
     }
 }
 
