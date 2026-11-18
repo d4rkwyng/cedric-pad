@@ -11,6 +11,9 @@ final class StubServer: @unchecked Sendable {
         var status = 200
         var body: Data
         var delay: TimeInterval = 0
+        /// Sent after `body`, one every `every` seconds (a slow stream).
+        var chunks: [Data] = []
+        var every: TimeInterval = 0
     }
     typealias Handler = @Sendable (URLRequest, Data?) -> Response
 
@@ -84,7 +87,11 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
             let http = HTTPURLResponse(url: request.url!, statusCode: response.status,
                                        httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
             proto.client?.urlProtocol(proto, didReceive: http, cacheStoragePolicy: .notAllowed)
-            proto.client?.urlProtocol(proto, didLoad: response.body)
+            if !response.body.isEmpty { proto.client?.urlProtocol(proto, didLoad: response.body) }
+            for chunk in response.chunks {
+                do { try await Task.sleep(nanoseconds: UInt64(response.every * 1e9)) } catch { return }
+                proto.client?.urlProtocol(proto, didLoad: chunk)
+            }
             proto.client?.urlProtocolDidFinishLoading(proto)
         }
     }

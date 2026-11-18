@@ -76,6 +76,12 @@ public struct LocalModelClient: Sendable {
     /// Name lookup for `checkLocal`; tests put a slow one in.
     var resolver: @Sendable (String) async -> [String] = { await LocalEndpointPolicy.resolve($0) }
 
+    /// Streams only: after the first byte of the answer, the longest wait
+    /// for the next one.
+    public var streamIdleLimit: TimeInterval = 30
+    /// Streams only: a safety cap on one whole answer.
+    public var streamCap: TimeInterval = 15 * 60
+
     public init(baseURL: URL, timeout: TimeInterval = 20, session: URLSession? = nil) {
         self.baseURL = baseURL
         self.timeout = timeout
@@ -84,7 +90,9 @@ public struct LocalModelClient: Sendable {
         } else {
             let cfg = URLSessionConfiguration.ephemeral   // no cookies, no cache on disk
             cfg.timeoutIntervalForRequest = timeout
-            cfg.timeoutIntervalForResource = timeout
+            // A streamed answer may run long; every request has its own
+            // deadline (`withDeadline`, or the stream's watch) inside this.
+            cfg.timeoutIntervalForResource = max(timeout, 15 * 60)
             cfg.connectionProxyDictionary = [:]           // never route through a proxy
             cfg.waitsForConnectivity = false
             self.session = URLSession(configuration: cfg)
