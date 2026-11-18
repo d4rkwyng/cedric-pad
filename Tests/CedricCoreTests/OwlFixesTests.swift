@@ -192,6 +192,24 @@ import Testing
         #expect(!TextCodec.looksBinary(Data(String(repeating: "a", count: 9000).utf8) + Data([0, 0, 0])))
     }
 
+    // MARK: F-L4 the bubble stays off the hinted lines
+
+    @Test func bubbleAvoidsTheHintedLines() {
+        let editor = CGRect(x: 0, y: 0, width: 360, height: 240)
+        let owl = CGRect(x: 300, y: 2, width: 54, height: 54)
+        let size = CGSize(width: 200, height: 90)
+        // Lines 3-6 of a small window, right where the bubble would go (above him).
+        let hinted = CGRect(x: 0, y: 60, width: 360, height: 70)
+        let plain = OwlPlacement.bubble(owl: owl, size: size, in: editor)
+        #expect(plain.frame.intersects(hinted)) // the finding
+        let away = OwlPlacement.bubble(owl: owl, size: size, in: editor, avoid: hinted)
+        #expect(!away.frame.intersects(hinted))
+        #expect(editor.contains(away.frame))
+        // Nothing to avoid, or no way round it: as before.
+        #expect(OwlPlacement.bubble(owl: owl, size: size, in: editor, avoid: nil) == plain)
+        let everything = CGRect(x: 0, y: 0, width: 360, height: 240)
+        #expect(OwlPlacement.bubble(owl: owl, size: size, in: editor, avoid: everything) == plain)
+    }
 
 }
 

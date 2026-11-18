@@ -112,12 +112,26 @@ enum OwlRulesCheck {
         waitFor(RulesHintProvider.conflictID, in: tab) { bubble in
             guard let bubble, let show = button(bubble, String(localized: "Show Me")) else { OwlCheck.finish(out); return }
             check(button(bubble, String(localized: "Fix it")) == nil, "a warning offers Show Me, no fix")
+            // A small window: the bubble stays off the line it is about.
+            let size = window.frame.size
+            window.setContentSize(NSSize(width: 360, height: 285))
+            tab.textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+            window.contentView?.layoutSubtreeIfNeeded()
+            tab.owl?.layoutViews()
+            let hinted = tab.owl?.hintedRect()
+            check(hinted != nil && tab.owl?.bubble.map { !$0.frame.intersects(hinted!) } == true,
+                  "in a 360×285 window the bubble doesn’t cover the hinted line (bubble \(String(describing: tab.owl?.bubble?.frame)), line \(String(describing: hinted)))")
+            OwlCheck.snapshot(window, "\(out)/rules-3-small.png") {
+            window.setContentSize(size)
+            window.contentView?.layoutSubtreeIfNeeded()
+            tab.owl?.layoutViews()
             OwlCheck.snapshot(window, "\(out)/rules-3-conflict.png") {
                 click(show)
                 let sel = tab.textView.selectedRange()
                 check((tab.text as NSString).substring(with: sel) == "<<<<<<< ours", "Show Me selected the <<<<<<< line")
                 check(tab.owl?.bubble == nil, "bubble closed")
                 OwlCheck.finish(out)
+            }
             }
         }
     }

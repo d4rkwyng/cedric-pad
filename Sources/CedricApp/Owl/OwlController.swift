@@ -121,10 +121,29 @@ final class OwlController: NSObject, NSPopoverDelegate {
     private func layoutBubble() {
         guard let bubble else { return }
         let size = bubble.fit()
-        let place = OwlPlacement.bubble(owl: owl.frame, size: size, in: overlay.bounds)
+        let place = OwlPlacement.bubble(owl: owl.frame, size: size, in: overlay.bounds, avoid: hintedRect())
         bubble.tailOnTop = place.tailOnTop
         bubble.tailAtLeft = place.tailAtLeft
         bubble.frame = place.frame
+    }
+
+    /// The lines the presented hint is about, in the overlay's
+    /// coordinates (nil when it has no range or isn't on screen), so the
+    /// bubble doesn't cover them in a small window.
+    func hintedRect() -> CGRect? {
+        guard let range = presented?.range, let tv = tab?.textView, let window = tv.window,
+              let vis = tv.visibleCharacterRange else { return nil }
+        let len = (tv.string as NSString).length
+        let start = max(range.location, vis.location), end = min(NSMaxRange(range), NSMaxRange(vis), len)
+        guard NSMaxRange(range) <= len, start <= end else { return nil }
+        // Its first and last line on screen (TextKit is asked only about those).
+        let first = tv.firstRect(forCharacterRange: NSRange(location: start, length: 0), actualRange: nil)
+        let last = tv.firstRect(forCharacterRange: NSRange(location: end, length: 0), actualRange: nil)
+        guard first != .zero, last != .zero else { return nil }
+        let a = overlay.convert(window.convertFromScreen(first), from: nil)
+        let b = overlay.convert(window.convertFromScreen(last), from: nil)
+        let minY = min(a.minY, b.minY), maxY = max(a.maxY, b.maxY, minY + 12)
+        return CGRect(x: overlay.bounds.minX, y: minY, width: overlay.bounds.width, height: maxY - minY)
     }
 
     // MARK: Dragging
