@@ -273,9 +273,13 @@ extension LocalModelClient {
     /// A streamed chat completion (`"stream": true`, Server-Sent Events),
     /// with OpenAI `tools` when given. `onText` gets each text delta. A
     /// server that ignores `stream` and returns one JSON body still works.
+    /// Same rules as every other request: the name must resolve to private
+    /// addresses only (`checkLocal`), redirects stay on the host and port
+    /// (`RedirectGuard`), and the streamed total is capped at
+    /// `maxResponseBytes`.
     public func chatStream(model: String, messages: [Any], tools: [Any]?, maxTokens: Int, temperature: Double = 0,
                            onText: @escaping @Sendable (String) -> Void) async throws -> OpenAIStreamAccumulator {
-        guard LocalEndpointPolicy.isAllowed(baseURL) else { throw LocalAIError.endpointNotLocal(baseURL.host ?? baseURL.absoluteString) }
+        try await checkLocal()
         var body: [String: Any] = ["model": model, "messages": messages, "max_tokens": maxTokens,
                                    "temperature": temperature, "stream": true]
         if let tools { body["tools"] = tools }
@@ -286,20 +290,45 @@ extension LocalModelClient {
         request.timeoutInterval = timeout
         var acc = OpenAIStreamAccumulator()
         do {
-            let (bytes, response) = try await session.bytes(for: request)
-            guard let http = response as? HTTPURLResponse else { throw LocalAIError.badResponse }
-            guard (200..<300).contains(http.statusCode) else { throw LocalAIError.http(http.statusCode) }
+            let (bytes, response) = try await session.bytes(for: request, delegate: RedirectGuard())
+            guard let http = response as? HTTPURLResponse else { bytes.task.cancel(); throw LocalAIError.badResponse }
+            guard (200..<300).contains(http.statusCode) else { bytes.task.cancel(); throw LocalAIError.http(http.statusCode) }
+            if response.expectedContentLength > Int64(Self.maxResponseBytes) {
+                bytes.task.cancel()
+                throw LocalAIError.transport("response too large")
+            }
             var plain = ""
-            for try await line in bytes.lines {
-                try Task.checkCancellation()
+            var total = 0
+            var pending: [UInt8] = []
+            var done = false
+            // One line (SSE `data:` or a plain JSON body); true at "[DONE]".
+            func take(_ raw: [UInt8]) -> Bool {
+                var line = String(decoding: raw, as: UTF8.self)
+                if line.hasSuffix("\r") { line.removeLast() }
                 if let p = SSEParser.payload(line) {
                     let t = acc.add(p)
                     if !t.isEmpty { onText(t) }
-                    if p == "[DONE]" { break }
+                    return p == "[DONE]"
                 } else if !line.isEmpty, !line.hasPrefix(":"), !line.hasPrefix("event:") {
                     plain += line + "\n"
                 }
+                return false
             }
+            // Bytes, not `bytes.lines`: the cap counts everything received,
+            // including one endless line that would never reach a newline.
+            for try await b in bytes {
+                total += 1
+                if total > Self.maxResponseBytes {
+                    bytes.task.cancel()
+                    throw LocalAIError.transport("response too large")
+                }
+                guard b == 0x0A else { pending.append(b); continue }
+                try Task.checkCancellation()
+                done = take(pending)
+                pending.removeAll(keepingCapacity: true)
+                if done { bytes.task.cancel(); break }
+            }
+            if !done, !pending.isEmpty { _ = take(pending) }
             if acc.content.isEmpty, acc.toolCalls.isEmpty, !plain.isEmpty {
                 let t = acc.add(plain)
                 if !t.isEmpty { onText(t) }

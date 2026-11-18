@@ -140,6 +140,49 @@ import CedricCore
         }
     }
 
+    // Ask Cedric's streaming request goes through the same endpoint rules.
+
+    @Test func chatStreamStreamsServerSentEvents() async throws {
+        let server = StubServer()
+        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\r\n\r\n"
+            + ": keep-alive\n"
+            + "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
+            + "data: [DONE]\n"
+        server.route("/v1/chat/completions") { _, _ in StubServer.Response(body: Data(sse.utf8)) }
+        let client = LocalModelClient(baseURL: server.baseURL, session: server.session)
+        let seen = Locked("")
+        let acc = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 8) { t in seen.mutate { $0 += t } }
+        #expect(acc.content == "Hello")
+        #expect(seen.mutate { $0 } == "Hello")
+    }
+
+    @Test func chatStreamTotalIsCapped() async {
+        let server = StubServer()
+        // Many small events, no Content-Length: only the streamed total can catch it.
+        let chunk = "data: {\"choices\":[{\"delta\":{\"content\":\"" + String(repeating: "x", count: 1000) + "\"}}]}\n\n"
+        let body = Data(String(repeating: chunk, count: LocalModelClient.maxResponseBytes / chunk.utf8.count + 2).utf8)
+        #expect(body.count > LocalModelClient.maxResponseBytes)
+        server.route("/v1/chat/completions") { _, _ in StubServer.Response(body: body) }
+        let client = LocalModelClient(baseURL: server.baseURL, session: server.session)
+        await #expect(throws: LocalAIError.transport("response too large")) {
+            _ = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 1) { _ in }
+        }
+    }
+
+    @Test func chatStreamChecksTheNameResolvesPrivately() async {
+        let server = StubServer()
+        server.json("/v1/chat/completions", ["choices": [["message": ["content": "hi"]]]])
+        // A bare name passes the name check but must still resolve to a
+        // private address; this one doesn't resolve at all.
+        let url = URL(string: "http://cedric-no-such-host-\(server.port):\(server.port)/v1")!
+        #expect(LocalEndpointPolicy.isAllowed(url))
+        let client = LocalModelClient(baseURL: url, session: server.session)
+        await #expect(throws: LocalAIError.endpointNotLocal("cedric-no-such-host-\(server.port)")) {
+            _ = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 1) { _ in }
+        }
+        #expect(server.recorded.isEmpty, "refused before any request")
+    }
+
     @Test func settingsRoundTrip() throws {
         let (defaults, suite) = TestDefaults.make("cedric-ai-test-")
         defer { TestDefaults.remove(suite) }

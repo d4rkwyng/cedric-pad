@@ -100,7 +100,7 @@ public struct LocalModelClient: Sendable {
     /// `.ts.net` name can resolve to a public host). The connection makes
     /// its own lookup a moment later, so a DNS server that answers
     /// differently the second time (rebinding) is not ruled out.
-    private func checkLocal() async throws {
+    func checkLocal() async throws {
         guard LocalEndpointPolicy.isAllowed(baseURL) else {
             throw LocalAIError.endpointNotLocal(baseURL.host ?? baseURL.absoluteString)
         }
