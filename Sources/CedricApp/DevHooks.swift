@@ -55,6 +55,9 @@ enum DevHooks {
     }
 
     static func afterLaunch(_ app: AppDelegate) {
+        if let s = env["CEDRIC_SNAPSHOT_SIZE"]?.split(separator: "x"), s.count == 2, let w = Double(s[0]), let h = Double(s[1]) {
+            for t in app.tabs { t.window?.setContentSize(NSSize(width: w, height: h)) }
+        }
         if let tab = app.currentTab ?? app.tabs.last {
             if env["CEDRIC_PREVIEW"] == "1" { tab.togglePreview() }
             if env["CEDRIC_PREVIEW_JS"] == "1" { tab.previewAllowsJavaScript = true }
@@ -123,7 +126,7 @@ enum DevHooks {
         // Jump to the end and colour there (stateful languages scan the whole file once).
         let t4 = now()
         tab.textView.setSelectedRange(NSRange(location: tab.lineIndex.length, length: 0))
-        tab.textView.scrollRangeToVisible(NSRange(location: tab.lineIndex.length, length: 0))
+        tab.reveal(NSRange(location: tab.lineIndex.length, length: 0))
         tab.window?.displayIfNeeded()
         tab.colorizer.colorViewport()
         tab.window?.displayIfNeeded()
@@ -134,7 +137,7 @@ enum DevHooks {
         // update, recolour, layout and display).
         let mid = tab.lineIndex.starts[tab.lineIndex.lineCount / 2]
         tab.textView.setSelectedRange(NSRange(location: mid, length: 0))
-        tab.textView.scrollRangeToVisible(NSRange(location: mid, length: 0))
+        tab.reveal(NSRange(location: mid, length: 0))
         tab.window?.displayIfNeeded()
         tab.colorizer.colorViewport()
         let n = env["CEDRIC_PERF_TYPE"].flatMap(Int.init) ?? 200
@@ -165,9 +168,6 @@ enum DevHooks {
 
     static func scheduleSnapshot(_ out: String) {
         let delay = env["CEDRIC_SNAPSHOT_DELAY"].flatMap(Double.init) ?? 2
-        if let s = env["CEDRIC_SNAPSHOT_SIZE"]?.split(separator: "x"), s.count == 2, let w = Double(s[0]), let h = Double(s[1]) {
-            DispatchQueue.main.async { NSApp.keyWindow?.setContentSize(NSSize(width: w, height: h)) ?? NSApp.windows.first(where: \.isVisible)?.setContentSize(NSSize(width: w, height: h)) }
-        }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             guard let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }) else {
                 print("snapshot: no window"); exit(1)

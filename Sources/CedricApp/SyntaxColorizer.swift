@@ -70,7 +70,7 @@ final class SyntaxColorizer {
     @discardableResult
     func colorViewport() -> Int {
         guard let tv = textView, let tlm = tv.textLayoutManager, let storage = tv.textStorage else { return 0 }
-        guard let vr = tv.viewportCharacterRange else { return 0 }
+        guard let vr = tv.visibleCharacterRange else { return 0 }
         let index = lineIndexProvider()
         let first = max(0, index.line(containing: vr.location) - Self.margin)
         let last = min(index.lineCount, index.line(containing: vr.location + vr.length) + Self.margin + 1)

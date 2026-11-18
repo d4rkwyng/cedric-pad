@@ -119,8 +119,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observers.append(nc.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.scrolled() }
         })
+        scrollView.postsFrameChangedNotifications = true
+        observers.append(nc.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.keepAnchor() }
+        })
         observers.append(nc.addObserver(forName: NSView.frameDidChangeNotification, object: textView, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.gutter.needsDisplay = true; self?.colorizer.scheduleViewport() }
+            MainActor.assumeIsolated {
+                // TextKit 2 re-estimates heights as it lays out, which resizes
+                // the text view and would slide a different line under the
+                // same scroll offset: keep the top line where it was.
+                self?.keepAnchor()
+                self?.gutter.needsDisplay = true
+                self?.colorizer.scheduleViewport()
+            }
         })
         observers.append(nc.addObserver(forName: .cedricAppearanceChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyAppearance() }
@@ -194,8 +205,26 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gutter.needsDisplay = true
     }
 
+    /// The line at the top when the user last scrolled: kept there when
+    /// the window is resized (re-wrapping would otherwise drift the view).
+    private var anchorLine = 0
+    private var restoringAnchor = false
+
+    private func keepAnchor() {
+        guard !restoringAnchor, anchorLine > 0, topLine != anchorLine else { return }
+        restoringAnchor = true
+        scrollToLine(anchorLine)
+        restoringAnchor = false
+    }
+
     private func scrolled() {
+        if !restoringAnchor { anchorLine = topLine }
         colorizer.scheduleViewport()
+        // Once more after TextKit has laid out the new viewport.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.colorizer.colorViewport()
+            self?.gutter.needsDisplay = true
+        }
         gutter.needsDisplay = true
         syncPreviewScroll()
     }
@@ -483,16 +512,41 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     func scrollToLine(_ line: Int) {
         let l = max(0, min(line, lineIndex.lineCount - 1))
-        let loc = lineIndex.starts[l]
-        guard let tlm = textView.textLayoutManager, let r = textView.textRange(for: NSRange(location: loc, length: 0)) else { return }
-        tlm.ensureLayout(for: r)
-        if let frag = tlm.textLayoutFragment(for: r.location) {
-            let y = frag.layoutFragmentFrame.minY + textView.textContainerOrigin.y
+        reveal(NSRange(location: lineIndex.starts[l], length: 0), position: .top)
+    }
+
+    enum RevealPosition { case top, center }
+
+    /// Scrolls `range` into view. TextKit 2 estimates the heights of text
+    /// it hasn't laid out, and laying out the new viewport refines those
+    /// estimates and moves everything, so in a big file a single scroll
+    /// (or `scrollRangeToVisible`) lands short of the target. This scrolls
+    /// to the target's current frame, lays out the viewport, and repeats
+    /// until the target is where it should be (a few passes at most).
+    func reveal(_ range: NSRange, position: RevealPosition = .center) {
+        guard let tlm = textView.textLayoutManager, let r = textView.textRange(for: range) else {
+            textView.scrollRangeToVisible(range)
+            return
+        }
+        let vlc = tlm.textViewportLayoutController
+        let origin = textView.textContainerOrigin.y
+        for _ in 0..<10 {
+            tlm.ensureLayout(for: r)
+            guard let frag = tlm.textLayoutFragment(for: r.location) else { textView.scrollRangeToVisible(range); break }
+            let f = frag.layoutFragmentFrame
+            let visible = scrollView.contentView.bounds
+            let fy = f.minY + origin
+            let inView = fy >= visible.minY && fy + min(f.height, visible.height) <= visible.maxY
+            if inView && position == .center { break }
+            var y = fy
+            if position == .center { y -= max(0, (visible.height - f.height) / 2) }
+            y = max(0, y)
+            if abs(y - visible.minY) < 1 { break }
             textView.scroll(NSPoint(x: 0, y: y))
-        } else {
-            textView.scrollRangeToVisible(NSRange(location: loc, length: 0))
+            vlc.layoutViewport()
         }
         colorizer.scheduleViewport()
+        gutter.needsDisplay = true
     }
 
     func goToLine(_ line: Int, column: Int = 1) {
@@ -500,8 +554,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let r = lineIndex.contentRange(ofLine: l)
         let loc = r.location + max(0, min(column - 1, r.length))
         textView.setSelectedRange(NSRange(location: loc, length: 0))
-        textView.scrollRangeToVisible(NSRange(location: loc, length: 0))
-        colorizer.scheduleViewport()
+        reveal(NSRange(location: loc, length: 0))
     }
 
     @objc func goToLinePrompt(_ sender: Any?) {
@@ -579,7 +632,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     private func select(_ r: NSRange) {
         textView.setSelectedRange(r)
-        textView.scrollRangeToVisible(r)
+        reveal(r)
         textView.showFindIndicator(for: r)
         colorizer.scheduleViewport()
     }

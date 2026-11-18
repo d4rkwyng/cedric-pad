@@ -65,6 +65,32 @@ final class EditorTextView: NSTextView {
         return NSRange(location: start, length: max(0, offset(of: vr.endLocation) - start))
     }
 
+    /// The layout fragment at the top of the visible rect (laid out if
+    /// needed), else the viewport's first: TextKit's viewport can lag a
+    /// scroll by a layout pass.
+    var firstVisibleLocation: NSTextLocation? {
+        guard let tlm = textLayoutManager else { return nil }
+        let top = CGPoint(x: 0, y: max(0, visibleRect.minY - textContainerOrigin.y))
+        if let frag = tlm.textLayoutFragment(for: top) { return frag.rangeInElement.location }
+        return tlm.textViewportLayoutController.viewportRange?.location
+    }
+
+    /// Characters from the top of the visible rect to its bottom, joined
+    /// with TextKit's viewport range.
+    var visibleCharacterRange: NSRange? {
+        guard let tlm = textLayoutManager else { return nil }
+        var result = viewportCharacterRange
+        let top = CGPoint(x: 0, y: max(0, visibleRect.minY - textContainerOrigin.y))
+        let bottom = CGPoint(x: 0, y: max(0, visibleRect.maxY - textContainerOrigin.y))
+        if let a = tlm.textLayoutFragment(for: top), let b = tlm.textLayoutFragment(for: bottom) ?? tlm.textLayoutFragment(for: top) {
+            let start = offset(of: a.rangeInElement.location)
+            let end = offset(of: b.rangeInElement.endLocation)
+            let r = NSRange(location: start, length: max(0, end - start))
+            result = result.map { NSUnionRange($0, r) } ?? r
+        }
+        return result
+    }
+
     // MARK: Paste normalisation
 
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
@@ -114,7 +140,7 @@ final class EditorTextView: NSTextView {
     }
 
     private func drawInvisibles(in rect: NSRect, layoutManager tlm: NSTextLayoutManager) {
-        guard let start = tlm.textViewportLayoutController.viewportRange?.location else { return }
+        guard let start = firstVisibleLocation else { return }
         let font = self.font ?? Settings.shared.font
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(hex: palette.invisibles)]
         let dot = NSAttributedString(string: "·", attributes: attrs)
@@ -172,7 +198,7 @@ final class GutterView: NSView {
         NSColor(hex: palette.gutterBackground).setFill()
         dirtyRect.fill()
         guard let tv = textView, let tlm = tv.textLayoutManager, let scroll = tv.enclosingScrollView,
-              let start = tlm.textViewportLayoutController.viewportRange?.location else { return }
+              let start = tv.firstVisibleLocation else { return }
         let index = lineIndex()
         let font = gutterFont(tv.font ?? Settings.shared.font)
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(hex: palette.gutterForeground)]
