@@ -22,6 +22,7 @@ public enum TokenKind: UInt8, CaseIterable, Sendable {
     case link          // Markdown links and URLs
     case code          // Markdown code spans and fences
     case punctuation   // Markdown list markers and quotes, YAML document markers
+    case embeddedCode  // the rest of a Markdown fenced block's code: text colour, never spell-checked as prose
 }
 
 /// One coloured span, in UTF-16 offsets relative to the start of its line.

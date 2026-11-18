@@ -114,7 +114,7 @@ func kinds(_ text: String, _ language: Language) -> [String: TokenKind] {
         #expect(s[0].map(\.1) == [.heading])
         #expect(s[1].map(\.1) == [.emphasis, .strong, .code, .link])
         #expect(s[2].map(\.1) == [.code])
-        #expect(s[3].map(\.1) == [.keyword, .number])   // inside a swift fence: coloured as Swift
+        #expect(s[3].map(\.1).filter { $0 != .embeddedCode } == [.keyword, .number])   // inside a swift fence: coloured as Swift
         #expect(s[4].map(\.1) == [.code])
         #expect(s[5].map(\.1) == [.punctuation])
         #expect(s[6].map(\.1) == [.punctuation])
@@ -139,7 +139,10 @@ func kinds(_ text: String, _ language: Language) -> [String: TokenKind] {
     }
 
     @Test func markdownFencedCodeIsColouredByItsLanguage() {
-        let s = spans("```python\ndef f():\n    \"\"\"doc\n    still doc\"\"\"\n```\n# after\n~~~ js {.x}\nconst a = 1 /* c\n c */\n~~~\n```nosuchlang\nlet x = 1\n```", .markdown)
+        let all = spans("```python\ndef f():\n    \"\"\"doc\n    still doc\"\"\"\n```\n# after\n~~~ js {.x}\nconst a = 1 /* c\n c */\n~~~\n```nosuchlang\nlet x = 1\n```", .markdown)
+        // (Between the inner tokens: .embeddedCode, so spell check skips the code.)
+        #expect(all[1].map(\.1) == [.keyword, .embeddedCode, .function, .embeddedCode])
+        let s = all.map { $0.filter { $0.1 != .embeddedCode } }
         #expect(s[0].map(\.1) == [.code])
         #expect(s[1].map(\.0) == ["def", "f"] && s[1].map(\.1) == [.keyword, .function])
         #expect(s[2].map(\.1) == [.string])

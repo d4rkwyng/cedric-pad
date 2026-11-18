@@ -130,7 +130,9 @@ func tempDir() -> URL {
 
     @Test func everyTokenKindHasAColour() {
         for p in EditorPalettes.all {
-            for k in TokenKind.allCases where k != .plain { #expect(p.tokens[k] != nil, "\(p.name) \(k)") }
+            // (.embeddedCode is drawn in the text colour, by design.)
+            for k in TokenKind.allCases where k != .plain && k != .embeddedCode { #expect(p.tokens[k] != nil, "\(p.name) \(k)") }
+            #expect(p.color(for: .embeddedCode) == p.foreground)
         }
     }
 }

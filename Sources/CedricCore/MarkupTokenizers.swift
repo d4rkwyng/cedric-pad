@@ -177,7 +177,16 @@ public struct MarkdownTokenizer: Tokenizer {
             let lang = Int((state >> 8) & 0x1f)
             guard lang > 0, lang <= Self.languages.count else { t.add(0, n, .code); return }
             var inner = state >> 13
-            Languages.tokenizer(for: Self.languages[lang - 1]).tokenize(b, state: &inner, into: &t)
+            var tokens: [Token] = []
+            Languages.tokenizer(for: Self.languages[lang - 1]).tokenize(b, state: &inner, into: &tokens)
+            // The gaps are code too (prose checks skip them), in the text colour.
+            var at = 0
+            for tok in tokens where tok.start >= at {
+                t.add(at, tok.start, .embeddedCode)
+                t.add(tok.start, tok.end, tok.kind)
+                at = tok.end
+            }
+            t.add(at, n, .embeddedCode)
             state = (state & 0x1fff) | (inner & Self.innerMask) << 13
             return
         }

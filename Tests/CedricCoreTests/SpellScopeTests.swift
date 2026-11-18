@@ -35,6 +35,13 @@ import Testing
         #expect(!covered("exmple", in: ns, scope))
     }
 
+    @Test func markdownSkipsCodeInAColouredFence() {
+        let (ns, t, all) = tokens("A sentense.\n```swift\nlet mispeledName = foo(bar) // wrod\n```\nAfter sentense.\n", .markdown)
+        let scope = SpellScope.ranges(language: .markdown, tokens: t, in: all)
+        #expect(covered("sentense", in: ns, scope) && covered("sentense", in: ns, scope, occurrence: 1))
+        #expect(!covered("mispeledName", in: ns, scope) && !covered("foo", in: ns, scope) && !covered("bar", in: ns, scope))
+    }
+
     @Test func dataFilesAreNeverChecked() {
         for (text, l) in [("{\"naem\": \"vlaue with wrods\"}\n", Language.json), ("naem: vlaue wrods\n", .yaml),
                           ("[sectoin]\nnaem = \"vlaue wrods\"\n", .ini), ("<naem attr=\"vlaue\">wrods here</naem>\n", .xml)] {

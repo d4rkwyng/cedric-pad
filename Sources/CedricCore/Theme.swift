@@ -51,7 +51,7 @@ public struct EditorPalette: Sendable {
     public var statusBar: UInt32
     public var tokens: [TokenKind: UInt32]
 
-    public func color(for kind: TokenKind) -> UInt32 { tokens[kind] ?? foreground }
+    public func color(for kind: TokenKind) -> UInt32 { kind == .embeddedCode ? foreground : tokens[kind] ?? foreground }
 
     /// Text/background pairs that must meet WCAG AA (4.5:1).
     public var textPairs: [(String, UInt32, UInt32)] {

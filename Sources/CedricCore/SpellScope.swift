@@ -27,7 +27,9 @@ public enum SpellScope {
     /// Token kinds that are words in code.
     static let codeChecked: Set<TokenKind> = [.comment, .string]
     /// Token kinds that aren't words in prose (Markdown).
-    static let proseSkipped: Set<TokenKind> = [.code, .link, .tag, .attribute, .key, .punctuation]
+    static let proseSkipped: Set<TokenKind> = [.code, .link, .tag, .attribute, .key, .punctuation,
+                                                    .embeddedCode, .keyword, .type, .string, .number, .constant, .comment, .function,
+                                                    .variable, .preprocessor]
 
     /// The parts of `range` to check, given the highlighter's tokens for
     /// the lines it covers (absolute offsets, sorted by start).
