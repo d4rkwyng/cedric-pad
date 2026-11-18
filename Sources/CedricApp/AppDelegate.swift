@@ -27,6 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { _, _ in
             Task { @MainActor in NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil) }
         }
+        // The owl hub listens for View › Show Cedric the Owl; it must exist
+        // before the first toggle (it was created lazily, so with the owl
+        // off and only untitled tabs the menu item did nothing).
+        _ = OwlHub.shared
         if env["CEDRIC_NO_RESTORE"] != "1" { restoreSession() }
         var toOpen = pendingOpen
         if let list = env["CEDRIC_OPEN"], !list.isEmpty {

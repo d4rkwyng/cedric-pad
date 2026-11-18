@@ -60,7 +60,7 @@ final class Settings {
     }
 
     /// CEDRIC_OWL=1: show the owl for this run, not saved.
-    let owlOverride = ProcessInfo.processInfo.environment["CEDRIC_OWL"].map { $0 == "1" }
+    var owlOverride = ProcessInfo.processInfo.environment["CEDRIC_OWL"].map { $0 == "1" }
 
     /// "Show Cedric the owl": off by default.
     var showOwl: Bool {

@@ -230,7 +230,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if !textView.hasMarkedText() { textView.typingAttributes = baseAttributes() }
         updateStatus()
         gutter.needsDisplay = true
-        owl?.caretMoved()
+        owl?.caretMoved(byUser: true)
     }
 
     /// The line at the top when the user last scrolled: kept there when
@@ -555,6 +555,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             let o = OwlController(tab: self)
             owl = o
             container.overlay = o.overlay
+            o.appeared()
             OwlHub.shared.activity(in: self)
         } else if !on, let o = owl {
             o.detach()

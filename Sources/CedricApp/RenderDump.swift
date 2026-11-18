@@ -66,6 +66,99 @@ enum RenderDump {
         exit(0)
     }
 
+    // MARK: Render check
+
+    /// `CEDRIC_RENDER_CHECK=/out/dir` (Scripts/render-check.sh): for every
+    /// theme, a new tab at 900×670 (Derek's window), the owl turned on the
+    /// way the menu does it, text typed with key events, then the WHOLE
+    /// window is rendered from its CALayer tree and with cacheDisplay on
+    /// the frame view (never a view on its own, which is how the checks
+    /// missed the status bar painting over the editor). Checks: the typed
+    /// text, the line numbers and the owl have ink; the editor area is the
+    /// theme background, not another view's colour. Runs without
+    /// CEDRIC_OWL_ASSUME_VISIBLE, so the owl's default (occluded, inactive
+    /// when the screen is locked) path is what's checked.
+    static func check(_ app: AppDelegate, out: String) {
+        try? FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)
+        var failures = 0
+        func report(_ ok: Bool, _ name: String, _ detail: String) {
+            if !ok { failures += 1 }
+            print("rendercheck: \(ok ? "PASS" : "FAIL") \(name) \(detail)")
+            fflush(stdout)
+        }
+        Settings.shared.owlOverride = false
+        NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil)
+        for c in TypingCheck.themes {
+            TypingCheck.apply(c)
+            app.newTab(nil)
+            guard let tab = app.tabs.last, let window = tab.window else { report(false, c.name, "no tab"); continue }
+            window.setContentSize(NSSize(width: 900, height: 670))
+            window.makeKeyAndOrderFront(nil)
+            TypingCheck.settle(0.1)
+            // View › Show Cedric the Owl: the same notification the menu's setter posts.
+            Settings.shared.owlOverride = true
+            NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil)
+            TypingCheck.settle(0.1)
+            let owlNow = tab.owl.map { o in o.owl.alphaValue > 0.99 && !o.owl.isHidden && o.owl.window != nil } ?? false
+            report(owlNow, "\(c.name)/owl-shown-on-toggle", "alpha=\(tab.owl?.owl.alphaValue ?? -1) occlusionVisible=\(window.occlusionState.contains(.visible)) active=\(NSApp.isActive)")
+            window.makeFirstResponder(tab.textView)
+            TypingCheck.type(window, "Hello owl\nsecond line")
+            TypingCheck.settle(0.4)
+            window.displayIfNeeded()
+            CATransaction.flush()
+            let root = window.contentView!.superview ?? window.contentView!
+            let p = tab.palette
+            let typed = (tab.text as NSString).range(of: "Hello owl")
+            let textRects = TypingCheck.glyphRects(tab.textView, typed).map { tab.textView.convert($0, to: root) }
+            let gutterRect = tab.gutter.convert(NSRect(x: 0, y: 0, width: tab.gutter.bounds.width, height: 40), to: root)
+            let bg = NSColor(hex: p.background)
+            // An empty patch of the editor, well below the text and left of the owl.
+            let tvVis = tab.textView.convert(tab.textView.visibleRect, to: root)
+            let empty = NSRect(x: tvVis.minX + 200, y: tvVis.minY + 150, width: 100, height: 100)
+            for (how, rep) in [("layer", renderLayer(root)), ("cache", DevHooks.render(root, root.bounds))] {
+                guard let rep else { report(false, "\(c.name)/\(how)", "no image"); continue }
+                save(rep, "\(out)/\(c.name)-\(how).png")
+                let t = inkCount(rep, textRects, root: root, bg: bg)
+                report(t >= 30, "\(c.name)/\(how)/typed-text", "ink=\(t)")
+                let g = inkCount(rep, [gutterRect], root: root, bg: NSColor(hex: p.gutterBackground))
+                report(g >= 10, "\(c.name)/\(how)/line-numbers", "ink=\(g)")
+                if let owl = tab.owl?.owl {
+                    let o = inkCount(rep, [owl.convert(owl.bounds, to: root)], root: root, bg: bg)
+                    report(o >= 200, "\(c.name)/\(how)/owl", "ink=\(o)")
+                } else {
+                    report(false, "\(c.name)/\(how)/owl", "no owl")
+                }
+                let stray = inkCount(rep, [empty], root: root, bg: bg, threshold: 1.25)
+                report(stray == 0, "\(c.name)/\(how)/editor-background", "pixels unlike the theme background=\(stray)")
+            }
+            Settings.shared.owlOverride = false
+            NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil)
+            tab.doc.markSaved()
+            window.close()
+            TypingCheck.settle(0.05)
+        }
+        print("rendercheck: done failures=\(failures)")
+        fflush(stdout)
+        exit(failures == 0 ? 0 : 1)
+    }
+
+    static func inkCount(_ rep: NSBitmapImageRep, _ rects: [NSRect], root: NSView, bg: NSColor, threshold: Double = 2) -> Int {
+        let bgL = TypingCheck.luminance(bg)
+        let sx = Double(rep.pixelsWide) / root.bounds.width, sy = Double(rep.pixelsHigh) / root.bounds.height
+        var n = 0
+        for r in rects {
+            let x0 = Int(r.minX * sx), x1 = Int(r.maxX * sx)
+            let y0 = Int((root.bounds.height - r.maxY) * sy), y1 = Int((root.bounds.height - r.minY) * sy)
+            for y in max(0, y0)..<min(rep.pixelsHigh, max(y0, y1)) {
+                for x in max(0, x0)..<min(rep.pixelsWide, max(x0, x1)) {
+                    guard let c = rep.colorAt(x: x, y: y) else { continue }
+                    if TypingCheck.contrast(TypingCheck.luminance(c), bgL) >= threshold { n += 1 }
+                }
+            }
+        }
+        return n
+    }
+
     static func describe(_ c: CGColor?) -> String {
         guard let c, let comps = c.components else { return "nil" }
         return "(" + comps.map { String(format: "%.2f", $0) }.joined(separator: ",") + ")"

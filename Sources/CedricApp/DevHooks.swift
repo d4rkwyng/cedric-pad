@@ -45,6 +45,7 @@ import WebKit
 ///   CEDRIC_DUMP_SHORTCUTS=1       print every menu shortcut, exit 1 on a clash
 ///   CEDRIC_LAYER_DUMP=/out/dir    dump the view/layer tree and render it three ways (RenderDump.swift);
 ///                                 CEDRIC_LAYER_DUMP_OWL=1 turns the owl on first via the menu action
+///   CEDRIC_RENDER_CHECK=/out/dir  whole-window render check, every theme (Scripts/render-check.sh)
 ///   CEDRIC_CHECK=name             in-process checks of the editor tools (DevChecks.swift;
 ///                                 Scripts/tools-check.sh runs them all)
 @MainActor
@@ -138,6 +139,9 @@ enum DevHooks {
         if let check = env["CEDRIC_CHECK"] { DevChecks.start(check, app) }
         if let out = env["CEDRIC_LAYER_DUMP"], !out.isEmpty {
             Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in MainActor.assumeIsolated { RenderDump.run(app, out: out) } }
+        }
+        if let out = env["CEDRIC_RENDER_CHECK"], !out.isEmpty {
+            Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in MainActor.assumeIsolated { RenderDump.check(app, out: out) } }
         }
     }
 
@@ -238,11 +242,12 @@ enum DevHooks {
         return rep
     }
 
-    /// Draws the window (title bar and tabs included) into a PNG.
-    /// cacheDisplay on the frame view skips the split view's subtree here,
-    /// so the gutter and the visible part of the text view are rendered
-    /// on their own and drawn at their frames; web views draw out of
-    /// process and are captured with takeSnapshot.
+    /// Draws the window (title bar and tabs included) into a PNG, whole:
+    /// one cacheDisplay of the frame view, so a view painting over another
+    /// shows up as it does on screen. (It used to render the text view,
+    /// gutter and owl on their own and paste them on top, which hid the
+    /// status bar painting over the whole editor in test build 2.) Web
+    /// views draw out of process and are captured with takeSnapshot.
     static func write(window: NSWindow, to path: String, done: @escaping @MainActor () -> Void) {
         guard let content = window.contentView, let root = content.superview ?? window.contentView else { done(); return }
         root.layoutSubtreeIfNeeded()
@@ -253,27 +258,6 @@ enum DevHooks {
         func collect(_ v: NSView) {
             guard !v.isHidden else { return }
             if let w = v as? WKWebView { webs.append(w); return }
-            if v is OwlOverlay {
-                // Transparent and as big as the editor: rendered whole it
-                // comes out opaque over the text, so render the owl and
-                // the bubble on their own.
-                for sub in v.subviews where !sub.isHidden && sub.alphaValue > 0 {
-                    if let r = render(sub, sub.bounds, ignoringOpacity: true) { overlays.append((sub.convert(sub.bounds, to: root), r, sub.alphaValue)) }
-                }
-                return
-            }
-            if v is GutterView || v is NSScroller || v is FindBar || v is FindInFilesPanel || v is DiffHeader {
-                if let r = render(v, v.bounds) { overlays.append((v.convert(v.bounds, to: root), r, 1)) }
-                return
-            } else if let dv = v as? DiffView {
-                let vis = dv.visibleRect
-                if let r = render(dv, vis) { overlays.append((dv.convert(vis, to: root), r, 1)) }
-                return
-            } else if let tv = v as? EditorTextView {
-                let vis = tv.visibleRect
-                if let r = render(tv, vis) { overlays.append((tv.convert(vis, to: root), r, 1)) }
-                return
-            }
             v.subviews.forEach(collect)
         }
         collect(content)
