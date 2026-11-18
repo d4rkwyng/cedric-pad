@@ -28,7 +28,8 @@ import CedricCore
         #expect(s.baseURL.absoluteString == "http://studio.local:1234/v1")   // Custom keeps what's there
         s.selectBackend(.lmStudio)
         #expect(s.baseURL.absoluteString == "http://localhost:1234/v1")
-        #expect(LocalAISettings.Backend.allCases.map(\.title) == ["LM Studio on this Mac", "Ollama on this Mac", "Custom URL (LAN)"])
+        #expect(LocalAISettings.Backend.allCases.map(\.title) == ["Built-in (coming soon)", "LM Studio on this Mac", "Ollama on this Mac",
+                                                                "Another Mac on your network (URL)", "Apple Intelligence"])
     }
 
     @Test func customURLParsing() {
@@ -205,5 +206,39 @@ final class SlowProvider: OwlHintProvider, @unchecked Sendable {
         s.model = "qwen2.5-coder-1.5b-instruct-mlx"
         await bridge.apply(s)
         #expect(registry.entries.map(\.provider.name) == ["local:qwen2.5-coder-1.5b-instruct-mlx"])
+    }
+}
+
+@Suite struct EngineAndPromptTests {
+    @Test func enginesForEachPlace() async {
+        var s = LocalAISettings(enabled: true)
+        s.backend = .builtIn
+        let built = AIEngines.engine(for: s)
+        #expect(!built.isAvailable && built.unavailableReason != nil && !built.needsAddress)
+        #expect(await LocalAIOwl.makeProvider(settings: s) == nil)
+        s.backend = .apple
+        let apple = AIEngines.engine(for: s)
+        #expect(!apple.needsAddress)
+        #expect(apple.isAvailable == AppleFoundationModelsProvider.isAvailable)
+        for b in [LocalAISettings.Backend.lmStudio, .ollama, .custom] {
+            s.backend = b
+            #expect(AIEngines.engine(for: s).needsAddress && AIEngines.engine(for: s).isAvailable)
+        }
+    }
+
+    @MainActor @Test func bridgeExplainsUnavailableEngine() async {
+        let registry = OwlProviderRegistry()
+        let bridge = LocalAIOwlBridge(registry: registry)
+        await bridge.apply(LocalAISettings(enabled: true, backend: .builtIn))
+        #expect(!registry.hasAIProvider)
+        #expect(bridge.lastProblem?.contains("Coming soon") == true)
+    }
+
+    @Test func everyEngineSharesTheOwlPrompts() {
+        let msgs = HintPrompt.messages(for: context("let x = 1"), text: "let x = 1", model: "qwen3-4b")
+        #expect(msgs[0].content == OwlPrompts.system(for: .codeHints))
+        #expect(msgs[0].content.hasPrefix(OwlPrompts.persona))
+        #expect(msgs[0].content.contains("Cedric"))
+        #expect(msgs[1].content.hasSuffix("/no_think"))
     }
 }

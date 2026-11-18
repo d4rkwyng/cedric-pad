@@ -26,34 +26,11 @@ public enum HintPrompt {
         return out
     }
 
-    static let system = """
-    You review code inside a text editor. Point out at most 2 real problems in the \
-    code you are shown: a bug, a likely mistake, or clearly confusing code with a small fix. \
-    Do not comment on style, naming, missing docs or tests, or code you cannot see. \
-    If nothing is clearly wrong, return {"hints":[]}.
-
-    Reply with JSON only. Fields of each hint:
-    - kind: "fix" (a bug with a fix), "warning" (a likely bug), "tip" or "explain"
-    - title: names the specific problem in a few words
-    - detail: one or two plain sentences on why it is wrong
-    - find: a short snippet copied character for character from the code, or ""
-    - replacement: the corrected snippet that replaces find, or "" if unsure
-    - confidence: 0.0 to 1.0
-
-    Example, for `while n > 0 { total += n }`:
-    {"hints":[{"kind":"fix","title":"Infinite loop: n never decreases",\
-    "detail":"The loop body never changes n, so the condition stays true.",\
-    "find":"total += n","replacement":"total += n; n -= 1","confidence":0.9}]}
-    """
-
+    /// The code-hints prompt (`OwlPrompts`: the owl's persona + the task).
+    static var system: String { OwlPrompts.system(for: .codeHints) }
 
     public static func messages(for context: OwlContext, text: String, model: String) -> [ChatMessage] {
-        var user = "Language: \(context.language)\n"
-        if let name = context.fileName { user += "File: \(name)\n" }
-        user += "Code:\n```\n\(text)\n```"
-        // Qwen3 thinks by default; a hint costs too much with a scratchpad.
-        if model.lowercased().contains("qwen3") { user += "\n/no_think" }
-        return [ChatMessage(role: "system", content: system), ChatMessage(role: "user", content: user)]
+        OwlPrompts.messages(for: .codeHints, context: context, text: text, model: model)
     }
 
     /// The json_schema sent as response_format.

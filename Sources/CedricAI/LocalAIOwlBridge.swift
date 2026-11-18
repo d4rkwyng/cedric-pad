@@ -68,7 +68,12 @@ public final class LocalAIOwlBridge {
         teardown()
         lastProblem = nil
         guard new.enabled else { onStateChange?(); return }
-        guard LocalEndpointPolicy.isAllowed(new.baseURL) else {
+        let engine = AIEngines.engine(for: new)
+        guard engine.isAvailable else {
+            lastProblem = engine.unavailableReason ?? "That engine isn’t available on this Mac."
+            onStateChange?(); return
+        }
+        guard !new.backend.usesServer || LocalEndpointPolicy.isAllowed(new.baseURL) else {
             lastProblem = "The address isn’t on this Mac or the local network."
             onStateChange?(); return
         }

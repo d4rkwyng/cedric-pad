@@ -76,7 +76,7 @@ import CedricCore
         server.json("/v1/models", ["data": [["id": "qwen/qwen3.6-35b-a3b"], ["id": "qwen2.5-coder-1.5b-instruct"]]])
         let on = LocalAISettings(enabled: true, baseURL: server.baseURL)
         let p = await LocalAIOwl.makeProvider(settings: on, session: server.session)
-        #expect(p?.model == "qwen2.5-coder-1.5b-instruct")
+        #expect((p as? LocalModelHintProvider)?.model == "qwen2.5-coder-1.5b-instruct")
         #expect(p?.name == "local:qwen2.5-coder-1.5b-instruct")
     }
 

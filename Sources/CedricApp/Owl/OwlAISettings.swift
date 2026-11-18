@@ -86,6 +86,9 @@ final class AISettingsSheet: NSObject {
 
     private var settings: LocalAISettings
     private var grid: NSGridView?
+    let privacyLabel = NSTextField(wrappingLabelWithString: LocalAISettings.privacyNote)
+    /// The selected engine (the sheet only talks to `AIEngine`).
+    var engine: any AIEngine { AIEngines.engine(for: settings) }
     /// The menu's intervals, plus the saved one if it isn't a menu value.
     private lazy var intervals: [TimeInterval] = Array(Set(LocalAISettings.intervalChoices + [settings.minInterval])).sorted()
     private(set) var report: ConnectionReport?
@@ -113,7 +116,16 @@ final class AISettingsSheet: NSObject {
             b.target = self; b.action = a
         }
         for p in [presetPopup, modelPopup, intervalPopup] { p.target = self; p.action = #selector(changed) }
-        presetPopup.addItems(withTitles: LocalAISettings.Backend.allCases.map(\.title))
+        // "Where the AI runs": every engine, unavailable ones disabled.
+        presetPopup.autoenablesItems = false
+        for kind in LocalAISettings.Backend.allCases {
+            var probe = settings
+            probe.backend = kind
+            let engine = AIEngines.engine(for: probe)
+            presetPopup.addItem(withTitle: engine.title)
+            presetPopup.lastItem?.isEnabled = engine.isAvailable
+            presetPopup.lastItem?.toolTip = engine.unavailableReason
+        }
         for v in intervals {
             intervalPopup.addItem(withTitle: v == 1 ? String(localized: "1 second")
                                   : v < 120 ? String(localized: "\(Int(v)) seconds") : String(localized: "\(Int(v) / 60) minutes"))
@@ -122,7 +134,7 @@ final class AISettingsSheet: NSObject {
         urlField.action = #selector(changed)
         urlField.placeholderString = "http://studio.local:1234/v1"
         let small = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-        let privacy = NSTextField(wrappingLabelWithString: LocalAISettings.privacyNote)
+        let privacy = privacyLabel
         privacy.font = small
         privacy.textColor = .secondaryLabelColor
         for l in [statusLabel, modelsLabel, weakLabel] { l.font = small }
@@ -135,7 +147,7 @@ final class AISettingsSheet: NSObject {
         testRow.alignment = .firstBaseline
         let grid = NSGridView(views: [
             [NSGridCell.emptyContentView, enabledBox],
-            [label(String(localized: "Server:")), presetPopup],
+            [label(String(localized: "Where the AI runs:")), presetPopup],
             [label(String(localized: "Address:")), urlField],
             [NSGridCell.emptyContentView, privacy],
             [NSGridCell.emptyContentView, testRow],
@@ -197,6 +209,9 @@ final class AISettingsSheet: NSObject {
 
     private func refresh() {
         let custom = settings.backend == .custom
+        let needsAddress = engine.needsAddress
+        grid?.cell(for: urlField)?.row?.isHidden = !needsAddress
+        privacyLabel.stringValue = needsAddress ? LocalAISettings.privacyNote : LocalAISettings.privacyNoteOnDevice
         urlField.isEditable = custom
         urlField.isSelectable = true
         urlField.textColor = custom ? .labelColor : .secondaryLabelColor
@@ -281,9 +296,11 @@ final class AISettingsSheet: NSObject {
         testing = true
         testButton.isEnabled = false
         status(String(localized: "Connecting…"))
-        let client = LocalModelClient(baseURL: settings.baseURL, timeout: 5)
+        var quick = settings
+        quick.timeout = 5
+        let engine = AIEngines.engine(for: quick)
         Task { @MainActor in
-            let r = await client.testConnection()
+            let r = await engine.test()
             testing = false
             testButton.isEnabled = true
             report = r

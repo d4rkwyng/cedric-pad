@@ -258,16 +258,87 @@ availability check. The SDK's Private Cloud Compute model is deliberately
 not used. With CI's Swift 6.1 / macOS 15 SDK the module is absent and a
 placeholder that is never available compiles instead.
 
-**Registry hook.** The owl UI owns the provider registry. It calls
-`LocalAIOwl.makeProvider(settings:)` (nil while off) and wraps the provider
-in `LocalAIOwl.makeScheduler`, feeding it `contextChanged` on edits and
-scrolls and `setAppActive` from NSApplication notifications.
+**Engines.** "Where the AI runs" is an `AIEngine` (`CedricAI/AIEngine.swift`):
+availability (+ reason), `needsAddress`, `models()`, `test()`,
+`suggestedModel(in:)`, `makeProvider(model:)`. `AIEngines.engine(for:)`
+maps `LocalAISettings.backend` to one: **Built-in** (`BuiltInEngine`,
+listed but disabled: "coming soon", the in-app downloader is separate
+work), **LM Studio on this Mac**, **Ollama on this Mac**, **Another Mac on
+your network (URL)** (`ServerEngine`, local/LAN only), **Apple
+Intelligence** (`AppleIntelligenceEngine`, enabled only when the on-device
+model is). The sheet and `LocalAIOwl.makeProvider` only talk to the
+protocol, so a new engine needs no UI work.
+
+**Prompts.** All prompts live in `CedricAI/OwlPrompts.swift`: one
+`persona` (Cedric, the quiet owl with a monocle in the editor's corner)
+plus a task prompt per `OwlPrompts.Task` (today `.codeHints`). Every engine
+sends `OwlPrompts.system(for:)` = persona + task; `HintPrompt` only adds
+the JSON schema and the defensive parser.
+
+**Model choice (auto).** `ModelPicker.pickSmallQwen`: a Qwen
+coder/instruct of 2.5–4B (coder first, closest to 3B), else 1–2B (closest
+to 1.5B), else 0.5–1B; never above 4B (`maxAutoParametersB`). A 1.5B model
+gives noticeably weaker hints; the sheet says "Small models give weaker
+hints." when the chosen or suggested model is ≤ 2B (`ModelPicker.isWeak`).
+
+**Wiring into the owl** (`LocalAIOwlBridge`, CedricAI, main actor). On
+`apply(settings)` it tears down the old provider and, when enabled with an
+available engine, a local/LAN address and a model (set or auto-picked),
+builds an `OwlScheduler` and registers a `ScheduledAIEntry` named
+`local:<model>` with `isAI: true`. That entry answers the coordinator's
+own 30 s queries with nothing: only the scheduler (5 s pause, interval,
+20 s cap, one request per edit generation, inactive/power gates) ever asks
+the model. The bridge reports `onThinking(doc, on)` (a request started;
+ended, timed out or was cancelled) and `onHints(context, hints)`.
+
+In the app, `OwlHub` owns the bridge:
+
+- edits and scrolls of a tab with the owl feed `contextChanged` with that
+  tab's `OwlContextWindow` context, batched on a 0.3 s trailing timer, so
+  a keystroke or scroll never builds the context itself; nothing is fed
+  while the AI is off;
+- `didBecomeActive`/`didResignActive` → `setAppActive`; a closed tab →
+  `documentClosed`; the source set to Rules, or the owl hidden →
+  `setPaused(true)` (cancels in-flight work, stops asking);
+- `onThinking` → the tab's owl takes the thinking pose (unless a bubble is
+  up) and goes back to idle when the request ends or times out;
+- `onHints` → `OwlCoordinator.acceptAI` (only with Rules + AI and an AI
+  provider registered; the same range-in-document, edit-generation,
+  dedupe/snooze/never and quiet checks as a rules query) → the same bubble,
+  with `OwlCoordinator.documentRange` (`range + textStart`) for Apply.
+
+**Settings sheet.** View › Cedric AI Settings… (`AISettingsSheet`): "Ask a
+local model for hints" (off by default), "Where the AI runs" (the engines
+above; unavailable ones disabled), the address (Custom only; typed text
+gets `http://` and `/v1` as needed and must pass `LocalEndpointPolicy`),
+the privacy line "Sends only the visible text (up to 8 KB) to the address
+above. Never the cloud.", Test Connection (models with size and
+quantisation, latency, the suggested model), a model picker (Automatic or
+a listed model), the weak-model note, and "Check at most every" (30 s–5
+min, default 90 s). Save stores `LocalAISettings` (UserDefaults
+`CedricLocalAISettings`), applies them and, once a provider registers,
+selects View › Owl Hint Source › Rules + AI.
 
 **Tests.** `Tests/CedricAITests` uses a URLProtocol stub server, a fake
 clock and a fake power source. `CEDRIC_AI_LIVE=1 Scripts/test.sh --filter
 LiveCheckTests` runs three sample snippets and a scheduler burst against a
 real local server (`CEDRIC_AI_URL`, `CEDRIC_AI_MODEL` override); CI never
-sets it.
+sets it. `WiringTests` cover the settings (defaults, presets, URL parsing,
+save/load) and the bridge (off registers nothing; on registers an entry
+that never reaches the model; public URLs and missing models refused;
+thinking → hints → idle with the textStart-moved range; timeout → idle;
+paused/inactive never asks; turning off mid-request clears thinking; real
+factory auto-picks from a stub server).
+
+`Scripts/ai-check.sh` runs `AICheck` in process with real NSEvents (fake
+provider, no server; CI-safe): opens the sheet through the menu action,
+ticks the box, Save → provider registered and Rules + AI selected; on line
+200 of a 260-line Swift file (past the 8 KB cap, so `textStart` > 0) types
+`for i in 0...items.count`, checks the thinking pose, the bubble with the
+`local:<model>` hint whose document range is exactly the typed text,
+Apply, then a request that outlives the timeout returns the owl to idle.
+`Scripts/ai-check.sh --live MODEL` does the same against LM Studio (Test
+Connection, pick MODEL, save, type, wait for the model's bubble).
 
 ## Dev hooks
 

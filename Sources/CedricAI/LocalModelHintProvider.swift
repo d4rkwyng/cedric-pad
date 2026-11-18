@@ -69,18 +69,15 @@ public struct LocalModelHintProvider: OwlHintProvider {
 /// The provider-registry hook. The owl UI (branch owl-ui) owns the registry;
 /// it asks this factory for a provider and gets nil while the feature is off.
 public enum LocalAIOwl {
-    /// nil when disabled, when the endpoint isn't local/LAN, or when no
-    /// model is configured and no small Qwen can be found.
+    /// nil when disabled, when the engine isn't available, when a server
+    /// endpoint isn't local/LAN, or when no model is configured and no small
+    /// Qwen can be found. Goes through the settings' `AIEngine`.
     public static func makeProvider(settings: LocalAISettings,
-                                    session: URLSession? = nil) async -> LocalModelHintProvider? {
-        guard settings.enabled, LocalEndpointPolicy.isAllowed(settings.baseURL) else { return nil }
-        let client = LocalModelClient(baseURL: settings.baseURL, timeout: settings.timeout, session: session)
-        if let model = settings.model, !model.isEmpty {
-            return LocalModelHintProvider(client: client, model: model)
-        }
-        guard let models = try? await client.listModels(),
-              let pick = ModelPicker.pickSmallQwen(models) else { return nil }
-        return LocalModelHintProvider(client: client, model: pick.id)
+                                    session: URLSession? = nil) async -> (any OwlHintProvider)? {
+        guard settings.enabled else { return nil }
+        let engine = AIEngines.engine(for: settings, session: session)
+        guard engine.isAvailable else { return nil }
+        return await engine.makeProvider(model: settings.model)
     }
 
     /// A scheduler wired with the settings' timings and the real clock/power.

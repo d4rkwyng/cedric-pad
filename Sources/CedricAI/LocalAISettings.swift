@@ -7,15 +7,22 @@ import Foundation
 /// (RFC 1918 / CGNAT / link-local) host — see `LocalEndpointPolicy`. There is
 /// no cloud backend and no API-key field.
 public struct LocalAISettings: Codable, Sendable, Equatable {
+    /// Where the AI runs ("engine"), in the settings sheet's order.
+    /// `custom` is another Mac on the network (raw value kept for saved
+    /// settings). `builtIn` is a placeholder until Cedric's own engine and
+    /// downloader land; `apple` is Apple Intelligence's on-device model.
     public enum Backend: String, Codable, Sendable, CaseIterable {
-        case lmStudio, ollama, custom
+        case builtIn, lmStudio, ollama, custom, apple
 
         public var defaultBaseURL: URL {
             switch self {
-            case .lmStudio, .custom: return URL(string: "http://localhost:1234/v1")!
             case .ollama: return URL(string: "http://localhost:11434/v1")!
+            default: return URL(string: "http://localhost:1234/v1")!
             }
         }
+
+        /// Talks to an OpenAI-compatible server at `baseURL`.
+        public var usesServer: Bool { self == .lmStudio || self == .ollama || self == .custom }
     }
 
     public var enabled: Bool
@@ -102,9 +109,11 @@ extension LocalAISettings.Backend {
     /// The endpoint preset's name in the settings sheet.
     public var title: String {
         switch self {
+        case .builtIn: return "Built-in (coming soon)"
         case .lmStudio: return "LM Studio on this Mac"
         case .ollama: return "Ollama on this Mac"
-        case .custom: return "Custom URL (LAN)"
+        case .custom: return "Another Mac on your network (URL)"
+        case .apple: return "Apple Intelligence"
         }
     }
 }
@@ -112,6 +121,8 @@ extension LocalAISettings.Backend {
 extension LocalAISettings {
     /// Shown under the endpoint in the settings sheet, word for word.
     public static let privacyNote = "Sends only the visible text (up to 8 KB) to the address above. Never the cloud."
+    /// The same promise for engines without an address.
+    public static let privacyNoteOnDevice = "Uses only the visible text (up to 8 KB), on this Mac. Never the cloud."
     /// Shown when the chosen (or only available) model is ≤ 2B.
     public static let weakModelNote = "Small models give weaker hints."
     /// The interval menu, in seconds (default 90).
@@ -142,5 +153,5 @@ extension LocalAISettings {
     }
 
     /// Ready to register: on, with a local/LAN endpoint.
-    public var isUsable: Bool { enabled && LocalEndpointPolicy.isAllowed(baseURL) }
+    public var isUsable: Bool { enabled && (!backend.usesServer || LocalEndpointPolicy.isAllowed(baseURL)) }
 }
