@@ -779,6 +779,31 @@ extension DevChecks {
                 type("x")
                 expect(prose.text == "  (don't\n  x", "plain text: no pairing; Return keeps the indent", prose.text.debugDescription)
             },
+            sync {
+                // A quote right before a quote that was already there types a
+                // quote (it opens the next string); it doesn't step over it.
+                focus(tab)
+                tab.setText("print(\"world\")\n")
+                tab.textView.setSelectedRange(NSRange(location: 6, length: 0))
+                type("\"")
+                expect(t == "print(\"\"world\")\n" && caret == 7, "a quote before an existing quote is typed, not stepped over",
+                       "\(t.debugDescription) caret \(caret)")
+                // In Swift ' never quotes a string: no pair.
+                tab.setText("")
+                type("// it's")
+                expect(t == "// it's", "no ' pairing in Swift", t.debugDescription)
+            },
+            sync {
+                // ⌘X with no selection while an input method is composing: nothing is cut.
+                tab.setText("keep this line\nand this\n")
+                tab.textView.setSelectedRange(NSRange(location: 2, length: 0))
+                tab.textView.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+                let before = t
+                tab.cutLine()
+                expect(t == before && tab.textView.hasMarkedText(), "⌘X doesn't cut the line under marked text", t.debugDescription)
+                tab.textView.unmarkText()
+                tab.doc.markSaved()
+            },
         ])
     }
 

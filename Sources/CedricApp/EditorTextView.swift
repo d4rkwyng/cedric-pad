@@ -172,11 +172,14 @@ final class EditorTextView: NSTextView {
         }
         let sel = selectedRange()
         switch AutoEdit.typing(c, before: unit(at: sel.location - 1), after: unit(at: NSMaxRange(sel)), hasSelection: sel.length > 0,
-                               language: language) {
+                               language: language, afterIsAutoClosed: autoClosers.contains(NSMaxRange(sel))) {
         case .skip?:
+            autoClosers.removeAll { $0 == sel.location }
             setSelectedRange(NSRange(location: sel.location + 1, length: 0))
         case .pair(let pair)?:
             super.insertText(pair, replacementRange: sel)
+            autoClosers.append(sel.location + 1)
+            if autoClosers.count > 16 { autoClosers.removeFirst() }
             setSelectedRange(NSRange(location: sel.location + 1, length: 0))
         case .wrap(let open, let close)?:
             let inner = (self.string as NSString).substring(with: sel)
@@ -184,6 +187,21 @@ final class EditorTextView: NSTextView {
             setSelectedRange(NSRange(location: sel.location + 1, length: sel.length))
         case nil:
             super.insertText(string, replacementRange: replacementRange)
+        }
+    }
+
+    /// Where closers that pairing typed are (a few, newest last): a quote
+    /// steps over only one of these, not a quote that was already there.
+    private(set) var autoClosers: [Int] = []
+
+    /// Every character edit (the window controller's storageEdited, undo
+    /// included): closers after it shift, ones inside it are gone.
+    func textEdited(oldRange: NSRange, newLength: Int) {
+        guard !autoClosers.isEmpty else { return }
+        let delta = newLength - oldRange.length
+        autoClosers = autoClosers.compactMap { k in
+            if k >= NSMaxRange(oldRange) { return k + delta }
+            return k < oldRange.location ? k : nil
         }
     }
 

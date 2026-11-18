@@ -80,7 +80,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Auto-indent and pairing:** Return keeps the line's indent, one step
   more after `{` `[` `(` (and `:` in Python and YAML); Return between a
   pair puts the closer on its own line. In code, brackets and quotes close
-  themselves, typing the closer steps over it, Backspace between a pair
+  themselves (no `'` in Swift or JSON), typing the closer steps over it
+  (a quote only over one that pairing typed), Backspace between a pair
   deletes both, and typing one with a selection wraps it (Edit ›
   Auto-Close Brackets and Quotes; never in plain text or Markdown). The
   bracket next to the caret and its partner are boxed.

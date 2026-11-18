@@ -50,6 +50,15 @@ import Testing
         #expect(t("\"", " ", nil) == .pair("\"\""))
         #expect(t("`", " ", nil, .javascript) == .pair("``"))
         #expect(t("`", " ", nil, .swift) == nil)
+        // A quote steps over only a closer pairing put there, not one that
+        // was already in the text (the start of the next string).
+        #expect(AutoEdit.typing(34, before: 32, after: 34, hasSelection: false, language: .swift, afterIsAutoClosed: false) == nil)
+        #expect(AutoEdit.typing(41, before: 32, after: 41, hasSelection: false, language: .swift, afterIsAutoClosed: false) == .skip)
+        // No ' pairing where it never quotes a string: Swift, JSON. Still in C, Python, JS, Ruby, SQL.
+        #expect(t("'", " ", nil, .swift) == nil)
+        #expect(t("'", " ", nil, .json) == nil)
+        #expect(!AutoEdit.deletesPair(before: 39, after: 39, language: .swift))
+        for lang in [Language.c, .python, .javascript, .ruby, .sql, .shell] { #expect(t("'", " ", nil, lang) == .pair("''"), "\(lang)") }
         // A selection is wrapped.
         #expect(t("(", "a", "b", sel: true) == .wrap("(", ")"))
         #expect(t("\"", "a", "b", sel: true) == .wrap("\"", "\""))

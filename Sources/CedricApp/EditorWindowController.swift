@@ -291,6 +291,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             let a = lineIndex.line(containing: oldRange.location), b = lineIndex.line(containing: NSMaxRange(oldRange))
             bookmarkEdit = (a, b - a, lineIndex.starts[a] == oldRange.location && lineIndex.starts[b] == NSMaxRange(oldRange))
         }
+        textView.textEdited(oldRange: oldRange, newLength: edited.length)
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
         if loading { return }
         storageEdits += 1

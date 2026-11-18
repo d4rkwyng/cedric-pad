@@ -12,9 +12,12 @@ public enum AutoEdit {
     static let closers: Set<unichar> = [41, 93, 125]
     static let space: Set<unichar> = [32, 9]
 
+    /// The quotes that pair: no ' where it never starts a string (Swift
+    /// and JSON), so an apostrophe in a comment or string stays one.
     static func quotes(in language: Language) -> Set<unichar> {
         switch language {
         case .javascript, .typescript, .shell: return [34, 39, 96] // " ' `
+        case .swift, .json: return [34]
         default: return [34, 39]
         }
     }
@@ -68,8 +71,11 @@ public enum AutoEdit {
     }
 
     /// `c` typed with `before`/`after` the characters around the caret (or
-    /// around the selection); nil: a plain insert.
-    public static func typing(_ c: unichar, before: unichar?, after: unichar?, hasSelection: Bool, language: Language) -> Typing? {
+    /// around the selection); nil: a plain insert. `afterIsAutoClosed`:
+    /// the quote after the caret was put there by pairing (a quote steps
+    /// over only that one, not a quote that opens the next string).
+    public static func typing(_ c: unichar, before: unichar?, after: unichar?, hasSelection: Bool, language: Language,
+                              afterIsAutoClosed: Bool = true) -> Typing? {
         guard pairs(in: language) else { return nil }
         let qs = quotes(in: language)
         let isQuote = qs.contains(c)
@@ -78,7 +84,7 @@ public enum AutoEdit {
             guard let close else { return nil }
             return .wrap(String(utf16CodeUnits: [c], count: 1), String(utf16CodeUnits: [close], count: 1))
         }
-        if (closers.contains(c) || isQuote), after == c { return .skip }
+        if closers.contains(c) || isQuote && afterIsAutoClosed, after == c { return .skip }
         guard let close else { return nil }
         // Only before a space, a closer, punctuation or the line end: typing
         // "(" in front of a word shouldn't add a ")".

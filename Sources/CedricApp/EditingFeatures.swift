@@ -339,7 +339,8 @@ extension EditorWindowController {
 
     /// ⌘X with nothing selected: cuts the caret's line (with its newline).
     func cutLine() {
-        guard textView.isEditable else { NSSound.beep(); return }
+        // Not while an input method is composing (as `perform`).
+        guard textView.isEditable, !textView.hasMarkedText() else { NSSound.beep(); return }
         let ns = textView.string as NSString
         let sel = textView.selectedRange()
         let block = LineOperations.lineBlock(sel, in: ns)
