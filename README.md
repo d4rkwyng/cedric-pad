@@ -342,6 +342,9 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   owl or no owl. **⌘S never overwrites another app's changes:** if the file
   changed since Cedric Pad read or saved it, a sheet asks first (**Keep My
   Version**, **Reload Theirs** (undoable) or **Compare**).
+- **Help menu**: **Cedric Pad Help** (⌘?, this README), **Keyboard
+  Shortcuts** (every menu shortcut in one window) and the system's menu
+  search.
 - **`cedric` command-line launcher** (below), with `-w` so it can be
   git's editor, and `file:line:col`.
 - **Cedric the owl** (View › Show Cedric the Owl, off by default): a small

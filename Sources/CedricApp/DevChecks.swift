@@ -589,38 +589,12 @@ enum DevChecks {
             "⌃⌘Q": "Lock Screen", "⌃⌘D": "Look Up", "⌃⌘␣": "Emoji & Symbols", "⌥⌘D": "Dock hiding", "⌘␣": "Spotlight",
             "⌥⌘⎋": "Force Quit", "⇧⌘3": "Screenshot", "⇧⌘4": "Screenshot", "⇧⌘5": "Screenshot", "⌘⇥": "App switcher",
         ]
-        func name(_ i: NSMenuItem) -> String {
-            var s = ""
-            let m = i.keyEquivalentModifierMask
-            if m.contains(.control) { s += "⌃" }
-            if m.contains(.option) { s += "⌥" }
-            if m.contains(.shift) || i.keyEquivalent != i.keyEquivalent.lowercased() { s += "⇧" }
-            if m.contains(.command) { s += "⌘" }
-            switch i.keyEquivalent.unicodeScalars.first.map({ Int($0.value) }) {
-            case NSUpArrowFunctionKey?: s += "↑"
-            case NSDownArrowFunctionKey?: s += "↓"
-            case 32?: s += "␣"
-            case NSF2FunctionKey?: s += "F2"
-            default: s += i.keyEquivalent.uppercased()
-            }
-            return s
+        for (k, p) in MenuShortcuts.list() {
+            print(String(format: "shortcut %-8@ %@", k as NSString, p as NSString))
+            if let other = seen[k] { print("CONFLICT \(k): \(other) and \(p)"); ok = false }
+            if let sys = reserved[k] { print("CONFLICT \(k): \(p) and the system's \(sys)"); ok = false }
+            seen[k] = p
         }
-        func walk(_ menu: NSMenu, _ path: String) {
-            for i in menu.items {
-                let p = path.isEmpty ? i.title : "\(path) › \(i.title)"
-                // Items AppKit adds to Edit (Emoji & Symbols, Dictation) are the system's own.
-                let systemAdded = [Selector(("orderFrontCharacterPalette:")), Selector(("startDictation:"))].contains { $0 == i.action }
-                if !i.keyEquivalent.isEmpty && !systemAdded {
-                    let k = name(i)
-                    print(String(format: "shortcut %-8@ %@", k as NSString, p as NSString))
-                    if let other = seen[k] { print("CONFLICT \(k): \(other) and \(p)"); ok = false }
-                    if let sys = reserved[k] { print("CONFLICT \(k): \(p) and the system's \(sys)"); ok = false }
-                    seen[k] = p
-                }
-                if let sub = i.submenu { walk(sub, p) }
-            }
-        }
-        if let m = NSApp.mainMenu { walk(m, "") }
         print(ok ? "shortcuts: \(seen.count), no conflicts" : "shortcuts: conflicts found")
         return ok
     }

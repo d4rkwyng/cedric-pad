@@ -251,6 +251,14 @@ func buildMainMenu() -> NSMenu {
     ])
     main.addItem(window)
     NSApp.windowsMenu = window.submenu
+
+    // Help: macOS adds its menu search field here (NSApp.helpMenu).
+    let help = submenu(String(localized: "Help"), [
+        item(String(localized: "Cedric Pad Help"), #selector(AppDelegate.showHelp(_:)), "?"),
+        item(String(localized: "Keyboard Shortcuts"), #selector(AppDelegate.showKeyboardShortcuts(_:))),
+    ])
+    main.addItem(help)
+    NSApp.helpMenu = help.submenu
     NSApp.servicesMenu = services.submenu
     return main
 }

@@ -22,6 +22,7 @@ extension DevChecks {
         case "autoedit": autoEdit(app)
         case "counts": counts(app)
         case "diskconflict": diskConflict(app)
+        case "help": helpCheck(app)
         default: return gapCheck(name, app)
         }
         return true
