@@ -31,19 +31,25 @@ public enum OwlPrompts {
     Task: look at the code the user is viewing. Point out at most 2 real problems in it: \
     a bug, a likely mistake, or clearly confusing code with a small fix. \
     Do not comment on style, naming, missing docs or tests, or code you cannot see. \
-    If nothing is clearly wrong, return {"hints":[]}.
+    Only report a problem you can point to on a specific line. \
+    If you are unsure, or nothing is clearly wrong, return {"hints":[]}.
+
+    The code is shown with line numbers ("12| ") that are not part of the code.
 
     Reply with JSON only. Fields of each hint:
     - kind: "fix" (a bug with a fix), "warning" (a likely bug), "tip" or "explain"
+    - category: "unclosed-tag", "brackets", "unused", "undefined", "json", "logic" or "other"
     - title: names the specific problem in a few words
     - detail: one or two plain sentences on why it is wrong
-    - find: a short snippet copied character for character from the code, or ""
-    - replacement: the corrected snippet that replaces find, or "" if unsure
+    - line: the line number the problem is on
+    - find: the exact snippet from that line, copied character for character, without the line number
+    - replacement: the corrected snippet that replaces find. Give one whenever the problem can be fixed; \
+    change only what is needed and keep the rest of the snippet as it is. "" only if there is no safe fix.
     - confidence: 0.0 to 1.0
 
-    Example, for `while n > 0 { total += n }`:
-    {"hints":[{"kind":"fix","title":"Infinite loop: n never decreases",\
-    "detail":"The loop body never changes n, so the condition stays true.",\
+    Example, for line 4 `while n > 0 { total += n }`:
+    {"hints":[{"kind":"fix","category":"logic","title":"Infinite loop: n never decreases",\
+    "detail":"The loop body never changes n, so the condition stays true.","line":4,\
     "find":"total += n","replacement":"total += n; n -= 1","confidence":0.9}]}
     """
 
@@ -56,9 +62,14 @@ public enum OwlPrompts {
     public static func user(for context: OwlContext, text: String, model: String) -> String {
         var user = "Language: \(context.language)\n"
         if let name = context.fileName { user += "File: \(name)\n" }
-        user += "Code:\n```\n\(text)\n```"
+        user += "Code:\n```\n\(numbered(text))\n```"
         if model.lowercased().contains("qwen3") { user += "\n/no_think" }
         return user
+    }
+
+    /// "1| first line\n2| second line…": the model cites lines by these.
+    public static func numbered(_ text: String) -> String {
+        text.components(separatedBy: "\n").enumerated().map { "\($0.offset + 1)| \($0.element)" }.joined(separator: "\n")
     }
 
     public static func messages(for task: Task, context: OwlContext, text: String, model: String) -> [ChatMessage] {

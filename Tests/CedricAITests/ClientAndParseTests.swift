@@ -124,7 +124,9 @@ import CedricCore
         #expect(user.contains("File: Big.swift"))
         let code = try #require(user.components(separatedBy: "```\n").dropFirst().first)
         #expect(code.hasSuffix("\n```"))
-        #expect(code.utf8.count - 4 <= HintPrompt.maxContextBytes)
+        // The code itself (without the "12| " line numbers the prompt adds) is capped.
+        let bare = code.replacingOccurrences(of: "(?m)^\\d+\\| ", with: "", options: .regularExpression)
+        #expect(bare.utf8.count - 4 <= HintPrompt.maxContextBytes)
         #expect(obj["model"] as? String == "qwen2.5-coder-1.5b-instruct")
         #expect((obj["response_format"] as? [String: Any])?["type"] as? String == "json_schema")
     }

@@ -361,6 +361,43 @@ protocol. With nothing saved yet, `LocalAISettings.load` starts on
 Built-in, else LM Studio. AI hints themselves stay off until the user
 turns them on.
 
+**Verifier and cited lines** (`HintVerifier.swift`, used by
+`HintPrompt.parse` for every engine). The code is sent with line numbers
+(`12| `); each hint must name its `line`, a `category` (`unclosed-tag`,
+`brackets`, `unused`, `undefined`, `json`, `logic`, `other`) and the exact
+`find` snippet, which must occur within two lines of the cited line or the
+hint is dropped (copied line numbers are stripped). Claims we can check
+deterministically are checked, by the model's category and by keywords,
+and dropped when the code contradicts them: tag balance (`TagScan`:
+ignores comments, doctype, CDATA, script/style bodies, void and
+self-closed elements; HTML's optional end tags such as html, head, body,
+p, li close implicitly; XML is strict), bracket and quote balance
+(`BracketScan`, skipping strings and comments per language), "unused X"
+when X occurs again, "undefined X" when X is absent or declared, and JSON
+validity (`isStrictJSON`: JSONSerialization plus a trailing-comma check,
+since recent Foundation accepts trailing commas). Checks only ever drop:
+a slice of a bigger file can look unbalanced, so a failed check keeps the
+hint. The prompt asks for a minimal `replacement` whenever the problem is
+fixable; a fix is offered (Apply) only if it is anchored at the cited
+snippet, shares most of its words, is at most about three times its size,
+and, in a checkable category, makes that check pass. Fixable hints rank
+first. Derek's valid 7-line page, where Apple Intelligence claimed
+"`<html>` is not closed", now yields no hint from either engine.
+`HintSource.displayName` turns a hint's `source` into "AI suggestion ·
+Apple Intelligence" / "AI suggestion · Qwen2.5 Coder 3B" (nil for rules).
+
+**Status line.** `LocalAIOwlBridge.statusLine()` ("Last checked 12 s ago ·
+Apple Intelligence · no suggestions", "… · waiting for a pause in
+typing", nil while off) shows in the owl's tooltip (computed when the
+tooltip appears) and at the top of its popover, so a throttled engine
+reads as "checked, nothing to say" rather than "dead".
+
+**Settings sheet with Apple Intelligence.** No model menu and no Test
+Connection; instead "Apple Intelligence: ready" or the reason it isn't
+(`AppleIntelligenceStatus`). The checkbox reads "Ask Apple Intelligence
+for hints". Wrapping labels are capped at 380 pt so the privacy line wraps
+instead of running into the sheet's edge.
+
 **Prompts.** All prompts live in `CedricAI/OwlPrompts.swift`: one
 `persona` (Cedric, the quiet owl with a monocle in the editor's corner)
 plus a task prompt per `OwlPrompts.Task` (today `.codeHints`). Every engine

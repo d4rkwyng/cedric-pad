@@ -174,7 +174,12 @@ final class AISettingsSheet: NSObject {
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
         urlField.widthAnchor.constraint(equalToConstant: 380).isActive = true
-        for l in [privacy, modelsLabel, statusLabel, noteLabel] { l.preferredMaxLayoutWidth = 380 }
+        for l in [privacy, modelsLabel, statusLabel, noteLabel] {
+            l.preferredMaxLayoutWidth = 380
+            // Without a hard cap a wrapping label in a grid column takes its
+            // one-line width and runs into the sheet's edge.
+            l.widthAnchor.constraint(lessThanOrEqualToConstant: 380).isActive = true
+        }
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let buttons = NSStackView(views: [spacer, cancelButton, saveButton])
@@ -237,7 +242,19 @@ final class AISettingsSheet: NSObject {
         if !custom { urlField.stringValue = settings.baseURL.absoluteString }
 
         let builtIn = settings.backend == .builtIn
+        let apple = settings.backend == .apple
         grid?.cell(for: modelsView)?.row?.isHidden = !builtIn
+        // Apple Intelligence has one model and no server: no model menu,
+        // no Test Connection, just whether it's ready.
+        enabledBox.title = apple ? String(localized: "Ask Apple Intelligence for hints") : String(localized: "Ask a local model for hints")
+        testButton.isHidden = apple
+        if apple {
+            let st = AppleFoundationModelsProvider.status
+            status(st.message.map { String(localized: "Apple Intelligence: \($0)") } ?? String(localized: "Apple Intelligence: ready"),
+                   error: st != .available)
+        } else if testButton.isHidden == false, statusLabel.stringValue.hasPrefix("Apple Intelligence:") {
+            status("")
+        }
         noteLabel.stringValue = engine.note ?? ""
         grid?.cell(for: noteLabel)?.row?.isHidden = engine.note == nil
 
@@ -258,7 +275,8 @@ final class AISettingsSheet: NSObject {
         } else {
             modelPopup.selectItem(at: 0)
         }
-        let weak = effectiveModel.map(ModelPicker.isWeak) ?? false
+        grid?.cell(for: modelPopup)?.row?.isHidden = apple
+        let weak = !apple && (effectiveModel.map(ModelPicker.isWeak) ?? false)
         weakLabel.isHidden = !weak
         grid?.cell(for: weakLabel)?.row?.isHidden = !weak
 

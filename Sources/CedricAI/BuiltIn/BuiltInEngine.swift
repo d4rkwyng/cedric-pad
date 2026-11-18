@@ -112,7 +112,7 @@ public struct BuiltInHintProvider: OwlHintProvider {
         do {
             let result = try await host.generate(modelAt: path, request)
             try Task.checkCancellation()
-            let hints = HintPrompt.parse(result.content, text: text, source: name)
+            let hints = HintPrompt.parse(result.content, text: text, source: name, language: context.language)
             AILog.logger.info("""
                 owl-ai ok engine=builtin model=\(model.id, privacy: .public) gen=\(context.editGeneration) \
                 promptTokens=\(result.promptTokens) completionTokens=\(result.completionTokens) \
@@ -135,8 +135,10 @@ extension GenerationResult {
 public enum HintGrammar {
     public static let gbnf = #"""
     root ::= "{" ws "\"hints\"" ws ":" ws "[" ws ( hint ( ws "," ws hint )? )? ws "]" ws "}"
-    hint ::= "{" ws "\"kind\"" ws ":" ws kind ws "," ws "\"title\"" ws ":" ws string ws "," ws "\"detail\"" ws ":" ws string ws "," ws "\"find\"" ws ":" ws string ws "," ws "\"replacement\"" ws ":" ws string ws "," ws "\"confidence\"" ws ":" ws number ws "}"
+    hint ::= "{" ws "\"kind\"" ws ":" ws kind ws "," ws "\"category\"" ws ":" ws category ws "," ws "\"title\"" ws ":" ws string ws "," ws "\"detail\"" ws ":" ws string ws "," ws "\"line\"" ws ":" ws line ws "," ws "\"find\"" ws ":" ws string ws "," ws "\"replacement\"" ws ":" ws string ws "," ws "\"confidence\"" ws ":" ws number ws "}"
     kind ::= "\"fix\"" | "\"warning\"" | "\"tip\"" | "\"explain\""
+    category ::= "\"unclosed-tag\"" | "\"brackets\"" | "\"unused\"" | "\"undefined\"" | "\"json\"" | "\"logic\"" | "\"other\""
+    line ::= [1-9] [0-9]? [0-9]? [0-9]?
     string ::= "\"" char* "\""
     char ::= [^"\\\x00-\x1F] | "\\" ( ["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] )
     number ::= ( "0" ( "." [0-9] [0-9]? )? ) | ( "1" ( "." "0" "0"? )? )

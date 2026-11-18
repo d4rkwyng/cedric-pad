@@ -526,3 +526,32 @@ struct LiveAppleTests {
         #endif
     }
 }
+
+@Suite struct AIStatusLineTests {
+    @Test func statusLineWording() {
+        #expect(LocalAIOwlBridge.statusLine(engine: "Apple Intelligence", outcome: .delivered(count: 0), age: 12.4)
+                == "Last checked 12 s ago · Apple Intelligence · no suggestions")
+        #expect(LocalAIOwlBridge.statusLine(engine: "Built-in", outcome: .delivered(count: 1), age: 125)
+                == "Last checked 2 min ago · Built-in · 1 suggestion")
+        #expect(LocalAIOwlBridge.statusLine(engine: "LM Studio", outcome: .timedOut, age: 7200)
+                == "Last checked 2 h ago · LM Studio · timed out")
+    }
+
+    @MainActor @Test func bridgeReportsChecks() async throws {
+        let registry = OwlProviderRegistry()
+        let bridge = LocalAIOwlBridge(registry: registry, makeProvider: { _ in FakeProvider() })
+        #expect(bridge.statusLine() == nil)
+        var s = LocalAISettings(enabled: true, backend: .apple, pauseDelay: 0.05)
+        s.minInterval = 0.1
+        await bridge.apply(s)
+        #expect(bridge.statusLine() == "Apple Intelligence · waiting for a pause in typing")
+        let checked = Box(0)
+        bridge.onCheck = { checked.mutate { $0 += 1 } }
+        bridge.contextChanged(context())
+        #expect(await eventually { checked.value == 1 })
+        #expect(bridge.statusLine()?.hasPrefix("Last checked 0 s ago · Apple Intelligence · 1 suggestion") == true)
+        var off = s; off.enabled = false
+        await bridge.apply(off)
+        #expect(bridge.statusLine() == nil)
+    }
+}

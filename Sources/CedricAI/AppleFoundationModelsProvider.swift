@@ -88,7 +88,7 @@ public struct AppleFoundationModelsProvider: OwlHintProvider {
         try Task.checkCancellation()
         let raw = response.content.jsonString
         let seconds = Date().timeIntervalSince(start)
-        let hints = HintPrompt.parse(raw, text: text, source: name)
+        let hints = HintPrompt.parse(raw, text: text, source: name, language: context.language)
         AILog.logger.info("owl-ai ok engine=apple gen=\(context.editGeneration) latencyMs=\(Int(seconds * 1000)) hints=\(hints.count)")
         return (hints, raw, seconds)
     }
@@ -100,10 +100,13 @@ public struct AppleFoundationModelsProvider: OwlHintProvider {
         let hint = DynamicGenerationSchema(name: "Hint", properties: [
             .init(name: "kind", description: "fix: a bug with a fix; warning: a likely bug; tip; explain",
                   schema: DynamicGenerationSchema(name: "Kind", anyOf: ["fix", "warning", "tip", "explain"])),
+            .init(name: "category", description: "what kind of problem",
+                  schema: DynamicGenerationSchema(name: "Category", anyOf: HintVerifier.Category.allCases.map(\.rawValue))),
             .init(name: "title", description: "names the specific problem in a few words", schema: string),
             .init(name: "detail", description: "one or two plain sentences on why it is wrong", schema: string),
-            .init(name: "find", description: "a short snippet copied character for character from the code, or empty", schema: string),
-            .init(name: "replacement", description: "the corrected snippet that replaces find, or empty if unsure", schema: string),
+            .init(name: "line", description: "the line number the problem is on", schema: DynamicGenerationSchema(type: Int.self)),
+            .init(name: "find", description: "the exact snippet from that line, without the line number", schema: string),
+            .init(name: "replacement", description: "the corrected snippet that replaces find whenever it can be fixed; empty only if there is no safe fix", schema: string),
             .init(name: "confidence", description: "0.0 to 1.0", schema: DynamicGenerationSchema(type: Double.self)),
         ])
         let root = DynamicGenerationSchema(name: "Hints", properties: [

@@ -199,6 +199,8 @@ enum AICheck {
             check(live != nil, "the hint has a range")
         }
         OwlCheck.snapshot(window, "\(out)/2-bubble.png") {
+          wait("the status line", timeout: 5, { owl.owl.toolTipText.contains("Last checked") }) { ok in
+            check(ok, "the owl's tooltip shows the AI status: \(owl.owl.toolTipText.replacingOccurrences(of: "\n", with: " | "))")
             guard live == nil else { finish(); return }
             // Fake: Apply, and the next request hangs past the timeout.
             FakeAIProvider.delay.set(30)
@@ -208,6 +210,7 @@ enum AICheck {
             press(apply, "Apply") { owl.bubble == nil }
             check((tab.text as NSString).range(of: "for i in 0..<items.count").location != NSNotFound, "Apply fixed the loop in the document")
             timeoutPhase(tab, out: out)
+          }
         }
     }
 

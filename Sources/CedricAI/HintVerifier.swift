@@ -1,0 +1,340 @@
+import Foundation
+
+/// Checks a model's hint against the code where the claim can be checked
+/// deterministically, and drops the hint when the code contradicts it
+/// ("`<html>` is not closed" when it is). Unknown categories pass.
+///
+/// Every check only ever *drops*: when the context is a slice of a bigger
+/// file (tags or brackets opened above it), a scan that finds a problem
+/// proves nothing, so the hint is kept.
+public enum HintVerifier {
+    public enum Category: String, Sendable, CaseIterable {
+        case unclosedTag = "unclosed-tag", brackets, unused, undefined, json, logic, other
+    }
+
+    /// The categories a hint claims: the model's own field plus keywords.
+    public static func categories(model: String?, title: String, detail: String?) -> Set<Category> {
+        var out: Set<Category> = []
+        if let m = model.flatMap({ Category(rawValue: $0.lowercased()) }) { out.insert(m) }
+        let t = (title + " " + (detail ?? "")).lowercased()
+        func has(_ words: [String]) -> Bool { words.contains { t.contains($0) } }
+        if has(["closing tag", "not closed", "unclosed tag", "unclosed `<", "mismatched tag", "end tag", "missing </", "tag is never closed", "tag is not closed"]) {
+            out.insert(.unclosedTag)
+        }
+        if has(["unbalanced", "parenthes", "missing bracket", "missing brace", "closing bracket", "closing brace", "unmatched",
+                "unterminated string", "missing quote", "unclosed string", "unclosed quote", "missing closing quote"]) {
+            out.insert(.brackets)
+        }
+        if has(["unused", "never used", "not used", "is assigned but"]) { out.insert(.unused) }
+        if has(["undefined", "not defined", "undeclared", "is not declared", "unknown variable", "never declared"]) { out.insert(.undefined) }
+        if has(["invalid json", "json syntax", "trailing comma", "malformed json", "not valid json"]) { out.insert(.json) }
+        return out
+    }
+
+    /// False when the code contradicts the claim.
+    public static func holds(_ categories: Set<Category>, title: String, detail: String?, find: String,
+                             text: String, language: String) -> Bool {
+        let claim = title + " " + (detail ?? "") + " " + find
+        for c in categories {
+            switch c {
+            case .unclosedTag:
+                guard looksLikeMarkup(text, language) else { continue }
+                let r = TagScan.scan(text, html: !language.lowercased().contains("xml"))
+                let named = TagScan.namedTags(in: title + " " + (detail ?? ""))
+                if named.isEmpty {
+                    if r.unclosed.isEmpty && r.stray.isEmpty { return false }
+                } else if named.allSatisfy({ !r.unclosed.contains($0) && !r.stray.contains($0) }) {
+                    return false
+                }
+            case .brackets:
+                if BracketScan.scan(text, language: language).isBalanced { return false }
+            case .unused:
+                guard let name = identifier(in: claim, near: ["variable", "constant", "parameter", "import", "value"]) else { continue }
+                if wordCount(name, in: text) != 1 { return false }   // used again, or not there at all
+            case .undefined:
+                guard let name = identifier(in: claim, near: ["variable", "function", "name", "symbol", "identifier"]) else { continue }
+                if wordCount(name, in: text) == 0 || isDeclared(name, in: text) { return false }
+            case .json:
+                guard language.lowercased() == "json" else { continue }
+                if isStrictJSON(text) { return false }
+            case .logic, .other:
+                continue
+            }
+        }
+        return true
+    }
+
+    /// For a fix in a checkable category: the code after the replacement
+    /// must pass the same check (tags or brackets balance), or the fix is
+    /// not offered. Only applies when the code before it fails the check.
+    public static func fixPasses(_ categories: Set<Category>, text: String, range: NSRange, replacement: String,
+                                 language: String) -> Bool {
+        let fixed = (text as NSString).replacingCharacters(in: range, with: replacement)
+        if categories.contains(.unclosedTag), looksLikeMarkup(text, language) {
+            let html = !language.lowercased().contains("xml")
+            let before = TagScan.scan(text, html: html), after = TagScan.scan(fixed, html: html)
+            if after.problemCount >= before.problemCount { return false }
+        }
+        if categories.contains(.brackets) {
+            let before = BracketScan.scan(text, language: language), after = BracketScan.scan(fixed, language: language)
+            if after.problemCount >= before.problemCount { return false }
+        }
+        if categories.contains(.json), language.lowercased() == "json", !isStrictJSON(fixed) { return false }
+        return true
+    }
+
+    /// RFC 8259 JSON. JSONSerialization alone is not enough: on recent
+    /// macOS it accepts trailing commas, so those are checked separately.
+    public static func isStrictJSON(_ text: String) -> Bool {
+        guard let d = text.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: d, options: [.fragmentsAllowed])) != nil else { return false }
+        var inString = false, escaped = false, lastSignificant: Character? = nil
+        for ch in text {
+            if inString {
+                if escaped { escaped = false } else if ch == "\\" { escaped = true } else if ch == "\"" { inString = false }
+                continue
+            }
+            if ch == "\"" { inString = true; lastSignificant = ch; continue }
+            if ch.isWhitespace { continue }
+            if (ch == "]" || ch == "}") && lastSignificant == "," { return false }
+            lastSignificant = ch
+        }
+        return true
+    }
+
+    static func looksLikeMarkup(_ text: String, _ language: String) -> Bool {
+        let l = language.lowercased()
+        return ["html", "xml", "svg", "xhtml", "vue", "plist"].contains(where: l.contains) || text.contains("</")
+    }
+
+    // MARK: Identifiers
+
+    /// The identifier a claim is about: the first `backticked` word, else
+    /// the word after "variable"/"function"/….
+    static func identifier(in claim: String, near keywords: [String]) -> String? {
+        let parts = claim.components(separatedBy: "`")
+        if parts.count >= 3 {
+            for i in stride(from: 1, to: parts.count, by: 2) {
+                let w = parts[i].trimmingCharacters(in: .whitespaces)
+                if isIdentifier(w) { return w }
+            }
+        }
+        let words = claim.components(separatedBy: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$")).inverted)
+            .filter { !$0.isEmpty }
+        for (i, w) in words.enumerated() where keywords.contains(w.lowercased()) && i + 1 < words.count {
+            let next = words[i + 1]
+            if isIdentifier(next), !["is", "was", "the", "a", "an"].contains(next.lowercased()) { return next }
+        }
+        return nil
+    }
+
+    static func isIdentifier(_ s: String) -> Bool {
+        guard let f = s.unicodeScalars.first, CharacterSet.letters.union(CharacterSet(charactersIn: "_$")).contains(f) else { return false }
+        return s.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$")).contains($0) }
+    }
+
+    static func wordCount(_ name: String, in text: String) -> Int {
+        let pattern = "(?<![A-Za-z0-9_$])" + NSRegularExpression.escapedPattern(for: name) + "(?![A-Za-z0-9_$])"
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return 0 }
+        return re.numberOfMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length))
+    }
+
+    static func isDeclared(_ name: String, in text: String) -> Bool {
+        let n = NSRegularExpression.escapedPattern(for: name)
+        let patterns = [
+            "\\b(let|var|const|func|function|def|class|struct|enum|import|from|fn|val|type|interface)\\s+[^\\n]*?(?<![A-Za-z0-9_$])\(n)(?![A-Za-z0-9_$])",
+            "(?m)^\\s*\(n)\\s*=[^=]",                      // Python/Ruby/shell assignment
+            "\\b(func|def|function|fn)\\b[^\\n(]*\\([^)\\n]*(?<![A-Za-z0-9_$])\(n)(?![A-Za-z0-9_$])",   // a parameter
+            "\\bfor\\s+\\(?\\s*(let|var|const)?\\s*\(n)\\b",   // a loop variable
+        ]
+        return patterns.contains { p in
+            (try? NSRegularExpression(pattern: p))?.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
+        }
+    }
+}
+
+/// A tolerant tag-balance scan: skips comments, `<!DOCTYPE>`, processing
+/// instructions, CDATA, `<script>`/`<style>` bodies, void and self-closed
+/// elements; in HTML, elements whose end tag is optional (html, head, body,
+/// p, li, …) may close implicitly.
+public enum TagScan {
+    public struct Result: Equatable {
+        /// Elements opened and never closed (lower-case names).
+        public var unclosed: Set<String> = []
+        /// End tags with no matching start tag.
+        public var stray: Set<String> = []
+        var count = 0
+        public var problemCount: Int { count }
+    }
+
+    static let void: Set<String> = ["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+                                    "param", "source", "track", "wbr", "keygen", "command"]
+    static let optionalEnd: Set<String> = ["html", "head", "body", "p", "li", "dt", "dd", "option", "optgroup",
+                                           "tr", "td", "th", "thead", "tbody", "tfoot", "colgroup", "caption", "rb", "rt", "rp", "rtc"]
+
+    public static func scan(_ text: String, html: Bool = true) -> Result {
+        var s = text
+        for (open, close) in [("<!--", "-->"), ("<![CDATA[", "]]>"), ("<?", "?>")] { s = strip(s, open, close) }
+        for raw in ["script", "style"] { s = stripBody(s, raw) }
+        let re = try! NSRegularExpression(pattern: "<(/?)([A-Za-z][A-Za-z0-9:._-]*)((?:[^>\"']|\"[^\"]*\"|'[^']*')*?)(/?)>")
+        var stack: [String] = []
+        var r = Result()
+        let ns = s as NSString
+        for m in re.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+            let closing = ns.substring(with: m.range(at: 1)) == "/"
+            let name = html ? ns.substring(with: m.range(at: 2)).lowercased() : ns.substring(with: m.range(at: 2))
+            let selfClosed = ns.substring(with: m.range(at: 4)) == "/"
+            if !closing {
+                if selfClosed || (html && void.contains(name)) { continue }
+                stack.append(name)
+                continue
+            }
+            if html && void.contains(name) { continue }
+            guard let idx = stack.lastIndex(of: name) else { r.stray.insert(name); r.count += 1; continue }
+            for open in stack[(idx + 1)...] where !(html && optionalEnd.contains(open)) {
+                r.unclosed.insert(open); r.count += 1
+            }
+            stack.removeSubrange(idx...)
+        }
+        for open in stack where !(html && optionalEnd.contains(open)) { r.unclosed.insert(open); r.count += 1 }
+        return r
+    }
+
+    /// Tag names a claim mentions: `<div>`, `</div>`, "the div tag".
+    static func namedTags(in claim: String) -> Set<String> {
+        var out: Set<String> = []
+        let re = try! NSRegularExpression(pattern: "</?([A-Za-z][A-Za-z0-9:-]*)[^>]*>|\\b([A-Za-z][A-Za-z0-9-]*)\\s+(?:tag|element)\\b|(?:tag|element)\\s+`?([A-Za-z][A-Za-z0-9-]*)`?")
+        let ns = claim as NSString
+        for m in re.matches(in: claim, range: NSRange(location: 0, length: ns.length)) {
+            for g in 1...3 where m.range(at: g).location != NSNotFound {
+                let w = ns.substring(with: m.range(at: g)).lowercased()
+                if !["the", "a", "an", "closing", "opening", "end", "start", "this", "that", "html5", "missing", "unclosed"].contains(w) || g == 1 {
+                    out.insert(w)
+                }
+            }
+        }
+        return out
+    }
+
+    private static func strip(_ s: String, _ open: String, _ close: String) -> String {
+        var out = s
+        while let a = out.range(of: open) {
+            if let b = out.range(of: close, range: a.upperBound..<out.endIndex) {
+                out.replaceSubrange(a.lowerBound..<b.upperBound, with: " ")
+            } else {
+                out.removeSubrange(a.lowerBound..<out.endIndex)
+            }
+        }
+        // <!DOCTYPE …> and other declarations.
+        return out.replacingOccurrences(of: "<![A-Za-z][^>]*>", with: " ", options: .regularExpression)
+    }
+
+    private static func stripBody(_ s: String, _ tag: String) -> String {
+        s.replacingOccurrences(of: "(?is)(<\(tag)\\b[^>]*>).*?(</\(tag)\\s*>)", with: "$1$2", options: .regularExpression)
+    }
+}
+
+/// Bracket and quote balance, skipping strings and comments per language.
+public enum BracketScan {
+    public struct Result: Equatable {
+        public var unmatched = 0
+        public var unterminatedString = false
+        public var isBalanced: Bool { unmatched == 0 && !unterminatedString }
+        public var problemCount: Int { unmatched + (unterminatedString ? 1 : 0) }
+    }
+
+    public static func scan(_ text: String, language: String) -> Result {
+        let lang = language.lowercased()
+        let hashComments = ["python", "ruby", "shell", "bash", "sh", "zsh", "yaml", "toml", "perl", "r", "makefile", "dockerfile"].contains(lang)
+        let dashComments = ["sql", "lua", "haskell"].contains(lang)
+        let slashComments = !hashComments && !dashComments && !["html", "xml", "markdown", "json", "plain", "text"].contains(lang)
+        let backtickStrings = ["javascript", "typescript", "go", "jsx", "tsx", "shell", "bash", "sh", "zsh"].contains(lang)
+        let singleQuoteStrings = lang != "rust" && lang != "swift"   // 'a' lifetimes / not a Swift string
+        let markup = ["html", "xml", "markdown", "plain", "text"].contains(lang)
+        let c = Array(text.unicodeScalars)
+        var stack: [UnicodeScalar] = []
+        var r = Result()
+        var i = 0
+        func at(_ k: Int) -> UnicodeScalar? { k < c.count ? c[k] : nil }
+        func starts(_ s: String, _ k: Int) -> Bool {
+            let u = Array(s.unicodeScalars)
+            return k + u.count <= c.count && Array(c[k..<k + u.count]) == u
+        }
+        while i < c.count {
+            let ch = c[i]
+            if !markup {
+                if slashComments && starts("//", i) { while i < c.count && c[i] != "\n" { i += 1 }; continue }
+                if slashComments && starts("/*", i) {
+                    i += 2
+                    while i < c.count && !starts("*/", i) { i += 1 }
+                    i += 2; continue
+                }
+                if hashComments && ch == "#" { while i < c.count && c[i] != "\n" { i += 1 }; continue }
+                if dashComments && starts("--", i) { while i < c.count && c[i] != "\n" { i += 1 }; continue }
+                if starts("\"\"\"", i) || (hashComments && starts("'''", i)) {
+                    let q = String(c[i]) + String(c[i]) + String(c[i])
+                    i += 3
+                    while i < c.count && !starts(q, i) { if c[i] == "\\" { i += 1 }; i += 1 }
+                    if i >= c.count { r.unterminatedString = true }
+                    i += 3; continue
+                }
+                if ch == "\"" || (ch == "'" && singleQuoteStrings) || (ch == "`" && backtickStrings) {
+                    let multiline = ch == "`"
+                    i += 1
+                    var closed = false
+                    while i < c.count {
+                        if c[i] == "\\" { i += 2; continue }
+                        if c[i] == ch { closed = true; break }
+                        if c[i] == "\n" && !multiline { break }
+                        i += 1
+                    }
+                    if !closed { r.unterminatedString = true }
+                    i += 1; continue
+                }
+            }
+            switch ch {
+            case "(", "[", "{": stack.append(ch)
+            case ")", "]", "}":
+                let want: UnicodeScalar = ch == ")" ? "(" : ch == "]" ? "[" : "{"
+                if stack.last == want { stack.removeLast() } else { r.unmatched += 1 }
+            default: break
+            }
+            _ = at(i)
+            i += 1
+        }
+        r.unmatched += stack.count
+        return r
+    }
+}
+
+/// How the bubble names where a hint came from.
+public enum HintSource {
+    /// "rules" → nil (the owl's own rules need no label); "apple" → "AI
+    /// suggestion · Apple Intelligence"; "local:qwen2.5-coder-3b-instruct-q4_k_m"
+    /// → "AI suggestion · Qwen2.5 Coder 3B".
+    public static func displayName(_ source: String, catalog: ModelCatalog? = nil) -> String? {
+        if source == "rules" || source.isEmpty { return nil }
+        if source == "apple" { return "AI suggestion · Apple Intelligence" }
+        guard source.hasPrefix("local:") else { return "AI suggestion" }
+        let id = String(source.dropFirst(6))
+        if let m = catalog?.model(id: id) { return "AI suggestion · \(m.name)" }
+        return "AI suggestion · \(shortModelName(id))"
+    }
+
+    /// "qwen/qwen2.5-coder-1.5b-instruct-mlx" → "Qwen2.5 Coder 1.5B".
+    public static func shortModelName(_ id: String) -> String {
+        let base = id.split(separator: "/").last.map(String.init) ?? id
+        let drop: Set<String> = ["instruct", "mlx", "gguf", "chat", "it", "hf", "latest", "k", "m", "s", "l"]
+        let words = base.split(whereSeparator: { $0 == "-" || $0 == "_" || $0 == ":" }).map(String.init).filter { w in
+            let l = w.lowercased()
+            if drop.contains(l) { return false }
+            if l.range(of: "^(q\\d.*|\\d+bit|fp16|bf16|f16|int[48])$", options: .regularExpression) != nil { return false }
+            return true
+        }
+        let pretty = words.map { w -> String in
+            if w.range(of: "^\\d+(\\.\\d+)?[bB]$", options: .regularExpression) != nil { return w.uppercased() }
+            return w.prefix(1).uppercased() + w.dropFirst()
+        }
+        return pretty.isEmpty ? id : pretty.joined(separator: " ")
+    }
+}
