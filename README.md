@@ -61,6 +61,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   deletes both, and typing one with a selection wraps it (Edit ›
   Auto-Close Brackets and Quotes; never in plain text or Markdown). The
   bracket next to the caret and its partner are boxed.
+- **Word, line and character counts** in the status bar, of the
+  selection when there is one (characters are Unicode scalars). Documents
+  over a million characters show lines only, so typing never waits on a
+  count; over 50,000 they are counted when typing pauses.
 - **Go to line** (⌘L, `42` or `42:7`), line numbers, current-line highlight,
   show invisibles (⌥⌘I), wrap lines (⌥Z).
 - **Encodings and line endings:** UTF-8 (with or without BOM), UTF-16 LE/BE

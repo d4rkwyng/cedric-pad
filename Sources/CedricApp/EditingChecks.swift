@@ -6,7 +6,7 @@ import CedricCore
 /// through the menus' key equivalents and the text view, then the text,
 /// the state and the drawn pixels are checked.
 ///
-///   CEDRIC_CHECK=highlight
+///   CEDRIC_CHECK=highlight|lineops|bookmarks|closedtab|autoedit|counts
 @MainActor
 extension DevChecks {
     static func editingCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -16,6 +16,7 @@ extension DevChecks {
         case "bookmarks": bookmarks(app)
         case "closedtab": closedTab(app)
         case "autoedit": autoEdit(app)
+        case "counts": counts(app)
         default: return false
         }
         return true
@@ -427,6 +428,53 @@ extension DevChecks {
                 key("\r")
                 type("x")
                 expect(prose.text == "  (don't\n  x", "plain text: no pairing; Return keeps the indent", prose.text.debugDescription)
+            },
+        ])
+    }
+
+    // MARK: Status bar counts
+
+    static func counts(_ app: AppDelegate) {
+        let tab = app.open(write("count.txt", "one two\nthree four\nfive\n"))!
+        let mid = app.open(write("mid.txt", String(repeating: "lorem ipsum\n", count: 6_000)))!   // 72 K: counted after a pause
+        let big = app.open(write("big.txt", String(repeating: "lorem ipsum dolor\n", count: 70_000)))! // 1.26 M: lines only
+        sized(tab)
+        var label: String { tab.statusBar.counts.stringValue }
+        run([
+            sync {
+                focus(tab)
+                tab.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                expect(label == "5 words · 3 lines · 24 characters", "the document's counts", label)
+                tab.textView.setSelectedRange(NSRange(location: (tab.text as NSString).length, length: 0))
+                type("six")
+                expect(label == "6 words · 4 lines · 27 characters", "updated as you type", label)
+                tab.textView.setSelectedRange((tab.text as NSString).range(of: "two\nthree"))
+                expect(label == "Selected: 2 words · 2 lines · 9 characters", "a selection's counts", label)
+                tab.textView.setSelectedRange(NSRange(location: 0, length: 3))
+                expect(label == "Selected: 1 word · 1 line · 3 characters", "singular", label)
+            },
+            snapshot("counts.png"),
+            sync {
+                focus(mid)
+                mid.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                type("x")
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { next() } },
+            sync {
+                let l = mid.statusBar.counts.stringValue
+                expect(l == "12,000 words · 6,000 lines · 72,001 characters", "a 72 K document is counted after a pause", l)
+                focus(big)
+                big.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                let t0 = Date()
+                type("x")
+                let ms = Date().timeIntervalSince(t0) * 1000
+                let l2 = big.statusBar.counts.stringValue
+                expect(l2 == "70,000 lines", "over 1 M characters: lines only, no scan", l2)
+                expect(ms < 50, "typing there stays fast", String(format: "%.1f ms", ms))
+                big.textView.setSelectedRange(NSRange(location: 0, length: 20 * 18))
+                let l3 = big.statusBar.counts.stringValue
+                expect(l3 == "Selected: 60 words · 20 lines · 360 characters", "a small selection in a big document is counted", l3)
+                for t in [tab, mid, big] { t.doc.markSaved() }
             },
         ])
     }

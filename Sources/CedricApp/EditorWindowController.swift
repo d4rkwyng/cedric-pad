@@ -252,6 +252,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let oldLines = lineIndex.lineCount
         lastEditLocation = edited.location
         lastEditLength = edited.length
+        editing.documentCounts = nil
         // Bookmarks follow their lines (EditingFeatures.swift).
         var bookmarkEdit: (first: Int, removed: Int, wholeLines: Bool)?
         if !loading, !editing.bookmarks.isEmpty {
@@ -430,8 +431,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let line = lineIndex.line(containing: sel.location)
         let col = sel.location - lineIndex.starts[line] + 1
         var pos = String(localized: "Ln \(line + 1), Col \(col)")
-        if sel.length > 0 { pos += "  " + String(localized: "(\(sel.length) selected)") }
         if let marks = editing.markCount { pos += "  " + String(localized: "\(marks) marked") }
+        scheduleCounts()
         statusBar.position.stringValue = pos
         StatusBar.fill(statusBar.languageButton, title: doc.languageChoice.displayTitle,
                        items: Language.allCases.map { ($0.displayName, $0.rawValue, $0 == doc.language) },

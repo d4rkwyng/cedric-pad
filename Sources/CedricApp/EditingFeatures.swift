@@ -17,7 +17,14 @@ final class EditingState {
     /// Bookmarked lines; follow edits (EditorWindowController.storageEdited).
     var bookmarks = Bookmarks()
 
+    /// Status-bar counts: debounced for big ranges; the whole document's
+    /// are cached until the text changes (any storage edit drops them).
+    var countsTimer: Timer?
+    var documentCounts: TextCounts??
+
     func stop() {
+        countsTimer?.invalidate()
+        countsTimer = nil
         highlightTimer?.invalidate()
         highlightTimer = nil
         markCountTimer?.invalidate()
@@ -138,6 +145,70 @@ extension EditorWindowController {
             textView.bracketRanges = ranges
             textView.needsDisplay = true
         }
+    }
+}
+
+// MARK: - Word, line and character counts
+
+extension EditorWindowController {
+    /// Ranges up to this many units are counted at once; longer ones a
+    /// moment after typing or selecting stops.
+    static let immediateCountLimit = 50_000
+
+    /// Updates the status bar's counts: of the selection if there is one,
+    /// else of the document. Past `TextStats.maxCounted` units only lines
+    /// are shown (from the line index, no scan).
+    func scheduleCounts() {
+        editing.countsTimer?.invalidate()
+        editing.countsTimer = nil
+        let sel = textView.selectedRange()
+        let length = sel.length > 0 ? sel.length : lineIndex.length
+        let cached = sel.length == 0 && editing.documentCounts != nil
+        if cached || length <= Self.immediateCountLimit || length > TextStats.maxCounted {
+            updateCounts()
+            return
+        }
+        let t = Timer(timeInterval: 0.3, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateCounts() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        editing.countsTimer = t
+    }
+
+    func updateCounts() {
+        editing.countsTimer = nil
+        let sel = textView.selectedRange()
+        let ns = textView.string as NSString
+        func plural(_ n: Int, _ one: String, _ many: String) -> String { n == 1 ? "1 \(one)" : "\(n.formatted()) \(many)" }
+        let words = String(localized: "word"), wordsP = String(localized: "words")
+        let line = String(localized: "line"), lines = String(localized: "lines")
+        let char = String(localized: "character"), chars = String(localized: "characters")
+        var s: String
+        if sel.length > 0 {
+            if let c = TextStats.count(ns, range: sel) {
+                s = [plural(c.words, words, wordsP), plural(c.lines, line, lines), plural(c.characters, char, chars)].joined(separator: " · ")
+            } else {
+                let a = lineIndex.line(containing: sel.location), b = lineIndex.line(containing: max(sel.location, NSMaxRange(sel) - 1))
+                s = plural(b - a + 1, line, lines)
+            }
+            s = String(localized: "Selected: \(s)")
+        } else {
+            let counts: TextCounts?
+            if let cached = editing.documentCounts {
+                counts = cached
+            } else {
+                counts = TextStats.count(ns, range: NSRange(location: 0, length: ns.length))
+                editing.documentCounts = .some(counts)
+            }
+            if let c = counts {
+                s = [plural(c.words, words, wordsP), plural(c.lines, line, lines), plural(c.characters, char, chars)].joined(separator: " · ")
+            } else {
+                // As TextStats counts: an empty last line (after a final newline) isn't one.
+                let n = lineIndex.lineCount - (lineIndex.lineCount > 1 && lineIndex.lineLength(lineIndex.lineCount - 1) == 0 ? 1 : 0)
+                s = plural(n, line, lines)
+            }
+        }
+        statusBar.counts.stringValue = s
     }
 }
 
