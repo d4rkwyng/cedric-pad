@@ -218,8 +218,9 @@ for _ in $(seq 1 16); do kill -0 $pid 2>/dev/null || { quit=1; break; }; sleep 0
 if [ $quit = 1 ]; then echo "session-check: OK   closing the last viewer tabs (image, Office) quit"
 else echo "session-check: FAIL closing the last viewer tabs (image, Office) didn't quit" >&2; kill -9 $pid; fail=1; fi
 dump >/dev/null
-grep -q "^viewer: file=.*pic.png" "$W/dump.txt" && echo "session-check: OK   the last viewer tab stays in the session (as Quit)" \
-    || { echo "session-check: FAIL the image tab wasn't kept in the session" >&2; fail=1; }
+# The image tab closed first (Reopen Closed Tab has it); the Office tab, closed last, stays open as Quit leaves it.
+check "viewer tabs: the last one (Office) stays open in the session, as Quit" "^viewer: file=.*memo.docx"
+check "viewer tabs: the image tab closed first is in the closed list" "^closed: .*file=.*pic.png"
 
 [ $fail = 0 ] && echo "session-check: all OK"
 exit $fail
