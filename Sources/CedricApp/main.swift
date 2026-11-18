@@ -100,6 +100,9 @@ func buildMainMenu() -> NSMenu {
         .separator(),
         item(String(localized: "Page Setup…"), #selector(AppDelegate.pageSetup(_:)), "p", [.command, .shift]),
         item(String(localized: "Print…"), #selector(AppDelegate.printDocument(_:)), "p"),
+        .separator(),
+        item(String(localized: "Export as HTML…"), #selector(AppDelegate.exportHTMLMenu(_:))),
+        item(String(localized: "Export as PDF…"), #selector(AppDelegate.exportPDFMenu(_:))),
     ]))
 
     let findItems = [
@@ -118,6 +121,8 @@ func buildMainMenu() -> NSMenu {
         .separator(),
         item(String(localized: "Cut"), #selector(NSText.cut(_:)), "x"),
         item(String(localized: "Copy"), #selector(NSText.copy(_:)), "c"),
+        item(String(localized: "Copy as HTML"), #selector(AppDelegate.copyAsHTMLMenu(_:))),
+        item(String(localized: "Copy as Rich Text"), #selector(AppDelegate.copyAsRichTextMenu(_:))),
         item(String(localized: "Paste"), #selector(NSText.paste(_:)), "v"),
         item(String(localized: "Select All"), #selector(NSText.selectAll(_:)), "a"),
         .separator(),

@@ -61,6 +61,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   it puts itself away again. Built the first time it is shown and updated
   in the background when typing pauses (in large mode only when opened,
   up to 5,000 headings).
+- **Markdown export and copy:** File › Export as HTML… writes a standalone
+  page (no script), and File › Export as PDF… a paginated PDF (cut between
+  blocks), both rendered as the preview renders them in a light,
+  theme-neutral style whatever the editor's theme. Edit › Copy as HTML puts
+  the rendered HTML of the selection (or the whole document) on the
+  clipboard as text; Copy as Rich Text puts it there as rich text (RTF and
+  HTML) for Mail, Notes or a word processor.
 - **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
   or `.psv` file is a read-only grid: the first line is the header, row
   numbers stay at the left, columns resize, and a click on a header sorts

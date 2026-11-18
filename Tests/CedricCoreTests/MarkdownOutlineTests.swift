@@ -50,3 +50,12 @@ import Testing
         #expect(MarkdownOutline.current([H(level: 1, title: "a", line: 5)], line: 2) == nil)
     }
 }
+
+@Suite struct PageBreaksTests {
+    @Test func cutsBetweenBlocks() {
+        #expect(PageBreaks.cuts(total: 500, pageHeight: 1000, boundaries: [100, 400]) == [0, 500])
+        #expect(PageBreaks.cuts(total: 2500, pageHeight: 1000, boundaries: [300, 900, 1050, 1800, 2400]) == [0, 900, 1800, 2500])
+        // One block taller than a page: cut at the page height.
+        #expect(PageBreaks.cuts(total: 2500, pageHeight: 1000, boundaries: [100, 2400]) == [0, 1000, 2000, 2500])
+    }
+}

@@ -558,6 +558,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func togglePreview(_ sender: Any?) { currentTab?.togglePreview() }
     @objc func toggleOutlineMenu(_ sender: Any?) { currentTab?.toggleOutline() }
     @objc func goToHeadingMenu(_ sender: Any?) { currentTab?.goToHeading() }
+    @objc func exportHTMLMenu(_ sender: Any?) { currentTab?.exportHTML() }
+    @objc func exportPDFMenu(_ sender: Any?) { currentTab?.exportPDF() }
+    @objc func copyAsHTMLMenu(_ sender: Any?) { currentTab?.copyAsHTML() }
+    @objc func copyAsRichTextMenu(_ sender: Any?) { currentTab?.copyAsRichText() }
     @objc func toggleDetachPreview(_ sender: Any?) { currentTab?.toggleDetachPreviewAction(sender) }
     @objc func togglePreviewJavaScript(_ sender: Any?) { currentTab.map { $0.previewAllowsJavaScript.toggle() } }
     @objc func togglePreviewNetwork(_ sender: Any?) { currentTab.map { $0.previewAllowsNetwork.toggle() } }
@@ -610,7 +614,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleOutlineMenu(_:)):
             item.state = tab?.outlineVisible == true ? .on : .off
             return tab?.doc.language == .markdown
-        case #selector(goToHeadingMenu(_:)): return tab?.doc.language == .markdown
+        case #selector(goToHeadingMenu(_:)), #selector(exportHTMLMenu(_:)), #selector(exportPDFMenu(_:)),
+             #selector(copyAsHTMLMenu(_:)), #selector(copyAsRichTextMenu(_:)):
+            return tab?.doc.language == .markdown
         case #selector(togglePreview(_:)):
             item.state = tab?.previewVisible == true ? .on : .off
             return tab?.doc.language.hasPreview == true

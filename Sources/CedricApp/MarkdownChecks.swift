@@ -1,17 +1,19 @@
 import AppKit
 import CedricCore
+import PDFKit
 import WebKit
 
 /// In-process checks of the Markdown preview and tools, run by
 /// Scripts/tools-check.sh like the other DevChecks.
 ///
-///   CEDRIC_CHECK=mdpreview|outline
+///   CEDRIC_CHECK=mdpreview|outline|mdexport
 @MainActor
 extension DevChecks {
     static func markdownCheck(_ name: String, _ app: AppDelegate) -> Bool {
         switch name {
         case "mdpreview": markdownPreview(app)
         case "outline": outlineCheck(app)
+        case "mdexport": exportCheck(app)
         default: return false
         }
         return true
@@ -337,6 +339,72 @@ extension DevChecks {
                 key("\u{1b}")
                 expect(!tab.outlineVisible && caretLine() == before && tab.window?.firstResponder === tab.textView, "Esc goes back to the text")
                 for t in [tab, code] { t.doc.markSaved() }
+            },
+        ])
+    }
+
+    // MARK: Export and copy
+
+    static func exportCheck(_ app: AppDelegate) {
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")!
+        try? png.write(to: dir.appendingPathComponent("dot.png"))
+        var body = "---\ntitle: Report\n---\n# Quarterly report\n\nSome **bold** text[^1] and ![dot](dot.png).\n\n```swift\nlet answer = 42\n```\n\n"
+        for k in 1...80 { body += "Paragraph \(k) of filler text so the PDF runs over more than one page.\n\n" }
+        body += "[^1]: A note.\n"
+        let tab = app.open(write("report.md", body))!
+        let swift = app.open(write("x.swift", "let a = 1\n"))!
+        sized(tab); sized(swift)
+        let pb = NSPasteboard.general
+        let saved = pb.string(forType: .string)
+        let pdfURL = dir.appendingPathComponent("out/report.pdf")
+        try? FileManager.default.createDirectory(at: pdfURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        run([
+            sync {
+                focus(swift)
+                for a in [#selector(AppDelegate.exportHTMLMenu(_:)), #selector(AppDelegate.exportPDFMenu(_:)),
+                          #selector(AppDelegate.copyAsHTMLMenu(_:)), #selector(AppDelegate.copyAsRichTextMenu(_:))] {
+                    if let i = menuItem(action: a) { expect(!app.validateMenuItem(i), "\(i.title) is off for a Swift file") } else { expect(false, "menu item \(a)") }
+                }
+                focus(tab)
+                if let i = menuItem(action: #selector(AppDelegate.exportPDFMenu(_:))) { expect(app.validateMenuItem(i), "and on for Markdown") }
+                // Copy as HTML: the selection, rendered.
+                let ns = tab.text as NSString
+                tab.textView.setSelectedRange(ns.range(of: "Some **bold** text"))
+                tab.copyAsHTML()
+                expect(pb.string(forType: .string) == "<p data-line=\"0\">Some <strong>bold</strong> text</p>\n", "Copy as HTML copies the selection's HTML",
+                       pb.string(forType: .string) ?? "-")
+                tab.textView.setSelectedRange(NSRange(location: ns.range(of: "```swift").location, length: 30))
+                tab.copyAsRichText()
+                let rtf = pb.data(forType: .rtf).flatMap { NSAttributedString(rtf: $0, documentAttributes: nil) }
+                expect(rtf?.string.contains("let answer = 42") == true, "Copy as Rich Text puts RTF on the pasteboard", rtf?.string ?? "-")
+                let colours = Set((0..<(rtf?.length ?? 0)).compactMap { rtf?.attribute(.foregroundColor, at: $0, effectiveRange: nil) as? NSColor })
+                expect(colours.count >= 2, "with the code's colours", "\(colours.count) colours")
+                expect(pb.string(forType: .html)?.contains("tk-keyword") == true && pb.string(forType: .string)?.contains("let answer") == true,
+                       "and HTML and plain text too")
+                // Export as HTML: a standalone light page, no CSP, no script.
+                let page = EditorWindowController.exportPage(markdown: tab.text, title: tab.exportBaseName)
+                expect(page.contains("<title>report</title>") && page.contains("color-scheme: light") && !page.contains("Content-Security-Policy")
+                       && !page.contains("<script"), "Export as HTML writes a standalone, light page")
+                expect(page.contains("class=\"frontmatter\"") && page.contains("tk-keyword") && page.contains("id=\"fn-1\""),
+                       "rendered as the preview renders it")
+            },
+            { next in
+                MarkdownPDFExport.run(markdown: tab.text, folder: tab.doc.fileURL?.deletingLastPathComponent(), title: "report", to: pdfURL) { error in
+                    let pdf = PDFDocument(url: pdfURL)
+                    expect(error == nil && (pdf?.pageCount ?? 0) >= 2, "Export as PDF writes a paginated PDF", "\(error.map { "\($0)" } ?? "") pages \(pdf?.pageCount ?? 0)")
+                    let text = pdf?.string ?? ""
+                    expect(text.contains("Quarterly report") && text.contains("Paragraph 80") && !text.contains("**"),
+                           "of the rendered document", String(text.prefix(80)))
+                    if let page = pdf?.page(at: 0) { print("check: note: PDF page size \(page.bounds(for: .mediaBox).size)") }
+                    try? FileManager.default.removeItem(at: out.appendingPathComponent("export.pdf"))
+                    try? FileManager.default.copyItem(at: pdfURL, to: out.appendingPathComponent("export.pdf"))
+                    next()
+                }
+            },
+            sync {
+                pb.clearContents()
+                if let saved { pb.setString(saved, forType: .string) }
+                for t in [tab, swift] { t.doc.markSaved() }
             },
         ])
     }

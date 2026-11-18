@@ -46,3 +46,23 @@ public enum PreviewFolder {
         return r
     }
 }
+
+/// Where to cut a tall rendered page into PDF pages: at the lowest block
+/// bottom that fits on each page (so no line is cut in two), or at the
+/// page height when no block ends on it.
+public enum PageBreaks {
+    public static func cuts(total: CGFloat, pageHeight h: CGFloat, boundaries: [CGFloat]) -> [CGFloat] {
+        guard total > 0, h > 0 else { return [0, max(total, 1)] }
+        let sorted = Array(Set(boundaries.filter { $0 > 0 && $0 < total })).sorted()
+        var cuts: [CGFloat] = [0]
+        var y: CGFloat = 0
+        while total - y > h {
+            // Not less than half a page, so a page is never nearly empty.
+            let best = sorted.last { $0 <= y + h && $0 >= y + h / 2 }
+            y = best ?? y + h
+            cuts.append(y)
+        }
+        cuts.append(total)
+        return cuts
+    }
+}
