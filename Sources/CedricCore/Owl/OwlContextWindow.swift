@@ -75,12 +75,19 @@ public struct OwlDocumentFacts: Sendable, Equatable {
     /// When the document last went from saved to unsaved (nil: saved).
     public var unsavedSince: Date?
     public var lineEnding: LineEnding
+    /// The file had more than one kind of line ending when it was read.
+    public var mixedLineEndings: Bool
+    /// The language was picked from the menu: the owl doesn't second-guess it.
+    public var languageIsManual: Bool
 
-    public init(isWholeDocument: Bool = true, changedOnDisk: Bool = false, unsavedSince: Date? = nil, lineEnding: LineEnding = .lf) {
+    public init(isWholeDocument: Bool = true, changedOnDisk: Bool = false, unsavedSince: Date? = nil, lineEnding: LineEnding = .lf,
+                mixedLineEndings: Bool = false, languageIsManual: Bool = false) {
         self.isWholeDocument = isWholeDocument
         self.changedOnDisk = changedOnDisk
         self.unsavedSince = unsavedSince
         self.lineEnding = lineEnding
+        self.mixedLineEndings = mixedLineEndings
+        self.languageIsManual = languageIsManual
     }
 }
 

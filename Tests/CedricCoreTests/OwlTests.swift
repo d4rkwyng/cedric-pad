@@ -233,10 +233,10 @@ func context(_ text: String, language: String = "plain") -> OwlContext { window(
     }
 
     @Test func mixedIndentConvertsTabsToSpaces() throws {
-        let text = "func a() {\n\tlet x = 1\n    let y = 2\n\t\treturn\n}\n"
+        let text = "func a() {\n\tlet x = 1\n    let y = 2\n    let z = 3\n\t\treturn\n}\n"
         let h = try #require(rules.check(context(text), facts: .init()).first { $0.id == RulesHintProvider.mixedIndentID })
         #expect(h.title == "Mixed tabs and spaces. Convert to spaces?")
-        #expect(apply(h, to: text) == "func a() {\n    let x = 1\n    let y = 2\n        return\n}\n")
+        #expect(apply(h, to: text) == "func a() {\n    let x = 1\n    let y = 2\n    let z = 3\n        return\n}\n")
         #expect(!ids("a\n\tb\n\tc\n").contains(RulesHintProvider.mixedIndentID))
         #expect(!ids("a\n    b\n  c\n").contains(RulesHintProvider.mixedIndentID))
     }

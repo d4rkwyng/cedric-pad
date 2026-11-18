@@ -642,7 +642,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     func owlFacts(wholeDocument: Bool) -> OwlDocumentFacts {
         OwlDocumentFacts(isWholeDocument: wholeDocument, changedOnDisk: doc.changedOnDisk,
-                         unsavedSince: doc.isDirty ? doc.unsavedSince : nil, lineEnding: doc.lineEnding)
+                         unsavedSince: doc.isDirty ? doc.unsavedSince : nil, lineEnding: doc.lineEnding,
+                         mixedLineEndings: doc.mixedLineEndings, languageIsManual: doc.languageIsManual)
     }
 
     // MARK: Closing

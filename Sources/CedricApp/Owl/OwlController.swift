@@ -374,7 +374,17 @@ final class OwlController: NSObject, NSPopoverDelegate {
         }
         var out: [OwlBubble.Button] = []
         if hint.replacement != nil {
-            out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self] in self?.applyPresented() })
+            out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self, weak tab] in
+                guard let self, self.applyPresented() else { return }
+                // A to-do list in checkboxes reads best coloured as Markdown.
+                if hint.id == RulesHintProvider.todoListID, let tab, tab.doc.language == .plain { tab.setLanguage(.markdown) }
+            })
+        } else if let language = RulesHintProvider.guessedLanguage(hint) {
+            out.append(.init(title: String(localized: "Use \(language.displayName)"), isDefault: true) { [weak self, weak tab] in
+                tab?.setLanguage(language); self?.hideBubble()
+            })
+        } else if hint.range != nil, hint.id != RulesHintProvider.reloadID, hint.id != RulesHintProvider.saveCopyID {
+            out.append(.init(title: String(localized: "Show Me"), isDefault: true) { [weak self] in self?.showPresented() })
         } else if hint.id == RulesHintProvider.reloadID {
             out.append(.init(title: String(localized: "Reload"), isDefault: true) { [weak self, weak tab] in tab?.reloadFromDisk(); self?.hideBubble() })
         } else if hint.id == RulesHintProvider.saveCopyID {
@@ -408,6 +418,20 @@ final class OwlController: NSObject, NSPopoverDelegate {
         bubbleFaded = false
         owl.setPose(.idle)
         updateTimer()
+    }
+
+    /// Show Me: selects the text the hint is about and scrolls to it, if
+    /// it is still what the provider saw.
+    @discardableResult
+    func showPresented() -> Bool {
+        defer { hideBubble() }
+        guard let p = presented, let range = p.range, let expected = p.expected, let tv = tab?.textView else { return false }
+        let ns = tv.string as NSString
+        guard NSMaxRange(range) <= ns.length, ns.substring(with: range) == expected else { NSSound.beep(); return false }
+        tv.setSelectedRange(range)
+        tv.scrollRangeToVisible(range)
+        tv.window?.makeFirstResponder(tv)
+        return true
     }
 
     /// Apply: the replacement as one undo step, only if the text it was
