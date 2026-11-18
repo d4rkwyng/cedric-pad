@@ -5,13 +5,14 @@ import CedricCore
 /// like the other DevChecks: real key events where a key does it (Tab,
 /// ⇧Tab and the menus' key equivalents), menu items' actions otherwise.
 ///
-///   CEDRIC_CHECK=indent|print
+///   CEDRIC_CHECK=indent|print|macbasics
 @MainActor
 extension DevChecks {
     static func gapCheck(_ name: String, _ app: AppDelegate) -> Bool {
         switch name {
         case "indent": indent(app)
         case "print": printing(app)
+        case "macbasics": macBasics(app)
         default: return false
         }
         return true
@@ -237,6 +238,138 @@ extension DevChecks {
                 let (_, plain, _) = tab.makePrintOperation(lineNumbers: false, info: NSPrintInfo())
                 expect(plain.textStorage?.string == src, "without line numbers, the text as it is")
                 restore()
+            },
+        ])
+    }
+
+    // MARK: Settings, Save All, Revert, Close Window, Services
+
+    static func macBasics(_ app: AppDelegate) {
+        let restore = keepDefaults(["fontName", "fontSize", EditorTheme.defaultsKey, "wrapLines", "showInvisibles", "showLineNumbers",
+                                    "highlightOccurrences", "autoCloseBrackets", "checkSpellingWhileTyping", "tabWidth", "indentWithTabs"])
+        let a = app.open(write("a.txt", "alpha\n"))!
+        let b = app.open(write("b.txt", "beta\n"))!
+        sized(a)
+        var settings: SettingsWindowController? { SettingsWindowController.shared }
+        func disk(_ t: EditorWindowController) -> String { (try? String(contentsOf: t.doc.fileURL!, encoding: .utf8)) ?? "-" }
+        run([
+            sync {
+                let appMenu = NSApp.mainMenu?.items.first?.submenu
+                let services = appMenu?.items.first { $0.title == "Services" }
+                expect(services?.submenu != nil && services?.submenu === NSApp.servicesMenu, "the app menu has a Services submenu (NSApp.servicesMenu)")
+                expect(SettingsWindowController.shared == nil, "the Settings window isn't built at launch")
+                focus(a)
+                key(",", [.command])
+            },
+            sync {
+                expect(settings?.window?.isVisible == true, "⌘, opens Settings")
+                guard let s = settings else { return }
+                // Font: Menlo from the popup.
+                s.fontPopup.selectItem(withTitle: "Menlo")
+                s.changed(s.fontPopup)
+                expect(Settings.shared.fontName?.hasPrefix("Menlo") == true, "picking Menlo sets the font", Settings.shared.fontName ?? "nil")
+                let f = a.textView.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+                expect(f?.familyName == "Menlo", "open tabs use it", f?.fontName ?? "-")
+                s.fontSize.integerValue = 15
+                s.changed(s.fontSize)
+                expect(Settings.shared.fontSize == 15 && a.textView.font?.pointSize == 15, "the size field sets the size", "\(Settings.shared.fontSize)")
+                s.fontPopup.selectItem(at: 0)
+                s.changed(s.fontPopup)
+                expect(Settings.shared.fontName == nil && a.textView.font?.fontName == NSFont.monospacedSystemFont(ofSize: 15, weight: .regular).fontName,
+                       "SF Mono (System) goes back to the system font", a.textView.font?.fontName ?? "-")
+                // Toggles.
+                let wrap = Settings.shared.wrapLines
+                s.wrap.performClick(nil)
+                expect(Settings.shared.wrapLines == !wrap, "Wrap lines checkbox toggles the setting")
+                let inv = Settings.shared.showInvisibles
+                key("i", [.command, .option])
+                expect(s.invisibles.state == (inv ? .off : .on), "the window follows View › Show Invisibles (⌥⌘I)")
+                s.indentKind.selectItem(at: 1)
+                s.changed(s.indentKind)
+                s.tabWidth.selectItem(withTag: 8)
+                s.changed(s.tabWidth)
+                expect(Settings.shared.defaultIndentation == Indentation(usesTabs: true, width: 8), "indentation default: tabs, 8",
+                       "\(Settings.shared.defaultIndentation)")
+                s.theme.selectItem(withTitle: EditorTheme.light.displayName)
+                s.changed(s.theme)
+                expect(UserDefaults.standard.string(forKey: EditorTheme.defaultsKey) == EditorTheme.light.rawValue, "the theme popup sets the theme")
+            },
+            snapshot("settings.png", window: settings?.window),
+            sync {
+                settings?.window?.close()
+                restore()
+                NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil)
+                // Save All: two tabs typed into.
+                focus(a)
+                a.textView.setSelectedRange(NSRange(location: 5, length: 0))
+                type("1")
+            },
+            sync {
+                focus(b)
+                b.textView.setSelectedRange(NSRange(location: 4, length: 0))
+                type("2")
+            },
+            sync {
+                expect(a.doc.isDirty && b.doc.isDirty, "both tabs have unsaved changes")
+                key("s", [.command, .option])
+                expect(!a.doc.isDirty && !b.doc.isDirty, "⌥⌘S saves them all")
+                expect(disk(a) == "alpha1\n" && disk(b) == "beta2\n", "both files are written", disk(a) + "|" + disk(b))
+            },
+            sync {
+                // Revert to Saved: typed text goes; ⌘Z brings it back.
+                focus(a)
+                a.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                type("xy")
+            },
+            sync {
+                expect(a.doc.isDirty, "typing makes it unsaved")
+                let ok = choose(#selector(AppDelegate.revertToSaved(_:)))
+                expect(ok && a.text == "alpha1\n" && !a.doc.isDirty, "File › Revert to Saved restores the file's text", a.text)
+                expect(a.textView.undoManager?.undoActionName == "Revert to Saved", "as one undoable edit",
+                       a.textView.undoManager?.undoActionName ?? "-")
+            },
+            sync {
+                key("z", [.command])
+                expect(a.text == "xyalpha1\n", "⌘Z undoes the revert", a.text)
+            },
+            { next in DispatchQueue.main.async { next() } },
+            sync {
+                let item = menuItem(action: #selector(AppDelegate.revertToSaved(_:)))!
+                expect(app.validateMenuItem(item), "Revert is enabled with unsaved changes",
+                       "dirty \(a.doc.isDirty) current \(app.currentTab?.doc.displayName ?? "-")")
+                choose(#selector(AppDelegate.revertToSaved(_:)))
+                expect(!app.validateMenuItem(item), "and disabled when there are none")
+            },
+            sync {
+                // Undo after a save makes the tab unsaved again (it didn't: undo never reached textDidChange).
+                a.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                type("q")
+                _ = a.save()
+            },
+            sync {
+                key("z", [.command])
+            },
+            { next in DispatchQueue.main.async { next() } },
+            sync {
+                expect(a.text == "alpha1\n" && a.doc.isDirty, "⌘Z after a save leaves the tab unsaved", "dirty \(a.doc.isDirty) \(a.text.debugDescription)")
+                key("z", [.command, .shift])
+            },
+            { next in DispatchQueue.main.async { next() } },
+            sync {
+                expect(a.text == "qalpha1\n" && a.doc.isDirty, "⇧⌘Z redoes it (an edit like any other)", "dirty \(a.doc.isDirty) \(a.text.debugDescription)")
+            },
+            sync {
+                // Close Window: a second window with two tabs.
+                app.newTab(nil)
+                let w2 = app.tabs.last!.window!
+                w2.moveTabToNewWindow(nil)
+                app.makeTab(EditorDocument(untitledName: "Extra"), text: "", in: w2)
+                expect(w2.tabbedWindows?.count == 2, "a second window with two tabs", "\(w2.tabbedWindows?.count ?? 0)")
+                w2.makeKeyAndOrderFront(nil)
+                let before = app.tabs.count
+                key("w", [.command, .shift])
+                expect(app.tabs.count == before - 2, "⇧⌘W closes the window's tabs", "\(before) → \(app.tabs.count)")
+                expect(a.window?.isVisible == true && b.window != nil, "the other window stays")
             },
         ])
     }

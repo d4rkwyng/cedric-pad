@@ -131,7 +131,26 @@ final class Settings {
         }
     }
 
-    var font: NSFont { NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular) }
+    /// Settings › Font: a font's PostScript name, or nil for the system's
+    /// monospaced font (SF Mono).
+    var fontName: String? {
+        get { defaults.string(forKey: "fontName") }
+        set {
+            if let newValue { defaults.set(newValue, forKey: "fontName") } else { defaults.removeObject(forKey: "fontName") }
+            changed()
+        }
+    }
+
+    private var cachedFont: (name: String?, size: CGFloat, font: NSFont)?
+
+    /// The editor's font (asked for on every selection change: cached).
+    var font: NSFont {
+        let name = fontName, size = fontSize
+        if let c = cachedFont, c.name == name, c.size == size { return c.font }
+        let f = name.flatMap { NSFont(name: $0, size: size) } ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        cachedFont = (name, size, f)
+        return f
+    }
 
     /// The palette for a view, resolving System against its appearance.
     func palette(for appearance: NSAppearance?) -> EditorPalette {

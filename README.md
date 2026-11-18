@@ -34,7 +34,14 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Themes:** System (light or dark with macOS), Light, Dark, Tankard (deep
   purple and amber) and Dracula, the same set as Tankard. Every theme's text
   colours meet WCAG AA contrast (4.5:1), checked by a test. SF Mono by
-  default; ⌘+ / ⌘− / ⌘0 zoom.
+  default, or any installed fixed-pitch font; ⌘+ / ⌘− / ⌘0 zoom.
+- **Settings** (Cedric › Settings…, ⌘,): theme, font and size, wrap,
+  invisibles, line numbers, highlight occurrences, auto-close brackets,
+  spelling while typing, and the default indentation, in one window (the
+  menu toggles still work and the window follows them).
+- **Mac file basics:** Save All (⌥⌘S), Revert to Saved (undoable with ⌘Z),
+  Close Window (⇧⌘W: every tab in the window, each hot-closed), and the
+  system Services in the app menu.
 - **Find and replace** in the current document, with regular expressions
   (ICU syntax, `$1` in replacements), match case and whole word; ⌘F, ⌥⌘F,
   ⌘G / ⇧⌘G, ⌘E. Replace All is one undo step.

@@ -64,8 +64,14 @@ func buildMainMenu() -> NSMenu {
     let main = NSMenu()
     let app = "Cedric"
 
+    // Filled by AppKit with the system's services (Cedric vends none).
+    let services = submenu(String(localized: "Services"), [])
     main.addItem(submenu(app, [
         item(String(localized: "About Cedric"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
+        .separator(),
+        item(String(localized: "Settings…"), #selector(AppDelegate.showSettings(_:)), ","),
+        .separator(),
+        services,
         .separator(),
         item(String(localized: "Hide Cedric"), #selector(NSApplication.hide(_:)), "h"),
         item(String(localized: "Hide Others"), #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
@@ -83,9 +89,12 @@ func buildMainMenu() -> NSMenu {
         submenu(AppDelegate.recentMenuTitle, []),
         .separator(),
         item(String(localized: "Close Tab"), #selector(NSWindow.performClose(_:)), "w"),
+        item(String(localized: "Close Window"), #selector(AppDelegate.closeWindow(_:)), "w", [.command, .shift]),
         item(String(localized: "Reopen Closed Tab"), #selector(AppDelegate.reopenClosedTab(_:)), "t", [.command, .shift]),
         item(String(localized: "Save"), #selector(AppDelegate.saveDocument(_:)), "s"),
         item(String(localized: "Save As…"), #selector(AppDelegate.saveDocumentAs(_:)), "s", [.command, .shift]),
+        item(String(localized: "Save All"), #selector(AppDelegate.saveAll(_:)), "s", [.command, .option]),
+        item(String(localized: "Revert to Saved"), #selector(AppDelegate.revertToSaved(_:))),
         .separator(),
         item(String(localized: "Page Setup…"), #selector(AppDelegate.pageSetup(_:)), "p", [.command, .shift]),
         item(String(localized: "Print…"), #selector(AppDelegate.printDocument(_:)), "p"),
@@ -210,6 +219,7 @@ func buildMainMenu() -> NSMenu {
     ])
     main.addItem(window)
     NSApp.windowsMenu = window.submenu
+    NSApp.servicesMenu = services.submenu
     return main
 }
 
