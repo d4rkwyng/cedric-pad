@@ -14,9 +14,12 @@ import Foundation
 public enum Markdown {
     /// What to render beyond the plain HTML.
     public struct Options: Sendable {
-        public init() {}
-        /// The live preview's options.
-        public static let preview = Options()
+        /// Fenced code coloured by its language, as `<span class="tk-…">`
+        /// (CodeHTML: Cedric's own tokenizers, no script in the page).
+        public var highlightCode = false
+        public init(highlightCode: Bool = false) { self.highlightCode = highlightCode }
+        /// The live preview's (and export's) options.
+        public static let preview = Options(highlightCode: true)
     }
 
     public static func render(_ source: String, options: Options = Options()) -> String {
@@ -250,7 +253,9 @@ final class MarkdownRenderer {
                     j += 1
                 }
                 let lang = info.split(separator: " ").first.map { " class=\"language-\(escape(String($0)))\"" } ?? ""
-                out += "<pre\(attr(i))><code\(lang)>\(escape(body.joined(separator: "\n")))\(body.isEmpty ? "" : "\n")</code></pre>\n"
+                let code = body.joined(separator: "\n")
+                let html = options.highlightCode ? Language(fenceInfo: info).map { CodeHTML.highlight(code, language: $0) } ?? escape(code) : escape(code)
+                out += "<pre\(attr(i))><code\(lang)>\(html)\(body.isEmpty ? "" : "\n")</code></pre>\n"
                 i = min(end, j + 1)
                 continue
             }

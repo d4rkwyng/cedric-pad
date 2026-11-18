@@ -114,7 +114,7 @@ func kinds(_ text: String, _ language: Language) -> [String: TokenKind] {
         #expect(s[0].map(\.1) == [.heading])
         #expect(s[1].map(\.1) == [.emphasis, .strong, .code, .link])
         #expect(s[2].map(\.1) == [.code])
-        #expect(s[3].map(\.1) == [.code])   // inside the fence: all code, no Swift keywords
+        #expect(s[3].map(\.1) == [.keyword, .number])   // inside a swift fence: coloured as Swift
         #expect(s[4].map(\.1) == [.code])
         #expect(s[5].map(\.1) == [.punctuation])
         #expect(s[6].map(\.1) == [.punctuation])
@@ -136,6 +136,32 @@ func kinds(_ text: String, _ language: Language) -> [String: TokenKind] {
         let engine = HighlightEngine(language: .markdown)
         let toks = engine.tokens(forLines: 1..<2, in: text, index: LineIndex(text))
         #expect(toks.map(\.kind) == [.key, .number])
+    }
+
+    @Test func markdownFencedCodeIsColouredByItsLanguage() {
+        let s = spans("```python\ndef f():\n    \"\"\"doc\n    still doc\"\"\"\n```\n# after\n~~~ js {.x}\nconst a = 1 /* c\n c */\n~~~\n```nosuchlang\nlet x = 1\n```", .markdown)
+        #expect(s[0].map(\.1) == [.code])
+        #expect(s[1].map(\.0) == ["def", "f"] && s[1].map(\.1) == [.keyword, .function])
+        #expect(s[2].map(\.1) == [.string])
+        #expect(s[3].map(\.1) == [.string])          // the inner tokenizer's state carries over lines
+        #expect(s[4].map(\.1) == [.code])
+        #expect(s[5].map(\.1) == [.heading])         // the fence closed
+        #expect(s[7].map(\.1) == [.keyword, .number, .comment])
+        #expect(s[8].map(\.1) == [.comment])
+        #expect(s[11].map(\.1) == [.code])           // unknown language: flat, as before
+        // "```js" inside a fence doesn't close it; only a bare fence does.
+        let t = spans("```\n```js\n```\ntext *em*", .markdown)
+        #expect(t[1].map(\.1) == [.code] && t[3].map(\.1) == [.emphasis])
+    }
+
+    @Test func fenceInfoNamesALanguage() {
+        #expect(Language(fenceInfo: "swift") == .swift)
+        #expect(Language(fenceInfo: "py title=\"x.py\"") == .python)
+        #expect(Language(fenceInfo: "{.js}") == .javascript)
+        #expect(Language(fenceInfo: "c++") == .c)
+        #expect(Language(fenceInfo: "TOML") == .ini)
+        #expect(Language(fenceInfo: "bash") == .shell)
+        #expect(Language(fenceInfo: "") == nil && Language(fenceInfo: "klingon") == nil)
     }
 
     @Test func markdownSnakeCaseIsNotEmphasis() {

@@ -42,7 +42,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   links, footnotes (`[^1]`), GitHub alerts (`> [!NOTE]`, `[!TIP]`,
   `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), task lists (disabled
   checkboxes) and YAML frontmatter, which shows as a small metadata table
-  (and is coloured as YAML in the editor). **Detach Preview** (View menu, ⇧⌥⌘P,
+  (and is coloured as YAML in the editor). Fenced code blocks are
+  coloured by their language (```` ```swift ````, `py`, `js`, `bash`, …)
+  both in the editor and in the preview, by Cedric's own tokenizers and
+  the theme's colours (no JavaScript highlighter). **Detach Preview** (View menu, ⇧⌥⌘P,
   or Detach in the preview's header) moves it into its own resizable
   window, "notes.md — Preview", still updating as you type; it stays
   with its own document whichever tab is in front, and closes with that

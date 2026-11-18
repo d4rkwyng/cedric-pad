@@ -185,3 +185,20 @@ func md(_ s: String) -> String {
         #expect(html.contains("<h2 id=\"fancy-code\">"))
     }
 }
+
+@Suite struct CodeHTMLTests {
+    @Test func spansFromCedricsTokenizers() {
+        #expect(CodeHTML.highlight("let a = \"<b>\" // x & y", language: .swift)
+                == "<span class=\"tk-keyword\">let</span> a = <span class=\"tk-string\">&quot;&lt;b&gt;&quot;</span> <span class=\"tk-comment\">// x &amp; y</span>")
+        #expect(CodeHTML.highlight("/* a\nb */ x", language: .c) == "<span class=\"tk-comment\">/* a</span>\n<span class=\"tk-comment\">b */</span> x")
+        #expect(CodeHTML.highlight("<a> & b", language: .plain) == "&lt;a&gt; &amp; b")
+    }
+
+    @Test func previewColoursFencesPlainRenderDoesNot() {
+        let src = "```swift\nlet a = 1\n```\n\n```\nlet a = 1\n```"
+        let html = Markdown.render(src, options: .preview)
+        #expect(html.contains("<code class=\"language-swift\"><span class=\"tk-keyword\">let</span> a = <span class=\"tk-number\">1</span>\n</code>"))
+        #expect(html.contains("<code>let a = 1\n</code>"))
+        #expect(!Markdown.render(src).contains("tk-"))
+    }
+}

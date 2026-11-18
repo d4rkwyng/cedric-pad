@@ -221,6 +221,8 @@ final class PreviewController: NSObject, WKNavigationDelegate {
         .markdown-alert-caution { --alert: #e5534b; }
         sup.footnote-ref a { text-decoration: none; }
         section.footnotes { font-size: 13px; color: \(hex(p.color(for: .comment))); }
+        \(TokenKind.allCases.filter { $0 != .plain }.map { ".tk-\($0) { color: \(hex(p.color(for: $0))); }" }.joined(separator: " "))
+        .tk-comment { font-style: italic; }
         """
     }
 
