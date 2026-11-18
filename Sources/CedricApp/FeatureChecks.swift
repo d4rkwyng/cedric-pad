@@ -373,7 +373,9 @@ extension DevChecks {
         // Comma then a space (the owner's build 7 report), quoted fields after the space.
         let spacedText = "name, age, city\nAlice, 30, Paris\n\"Smith, J\", 41, \"Rome, IT\"\nBob, 25,  \" Oslo \"\n"
         let spaced = app.open(write("spaced.csv", spacedText))!
-        for t in [tab, tsv, many, wide, spaced] { sized(t) }
+        // An unclosed quote on line 3 (build 7: it swallowed rows 4 and 5).
+        let tricky = app.open(write("tricky.csv", "name,note\nann,ok\nbob,\"never closed\ncat,x\ndan,y\n"))!
+        for t in [tab, tsv, many, wide, spaced, tricky] { sized(t) }
         var g: CSVPreview? { tab.previewPane?.renderer as? CSVPreview }
         let ns = csv as NSString
         var before = 0
@@ -502,6 +504,23 @@ extension DevChecks {
                 for t in [tab, tsv, many, wide, spaced] { t.doc.markSaved() }
             },
             snapshot("csv-grid-spaced.png"),
+            sync {
+                focus(tricky)
+                key("p", [.command, .option])
+                expect(tricky.previewPane?.renderer is CSVPreview, "the unclosed-quote grid opens")
+            },
+            waitForGrid(tricky, after: { 0 }, "unclosed quote: the grid renders"),
+            sync {
+                guard let g = tricky.previewPane?.renderer as? CSVPreview else { return }
+                let cells = (0..<g.table.numberOfRows).map { r in (0..<2).map { shown(g, r, $0) } }
+                expect(cells == [["ann", "ok"], ["bob", "never closed"], ["cat", "x"], ["dan", "y"]],
+                       "unclosed quote: the field stops at its line, later rows still show", "\(cells)")
+                expect(!g.note.isHidden && g.note.stringValue.hasPrefix("Unclosed quote on line 3."),
+                       "unclosed quote: a warning says where", g.note.stringValue)
+                expect(tricky.text.contains("\"never closed\ncat"), "the text is untouched")
+                tricky.doc.markSaved()
+            },
+            snapshot("csv-grid-unclosed.png", window: tricky.window),
         ])
     }
 }

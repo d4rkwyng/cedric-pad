@@ -216,7 +216,7 @@ enum DevChecks {
         case "large": largeDocument(app)
         case "git": gitCheck(app)
         default:
-            if !editingCheck(name, app), !pdfCheck(name, app), !imageCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
+            if !editingCheck(name, app), !pdfCheck(name, app), !imageCheck(name, app), !binaryCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
         }
     }
 

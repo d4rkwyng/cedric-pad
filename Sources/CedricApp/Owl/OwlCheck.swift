@@ -45,6 +45,7 @@ enum OwlCheck {
         let env = ProcessInfo.processInfo.environment
         if env["CEDRIC_OWL_CHECK_RULES"] == "1" { OwlRulesCheck.run(tab, out: out); return }
         if env["CEDRIC_OWL_CHECK_AI"] == "1" { OwlRulesCheck.runAI(tab, out: out); return }
+        if env["CEDRIC_OWL_CHECK_TYPOS"] == "1" { OwlTypoCheck.run(tab, out: out); return }
         let original = tab.text
         let deadline = Date().addingTimeInterval(20)
         OwlHub.shared.onPresent = { t, hint in

@@ -121,10 +121,29 @@ final class OwlController: NSObject, NSPopoverDelegate {
     private func layoutBubble() {
         guard let bubble else { return }
         let size = bubble.fit()
-        let place = OwlPlacement.bubble(owl: owl.frame, size: size, in: overlay.bounds)
+        let place = OwlPlacement.bubble(owl: owl.frame, size: size, in: overlay.bounds, avoid: hintedRect())
         bubble.tailOnTop = place.tailOnTop
         bubble.tailAtLeft = place.tailAtLeft
         bubble.frame = place.frame
+    }
+
+    /// The lines the presented hint is about, in the overlay's
+    /// coordinates (nil when it has no range or isn't on screen), so the
+    /// bubble doesn't cover them in a small window.
+    func hintedRect() -> CGRect? {
+        guard let range = presented?.range, let tv = tab?.textView, let window = tv.window,
+              let vis = tv.visibleCharacterRange else { return nil }
+        let len = (tv.string as NSString).length
+        let start = max(range.location, vis.location), end = min(NSMaxRange(range), NSMaxRange(vis), len)
+        guard NSMaxRange(range) <= len, start <= end else { return nil }
+        // Its first and last line on screen (TextKit is asked only about those).
+        let first = tv.firstRect(forCharacterRange: NSRange(location: start, length: 0), actualRange: nil)
+        let last = tv.firstRect(forCharacterRange: NSRange(location: end, length: 0), actualRange: nil)
+        guard first != .zero, last != .zero else { return nil }
+        let a = overlay.convert(window.convertFromScreen(first), from: nil)
+        let b = overlay.convert(window.convertFromScreen(last), from: nil)
+        let minY = min(a.minY, b.minY), maxY = max(a.maxY, b.maxY, minY + 12)
+        return CGRect(x: overlay.bounds.minX, y: minY, width: overlay.bounds.width, height: maxY - minY)
     }
 
     // MARK: Dragging
@@ -348,24 +367,30 @@ final class OwlController: NSObject, NSPopoverDelegate {
     /// (through `applyPresented`, like any hint with a replacement). Once
     /// per document unless snoozed; never over another bubble, while
     /// quiet, or when turned off with "Don't show again".
-    func offerTypoFix(_ spelling: EditorSpelling, tab: EditorWindowController) {
+    @discardableResult
+    func offerTypoFix(_ spelling: EditorSpelling, tab: EditorWindowController) -> Bool {
         let hub = OwlHub.shared
-        guard bubble == nil, !hub.coordinator.isQuiet else { return }
+        guard bubble == nil, !popoverShown, !hub.coordinator.isQuiet else { return false }
         let window = tab.owlContextWindow()
         let ctx = window.context
         let probe = OwlHint(id: Self.typoFixID, kind: .fix, title: "", source: "rules")
-        guard hub.coordinator.isEligible(probe, documentID: tab.doc.id) else { return }
+        guard hub.coordinator.isEligible(probe, documentID: tab.doc.id) else { return false }
+        // Only in prose: in a log or a list of settings, Fix All would
+        // rewrite data (`dur=0ms` → `due=0ms`).
+        guard SpellScope.offersTypoFix(ctx.text as NSString, language: tab.doc.language,
+                                       fileName: tab.doc.fileURL?.lastPathComponent) else { return false }
         // Only what the owl can see in his context window.
         let ctxRange = NSRange(location: ctx.textStart, length: (ctx.text as NSString).length)
         let found = spelling.misspellings(in: ctxRange)
-        guard let fix = spelling.typoFix(found) else { return }
+        guard let fix = spelling.typoFix(found) else { return false }
         let local = NSRange(location: fix.range.location - ctx.textStart, length: fix.range.length)
-        guard local.location >= 0, NSMaxRange(local) <= (ctx.text as NSString).length else { return }
+        guard local.location >= 0, NSMaxRange(local) <= (ctx.text as NSString).length else { return false }
         let hint = OwlHint(id: Self.typoFixID, kind: .fix, title: String(localized: "Fix \(fix.count) typos?"),
                            detail: String(localized: "Fix Typos… goes through them one by one; Fix All uses the first suggestion for each, as one undo step."),
                            range: local, replacement: fix.replacement, source: "rules")
         hub.coordinator.markShown(hint, documentID: tab.doc.id)
         present(hint, context: ctx)
+        return true
     }
 
     private func buttons(for hint: OwlHint, tab: EditorWindowController) -> [OwlBubble.Button] {
@@ -416,8 +441,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
             out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self, weak tab] in
                 guard let self, self.applyPresented() else { return }
                 // A to-do list in checkboxes reads best coloured as Markdown.
-                if hint.id == RulesHintProvider.todoListID, let tab, tab.doc.language == .plain { tab.setLanguage(.markdown) }
+                if hint.id == RulesHintProvider.todoListID, let tab, tab.doc.language == .plain { tab.setLanguageWithUndo(.markdown) }
             })
+            if hint.id == RulesHintProvider.duplicateWordID {
+                // Where it is, before fixing blind: selects the doubled words.
+                out.append(.init(title: String(localized: "Show Me"), isDefault: false) { [weak self] in self?.showPresented() })
+            }
         } else if let language = RulesHintProvider.guessedLanguage(hint) {
             out.append(.init(title: String(localized: "Use \(language.displayName)"), isDefault: true) { [weak self, weak tab] in
                 tab?.setLanguage(language); self?.hideBubble()
@@ -471,8 +500,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
         guard let p = presented, let range = p.range, let expected = p.expected, let tv = tab?.textView else { return false }
         let ns = tv.string as NSString
         guard NSMaxRange(range) <= ns.length, ns.substring(with: range) == expected else { NSSound.beep(); return false }
-        tv.setSelectedRange(range)
-        tv.scrollRangeToVisible(range)
+        // A doubled word: the words themselves ("the the"), not the span
+        // the fix rewrites (which starts after the first one).
+        let target = p.hint.id == RulesHintProvider.duplicateWordID
+            ? RulesHintProvider.doubledWordFocus(ns, hintRange: range) ?? range : range
+        tv.setSelectedRange(target)
+        tv.scrollRangeToVisible(target)
         tv.window?.makeFirstResponder(tv)
         return true
     }

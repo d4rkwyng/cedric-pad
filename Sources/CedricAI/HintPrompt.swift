@@ -129,7 +129,13 @@ public enum HintPrompt {
             // offer edits that stay close to what they replace: similar
             // words, a similar size, and (where a checker exists) a fix that
             // actually makes the tags / brackets / JSON check pass.
-            if let rep = replacement, wordOverlap(find, rep) <= minReplacementOverlap { replacement = nil }
+            // A respelt word or two in prose ("definately" → "definitely",
+            // "their are" → "there are") shares no whole word with what it
+            // fixes, but is close letter by letter: kept. Not in code, where
+            // a respelt identifier ("value" → "valve") is a different name.
+            let prose = ["plain", "markdown"].contains(language.lowercased())
+            if let rep = replacement, wordOverlap(find, rep) <= minReplacementOverlap,
+               !(prose && isRespelling(find, rep)) { replacement = nil }
             if let rep = replacement, rep.count > max(find.count * 3, find.count + 80) { replacement = nil }
             if let rep = replacement, let r = range,
                !HintVerifier.fixPasses(categories, text: text, range: r, replacement: rep, language: language) {
@@ -211,6 +217,43 @@ public enum HintPrompt {
         let wa = words(a), wb = words(b)
         if wa.isEmpty && wb.isEmpty { return 1 }
         return Double(wa.intersection(wb).count) / Double(wa.union(wb).count)
+    }
+
+    /// Prose respellings: both sides a few words of letters (an apostrophe
+    /// or hyphen inside is fine), the same number of words give or take
+    /// one ("alot" → "a lot"), and at least `minRespellingSimilarity` alike
+    /// letter by letter. Code (brackets, operators, dots) never qualifies.
+    static func isRespelling(_ find: String, _ replacement: String) -> Bool {
+        func words(_ s: String) -> [Substring]? {
+            let w = s.split(separator: " ")
+            guard !w.isEmpty, w.count <= 4 else { return nil }
+            for word in w {
+                var core = Substring(word)
+                while let last = core.last, ",.!?;:".contains(last) { core = core.dropLast() }
+                guard !core.isEmpty, core.allSatisfy({ $0.isLetter || $0 == "'" || $0 == "’" || $0 == "-" }) else { return nil }
+            }
+            return w
+        }
+        guard let a = words(find), let b = words(replacement), abs(a.count - b.count) <= 1 else { return false }
+        return similarity(find.lowercased(), replacement.lowercased()) >= minRespellingSimilarity
+    }
+
+    public static let minRespellingSimilarity = 0.6
+
+    /// 1 − Levenshtein distance / the longer length (characters).
+    static func similarity(_ a: String, _ b: String) -> Double {
+        let x = Array(a), y = Array(b)
+        guard !x.isEmpty || !y.isEmpty else { return 1 }
+        var prev = Array(0...y.count), cur = prev
+        for i in 1...max(1, x.count) where !x.isEmpty {
+            cur[0] = i
+            for j in stride(from: 1, through: y.count, by: 1) {
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] == y[j - 1] ? 0 : 1))
+            }
+            prev = cur
+        }
+        let d = x.isEmpty ? y.count : prev[y.count]
+        return 1 - Double(d) / Double(max(x.count, y.count))
     }
 
     /// Whitespace-insensitive form, so "cart = []" vs "cart=[]" is a no-op.

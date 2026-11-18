@@ -87,6 +87,36 @@ public struct OwlPlacement: Codable, Equatable, Sendable {
         public var tailAtLeft: Bool
     }
 
+    /// The same, kept off `avoid` (the lines the hint is about) when it
+    /// can be: the other side of the owl (above or below), then sliding
+    /// along the editor's width, still inside `bounds`. As before when
+    /// nothing avoids it.
+    public static func bubble(owl: CGRect, size: CGSize, in bounds: CGRect, avoid: CGRect?) -> Bubble {
+        let plain = bubble(owl: owl, size: size, in: bounds)
+        guard let avoid, !avoid.isEmpty, plain.frame.intersects(avoid) else { return plain }
+        let overlap = owl.height * 0.3
+        let towardsLeft = !plain.tailAtLeft
+        var candidates: [Bubble] = []
+        // Above and below the owl, at the usual x, then at the far sides.
+        let xs = [plain.frame.minX, bounds.minX + 4, bounds.maxX - size.width - 4]
+        for above in [plain.tailOnTop, !plain.tailOnTop] {
+            let y = above ? owl.maxY - overlap : owl.minY + 2 - size.height
+            for x in xs {
+                candidates.append(Bubble(frame: CGRect(x: x, y: y, width: size.width, height: size.height),
+                                         tailOnTop: !above, tailAtLeft: !towardsLeft))
+            }
+        }
+        // Clear of the hinted lines above or below them, by the owl's side.
+        for y in [avoid.maxY + 4, avoid.minY - 4 - size.height] {
+            candidates.append(Bubble(frame: CGRect(x: plain.frame.minX, y: y, width: size.width, height: size.height),
+                                     tailOnTop: y < owl.minY, tailAtLeft: plain.tailAtLeft))
+        }
+        if let clear = candidates.first(where: { bounds.contains($0.frame) && !$0.frame.intersects(avoid) }) { return clear }
+        // No room anywhere (a tiny window): as before. The bubble fades
+        // when the caret comes near it.
+        return plain
+    }
+
     public static func bubble(owl: CGRect, size: CGSize, in bounds: CGRect) -> Bubble {
         // Over his head, overlapping the top 30% of the art (as before).
         let overlap = owl.height * 0.3

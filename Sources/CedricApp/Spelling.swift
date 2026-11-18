@@ -15,7 +15,6 @@ import CedricCore
 final class EditorSpelling {
     /// Weak: a timer can fire after the tab is gone.
     private weak var tab: EditorWindowController?
-    private var timer: Timer?
 
     init(tab: EditorWindowController) {
         self.tab = tab
@@ -54,20 +53,33 @@ final class EditorSpelling {
         return SpellScope.checks(language: tab.doc.language, fileName: tab.doc.fileURL?.lastPathComponent)
     }
 
-    /// The text changed or the language did: the owl looks again shortly.
-    func schedule(after delay: TimeInterval = 1.0) {
-        guard let tab, tab.owl != nil, !tab.extrasPaused, SpellScope.isProse(tab.doc.language), checksThisDocument, Settings.shared.checkSpellingWhileTyping else { return }
-        timer?.invalidate()
-        let t = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.offerTypoFix() }
-        }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+    /// "Fix N typos?" runs on the owl's own schedule (OwlHub.fire): only
+    /// once typing has paused for the owl's pause (3 s) and at most once
+    /// per query interval (30 s), after an edit or an open, when the rules
+    /// had nothing to say. Never while typing, and at most one typo bubble
+    /// per `policy.minInterval` (10 min, like grammar) across the app.
+    static var policy = GrammarPopupPolicy(
+        minInterval: ProcessInfo.processInfo.environment["CEDRIC_TYPO_INTERVAL"].flatMap(Double.init) ?? 600,
+        typingPause: 3)
+
+    /// Whether the typo offer may look at this tab at all (cheap, no text read).
+    var mayOffer: Bool {
+        guard let tab, tab.owl != nil, !tab.extrasPaused, SpellScope.isProse(tab.doc.language), checksThisDocument,
+              Settings.shared.checkSpellingWhileTyping else { return false }
+        return true
     }
 
-    func stop() {
-        timer?.invalidate()
-        timer = nil
+    /// Called by the owl's scheduled query when the rules found nothing:
+    /// offers the typo fix if the pause and the rate limit allow.
+    /// `skipPause`: the checks, which have just opened the tab.
+    @discardableResult
+    func offerAfterPause(skipPause: Bool = false) -> Bool {
+        guard mayOffer, let tab, let owl = tab.owl else { return false }
+        Self.policy.typingPause = OwlHub.shared.coordinator.typingPause
+        guard Self.policy.mayPopUp(now: Date(), lastTyping: skipPause ? nil : owl.lastTyping) else { return false }
+        guard owl.offerTypoFix(self, tab: tab) else { return false }
+        Self.policy.noteShown(Date())
+        return true
     }
 
     /// Misspellings in scope within `range` (the visible lines by default).
@@ -101,12 +113,6 @@ final class EditorSpelling {
         }
         guard fixes.count >= 3, let c = SpellScope.combinedFix(ns, fixes) else { return nil }
         return (c.range, c.replacement, fixes.count)
-    }
-
-    private func offerTypoFix() {
-        timer = nil
-        guard let tab, let owl = tab.owl, SpellScope.isProse(tab.doc.language), checksThisDocument else { return }
-        owl.offerTypoFix(self, tab: tab)
     }
 
     /// Edit › Spelling and Grammar › Check Document Now: the next

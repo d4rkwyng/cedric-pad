@@ -42,9 +42,8 @@ import CedricCore
     }
 
     @Test func savesAndLoadsFromDefaults() throws {
-        let suite = "cedric-tests-\(UUID().uuidString)"
-        let d = try #require(UserDefaults(suiteName: suite))
-        defer { d.removePersistentDomain(forName: suite) }
+        let (d, suite) = TestDefaults.make("cedric-tests-")
+        defer { TestDefaults.remove(suite) }
         #expect(LocalAISettings.load(from: d, defaultBackend: .builtIn) == .default)
         var s = LocalAISettings(enabled: true, backend: .ollama, model: "qwen2.5-coder:3b", minInterval: 120)
         s.save(to: d)
@@ -111,7 +110,9 @@ final class SlowProvider: OwlHintProvider, @unchecked Sendable {
         #expect(rig.bridge.providerName == "local:test-qwen")
         #expect(rig.registry.entries.map(\.provider.name) == ["local:test-qwen"])
         // The coordinator's own query never reaches the model.
-        let coordinator = OwlCoordinator(registry: rig.registry, defaults: UserDefaults(suiteName: "cedric-bridge-\(UUID())")!)
+        let (bridgeDefaults, bridgeSuite) = TestDefaults.make("cedric-bridge-")
+        defer { TestDefaults.remove(bridgeSuite) }
+        let coordinator = OwlCoordinator(registry: rig.registry, defaults: bridgeDefaults)
         coordinator.source = .rulesAndAI
         for p in rig.registry.providers(for: .rulesAndAI) { #expect(await p.hints(for: context()).isEmpty) }
         #expect(provider.calls == 0)

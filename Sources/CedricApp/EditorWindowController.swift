@@ -67,7 +67,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Whether the find bar exists and shows (without building it).
     var isFindBarOpen: Bool { findBarBuilt && !findBar.isHidden }
     private var findBarBuilt = false
-    private var stack: NSStackView!
+    private(set) var stack: NSStackView!
     let statusBar = StatusBar()
     let split = NSSplitView()
     private var container: EditorContainer!
@@ -107,6 +107,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var largePending = false
     var isLargeDocument: Bool { largeReason != nil }
     let largeBar = LargeDocumentBar()
+    /// A file that looks binary (BinaryFile.swift): nil for text.
+    var binary: BinaryFileState?
+    /// Its bar, built only for such a file.
+    var binaryBar: BinaryFileBar?
     /// Highlight-all, marks, bookmarks and the other editing extras
     /// (EditingFeatures.swift).
     let editing = EditingState()
@@ -401,7 +405,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if let owl {
             owl.noteTyping()
             OwlHub.shared.activity(in: self)
-            spelling.schedule()
         }
         grammar.schedule()
         onChange?(self)
@@ -576,6 +579,26 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         languageChanged()
     }
 
+    /// A language change that belongs to an edit (the owl's to-do fix
+    /// colours the tab as Markdown): registered in the same undo group,
+    /// so one ⌘Z restores the text and the language, and ⇧⌘Z redoes both.
+    func setLanguageWithUndo(_ l: Language) {
+        let old = doc.languageChoice
+        setLanguage(l)
+        registerLanguageUndo(back: old)
+    }
+
+    private func registerLanguageUndo(back old: LanguageChoice) {
+        guard let um = textView.undoManager else { return }
+        um.registerUndo(withTarget: self) { [weak self] _ in
+            guard let self else { return }
+            let now = self.doc.languageChoice
+            self.doc.languageChoice = old
+            self.languageChanged()
+            self.registerLanguageUndo(back: now)
+        }
+    }
+
     private func languageChanged() {
         let l = doc.language
         colorizer.setLanguage(l)
@@ -663,12 +686,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     @discardableResult
     func save() -> Bool {
+        guard !binaryBlocksSave else { NSSound.beep(); return false }
         guard let url = doc.fileURL else { return saveAs() }
         return write(to: url)
     }
 
     @discardableResult
     func saveAs() -> Bool {
+        guard !binaryBlocksSave else { NSSound.beep(); return false }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = doc.fileURL?.lastPathComponent ?? doc.untitledName + (doc.language == .markdown ? ".md" : ".txt")
         panel.directoryURL = doc.fileURL?.deletingLastPathComponent()
@@ -714,6 +739,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             return
         }
         guard let (d, newMod) = try? EditorDocument.read(url, encoding: doc.encoding) else { return }
+        if case .held = binary {
+            // Not shown yet (Open Anyway): only what it will show changes.
+            binary = .held(d.text)
+            doc.fileModified = newMod
+            return
+        }
         let sel = textView.selectedRange()
         doc.apply(d)
         doc.fileModified = newMod
@@ -751,6 +782,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// The owl's "Save a copy?": writes the text elsewhere; the tab keeps
     /// its file and stays unsaved.
     func saveCopy() {
+        guard !binaryBlocksSave else { NSSound.beep(); return }
         let panel = NSSavePanel()
         let base = (doc.displayName as NSString).deletingPathExtension
         let ext = (doc.displayName as NSString).pathExtension
@@ -822,7 +854,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         owl?.detach()
         sniffTimer?.invalidate()
         editing.stop()
-        spelling.stop()
         spellStep?.closeWithTab()
         grammar.stop()
         grammarStep?.closeWithTab()

@@ -296,7 +296,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             doc.languageChoice = .forFile(named: std.lastPathComponent, content: d.text)
             PerfTrace.mark("detect_language")
             let blank = tabs.count == 1 && tabs[0].doc.fileURL == nil && !tabs[0].doc.isDirty && tabs[0].text.isEmpty ? tabs[0] : nil
-            let tab = makeTab(doc, text: d.text)
+            // A binary file: nothing shown until Open Anyway (BinaryFile.swift).
+            let tab = makeTab(doc, text: d.looksBinary ? "" : d.text)
+            if d.looksBinary { tab.holdBinary(d.text) }
             blank?.window?.close()
             OwlHub.shared.activity(in: tab)
             noteRecent(std)
@@ -523,11 +525,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                  untitledName: st.untitledName ?? st.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Untitled"))
         doc.indentation = st.indentation
         var text: String?
+        var binary = false
         if st.hasBuffer { text = store.readBuffer(st.id) }
         if text == nil, let url = doc.fileURL, let (d, mod) = try? EditorDocument.read(url, encoding: st.encoding) {
             doc.apply(d)
             doc.fileModified = mod
             text = d.text
+            binary = d.looksBinary
         } else if text != nil {
             doc.encoding = st.encoding
             doc.lineEnding = st.lineEnding
@@ -541,7 +545,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             doc.languageChoice = .untitled(content: body)
         }
-        let tab = makeTab(doc, text: body, in: place?.host, newWindow: place == nil, show: false, tabIndex: place?.index)
+        let tab = makeTab(doc, text: binary ? "" : body, in: place?.host, newWindow: place == nil, show: false, tabIndex: place?.index)
+        if binary { tab.holdBinary(body) }
         if st.hasBuffer { doc.markDirtyFromSession(); doc.sessionChangeCount = doc.changeCount }
         tab.updateTitle()
         let len = (body as NSString).length
@@ -718,7 +723,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(goToLine(_:)):
             item.title = String(localized: "Go to Line…") // a PDF tab shows "Go to Page…"
             return tab != nil
-        case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)), #selector(showFind(_:)), #selector(showReplace(_:)),
+        case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)):
+            return tab != nil && tab?.binaryBlocksSave != true
+        case #selector(showFind(_:)), #selector(showReplace(_:)),
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(useSelectionForFind(_:)),
              #selector(printDocument(_:)):
             return tab != nil

@@ -135,7 +135,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   reads them; spaces inside quotes and in TSV are kept. Pipe tables
   (`| a | b |`, with a `|---|` rule) show without their empty edge columns. It updates as you type, parses
   off the main thread, and shows the first 50,000 rows of a longer file
-  (with a note). It detaches like the other previews.
+  (with a note). A quote that never closes doesn't swallow the rest of
+  the file: the grid ends that field at its line and an orange note says
+  "Unclosed quote on line N" (the text is untouched). It detaches like
+  the other previews.
 - **Themes:** System (light or dark with macOS), Light, Dark, Tankard (deep
   purple and amber) and Dracula, the same set as Tankard. Every theme's text
   colours meet WCAG AA contrast (4.5:1), checked by a test. SF Mono by
@@ -249,6 +252,11 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   makes sense of its accented letters and quotes) and shown in the status bar,
   with menus to convert (applied on save) or reopen with another encoding.
   Mixed line endings are shown as such and written as one kind on save.
+  A file that looks binary (a NUL byte, or many control characters, in
+  its first 8 KB; never UTF-16) opens with a bar, "This looks like a
+  binary file", and nothing shown: **Open Anyway** shows it as text,
+  read-only, with Save off so it can't be rewritten by accident; **Allow
+  Editing** on the bar makes it an ordinary text tab.
 - **PDFs open in a viewer tab** (read-only, PDFKit), from File › Open, a
   drop on a window or the Dock icon, `cedric file.pdf` (`file.pdf:3` for
   page 3), Open Recent or Finder's Open With (Cedric is registered as an
@@ -339,15 +347,21 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   at the text in view (at most 8 KB):
   - warnings: merge-conflict markers left in the file; something that looks
     like a secret (a private key, an AWS key, a GitHub, Slack, Stripe or
-    OpenAI/Anthropic token); JSON that doesn't parse (with the line);
+    OpenAI/Anthropic token); JSON that doesn't parse (with the line; a
+    trailing comma is named where it is: "Extra comma at the end of line
+    5");
     an unmatched or unclosed bracket in Swift, JavaScript, TypeScript, C,
     CSS or Python (strings, comments and regexes skipped; "never closed"
     only in a saved file, and not in C with `#if`/`#else`); a file changed on disk under your edits;
   - fixes: format one-line JSON; curly quotes pasted into code; tabs
     indenting YAML; tabs and spaces mixed (to whichever the file mostly
     uses; a Makefile keeps its tabs); zero-width and stray byte-order-mark
-    characters; trailing spaces; "It looks like you're writing a to-do
-    list" → Markdown checkboxes; a word typed twice ("the the"); two spaces
+    characters; trailing spaces (never in a diff or patch, CSV, INI/.env
+    or a log, where the spaces are data; in Markdown, two before another
+    line of the paragraph are a line break and stay); "It looks like
+    you're writing a to-do list" → Markdown checkboxes (one ⌘Z undoes the
+    colouring too); a word typed twice ("the the", "the the the", also
+    "por la la tarde"; **Show Me** selects it); two spaces
     after some full stops but not others; no newline at the end of a saved
     code file. Formatting JSON always does the whole file (checked
     first: if the whole file isn't valid JSON, nothing changes); in a
@@ -355,12 +369,22 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     around what's on screen, and say so;
   - offers and notes: plain text that is really Markdown, HTML or JSON
     (colour it that way); unsaved for two hours (save a copy); CRLF or
-    mixed line endings; and, once ever, a letter.
+    mixed line endings; and, once ever, a letter (a greeting and a
+    sign-off or address lines, not "Dear diary");
+  - typos: in prose only (writing that reads as sentences, never logs,
+    config or `key=value` lines), "Fix 3 typos?" with **Fix Typos…** and
+    **Fix All**, on his usual schedule: after a 3-second typing pause,
+    when the rules have nothing, at most once every 10 minutes, and once
+    after a prose file opens.
+
+  The bubble keeps off the lines it is about when the window has room.
 
   Optional AI hints (View › Cedric AI Settings…, off by default) use a
   local model only. On Intel Macs automatic AI checks are **off** by
   default so typing stays fast: click the owl and choose **Ask AI Now**,
   or turn on "Check automatically when I pause typing" in the settings.
+  A one-word AI fix in prose ("definately" → "definitely") keeps its
+  **Fix it**.
   In very large documents the owl only looks when clicked.
 
 ## Build and run

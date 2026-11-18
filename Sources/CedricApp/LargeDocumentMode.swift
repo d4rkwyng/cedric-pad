@@ -90,7 +90,6 @@ extension EditorWindowController {
         colorizer.paused = extrasPaused
         // Spell checking (Spelling.swift) follows extrasPaused.
         spelling.apply()
-        if extrasPaused { spelling.stop() }
         grammar.apply()
         if extrasPaused != wasPaused { OwlHub.shared.largeModeChanged(self) }
     }

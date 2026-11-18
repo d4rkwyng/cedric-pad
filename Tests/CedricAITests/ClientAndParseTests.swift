@@ -92,7 +92,8 @@ import CedricCore
     }
 
     @Test func settingsRoundTrip() throws {
-        let defaults = try #require(UserDefaults(suiteName: "cedric-ai-test-\(UUID())"))
+        let (defaults, suite) = TestDefaults.make("cedric-ai-test-")
+        defer { TestDefaults.remove(suite) }
         #expect(LocalAISettings.load(from: defaults, defaultBackend: .builtIn) == .default)
         var s = LocalAISettings(enabled: true, backend: .ollama, model: "qwen3:1.7b", minInterval: 120)
         s.save(to: defaults)

@@ -24,6 +24,17 @@ public enum SpellScope {
         !isData(language) && !(language == .plain && isDataFile(fileName))
     }
 
+    /// Whether the owl may offer "Fix N typos?" (Fix All applies the first
+    /// guess for each word blind): only in writing for people, by the same
+    /// test as grammar (ProseDetector: Plain Text or Markdown, not a data
+    /// or log file by name, and the sample reads as sentences). A log's
+    /// `dur=0ms` or a config's `valeu` is data, not a typo. `text` is the
+    /// owl's window (at most `ProseDetector.sampleLimit` of it is read).
+    public static func offersTypoFix(_ text: NSString, language: Language, fileName: String?) -> Bool {
+        isProse(language) && checks(language: language, fileName: fileName)
+            && ProseDetector.isProse(text, language: language, fileName: fileName)
+    }
+
     /// Token kinds that are words in code.
     static let codeChecked: Set<TokenKind> = [.comment, .string]
     /// Token kinds that aren't words in prose (Markdown).

@@ -66,7 +66,7 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         }
         let lines = Self.lines(text)
         moreHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
-        if !table, c.language != "yaml" || !out.contains(where: { $0.id == Self.yamlTabsID }), let r = mixedIndent(text, lines: lines, fileName: c.fileName) {
+        if !table, !Self.isPatch(c), c.language != "yaml" || !out.contains(where: { $0.id == Self.yamlTabsID }), let r = mixedIndent(text, lines: lines, fileName: c.fileName) {
             hint(Self.mixedIndentID, .fix,
                  r.toTabs ? String(localized: "Mixed tabs and spaces. Convert to tabs?") : String(localized: "Mixed tabs and spaces. Convert to spaces?"),
                  r.toTabs ? String(localized: "\(r.tabs) lines indent with tabs and \(r.spaces) with spaces. Every \(tabWidth) spaces become a tab.")
@@ -74,7 +74,7 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
                  range: r.range, replacement: r.replacement)
         }
         tidyHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
-        if c.language != "markdown", !table, let r = trailing(text, lines: lines) {
+        if Self.mayTidyWhitespace(c), let r = trailing(text, lines: lines, markdown: c.language == "markdown") {
             hint(Self.trailingID, .fix, String(localized: "\(r.count) lines end in spaces. Trim?"),
                  String(localized: "Removes spaces and tabs at the ends of lines."), range: r.range, replacement: r.replacement)
         }
@@ -120,12 +120,41 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         }
     }
 
-    /// "Dear …" and more than three lines.
+    /// A letter: a greeting line ("Dear Sam," – not "Dear diary") within
+    /// the first dozen lines, and either a sign-off line after it ("Yours
+    /// sincerely,", "Best regards,", "Love,") or address or date lines
+    /// before it. A diary entry or "Dear me, …" is not one.
     public static func isLetter(_ s: String) -> Bool {
-        guard s.hasPrefix("Dear ") else { return false }
-        var lines = s.split(separator: "\n", omittingEmptySubsequences: false)
-        if lines.last?.isEmpty == true { lines.removeLast() }
-        return lines.count > 3
+        let lines = s.prefix(4_000).split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let g = lines.prefix(12).firstIndex(where: isGreeting) else { return false }
+        let before = lines[..<g].filter { !$0.isEmpty }
+        if before.count >= 2 { return true }
+        return lines[(g + 1)...].contains(where: isSignOff)
+    }
+
+    /// "Dear Sam," "Dear Mrs Patel:" "Dear Sir or Madam" – a name, short,
+    /// at most a comma or colon after it.
+    static func isGreeting(_ line: String) -> Bool {
+        guard line.hasPrefix("Dear "), line.count <= 48 else { return false }
+        var rest = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+        if rest.hasSuffix(",") || rest.hasSuffix(":") { rest.removeLast() }
+        guard let first = rest.first, first.isUppercase else { return false }
+        let words = rest.split(separator: " ")
+        if words.count > 5 || rest.contains(where: { "!?;".contains($0) }) { return false }
+        return !["diary", "me", "god", "lord"].contains(words[0].lowercased())
+    }
+
+    static let signOffs = ["yours sincerely", "yours faithfully", "yours truly", "sincerely", "faithfully", "best regards",
+                           "kind regards", "warm regards", "regards", "best wishes", "with best wishes", "all the best",
+                           "love", "lots of love", "with love", "cheers", "thanks", "many thanks", "thank you",
+                           "best", "warmly", "yours", "respectfully", "cordially"]
+
+    /// "Yours sincerely," "Best regards" "Love," – alone on a line.
+    static func isSignOff(_ line: String) -> Bool {
+        var t = line.lowercased()
+        while let last = t.last, ",.!".contains(last) { t.removeLast() }
+        return signOffs.contains(t)
     }
 
     /// Content ranges of each line (without the newline).
@@ -203,12 +232,49 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         return (rw.range, rw.replacement, tabs, spaces, toTabs)
     }
 
-    func trailing(_ s: NSString, lines: [NSRange]) -> Rewrite? {
+    /// Whether whitespace fixes (trim, tabs vs spaces, stray marks) may
+    /// touch this text. Not where the bytes are the data: a patch (its
+    /// context lines must match exactly), CSV/TSV (fields), INI/.env
+    /// values (`KEY=value ` keeps its space), and logs or other data files
+    /// that open as Plain Text (trimming them is noise, not help).
+    static func isWhitespaceSignificant(_ c: OwlContext) -> Bool {
+        if isPatch(c) || ["csv", "ini"].contains(c.language) { return true }
+        guard let name = c.fileName else { return false }
+        return ProseDetector.dataExtensions.contains((name as NSString).pathExtension.lowercased())
+    }
+
+    /// A diff or patch, by language or by name: every byte of it matters.
+    static func isPatch(_ c: OwlContext) -> Bool {
+        if c.language == "diff" { return true }
+        guard let name = c.fileName else { return false }
+        return ["diff", "patch", "rej"].contains((name as NSString).pathExtension.lowercased())
+    }
+
+    static func mayTidyWhitespace(_ c: OwlContext) -> Bool { !isWhitespaceSignificant(c) }
+
+    /// In Markdown, two or more trailing spaces before another line of the
+    /// same paragraph are a hard line break, so those stay.
+    func trailing(_ s: NSString, lines: [NSRange], markdown: Bool = false) -> Rewrite? {
+        let ends = Set(lines.map(\.location))
         let rw = Self.rewrite(s, lines) { r in
             var e = NSMaxRange(r)
             while e > r.location, s.character(at: e - 1) == 32 || s.character(at: e - 1) == 9 { e -= 1 }
             // A whitespace-only line is left alone (often an editor's auto-indent).
             guard e < NSMaxRange(r), e > r.location else { return nil }
+            if markdown {
+                let tail = s.substring(with: NSRange(location: e, length: NSMaxRange(r) - e))
+                let next = NSMaxRange(r) + 1
+                let nextHasText: Bool = {
+                    guard ends.contains(next) else { return false }
+                    var i = next
+                    while i < s.length, s.character(at: i) != 10 {
+                        if s.character(at: i) != 32, s.character(at: i) != 9 { return true }
+                        i += 1
+                    }
+                    return false
+                }()
+                if tail.count >= 2, !tail.contains("\t"), nextHasText { return nil }
+            }
             return s.substring(with: NSRange(location: r.location, length: e - r.location))
         }
         guard let rw, rw.count >= trailingMinLines else { return nil }

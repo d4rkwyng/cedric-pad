@@ -217,6 +217,10 @@ final class OwlHub {
             if let hint, tab.owl === owl, owl.bubble == nil {
                 owl.present(hint, context: window.context)
                 onPresent?(tab, hint)
+            } else if hint == nil, tab.owl === owl, owl.bubble == nil, tab.spelling.offerAfterPause(), let shown = owl.bubble?.hint {
+                // Nothing from the rules: typos, on the same pause (after
+                // an edit, or once after a prose document opens).
+                onPresent?(tab, shown)
             }
             schedule()
         }
