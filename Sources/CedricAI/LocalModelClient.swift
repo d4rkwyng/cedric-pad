@@ -95,17 +95,61 @@ public struct LocalModelClient: Sendable {
         baseURL.lastPathComponent == "v1" ? baseURL.deletingLastPathComponent() : baseURL
     }
 
-    private func checkLocal() throws {
+    /// The name must pass the policy and, unless it is an address, every
+    /// address it resolves to must be private (a `.local`, bare or
+    /// `.ts.net` name can resolve to a public host). The connection makes
+    /// its own lookup a moment later, so a DNS server that answers
+    /// differently the second time (rebinding) is not ruled out.
+    private func checkLocal() async throws {
         guard LocalEndpointPolicy.isAllowed(baseURL) else {
             throw LocalAIError.endpointNotLocal(baseURL.host ?? baseURL.absoluteString)
         }
+        guard let host = baseURL.host, await LocalEndpointPolicy.resolvesPrivately(host) else {
+            throw LocalAIError.endpointNotLocal(baseURL.host ?? baseURL.absoluteString)
+        }
+    }
+
+    /// The most a response may be (a chat reply or a model list is far less).
+    public static let maxResponseBytes = 2 * 1024 * 1024
+
+    /// Redirects only to the same host (and only one the policy allows), so
+    /// a "local" server can't forward the document text anywhere else.
+    final class RedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest) async -> URLRequest? {
+            guard let from = task.originalRequest?.url, let to = request.url,
+                  LocalEndpointPolicy.allowsRedirect(from: from, to: to) else { return nil }
+            return request
+        }
+    }
+
+    /// GET or POST with the redirect guard and the size cap.
+    private func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        let (bytes, response) = try await session.bytes(for: request, delegate: RedirectGuard())
+        if response.expectedContentLength > Int64(Self.maxResponseBytes) {
+            bytes.task.cancel()
+            throw LocalAIError.transport("response too large")
+        }
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            bytes.task.cancel()
+            return (Data(), response)
+        }
+        var data = Data()
+        for try await b in bytes {
+            data.append(b)
+            if data.count > Self.maxResponseBytes {
+                bytes.task.cancel()
+                throw LocalAIError.transport("response too large")
+            }
+        }
+        return (data, response)
     }
 
     private func send(_ request: URLRequest) async throws -> Data {
         var request = request
         request.timeoutInterval = timeout
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await fetch(request)
             guard let http = response as? HTTPURLResponse else { throw LocalAIError.badResponse }
             guard (200..<300).contains(http.statusCode) else { throw LocalAIError.http(http.statusCode) }
             return data
@@ -125,7 +169,7 @@ public struct LocalModelClient: Sendable {
     // MARK: Discovery
 
     public func listModels() async throws -> [LocalModelInfo] {
-        try checkLocal()
+        try await checkLocal()
         let data = try await send(URLRequest(url: baseURL.appendingPathComponent("models")))
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let list = obj["data"] as? [[String: Any]] else { throw LocalAIError.badResponse }
@@ -139,7 +183,7 @@ public struct LocalModelClient: Sendable {
     private func enrich(_ models: inout [LocalModelInfo]) async {
         var quick = URLRequest(url: serverRoot.appendingPathComponent("api/v0/models"))
         quick.timeoutInterval = 2
-        if let data = try? await session.data(for: quick).0,
+        if let data = try? await fetch(quick).0,
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let list = obj["data"] as? [[String: Any]] {
             for entry in list {
@@ -152,7 +196,7 @@ public struct LocalModelClient: Sendable {
         }
         var tags = URLRequest(url: serverRoot.appendingPathComponent("api/tags"))
         tags.timeoutInterval = 2
-        if let data = try? await session.data(for: tags).0,
+        if let data = try? await fetch(tags).0,
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let list = obj["models"] as? [[String: Any]] {
             for entry in list {
@@ -192,7 +236,7 @@ public struct LocalModelClient: Sendable {
     public func chat(model: String, messages: [ChatMessage], maxTokens: Int,
                      temperature: Double = 0, jsonSchema: [String: Any]? = nil,
                      clock: any OwlClock = SystemClock()) async throws -> ChatResult {
-        try checkLocal()
+        try await checkLocal()
         let start = clock.now
         do {
             return try await chatOnce(model: model, messages: messages, maxTokens: maxTokens,

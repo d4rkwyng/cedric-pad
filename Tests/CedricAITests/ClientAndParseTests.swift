@@ -91,6 +91,55 @@ import CedricCore
         for s in bad { #expect(!LocalEndpointPolicy.isAllowed(URL(string: s)!), "\(s)") }
     }
 
+    @Test func redirectsStayOnTheHost() {
+        let base = URL(string: "http://studio.local:1234/v1/chat/completions")!
+        #expect(LocalEndpointPolicy.allowsRedirect(from: base, to: URL(string: "http://studio.local:1234/v1/other")!))
+        #expect(!LocalEndpointPolicy.allowsRedirect(from: base, to: URL(string: "https://evil.example.com/collect")!))
+        #expect(!LocalEndpointPolicy.allowsRedirect(from: base, to: URL(string: "http://192.168.1.9:1234/v1")!), "another LAN host too")
+        #expect(!LocalEndpointPolicy.allowsRedirect(from: base, to: URL(string: "http://studio.local:9999/v1")!), "another port")
+    }
+
+    @Test func privateAddresses() async {
+        for a in ["127.0.0.1", "10.1.2.3", "192.168.0.1", "172.16.0.1", "172.31.255.255", "169.254.1.1", "100.64.0.1", "100.127.1.1",
+                  "::1", "fd00::1", "fe80::1", "::ffff:192.168.1.1"] {
+            #expect(LocalEndpointPolicy.isPrivateAddress(a), "\(a)")
+        }
+        for a in ["8.8.8.8", "172.32.0.1", "100.128.0.1", "1.1.1.1", "2606:4700::1111", "::ffff:8.8.8.8", "not-an-ip"] {
+            #expect(!LocalEndpointPolicy.isPrivateAddress(a), "\(a)")
+        }
+        #expect(await LocalEndpointPolicy.resolvesPrivately("localhost"))
+        #expect(await LocalEndpointPolicy.resolvesPrivately("127.0.0.1"))
+        #expect(await !LocalEndpointPolicy.resolvesPrivately("no-such-host.invalid"), "unresolvable: refused")
+    }
+
+    @Test func redirectToAnotherHostIsNotFollowed() async throws {
+        let server = StubServer()
+        server.json("/v1/models", ["data": [["id": "m"]]])
+        let client = LocalModelClient(baseURL: server.baseURL, session: server.session)
+        // The guard itself: a redirect elsewhere gets nil, same host goes on.
+        let g = LocalModelClient.RedirectGuard()
+        let task = server.session.dataTask(with: URLRequest(url: server.baseURL.appendingPathComponent("chat/completions")))
+        let resp = HTTPURLResponse(url: server.baseURL, statusCode: 307, httpVersion: nil, headerFields: nil)!
+        let away = await g.urlSession(server.session, task: task, willPerformHTTPRedirection: resp,
+                                      newRequest: URLRequest(url: URL(string: "https://evil.example.com/x")!))
+        #expect(away == nil)
+        let same = await g.urlSession(server.session, task: task, willPerformHTTPRedirection: resp,
+                                      newRequest: URLRequest(url: server.baseURL.appendingPathComponent("models")))
+        #expect(same != nil)
+        task.cancel()
+        _ = try await client.listModels()
+    }
+
+    @Test func responseSizeIsCapped() async {
+        let server = StubServer()
+        let big = String(repeating: "x", count: LocalModelClient.maxResponseBytes + 10)
+        server.json("/v1/chat/completions", ["choices": [["message": ["content": big]]]])
+        let client = LocalModelClient(baseURL: server.baseURL, session: server.session)
+        await #expect(throws: LocalAIError.transport("response too large")) {
+            _ = try await client.chat(model: "m", messages: [], maxTokens: 1)
+        }
+    }
+
     @Test func settingsRoundTrip() throws {
         let (defaults, suite) = TestDefaults.make("cedric-ai-test-")
         defer { TestDefaults.remove(suite) }
