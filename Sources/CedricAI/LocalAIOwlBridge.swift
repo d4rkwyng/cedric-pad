@@ -100,6 +100,7 @@ public final class LocalAIOwlBridge {
             clock: clock, power: power,
             onOutcome: { [weak self] id, outcome in
                 Task { @MainActor in
+                    if token == self?.applyToken { self?.asked.remove(id) }
                     self?.setThinking(id, false, token: token)
                     self?.recordCheck(outcome, token: token)
                 }
@@ -155,6 +156,7 @@ public final class LocalAIOwlBridge {
 
     private func teardown() {
         lastCheck = nil
+        asked = []
         engineTitle = nil
         if let s = scheduler { Task { await s.shutdown() } }
         scheduler = nil
@@ -188,11 +190,24 @@ public final class LocalAIOwlBridge {
     public var isAutomatic: Bool { settings.automaticChecks }
 
     /// An edit (new generation) or a scroll (new visible text). No-op while
-    /// off, paused, or with automatic checks off (nothing is scheduled).
+    /// off or paused. With automatic checks off nothing is scheduled, and
+    /// it is passed on only while an asked-for check is running for the
+    /// document, so an edit cancels that (the scheduler arms no timer when
+    /// not automatic); otherwise typing costs nothing here.
     public func contextChanged(_ context: OwlContext) {
-        guard let s = scheduler, !paused, isAutomatic, !largeDocuments.contains(context.documentID) else { return }
+        guard let s = scheduler, !paused, !largeDocuments.contains(context.documentID) else { return }
+        guard wantsContext(for: context.documentID) else { return }
         Task { await s.contextChanged(context) }
     }
+
+    /// Whether the editor should pass this document's edits and scrolls
+    /// on: always with automatic checks, else only while an asked-for
+    /// check runs for it.
+    public func wantsContext(for id: UUID) -> Bool { isAutomatic || asked.contains(id) }
+
+    /// Documents with an asked-for check started and not yet finished
+    /// (set at once by `checkNow`, before the scheduler's onStart arrives).
+    private var asked: Set<UUID> = []
 
     /// The AI can be asked right now (on, not paused).
     public var canCheckNow: Bool { scheduler != nil && !paused }
@@ -202,6 +217,7 @@ public final class LocalAIOwlBridge {
     @discardableResult
     public func checkNow(_ context: OwlContext) -> Bool {
         guard let s = scheduler, !paused, !largeDocuments.contains(context.documentID) else { return false }
+        asked.insert(context.documentID)
         Task { await s.checkNow(context) }
         return true
     }

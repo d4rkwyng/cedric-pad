@@ -78,8 +78,10 @@ final class OwlHub {
     }
 
     private func feedAI(_ tab: EditorWindowController) {
-        // Automatic checks off (Intel's default): nothing is fed, no context is built.
-        guard ai.isActive, ai.isAutomatic, !ai.isPaused, enabled, tab.owl != nil, !tab.owlIdleForSpeed else { return }
+        // Automatic checks off (Intel's default): nothing is fed, no context
+        // is built, except while an asked-for check runs for this tab (an
+        // edit cancels it).
+        guard ai.isActive, ai.wantsContext(for: tab.doc.id), !ai.isPaused, enabled, tab.owl != nil, !tab.owlIdleForSpeed else { return }
         aiPending[tab.doc.id] = WeakTab(tab: tab)
         guard aiFeedTimer?.isValid != true else { return }
         let t = Timer(timeInterval: Self.aiFeedDelay, repeats: false) { _ in

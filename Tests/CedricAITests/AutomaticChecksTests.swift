@@ -84,4 +84,31 @@ import CedricCore
         try? await Task.sleep(nanoseconds: 200_000_000)
         #expect(provider.calls == 1)
     }
+
+    @Test func anEditCancelsAnAskedForCheckWithAutomaticOff() async {
+        let registry = OwlProviderRegistry()
+        let provider = SlowProvider(delay: 0.3)
+        let bridge = LocalAIOwlBridge(registry: registry, makeProvider: { _ in provider })
+        let got = Box(0)
+        bridge.onHints = { _, _ in got.mutate { $0 += 1 } }
+        var s = BridgeTests.fast
+        s.automaticChecks = false
+        await bridge.apply(s)
+        let doc = UUID()
+        #expect(bridge.checkNow(context("if i <= n {}", gen: 1, doc: doc)))
+        #expect(await eventually { @MainActor in bridge.thinking.contains(doc) })
+        #expect(bridge.wantsContext(for: doc) && !bridge.wantsContext(for: UUID()))
+        // The user types while it runs: the answer is for old text, so it's cancelled.
+        bridge.contextChanged(context("if i <= n {} x", gen: 2, doc: doc))
+        #expect(await eventually { @MainActor in !bridge.thinking.contains(doc) })
+        try? await Task.sleep(nanoseconds: 800_000_000)
+        #expect(got.value == 0)
+        // And no automatic check started from the edit.
+        #expect(provider.calls == 1)
+        // Edits with nothing asked for still don't reach the scheduler or the model.
+        #expect(!bridge.wantsContext(for: doc))
+        bridge.contextChanged(context(gen: 3, doc: doc))
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        #expect(provider.calls == 1)
+    }
 }
