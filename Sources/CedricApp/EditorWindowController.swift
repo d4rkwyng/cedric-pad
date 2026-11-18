@@ -92,6 +92,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         buildViews()
         PerfTrace.mark("build_views")
         colorizer = SyntaxColorizer(textView: textView, language: doc.language)
+        textView.language = doc.language
         colorizer.lineIndexProvider = { [unowned self] in self.lineIndex }
         textView.contentStorage?.lineRange = { [unowned self] offset in
             let index = self.lineIndex
@@ -121,6 +122,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         scrollView.borderType = .noBorder
         textView.delegate = self
         textView.onCutLine = { [unowned self] in self.cutLine() }
+        textView.lineStartFor = { [unowned self] offset in
+            let index = self.lineIndex
+            return index.starts[index.line(containing: offset)]
+        }
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         gutter.textView = textView
@@ -306,6 +311,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gutter.needsDisplay = true
         owl?.caretMoved(byUser: true)
         scheduleHighlights()
+        updateBracketMatch()
     }
 
     /// The line at the top when the user last scrolled: kept there when
@@ -459,6 +465,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private func languageChanged() {
         let l = doc.language
         colorizer.setLanguage(l)
+        textView.language = l
         // What counts as a word changed (code vs prose): check again.
         if textView.isContinuousSpellCheckingEnabled { textView.isContinuousSpellCheckingEnabled = false; textView.isContinuousSpellCheckingEnabled = true }
         textView.markedMisspellings = []

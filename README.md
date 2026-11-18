@@ -54,6 +54,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   or the selection or word under the caret), Clear Bookmarks (⇧⌘F2).
   Bookmarks stay on their lines as you edit, move with Move Line, and are
   kept with the session.
+- **Auto-indent and pairing:** Return keeps the line's indent, one step
+  more after `{` `[` `(` (and `:` in Python and YAML); Return between a
+  pair puts the closer on its own line. In code, brackets and quotes close
+  themselves, typing the closer steps over it, Backspace between a pair
+  deletes both, and typing one with a selection wraps it (Edit ›
+  Auto-Close Brackets and Quotes; never in plain text or Markdown). The
+  bracket next to the caret and its partner are boxed.
 - **Go to line** (⌘L, `42` or `42:7`), line numbers, current-line highlight,
   show invisibles (⌥⌘I), wrap lines (⌥Z).
 - **Encodings and line endings:** UTF-8 (with or without BOM), UTF-16 LE/BE

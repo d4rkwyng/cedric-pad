@@ -15,6 +15,7 @@ extension DevChecks {
         case "lineops": lineOps(app)
         case "bookmarks": bookmarks(app)
         case "closedtab": closedTab(app)
+        case "autoedit": autoEdit(app)
         default: return false
         }
         return true
@@ -367,6 +368,66 @@ extension DevChecks {
                 expect(key("t", [.command, .shift]) == false || app.tabs.count == 2, "⇧⌘T with nothing closed does nothing")
             },
             snapshot("reopened-tab.png"),
+        ])
+    }
+
+    // MARK: Auto-indent, pairing, bracket match
+
+    static func autoEdit(_ app: AppDelegate) {
+        let tab = app.open(write("auto.swift", ""))!
+        let prose = app.open(write("prose.txt", ""))!
+        sized(tab)
+        var t: String { tab.text }
+        var caret: Int { tab.textView.selectedRange().location }
+        run([
+            sync {
+                focus(tab)
+                expect(tab.doc.language == .swift, "a Swift file", tab.doc.language.rawValue)
+                type("if x {")
+                expect(t == "if x {}" && caret == 6, "typing { adds } after the caret", "\(t.debugDescription) caret \(caret)")
+            },
+            sync {
+                expect(tab.textView.bracketRanges == [NSRange(location: 5, length: 1), NSRange(location: 6, length: 1)],
+                       "the bracket pair at the caret is matched", "\(tab.textView.bracketRanges)")
+                key("\r")
+                expect(t == "if x {\n    \n}" && caret == 11, "Return between { } indents and puts } on its own line",
+                       "\(t.debugDescription) caret \(caret)")
+            },
+            snapshot("auto-indent.png"),
+            sync {
+                type("f(a)")
+                expect(t == "if x {\n    f(a)\n}" && caret == 15, "( pairs, typing ) steps over it", "\(t.debugDescription) caret \(caret)")
+                type(" \"hi\"")
+                expect(t == "if x {\n    f(a) \"hi\"\n}", "quotes pair and step over", t.debugDescription)
+                type("[")
+                expect(t == "if x {\n    f(a) \"hi\"[]\n}", "[ pairs", t.debugDescription)
+                key("\u{7f}")
+                expect(t == "if x {\n    f(a) \"hi\"\n}", "Backspace in [|] deletes both", t.debugDescription)
+            },
+            sync {
+                key("\r")
+                expect(t == "if x {\n    f(a) \"hi\"\n    \n}", "Return keeps the line's indent", t.debugDescription)
+                tab.textView.setSelectedRange((t as NSString).range(of: "hi"))
+                type("(")
+                expect(t.contains("\"(hi)\""), "( with a selection wraps it", t.debugDescription)
+                expect(tab.textView.selectedRange() == NSRange(location: ((t as NSString).range(of: "hi")).location, length: 2),
+                       "and keeps it selected", "\(tab.textView.selectedRange())")
+            },
+            sync {
+                // Undo takes the typing back step by step, without leaving a stray closer.
+                let before = t
+                type("(")
+                key("z", [.command])
+                expect(t == before, "⌘Z undoes a pair in one step", t.debugDescription)
+            },
+            sync {
+                // Prose: no pairing, Return keeps the indent.
+                focus(prose)
+                type("  (don't")
+                key("\r")
+                type("x")
+                expect(prose.text == "  (don't\n  x", "plain text: no pairing; Return keeps the indent", prose.text.debugDescription)
+            },
         ])
     }
 }

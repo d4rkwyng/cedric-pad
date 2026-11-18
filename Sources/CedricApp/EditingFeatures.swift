@@ -122,6 +122,25 @@ extension EditorWindowController {
     }
 }
 
+// MARK: - Matching bracket
+
+extension EditorWindowController {
+    /// Boxes the bracket next to the caret and its partner (a bounded
+    /// scan: AutoEdit.matchingBracket), right away on every caret move.
+    func updateBracketMatch() {
+        let sel = textView.selectedRange()
+        var ranges: [NSRange] = []
+        if sel.length == 0, !textView.hasMarkedText(),
+           let (a, b) = AutoEdit.matchingBracket(in: textView.string as NSString, caret: sel.location) {
+            ranges = [a, b]
+        }
+        if ranges != textView.bracketRanges {
+            textView.bracketRanges = ranges
+            textView.needsDisplay = true
+        }
+    }
+}
+
 // MARK: - Line operations
 
 /// Edit › Line: what to do to the selected lines.
@@ -260,6 +279,7 @@ extension AppDelegate {
     @objc func markAllMenu(_ sender: Any?) { currentTab?.markAll() }
     @objc func clearMarksMenu(_ sender: Any?) { currentTab?.clearMarks() }
     @objc func toggleHighlightOccurrences(_ sender: Any?) { Settings.shared.highlightOccurrences.toggle() }
+    @objc func toggleAutoCloseBrackets(_ sender: Any?) { Settings.shared.autoCloseBrackets.toggle() }
     @objc func duplicateLineMenu(_ sender: Any?) { currentTab?.perform(.duplicate) }
     @objc func moveLineUpMenu(_ sender: Any?) { currentTab?.perform(.moveUp) }
     @objc func moveLineDownMenu(_ sender: Any?) { currentTab?.perform(.moveDown) }
@@ -285,6 +305,9 @@ extension AppDelegate {
             return tab?.editing.bookmarks.isEmpty == false
         case #selector(toggleCommentMenu(_:)):
             return tab?.textView.isEditable == true && tab?.doc.language.commentSyntax != nil
+        case #selector(toggleAutoCloseBrackets(_:)):
+            item.state = Settings.shared.autoCloseBrackets ? .on : .off
+            return true
         case #selector(toggleHighlightOccurrences(_:)):
             item.state = Settings.shared.highlightOccurrences ? .on : .off
             return true

@@ -128,6 +128,7 @@ func buildMainMenu() -> NSMenu {
             item(String(localized: "Clear Bookmarks"), #selector(AppDelegate.clearBookmarksMenu(_:)), f2, [.command, .shift]),
         ]),
         submenu(String(localized: "Text Tools"), textToolItems()),
+        item(String(localized: "Auto-Close Brackets and Quotes"), #selector(AppDelegate.toggleAutoCloseBrackets(_:))),
         submenu(String(localized: "Spelling and Grammar"), [
             item(String(localized: "Show Spelling and Grammar"), #selector(NSText.showGuessPanel(_:)), ":"),
             item(String(localized: "Check Document Now"), #selector(AppDelegate.checkDocumentNow(_:)), ";"),

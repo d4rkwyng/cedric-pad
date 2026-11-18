@@ -81,6 +81,12 @@ final class Settings {
         set { defaults.set(newValue, forKey: "highlightOccurrences"); changed() }
     }
 
+    /// Edit › Auto-Close Brackets and Quotes (code only, not prose). On by default.
+    var autoCloseBrackets: Bool {
+        get { defaults.object(forKey: "autoCloseBrackets") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "autoCloseBrackets") }
+    }
+
     /// The checks move the owl without saving where he is.
     var owlPlacementInMemory: OwlPlacement?
     var owlPlacementSaves = ProcessInfo.processInfo.environment["CEDRIC_NO_SESSION_SAVE"] != "1"

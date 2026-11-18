@@ -99,6 +99,70 @@ final class EditorTextView: NSTextView {
         return result
     }
 
+    // MARK: Auto-indent, bracket and quote pairing (AutoEdit in CedricCore)
+
+    /// The document's language (pairing is for code, not prose).
+    var language: Language = .plain
+    /// Where the line holding an offset starts (from the line index: O(log n)).
+    var lineStartFor: ((Int) -> Int)?
+
+    private var pairing: Bool { Settings.shared.autoCloseBrackets && AutoEdit.pairs(in: language) }
+
+    private func unit(at i: Int) -> unichar? {
+        let ns = string as NSString
+        return i >= 0 && i < ns.length ? ns.character(at: i) : nil
+    }
+
+    /// Return: a newline with the line's indent (one step more after an
+    /// opening bracket; between a pair, the closer on its own line).
+    override func insertNewline(_ sender: Any?) {
+        guard isEditable, !hasMarkedText(), let lineStartFor else { super.insertNewline(sender); return }
+        let sel = selectedRange()
+        let r = AutoEdit.newline(in: string as NSString, lineStart: lineStartFor(sel.location), caret: sel.location,
+                                 after: NSMaxRange(sel), language: language)
+        guard r.text != "\n" || r.caret != 1 else { super.insertNewline(sender); return }
+        insertText(r.text, replacementRange: sel)
+        setSelectedRange(NSRange(location: sel.location + r.caret, length: 0))
+    }
+
+    /// Typing an opener or quote pairs it, a closer steps over the one
+    /// already there, and with a selection both go around it. Only for
+    /// single typed characters (not paste, not input methods).
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        guard pairing, isEditable, !hasMarkedText(), replacementRange.location == NSNotFound,
+              let s = (string as? String) ?? (string as? NSAttributedString)?.string, s.utf16.count == 1,
+              let c = s.utf16.first else {
+            super.insertText(string, replacementRange: replacementRange)
+            return
+        }
+        let sel = selectedRange()
+        switch AutoEdit.typing(c, before: unit(at: sel.location - 1), after: unit(at: NSMaxRange(sel)), hasSelection: sel.length > 0,
+                               language: language) {
+        case .skip?:
+            setSelectedRange(NSRange(location: sel.location + 1, length: 0))
+        case .pair(let pair)?:
+            super.insertText(pair, replacementRange: sel)
+            setSelectedRange(NSRange(location: sel.location + 1, length: 0))
+        case .wrap(let open, let close)?:
+            let inner = (self.string as NSString).substring(with: sel)
+            super.insertText(open + inner + close, replacementRange: sel)
+            setSelectedRange(NSRange(location: sel.location + 1, length: sel.length))
+        case nil:
+            super.insertText(string, replacementRange: replacementRange)
+        }
+    }
+
+    /// Backspace between a pair ("(|)", "\"|\"") deletes both.
+    override func deleteBackward(_ sender: Any?) {
+        let sel = selectedRange()
+        if pairing, isEditable, !hasMarkedText(), sel.length == 0,
+           AutoEdit.deletesPair(before: unit(at: sel.location - 1), after: unit(at: sel.location), language: language) {
+            super.insertText("", replacementRange: NSRange(location: sel.location - 1, length: 2))
+            return
+        }
+        super.deleteBackward(sender)
+    }
+
     // MARK: Paste normalisation
 
     /// Paste and drop: plain text only, with CRLF/CR turned into LF
