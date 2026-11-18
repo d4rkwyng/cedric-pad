@@ -36,6 +36,9 @@ struct LiveCheckTests {
         }
         console.log(isZero(""), isZero("0"), isZero([]));
         """),
+        // Derek's valid page: a model once claimed `<html>` wasn't closed.
+        // Any tag hint here is a false positive.
+        ("html", "index.html", "<html>\n<head>\n<title>Test</title>\n<body>\nTest\n</body>\n</html>"),
     ]
 
     @Test func liveHints() async throws {

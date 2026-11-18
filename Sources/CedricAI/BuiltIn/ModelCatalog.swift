@@ -1,0 +1,140 @@
+import Foundation
+
+/// One downloadable model for the built-in engine, as `Resources/AI/models.json`
+/// lists it. Every download is pinned: a Hugging Face URL at a fixed
+/// revision, its exact byte size and its SHA-256.
+public struct BuiltInModel: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+    public var summary: String
+    /// "qwen2.5-coder", "qwen3": picks prompt quirks (Qwen3 gets /no_think).
+    public var family: String
+    public var parametersB: Double
+    public var quantization: String
+    public var fileName: String
+    public var sizeBytes: Int64
+    public var url: URL
+    /// The Hugging Face commit the URL is pinned to.
+    public var revision: String
+    /// Lower-case hex SHA-256 of the whole file.
+    public var sha256: String
+    public var license: String
+    public var licenseURL: URL
+    /// Below this much physical memory the model is marked "needs more memory".
+    public var minRAMGB: Int
+    public var isDefault: Bool
+
+    public init(id: String, name: String, summary: String = "", family: String, parametersB: Double,
+                quantization: String, fileName: String, sizeBytes: Int64, url: URL, revision: String,
+                sha256: String, license: String, licenseURL: URL, minRAMGB: Int = 8, isDefault: Bool = false) {
+        self.id = id; self.name = name; self.summary = summary; self.family = family
+        self.parametersB = parametersB; self.quantization = quantization; self.fileName = fileName
+        self.sizeBytes = sizeBytes; self.url = url; self.revision = revision; self.sha256 = sha256
+        self.license = license; self.licenseURL = licenseURL; self.minRAMGB = minRAMGB; self.isDefault = isDefault
+    }
+
+    /// The id handed to the prompt builder; it contains "qwen3" for Qwen3,
+    /// which is how `OwlPrompts` knows to add `/no_think`.
+    public var promptModelName: String { family + "-" + id }
+
+    /// "3.1B · Q4_K_M · 2.1 GB"
+    public var shortDescription: String {
+        let gb = Double(sizeBytes) / 1_000_000_000
+        return String(format: "%gB · %@ · %.1f GB", parametersB, quantization, gb)
+    }
+
+    /// True when this Mac has less memory than the model wants.
+    public func needsMoreMemory(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Bool {
+        physicalMemory < UInt64(minRAMGB) * 1_073_741_824
+    }
+
+    /// As the settings sheet's model list wants it.
+    public var info: LocalModelInfo {
+        LocalModelInfo(id: id, sizeBytes: sizeBytes, parametersB: parametersB,
+                       quantization: quantization, type: "llm")
+    }
+}
+
+public enum ModelCatalogError: Error, Equatable, Sendable {
+    case missing
+    case malformed(String)
+    case invalid(String)
+}
+
+/// The curated list of models Cedric offers to download. Shipped as JSON in
+/// the app bundle (`Contents/Resources/AI/models.json`); nothing is fetched
+/// to learn what can be downloaded.
+public struct ModelCatalog: Codable, Sendable, Equatable {
+    public var version: Int
+    /// The llama.cpp build the list was tested with (informational).
+    public var runtime: String
+    public var models: [BuiltInModel]
+
+    public init(version: Int = 1, runtime: String = "", models: [BuiltInModel]) {
+        self.version = version; self.runtime = runtime; self.models = models
+    }
+
+    /// The only host a model may be downloaded from (redirects to its CDN
+    /// are followed by URLSession; the request itself starts here).
+    public static let allowedHost = "huggingface.co"
+
+    public var defaultModel: BuiltInModel? { models.first(where: \.isDefault) ?? models.first }
+
+    public func model(id: String?) -> BuiltInModel? {
+        guard let id else { return nil }
+        return models.first { $0.id == id }
+    }
+
+    /// Decodes and validates: exactly one default, unique ids and file
+    /// names, https on huggingface.co pinned to the listed revision, a
+    /// 64-hex SHA-256, a positive size, a `.gguf` file name with no path.
+    public static func decode(_ data: Data) throws -> ModelCatalog {
+        let catalog: ModelCatalog
+        do { catalog = try JSONDecoder().decode(ModelCatalog.self, from: data) } catch {
+            throw ModelCatalogError.malformed(String(describing: error))
+        }
+        try catalog.validate()
+        return catalog
+    }
+
+    public func validate() throws {
+        guard !models.isEmpty else { throw ModelCatalogError.invalid("no models") }
+        guard models.filter(\.isDefault).count == 1 else { throw ModelCatalogError.invalid("needs exactly one default") }
+        guard Set(models.map(\.id)).count == models.count else { throw ModelCatalogError.invalid("duplicate id") }
+        guard Set(models.map(\.fileName)).count == models.count else { throw ModelCatalogError.invalid("duplicate file") }
+        let hex = CharacterSet(charactersIn: "0123456789abcdef")
+        for m in models {
+            guard m.url.scheme == "https", m.url.host == Self.allowedHost else {
+                throw ModelCatalogError.invalid("\(m.id): not an https huggingface.co URL")
+            }
+            guard m.url.path.contains("/resolve/\(m.revision)/"), m.revision.count == 40 else {
+                throw ModelCatalogError.invalid("\(m.id): URL not pinned to its revision")
+            }
+            guard m.url.lastPathComponent == m.fileName, m.fileName.hasSuffix(".gguf"),
+                  !m.fileName.contains("/"), !m.fileName.hasPrefix(".") else {
+                throw ModelCatalogError.invalid("\(m.id): bad file name")
+            }
+            guard m.sha256.count == 64, m.sha256.unicodeScalars.allSatisfy(hex.contains) else {
+                throw ModelCatalogError.invalid("\(m.id): bad sha256")
+            }
+            guard m.sizeBytes > 0, m.parametersB > 0 else { throw ModelCatalogError.invalid("\(m.id): bad size") }
+        }
+    }
+
+    /// Where the JSON lives: the app bundle, else (swift run / tests) the
+    /// source tree's `Resources/AI/models.json`.
+    public static func bundledURL(bundle: Bundle = .main) -> URL? {
+        if let url = bundle.url(forResource: "models", withExtension: "json", subdirectory: "AI") { return url }
+        let source = URL(fileURLWithPath: #filePath)   // …/Sources/CedricAI/BuiltIn/ModelCatalog.swift
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/AI/models.json")
+        return FileManager.default.fileExists(atPath: source.path) ? source : nil
+    }
+
+    /// The bundled catalog, or nil if it is missing or invalid.
+    public static func bundled(bundle: Bundle = .main) -> ModelCatalog? {
+        guard let url = bundledURL(bundle: bundle), let data = try? Data(contentsOf: url) else { return nil }
+        return try? decode(data)
+    }
+}

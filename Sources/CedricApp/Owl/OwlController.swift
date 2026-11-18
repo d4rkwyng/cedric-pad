@@ -401,6 +401,13 @@ final class OwlController: NSObject, NSPopoverDelegate {
         let head = NSTextField(labelWithString: String(localized: "Recent hints"))
         head.font = .systemFont(ofSize: 12, weight: .semibold)
         stack.addArrangedSubview(head)
+        if let status = hub.ai.statusLine() {
+            let l = NSTextField(wrappingLabelWithString: status)
+            l.font = .systemFont(ofSize: 11)
+            l.textColor = .secondaryLabelColor
+            l.preferredMaxLayoutWidth = 260
+            stack.addArrangedSubview(l)
+        }
         let recent = hub.coordinator.recent
         if recent.isEmpty {
             let none = NSTextField(labelWithString: String(localized: "None yet. Cedric is watching quietly."))

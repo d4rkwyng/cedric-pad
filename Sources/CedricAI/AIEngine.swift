@@ -14,6 +14,8 @@ public protocol AIEngine: Sendable {
     var unavailableReason: String? { get }
     /// The engine needs an address (a server on this Mac or the LAN).
     var needsAddress: Bool { get }
+    /// A caveat shown under the picker when available ("Slow on Intel Macs…").
+    var note: String? { get }
     /// The models this engine can run.
     func models() async throws -> [LocalModelInfo]
     /// "Test Connection": the models, latency and the suggested model.
@@ -26,9 +28,20 @@ public protocol AIEngine: Sendable {
 
 extension AIEngine {
     public var title: String { kind.title }
+    public var note: String? { nil }
 }
 
 public enum AIEngines {
+    /// The engine a fresh install starts with (nothing saved yet): Apple
+    /// Intelligence when this Mac can run it, else Cedric's built-in engine,
+    /// else LM Studio (the user picks a server).
+    public static func defaultBackend(appleAvailable: Bool = AppleFoundationModelsProvider.isAvailable,
+                                      builtInAvailable: Bool = ModelCatalog.bundled() != nil) -> LocalAISettings.Backend {
+        if appleAvailable { return .apple }
+        if builtInAvailable { return .builtIn }
+        return .lmStudio
+    }
+
     /// The engine the settings select.
     public static func engine(for settings: LocalAISettings, session: URLSession? = nil) -> any AIEngine {
         switch settings.backend {
@@ -68,21 +81,7 @@ public struct ServerEngine: AIEngine {
     }
 }
 
-/// Cedric's own engine with in-app model downloads: not built yet. Listed
-/// (disabled) so the picker's layout is final.
-public struct BuiltInEngine: AIEngine {
-    public init() {}
-    public var kind: LocalAISettings.Backend { .builtIn }
-    public var isAvailable: Bool { false }
-    public var unavailableReason: String? { "Coming soon: download Qwen and other models inside Cedric." }
-    public var needsAddress: Bool { false }
-    public func models() async throws -> [LocalModelInfo] { [] }
-    public func test() async -> ConnectionReport {
-        ConnectionReport(models: [], latency: 0, suggested: nil, error: .transport("not available yet"))
-    }
-    public func suggestedModel(in models: [LocalModelInfo]) -> LocalModelInfo? { nil }
-    public func makeProvider(model: String?) async -> (any OwlHintProvider)? { nil }
-}
+// BuiltInEngine (Cedric's own engine, llama.cpp + in-app downloads) is in BuiltIn/BuiltInEngine.swift.
 
 /// Apple Intelligence's on-device model (macOS 26+, Apple silicon, turned
 /// on). Never the Private Cloud Compute model.
@@ -91,9 +90,7 @@ public struct AppleIntelligenceEngine: AIEngine {
     public init() {}
     public var kind: LocalAISettings.Backend { .apple }
     public var isAvailable: Bool { AppleFoundationModelsProvider.isAvailable }
-    public var unavailableReason: String? {
-        isAvailable ? nil : "Needs macOS 26 on Apple silicon with Apple Intelligence turned on."
-    }
+    public var unavailableReason: String? { AppleFoundationModelsProvider.status.message }
     public var needsAddress: Bool { false }
     public func models() async throws -> [LocalModelInfo] { isAvailable ? [LocalModelInfo(id: Self.modelID, type: "llm")] : [] }
     public func test() async -> ConnectionReport {

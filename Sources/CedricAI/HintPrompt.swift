@@ -45,13 +45,15 @@ public enum HintPrompt {
                         "type": "object",
                         "properties": [
                             "kind": ["type": "string", "enum": ["fix", "warning", "tip", "explain"]],
+                            "category": ["type": "string", "enum": HintVerifier.Category.allCases.map(\.rawValue)],
                             "title": ["type": "string"],
                             "detail": ["type": "string"],
+                            "line": ["type": "integer"],
                             "find": ["type": "string"],
                             "replacement": ["type": "string"],
                             "confidence": ["type": "number"],
                         ],
-                        "required": ["kind", "title", "detail", "find", "replacement", "confidence"],
+                        "required": ["kind", "category", "title", "detail", "line", "find", "replacement", "confidence"],
                         "additionalProperties": false,
                     ],
                 ],
@@ -66,7 +68,7 @@ public enum HintPrompt {
     /// that isn't in `text` (so a replacement can never land outside the
     /// context), and no-op replacements. Ranges are UTF-16 offsets into
     /// `text` — the context the provider was given.
-    public static func parse(_ raw: String, text: String, source: String) -> [OwlHint] {
+    public static func parse(_ raw: String, text: String, source: String, language: String = "") -> [OwlHint] {
         guard let json = extractJSON(raw),
               let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) else { return [] }
@@ -79,45 +81,98 @@ public enum HintPrompt {
             return []
         }
         let ns = text as NSString
+        let lineStarts = Self.lineStarts(ns)
         var out: [OwlHint] = []
         for item in items {
-            guard out.count < maxHints else { break }
             guard let kindRaw = (item["kind"] as? String)?.lowercased(),
                   let kind = OwlHint.Kind(rawValue: kindRaw),
                   var title = (item["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !title.isEmpty, !isFiller(title) else { continue }
             if let c = (item["confidence"] as? NSNumber)?.doubleValue, c < minConfidence { continue }
-            if title.count > maxTitle { title = String(title.prefix(maxTitle - 1)) + "…" }
             let detail = (item["detail"] as? String)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .flatMap { $0.isEmpty ? nil : $0 }
-            let find = (item["find"] as? String) ?? ""
-            var replacement = (item["replacement"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let find = stripLineNumber((item["find"] as? String) ?? "")
+            var replacement = (item["replacement"] as? String).map(stripLineNumber).flatMap { $0.isEmpty ? nil : $0 }
+            let line = (item["line"] as? NSNumber)?.intValue ?? (item["line"] as? String).flatMap { Int($0) }
             var range: NSRange?
             if !find.isEmpty {
-                let r = ns.range(of: find)
-                if r.location == NSNotFound {
+                let all = occurrences(of: find, in: ns)
+                if let line, line > 0 {
+                    // The model must cite the snippet on (or right next to) the
+                    // line it names; anything else is a hallucinated location.
+                    let near = all.filter { abs(lineNumber(of: $0.location, starts: lineStarts) - line) <= 2 }
+                    guard let best = near.min(by: {
+                        abs(lineNumber(of: $0.location, starts: lineStarts) - line) < abs(lineNumber(of: $1.location, starts: lineStarts) - line)
+                    }) else { continue }
+                    range = best
+                } else if let first = all.first {
+                    range = first
+                } else if replacement != nil {
                     // A hint about code that isn't there is a hallucination;
-                    // without a replacement it's still maybe useful prose,
-                    // with one it could apply anywhere. Drop it.
-                    if replacement != nil { continue }
-                } else {
-                    range = r
+                    // with a replacement it could apply anywhere. Drop it.
+                    continue
                 }
             }
+            // Contradicted by the code ("`<html>` is not closed" when it is)?
+            let categories = HintVerifier.categories(model: item["category"] as? String, title: title, detail: detail)
+            guard HintVerifier.holds(categories, title: title, detail: detail, find: find, text: text, language: language) else { continue }
+            if title.count > maxTitle { title = String(title.prefix(maxTitle - 1)) + "…" }
             // A replacement needs an anchor inside the context, and must change something.
             if range == nil || replacement.map({ squash($0) == squash(find) }) == true { replacement = nil }
             // Small models sometimes "fix" a snippet with unrelated code
             // ("if (x == 0)" → "return x === 0"). An Apply button must only
-            // offer edits that stay close to what they replace.
+            // offer edits that stay close to what they replace: similar
+            // words, a similar size, and (where a checker exists) a fix that
+            // actually makes the tags / brackets / JSON check pass.
             if let rep = replacement, wordOverlap(find, rep) <= minReplacementOverlap { replacement = nil }
+            if let rep = replacement, rep.count > max(find.count * 3, find.count + 80) { replacement = nil }
+            if let rep = replacement, let r = range,
+               !HintVerifier.fixPasses(categories, text: text, range: r, replacement: rep, language: language) {
+                replacement = nil
+            }
             if replacement == nil && detail == nil && range == nil && kind == .tip { continue }
             let hint = OwlHint(id: stableID(source: source, title: title, find: find),
                                kind: kind, title: title, detail: detail,
                                range: range, replacement: replacement, source: source)
             if !out.contains(where: { $0.id == hint.id }) { out.append(hint) }
         }
+        // Hints that can be fixed in one click come first.
+        let ranked = out.filter { $0.replacement != nil } + out.filter { $0.replacement == nil }
+        return Array(ranked.prefix(maxHints))
+    }
+
+    /// "12| code" → "code": small models sometimes copy the line numbers.
+    static func stripLineNumber(_ s: String) -> String {
+        s.replacingOccurrences(of: "(?m)^\\s*\\d+\\| ?", with: "", options: .regularExpression)
+    }
+
+    static func occurrences(of find: String, in ns: NSString) -> [NSRange] {
+        var out: [NSRange] = []
+        var from = 0
+        while from < ns.length {
+            let r = ns.range(of: find, range: NSRange(location: from, length: ns.length - from))
+            if r.location == NSNotFound { break }
+            out.append(r)
+            from = r.location + max(1, r.length)
+        }
         return out
+    }
+
+    static func lineStarts(_ ns: NSString) -> [Int] {
+        var starts = [0]
+        for i in 0..<ns.length where ns.character(at: i) == 10 { starts.append(i + 1) }
+        return starts
+    }
+
+    /// 1-based line of a UTF-16 offset.
+    static func lineNumber(of offset: Int, starts: [Int]) -> Int {
+        var lo = 0, hi = starts.count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if starts[mid] <= offset { lo = mid } else { hi = mid - 1 }
+        }
+        return lo + 1
     }
 
     /// Strips Qwen `<think>` blocks and Markdown fences, returns the

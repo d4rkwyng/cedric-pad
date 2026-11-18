@@ -112,7 +112,8 @@ enum AICheck {
                 NSApp.sendAction(sheet.modelPopup.action!, to: sheet.modelPopup.target, from: sheet.modelPopup)
             }
             check((sheet.modelPopup.selectedItem?.representedObject as? String) == model, "picked \(model)")
-            check(!sheet.weakLabel.isHidden, "the sheet notes that small models give weaker hints")
+            let weak = sheet.effectiveModel.map(ModelPicker.isWeak) ?? false
+            check(sheet.weakLabel.isHidden == !weak, "the weak-model note \(weak ? "shows" : "is hidden") for \(model)")
             saveSheet(sheet, tab: tab, out: out)
         }
     }
@@ -198,6 +199,8 @@ enum AICheck {
             check(live != nil, "the hint has a range")
         }
         OwlCheck.snapshot(window, "\(out)/2-bubble.png") {
+          wait("the status line", timeout: 5, { owl.owl.toolTipText.contains("Last checked") }) { ok in
+            check(ok, "the owl's tooltip shows the AI status: \(owl.owl.toolTipText.replacingOccurrences(of: "\n", with: " | "))")
             guard live == nil else { finish(); return }
             // Fake: Apply, and the next request hangs past the timeout.
             FakeAIProvider.delay.set(30)
@@ -207,6 +210,7 @@ enum AICheck {
             press(apply, "Apply") { owl.bubble == nil }
             check((tab.text as NSString).range(of: "for i in 0..<items.count").location != NSNotFound, "Apply fixed the loop in the document")
             timeoutPhase(tab, out: out)
+          }
         }
     }
 

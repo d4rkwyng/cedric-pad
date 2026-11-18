@@ -57,8 +57,11 @@ enum OwlArt {
 /// blinks and flaps are short frame sequences on a timer that exists only
 /// while the sequence plays.
 @MainActor
-final class OwlView: NSView {
+final class OwlView: NSView, NSViewToolTipOwner {
     var onClick: (() -> Void)?
+    /// Extra tooltip lines, asked for when the tooltip shows (the AI's
+    /// "Last checked … ago" status), so the age is always current.
+    nonisolated(unsafe) static var statusProvider: (@MainActor () -> String?)?
     private(set) var pose: OwlArt.Pose = .idle
     private var frame0: NSImage?
     private var sequence: [NSImage] = []
@@ -68,13 +71,31 @@ final class OwlView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        toolTip = String(localized: "Cedric")
+        addToolTip(bounds, owner: self, userData: nil)
         setAccessibilityRole(.button)
         setAccessibilityLabel(String(localized: "Cedric the owl"))
         current = OwlArt.poses[.idle]
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// "Cedric", plus the AI status line when an AI engine is on.
+    var toolTipText: String {
+        let name = String(localized: "Cedric")
+        guard let status = Self.statusProvider?() else { return name }
+        return name + "\n" + status
+    }
+
+    nonisolated func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint,
+                          userData data: UnsafeMutableRawPointer?) -> String {
+        MainActor.assumeIsolated { toolTipText }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        removeAllToolTips()
+        addToolTip(bounds, owner: self, userData: nil)
+    }
 
     override var isOpaque: Bool { false }
 

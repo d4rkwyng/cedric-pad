@@ -47,6 +47,7 @@ final class OwlHub {
         ai.onThinking = { [weak self] id, on in self?.tab(for: id)?.owl?.setThinking(on) }
         ai.onHints = { [weak self] ctx, hints in self?.presentAI(hints, context: ctx) }
         ai.onStateChange = { [weak self] in self?.applySource() }
+        OwlView.statusProvider = { OwlHub.shared.ai.statusLine() }
         appActiveChanged()
         let saved = AIStore.load()
         if saved.enabled { Task { @MainActor in await self.ai.apply(saved) } }

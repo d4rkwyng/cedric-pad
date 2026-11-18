@@ -31,6 +31,12 @@ public final class LocalAIOwlBridge {
     public private(set) var thinking: Set<UUID> = []
     /// Why the last `apply` left the AI off (nil: on, or simply disabled).
     public private(set) var lastProblem: String?
+    /// The active engine's name ("Apple Intelligence", "Built-in"), nil while off.
+    public private(set) var engineTitle: String?
+    /// The last finished check, for the owl's "Last checked … ago" line.
+    public private(set) var lastCheck: (date: Date, outcome: OwlScheduler.Outcome)?
+    /// After each finished check (delivered, timed out, cancelled, stale).
+    public var onCheck: (() -> Void)?
 
     /// A request started (true) or ended, timed out or was cancelled (false).
     public var onThinking: ((UUID, Bool) -> Void)?
@@ -80,15 +86,20 @@ public final class LocalAIOwlBridge {
         let provider = await makeProvider(new)
         guard token == applyToken else { return }
         guard let provider else {
-            lastProblem = "No model: pick one, or start the server and test the connection."
+            lastProblem = new.backend == .builtIn
+                ? "No model downloaded yet: download one in Cedric AI settings."
+                : "No model: pick one, or start the server and test the connection."
             onStateChange?(); return
         }
         let sched = OwlScheduler(
             provider: provider,
             config: .init(pauseDelay: new.pauseDelay, minInterval: new.minInterval, timeout: new.timeout),
             clock: clock, power: power,
-            onOutcome: { [weak self] id, _ in
-                Task { @MainActor in self?.setThinking(id, false, token: token) }
+            onOutcome: { [weak self] id, outcome in
+                Task { @MainActor in
+                    self?.setThinking(id, false, token: token)
+                    self?.recordCheck(outcome, token: token)
+                }
             },
             onStart: { [weak self] ctx in
                 Task { @MainActor in self?.setThinking(ctx.documentID, true, token: token) }
@@ -101,19 +112,60 @@ public final class LocalAIOwlBridge {
             })
         scheduler = sched
         providerName = provider.name
+        engineTitle = Self.shortTitle(new.backend)
         registry.register(ScheduledAIEntry(name: provider.name), isAI: true)
         let active = appActive && !paused
         if !active { Task { await sched.setAppActive(false) } }
         onStateChange?()
     }
 
+    private func recordCheck(_ outcome: OwlScheduler.Outcome, token: Int) {
+        guard token == applyToken, scheduler != nil, outcome != .cancelled else { return }
+        lastCheck = (Date(), outcome)
+        onCheck?()
+    }
+
+    /// One line for the owl's tooltip and popover, e.g. "Last checked 12 s
+    /// ago · Apple Intelligence · no suggestions"; nil while the AI is off.
+    public func statusLine(now: Date = Date()) -> String? {
+        guard let engine = engineTitle, scheduler != nil else { return nil }
+        if paused { return "\(engine) · paused" }
+        guard let last = lastCheck else { return "\(engine) · waiting for a pause in typing" }
+        return Self.statusLine(engine: engine, outcome: last.outcome, age: now.timeIntervalSince(last.date))
+    }
+
+    nonisolated public static func statusLine(engine: String, outcome: OwlScheduler.Outcome, age: TimeInterval) -> String {
+        let s = max(0, Int(age))
+        let ago = s < 60 ? "\(s) s" : s < 3600 ? "\(s / 60) min" : "\(s / 3600) h"
+        let result: String
+        switch outcome {
+        case .delivered(let n): result = n == 0 ? "no suggestions" : n == 1 ? "1 suggestion" : "\(n) suggestions"
+        case .timedOut: result = "timed out"
+        case .cancelled, .stale: result = "interrupted by an edit"
+        }
+        return "Last checked \(ago) ago · \(engine) · \(result)"
+    }
+
     private func teardown() {
+        lastCheck = nil
+        engineTitle = nil
         if let s = scheduler { Task { await s.shutdown() } }
         scheduler = nil
         if let name = providerName { registry.unregister(name: name) }
         providerName = nil
         for id in thinking { onThinking?(id, false) }
         thinking = []
+    }
+
+    /// The engine's name without the picker's parenthetical.
+    static func shortTitle(_ b: LocalAISettings.Backend) -> String {
+        switch b {
+        case .builtIn: return "Built-in"
+        case .lmStudio: return "LM Studio"
+        case .ollama: return "Ollama"
+        case .custom: return "another Mac"
+        case .apple: return "Apple Intelligence"
+        }
     }
 
     private func setThinking(_ id: UUID, _ on: Bool, token: Int) {

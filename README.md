@@ -127,3 +127,10 @@ review and tests before release.
 
 BSD-2-Clause. See [LICENSE](LICENSE). The Dracula theme's colours are by
 [Dracula Theme](https://draculatheme.com), used under the MIT license.
+
+The built-in AI engine uses [llama.cpp](https://github.com/ggml-org/llama.cpp)
+(MIT, © the ggml authors), bundled as `llama.framework`. Models are not
+bundled: the ones Cedric offers to download are Qwen models by Alibaba
+Cloud, each under its own licence, shown before download (Qwen2.5-Coder
+1.5B and 7B and Qwen3 4B: Apache-2.0; Qwen2.5-Coder 3B: Qwen Research
+License, non-commercial).

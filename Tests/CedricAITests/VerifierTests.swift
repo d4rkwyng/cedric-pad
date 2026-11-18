@@ -1,0 +1,156 @@
+import Foundation
+import Testing
+@testable import CedricAI
+import CedricCore
+
+/// The verifier between the model and the owl, the cited-line check, the
+/// fix rules and the source names.
+@Suite struct VerifierTests {
+    static let derekHTML = "<html>\n<head>\n<title>Test</title>\n<body>\nTest\n</body>\n</html>"
+
+    func json(_ hints: [[String: Any]]) -> String {
+        String(data: try! JSONSerialization.data(withJSONObject: ["hints": hints]), encoding: .utf8)!
+    }
+
+    @Test func dereksValidHTMLGetsNoTagHint() {
+        // What Apple Intelligence said on Derek's Mac, with and without a category.
+        for category: Any in ["unclosed-tag", "other", NSNull()] {
+            var h: [String: Any] = ["kind": "warning", "title": "Missing closing tag",
+                                    "detail": "The `<html>` tag is not closed, which may cause parsing issues.",
+                                    "line": 1, "find": "<html>", "replacement": "", "confidence": 0.8]
+            if !(category is NSNull) { h["category"] = category }
+            #expect(HintPrompt.parse(json([h]), text: Self.derekHTML, source: "apple", language: "html").isEmpty)
+        }
+        #expect(TagScan.scan(Self.derekHTML).unclosed.isEmpty)
+        #expect(TagScan.scan(Self.derekHTML).stray.isEmpty)
+    }
+
+    @Test func aRealUnclosedTagIsKeptAndItsFixMustBalance() {
+        let html = "<div class=\"card\">\n<p>Hello\n<span>name\n</div>"
+        #expect(TagScan.scan(html).unclosed == ["span"])
+        let good: [String: Any] = ["kind": "fix", "category": "unclosed-tag", "title": "Unclosed <span>",
+                                   "detail": "The `<span>` is never closed.", "line": 3,
+                                   "find": "<span>name", "replacement": "<span>name</span>", "confidence": 0.9]
+        let hints = HintPrompt.parse(json([good]), text: html, source: "local:x", language: "html")
+        #expect(hints.count == 1)
+        #expect(hints.first?.replacement == "<span>name</span>")
+        // A "fix" that doesn't close it: the hint stays, the Apply doesn't.
+        var bad = good; bad["replacement"] = "<span >name"
+        let kept = HintPrompt.parse(json([bad]), text: html, source: "local:x", language: "html")
+        #expect(kept.count == 1 && kept.first?.replacement == nil)
+    }
+
+    @Test func tagScanIgnoresVoidCommentsDoctypeAndScripts() {
+        let html = """
+        <!DOCTYPE html>
+        <!-- <div> not a tag -->
+        <html><head><meta charset="utf-8"><link rel="x"></head>
+        <body><img src="a.png"><br><input type="text"/>
+        <script>if (a < b && c > d) { document.write("<div>") }</script>
+        <ul><li>one<li>two</ul>
+        </body></html>
+        """
+        let r = TagScan.scan(html)
+        #expect(r.unclosed.isEmpty && r.stray.isEmpty)
+        #expect(TagScan.scan("<a><b></a></b>", html: false).problemCount > 0)   // XML is strict
+    }
+
+    @Test func bracketClaimsAreChecked() {
+        let swift = "let s = \"(not a paren\" // ) neither\nlet x = f(a, [1, 2], { $0 })\n"
+        #expect(BracketScan.scan(swift, language: "swift").isBalanced)
+        let claim: [String: Any] = ["kind": "fix", "category": "brackets", "title": "Missing closing parenthesis",
+                                    "detail": "The call to f is never closed.", "line": 2, "find": "f(a, [1, 2], { $0 })",
+                                    "replacement": "f(a, [1, 2], { $0 }))", "confidence": 0.9]
+        #expect(HintPrompt.parse(json([claim]), text: swift, source: "apple", language: "swift").isEmpty)
+
+        let broken = "let x = f(a, [1, 2]\nprint(x)\n"
+        #expect(!BracketScan.scan(broken, language: "swift").isBalanced)
+        var real = claim; real["find"] = "f(a, [1, 2]"; real["line"] = 1; real["replacement"] = "f(a, [1, 2])"
+        let hints = HintPrompt.parse(json([real]), text: broken, source: "apple", language: "swift")
+        #expect(hints.count == 1 && hints.first?.replacement == "f(a, [1, 2])")
+
+        let py = "s = 'it''s'  # (\nprint(s)\n"
+        #expect(BracketScan.scan(py, language: "python").isBalanced)
+        #expect(!BracketScan.scan("s = \"open\nprint(s)", language: "python").isBalanced)
+    }
+
+    @Test func unusedAndUndefinedClaimsAreChecked() {
+        let code = "let total = 3\nprint(total)\n"
+        let unused: [String: Any] = ["kind": "warning", "category": "unused", "title": "Unused variable",
+                                     "detail": "The variable `total` is never used.", "line": 1, "find": "let total = 3",
+                                     "replacement": "", "confidence": 0.8]
+        #expect(HintPrompt.parse(json([unused]), text: code, source: "apple", language: "swift").isEmpty)
+        let reallyUnused = "let total = 3\nprint(4)\n"
+        #expect(HintPrompt.parse(json([unused]), text: reallyUnused, source: "apple", language: "swift").count == 1)
+
+        let undefined: [String: Any] = ["kind": "warning", "category": "undefined", "title": "Undefined variable",
+                                        "detail": "`total` is not defined.", "line": 2, "find": "print(total)",
+                                        "replacement": "", "confidence": 0.8]
+        #expect(HintPrompt.parse(json([undefined]), text: code, source: "apple", language: "swift").isEmpty)
+        let reallyUndefined = "print(total)\n"
+        #expect(HintPrompt.parse(json([undefined]), text: reallyUndefined, source: "apple", language: "swift").count == 1)
+    }
+
+    @Test func jsonClaimsAreChecked() {
+        let valid = "{\"a\": [1, 2], \"b\": null}"
+        let h: [String: Any] = ["kind": "fix", "category": "json", "title": "Invalid JSON: trailing comma",
+                                "detail": "JSON does not allow trailing commas.", "line": 1, "find": "[1, 2]",
+                                "replacement": "[1, 2,]", "confidence": 0.9]
+        #expect(HintPrompt.parse(json([h]), text: valid, source: "apple", language: "json").isEmpty)
+        let invalid = "{\"a\": [1, 2,], \"b\": null}"
+        var fix = h; fix["find"] = "[1, 2,]"; fix["replacement"] = "[1, 2]"
+        let hints = HintPrompt.parse(json([fix]), text: invalid, source: "apple", language: "json")
+        #expect(hints.count == 1 && hints.first?.replacement == "[1, 2]")
+    }
+
+    @Test func snippetMustBeOnTheCitedLine() {
+        let code = "let a = 1\nlet b = 2\nlet c = 3\nlet d = 4\nlet e = 5\nlet f = 6\nfor i in 0...n { }\n"
+        var h: [String: Any] = ["kind": "fix", "category": "logic", "title": "Off by one",
+                                "detail": "0...n runs one past.", "line": 7, "find": "0...n",
+                                "replacement": "0..<n", "confidence": 0.9]
+        #expect(HintPrompt.parse(json([h]), text: code, source: "apple", language: "swift").count == 1)
+        h["line"] = 1      // cited far from where the snippet is
+        #expect(HintPrompt.parse(json([h]), text: code, source: "apple", language: "swift").isEmpty)
+        h["line"] = 6      // next to it is fine
+        #expect(HintPrompt.parse(json([h]), text: code, source: "apple", language: "swift").count == 1)
+        h["line"] = 7; h["find"] = "0...m"   // not in the code at all
+        #expect(HintPrompt.parse(json([h]), text: code, source: "apple", language: "swift").isEmpty)
+        h["find"] = "7| for i in 0...n"      // copied the line number: stripped
+        h["replacement"] = "7| for i in 0..<n"
+        let hints = HintPrompt.parse(json([h]), text: code, source: "apple", language: "swift")
+        #expect(hints.first?.replacement == "for i in 0..<n")
+    }
+
+    @Test func fixableHintsRankFirstAndFixesStaySmall() {
+        let code = "let x = items[items.count]\nlet y = 2\n"
+        let prose: [String: Any] = ["kind": "warning", "category": "logic", "title": "Confusing name",
+                                    "detail": "y says nothing.", "line": 2, "find": "let y = 2", "replacement": "", "confidence": 0.9]
+        let fix: [String: Any] = ["kind": "fix", "category": "logic", "title": "Index out of range",
+                                  "detail": "The last index is count - 1.", "line": 1, "find": "items[items.count]",
+                                  "replacement": "items[items.count - 1]", "confidence": 0.9]
+        let hints = HintPrompt.parse(json([prose, fix]), text: code, source: "apple", language: "swift")
+        #expect(hints.map(\.title) == ["Index out of range", "Confusing name"])
+        var huge = fix
+        huge["replacement"] = "items[items.count - 1] // " + String(repeating: "items count ", count: 20)
+        #expect(HintPrompt.parse(json([huge]), text: code, source: "apple", language: "swift").first?.replacement == nil)
+    }
+
+    @Test func promptAsksForLinesCategoriesAndFixes() {
+        let user = OwlPrompts.user(for: context("a\nb"), text: "a\nb", model: "x")
+        #expect(user.contains("1| a\n2| b"))
+        let sys = OwlPrompts.system(for: .codeHints)
+        #expect(sys.contains("line number") && sys.contains("category") && sys.contains("If you are unsure"))
+        #expect(sys.contains("Give one whenever the problem can be fixed"))
+        #expect(HintGrammar.gbnf.contains("category ::=") && HintGrammar.gbnf.contains("line ::="))
+        #expect(!HintVerifier.isStrictJSON("{\"a\": [1, 2,]}") && HintVerifier.isStrictJSON("{\"a,]\": [1, 2]}"))
+    }
+
+    @Test func sourceDisplayNames() {
+        #expect(HintSource.displayName("rules") == nil)
+        #expect(HintSource.displayName("apple") == "AI suggestion · Apple Intelligence")
+        #expect(HintSource.displayName("local:qwen2.5-coder-1.5b-instruct-mlx") == "AI suggestion · Qwen2.5 Coder 1.5B")
+        #expect(HintSource.displayName("local:qwen/qwen3.6-35b-a3b") == "AI suggestion · Qwen3.6 35B A3b")
+        #expect(HintSource.displayName("local:qwen2.5-coder-3b-instruct-q4_k_m", catalog: ModelCatalog.bundled())
+                == "AI suggestion · Qwen2.5 Coder 3B")
+    }
+}

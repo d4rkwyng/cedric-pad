@@ -70,6 +70,15 @@ if [ ${#LIPO_FROM[@]} -gt 0 ]; then
 else
     cp "$BIN/CedricApp" "$APP/Contents/MacOS/Cedric"
 fi
+# llama.cpp for the built-in AI engine: the pinned XCFramework's macOS
+# slice is already universal, so either architecture's copy will do. The
+# executable finds it through its @executable_path/../Frameworks rpath.
+[ -d "$BIN/llama.framework" ] || { echo "bundle-app.sh: missing $BIN/llama.framework" >&2; exit 1; }
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$BIN/llama.framework" "$APP/Contents/Frameworks/llama.framework"
+# The built-in engine's model list (downloads are pinned by URL + SHA-256).
+mkdir -p "$APP/Contents/Resources/AI"
+cp Resources/AI/models.json "$APP/Contents/Resources/AI/models.json"
 # The command-line launcher ships inside the app; see Scripts/cedric.
 cp Scripts/cedric "$APP/Contents/Resources/cedric"
 chmod +x "$APP/Contents/Resources/cedric"
