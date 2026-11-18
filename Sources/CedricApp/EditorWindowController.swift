@@ -1011,6 +1011,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         let p = PreviewController()
         p.onLoaded = { [weak self] in self?.syncPreviewScroll() }
+        p.onScrolledToLine = { [weak self] line in self?.previewScrolled(toLine: line) }
+        p.onOpenFile = { url in (NSApp.delegate as? AppDelegate)?.open(url) }
         return p
     }
 
@@ -1095,21 +1097,37 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private func schedulePreview() {
         guard previewVisible else { return }
         previewTimer?.invalidate()
-        previewTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+        // The render runs off the main thread; in large mode it waits for
+        // a longer pause, so a huge document isn't re-rendered per word.
+        previewTimer = Timer.scheduledTimer(withTimeInterval: extrasPaused ? 2 : 0.3, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.renderPreview() }
         }
     }
 
     func renderPreview() {
         guard let pane = previewPane else { return }
+        let start = DispatchTime.now()
         pane.applyPalette(palette)
         previewWindow?.updateTitle()
+        // `string` is a copy (the renderers work on it off the main thread).
         pane.renderer.render(text: textView.string, language: doc.language, palette: palette,
                              baseURL: doc.fileURL?.deletingLastPathComponent(), fileName: doc.fileURL?.lastPathComponent)
+        (pane.renderer as? PreviewController)?.noteMainThread(start)
+    }
+
+    /// The user scrolled the preview: the editor follows (Markdown), and
+    /// doesn't send its own scrolling back for a moment.
+    private var followingPreviewUntil = Date.distantPast
+
+    private func previewScrolled(toLine line: Double) {
+        guard previewVisible, doc.language == .markdown, lineIndex.lineCount > 0 else { return }
+        followingPreviewUntil = Date().addingTimeInterval(0.3)
+        let target = max(0, min(Int(line.rounded()), lineIndex.lineCount - 1))
+        if target != topLine { scrollToLine(target) }
     }
 
     private func syncPreviewScroll() {
-        guard let pane = previewPane, previewVisible else { return }
+        guard let pane = previewPane, previewVisible, Date() >= followingPreviewUntil else { return }
         let top = topLine
         let fraction = lineIndex.lineCount > 1 ? Double(top) / Double(lineIndex.lineCount - 1) : 0
         pane.renderer.sync(line: top, fraction: fraction, language: doc.language)

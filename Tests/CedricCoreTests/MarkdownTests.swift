@@ -81,3 +81,38 @@ func md(_ s: String) -> String {
         #expect(html.contains("<ul data-line=\"4\">"))
     }
 }
+
+@Suite struct PreviewSyncTests {
+    @Test func nestedBlocksCarryTheirSourceLines() {
+        let html = Markdown.render("- a\n- b\n\n  more b\n\n> q1\n>\n> q2\n")
+        #expect(html.contains("<li data-line=\"0\">"))
+        #expect(html.contains("<li data-line=\"1\">"))
+        #expect(html.contains("<p data-line=\"3\">more b</p>"))
+        #expect(html.contains("<blockquote data-line=\"5\">"))
+        #expect(html.contains("<p data-line=\"7\">q2</p>"))
+    }
+
+    @Test func tightListItemsStayUnwrapped() {
+        #expect(Markdown.render("- one\n- two\n") == "<ul data-line=\"0\">\n<li data-line=\"0\">one</li>\n<li data-line=\"1\">two</li>\n</ul>\n")
+    }
+
+    @Test func previewFolderServesOnlyTheDocumentsFolder() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("cedric-pf-\(UUID().uuidString)")
+        let folder = root.appendingPathComponent("docs folder")
+        try fm.createDirectory(at: folder.appendingPathComponent("img"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        let page = try #require(PreviewFolder.pageURL(for: folder))
+        #expect(page.scheme == "cedric-doc")
+        let inside = try #require(URL(string: "img/a%20b.png", relativeTo: page)?.absoluteURL)
+        #expect(PreviewFolder.file(for: inside, in: folder)?.path == folder.appendingPathComponent("img/a b.png").path)
+        let outside = try #require(URL(string: "../secret.txt", relativeTo: page)?.absoluteURL)
+        #expect(PreviewFolder.file(for: outside, in: folder) == nil)
+        #expect(PreviewFolder.file(for: URL(string: "cedric-doc://doc/etc/passwd")!, in: folder) == nil)
+        #expect(PreviewFolder.file(for: URL(fileURLWithPath: folder.appendingPathComponent("x.png").path), in: folder) == nil)
+        // A link inside the folder that points out of it is refused too.
+        try fm.createSymbolicLink(at: folder.appendingPathComponent("out"), withDestinationURL: root)
+        let viaLink = try #require(URL(string: "out/x.txt", relativeTo: page)?.absoluteURL)
+        #expect(PreviewFolder.file(for: viaLink, in: folder) == nil)
+    }
+}

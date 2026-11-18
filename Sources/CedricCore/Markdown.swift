@@ -7,22 +7,33 @@ import Foundation
 /// than the delimiter-run algorithm); good enough to preview READMEs and
 /// notes, with no dependencies.
 ///
-/// Top-level blocks carry `data-line="N"` (0-based source line) so the
-/// preview can scroll roughly in step with the editor.
+/// Blocks carry `data-line="N"` (0-based source line), list items and
+/// blocks inside lists and quotes too, so the preview can scroll in step
+/// with the editor both ways.
 public enum Markdown {
-    public static func render(_ source: String) -> String {
+    /// What to render beyond the plain HTML.
+    public struct Options: Sendable {
+        public init() {}
+        /// The live preview's options.
+        public static let preview = Options()
+    }
+
+    public static func render(_ source: String, options: Options = Options()) -> String {
         let lines = source.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var out = ""
-        renderBlocks(lines[...], firstLine: 0, topLevel: true, into: &out)
+        renderBlocks(lines[...], firstLine: 0, into: &out)
         return out
     }
 
     // MARK: Blocks
 
-    private static func renderBlocks(_ lines: ArraySlice<String>, firstLine: Int, topLevel: Bool, into out: inout String) {
+    /// `firstLine`: the source line of `lines.first` (nil: no data-line).
+    /// Each slice line is one source line, so nested blocks know theirs.
+    private static func renderBlocks(_ lines: ArraySlice<String>, firstLine: Int?, into out: inout String) {
         var i = lines.startIndex
         let end = lines.endIndex
-        func attr(_ idx: Int) -> String { topLevel ? " data-line=\"\(firstLine + idx - lines.startIndex)\"" : "" }
+        func srcLine(_ idx: Int) -> Int? { firstLine.map { $0 + idx - lines.startIndex } }
+        func attr(_ idx: Int) -> String { srcLine(idx).map { " data-line=\"\($0)\"" } ?? "" }
 
         while i < end {
             let line = lines[i]
@@ -95,7 +106,7 @@ public enum Markdown {
                     j += 1
                 }
                 out += "<blockquote\(attr(i))>\n"
-                renderBlocks(inner[...], firstLine: 0, topLevel: false, into: &out)
+                renderBlocks(inner[...], firstLine: srcLine(i), into: &out)
                 out += "</blockquote>\n"
                 i = j
                 continue
@@ -103,7 +114,7 @@ public enum Markdown {
 
             // Lists.
             if let marker = listMarker(line) {
-                i = renderList(lines, from: i, first: marker, attr: attr(i), into: &out)
+                i = renderList(lines, from: i, first: marker, firstLine: srcLine(i), into: &out)
                 continue
             }
 
@@ -179,9 +190,11 @@ public enum Markdown {
         return ListMarker(ordered: true, start: Int(digits) ?? 1, bullet: delim, contentIndent: indent + digits.count + 1 + pad)
     }
 
-    private static func renderList(_ lines: ArraySlice<String>, from start: Int, first: ListMarker, attr: String,
+    private static func renderList(_ lines: ArraySlice<String>, from start: Int, first: ListMarker, firstLine: Int?,
                                    into out: inout String) -> Int {
+        let attr = firstLine.map { " data-line=\"\($0)\"" } ?? ""
         var items: [[String]] = []
+        var itemLines: [Int?] = []
         var loose = false
         var i = start
         let end = lines.endIndex
@@ -213,6 +226,7 @@ public enum Markdown {
             }
             while item.last == "" { item.removeLast() }
             items.append(item)
+            itemLines.append(firstLine.map { $0 + i - start })
             // A blank line before the next item makes the list loose.
             if j > i + 1, j < end, lines[j - 1].trimmingCharacters(in: .whitespaces).isEmpty, listMarker(lines[j]) != nil { loose = true }
             i = j
@@ -225,7 +239,7 @@ public enum Markdown {
         let tag = first.ordered ? "ol" : "ul"
         let startAttr = first.ordered && first.start != 1 ? " start=\"\(first.start)\"" : ""
         out += "<\(tag)\(attr)\(startAttr)>\n"
-        for item in items {
+        for (k, item) in items.enumerated() {
             var body = item
             var checkbox = ""
             if let firstLine = body.first, firstLine.hasPrefix("[ ] ") || firstLine.hasPrefix("[x] ") || firstLine.hasPrefix("[X] ") {
@@ -233,13 +247,15 @@ public enum Markdown {
                 body[0] = String(firstLine.dropFirst(4))
             }
             var inner = ""
-            renderBlocks(body[...], firstLine: 0, topLevel: false, into: &inner)
+            renderBlocks(body[...], firstLine: itemLines[k], into: &inner)
             if !loose {
                 // Tight: unwrap the item's paragraphs.
-                inner = inner.replacingOccurrences(of: "<p>", with: "").replacingOccurrences(of: "</p>\n", with: "\n")
+                inner = inner.replacingOccurrences(of: #"<p( data-line="\d+")?>"#, with: "", options: .regularExpression)
+                    .replacingOccurrences(of: "</p>\n", with: "\n")
             }
             while inner.hasSuffix("\n") { inner.removeLast() }
-            out += "<li>\(checkbox)\(inner)</li>\n"
+            let liAttr = itemLines[k].map { " data-line=\"\($0)\"" } ?? ""
+            out += "<li\(liAttr)>\(checkbox)\(inner)</li>\n"
         }
         out += "</\(tag)>\n"
         return i
