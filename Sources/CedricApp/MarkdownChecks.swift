@@ -20,6 +20,20 @@ extension DevChecks {
         return true
     }
 
+    /// Where `s` ends in the tab's text; a failed check (not a trap) when
+    /// an earlier step left the text without it.
+    static func endOf(_ s: String, in tab: EditorWindowController) -> Int? {
+        let r = (tab.text as NSString).range(of: s)
+        guard r.location != NSNotFound else { expect(false, "the text still holds \(s.debugDescription)", tab.text); return nil }
+        return NSMaxRange(r)
+    }
+
+    /// Selects `s` in the tab's text (a failed check if it isn't there).
+    static func selectText(_ s: String, in tab: EditorWindowController) {
+        guard let end = endOf(s, in: tab) else { return }
+        tab.textView.setSelectedRange(NSRange(location: end - (s as NSString).length, length: (s as NSString).length))
+    }
+
     /// Puts the caret at the end of the text.
     static func caretAtEnd(_ tab: EditorWindowController) {
         tab.textView.setSelectedRange(NSRange(location: (tab.text as NSString).length, length: 0))
@@ -61,8 +75,7 @@ extension DevChecks {
                 expect(tab.text.hasSuffix("3. [ ] three"), "one ⌘Z undoes one continuation", tab.text)
                 // Return in the middle of the list renumbers what follows.
                 let ns = tab.text as NSString
-                guard ns.range(of: "one").location != NSNotFound else { return }
-                let at = ns.range(of: "one").location + 3
+                guard let at = endOf("one", in: tab) else { return }
                 tv.setSelectedRange(NSRange(location: at, length: 0))
                 key("\r")
                 type("new")
@@ -86,6 +99,47 @@ extension DevChecks {
                 expect(fence.text.hasPrefix("```\n- in code\n") && fence.text != "```\n- in code\n", "and Tab types its usual indent", fence.text)
             },
             snapshot("mdlists.png"),
+            sync {
+                // Return in a 100,000-line document: the fence scan is cached
+                // per line start, so a Return costs the same at the end as
+                // at the top (the first one scans the file once).
+                var big = ""
+                for k in 0..<34_000 { big += k % 50 == 0 ? "```\ncode\n```\n- item \(k)\n\n" : "Text \(k)\n- item\n\n" }
+                big += "- last"
+                let bigTab = app.open(write("big.md", big))!
+                focus(bigTab)
+                let lines = bigTab.lineIndex.lineCount
+                var times: [Double] = []
+                for k in 0..<12 {
+                    caretAtEnd(bigTab)
+                    let t0 = DispatchTime.now().uptimeNanoseconds
+                    key("\r")
+                    times.append(Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6)
+                    if k == 0 { expect(bigTab.text.hasSuffix("- last\n- "), "Return continues the last item of a \(lines)-line file", String(bigTab.text.suffix(20))) }
+                    key("\u{7f}")
+                    key("\u{7f}")
+                    key("\u{7f}")
+                }
+                let warm = times.dropFirst().sorted()
+                let median = warm[warm.count / 2]
+                // The same text as plain text: what Return costs with no Markdown work.
+                let plain = app.open(write("big.txt", big))!
+                focus(plain)
+                var base: [Double] = []
+                for _ in 0..<12 {
+                    caretAtEnd(plain)
+                    let t0 = DispatchTime.now().uptimeNanoseconds
+                    key("\r")
+                    base.append(Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6)
+                    key("\u{7f}")
+                }
+                let baseMedian = base.dropFirst().sorted()[(base.count - 1) / 2]
+                print(String(format: "check: metric md_return_100k_first_ms=%.2f md_return_100k_median_ms=%.2f plain_return_100k_median_ms=%.2f lines=%d",
+                             times[0], median, baseMedian, lines))
+                expect(lines >= 100_000, "the file has 100,000 lines", "\(lines)")
+                expect(median < 5, "Return at the end of a 100,000-line Markdown file takes under 5 ms (median)", String(format: "%.2f ms", median))
+                expect(times[0] < 50, "the first one (which scans the fences once) under 50 ms", String(format: "%.2f ms", times[0]))
+            },
         ])
     }
 
@@ -96,7 +150,7 @@ extension DevChecks {
         let tv = tab.textView
         let general = NSPasteboard.general
         let savedClip = general.string(forType: .string)
-        func select(_ s: String) { tv.setSelectedRange((tab.text as NSString).range(of: s)) }
+        func select(_ s: String) { selectText(s, in: tab) }
         run([
             sync {
                 focus(tab)
@@ -245,7 +299,7 @@ extension DevChecks {
         let general = NSPasteboard.general
         let savedClip = general.string(forType: .string)
         let drag = NSPasteboard(name: NSPasteboard.Name("cedric-check-mddrop-\(getpid())"))
-        func select(_ s: String) { tv.setSelectedRange((tab.text as NSString).range(of: s)) }
+        func select(_ s: String) { selectText(s, in: tab) }
         run([
             sync {
                 focus(tab)

@@ -67,6 +67,7 @@ public enum MarkdownLists {
 
     /// The width of leading whitespace in columns (a tab to the next stop).
     static func columns<S: StringProtocol>(_ s: S, tabWidth: Int) -> Int {
+        let tabWidth = max(1, tabWidth)
         var col = 0
         for c in s {
             if c == "\t" { col = (col / tabWidth + 1) * tabWidth } else if c == " " { col += 1 } else { break }
@@ -134,6 +135,11 @@ public enum MarkdownLists {
         var lines: [String]
         /// The caret's line in `lines`.
         var index: Int
+    }
+
+    /// A selection that lies in the text (no NSNotFound, no negatives).
+    static func valid(_ sel: NSRange, in text: NSString) -> Bool {
+        sel.location >= 0 && sel.length >= 0 && sel.location <= text.length && sel.length <= text.length - sel.location
     }
 
     static func lineContent(_ text: NSString, _ r: NSRange) -> NSRange {
@@ -254,7 +260,8 @@ public enum MarkdownLists {
     public static func newline(in text: NSString, selection sel: NSRange, language: Language,
                                tabWidth: Int = 4, useTabs: Bool = false) -> TextEdit? {
         let yaml = language == .yaml
-        guard language == .markdown || yaml, sel.location <= text.length else { return nil }
+        let tabWidth = max(1, min(16, tabWidth))
+        guard language == .markdown || yaml, valid(sel, in: text) else { return nil }
         let lineR = text.lineRange(for: NSRange(location: sel.location, length: 0))
         let content = lineContent(text, lineR)
         guard NSMaxRange(sel) <= NSMaxRange(content), content.length <= maxLine else { return nil }
@@ -352,7 +359,8 @@ public enum MarkdownLists {
     /// (the first item of a list has nothing to go under; a top-level item
     /// can't go further out).
     public static func shiftItem(in text: NSString, selection sel: NSRange, right: Bool, useTabs: Bool = false, tabWidth: Int = 4) -> TextEdit? {
-        guard sel.location <= text.length else { return nil }
+        let tabWidth = max(1, min(16, tabWidth))
+        guard valid(sel, in: text) else { return nil }
         let lineR = text.lineRange(for: NSRange(location: sel.location, length: 0))
         let content = lineContent(text, lineR)
         guard NSMaxRange(sel) <= NSMaxRange(content) else { return nil }
@@ -426,6 +434,7 @@ public enum MarkdownLists {
     /// back; a list item without a box gets "[ ] "; a plain line becomes
     /// "- [ ] line". Blank lines are left alone. Nil when nothing changes.
     public static func toggleTasks(in text: NSString, selection sel: NSRange) -> TextEdit? {
+        guard valid(sel, in: text) else { return nil }
         let block = LineOperations.lineBlock(sel, in: text)
         guard block.length <= 1_000_000 else { return nil }
         let body = text.substring(with: lineContent(text, block))
@@ -467,35 +476,10 @@ public enum MarkdownLists {
 
     // MARK: Fences
 
-    /// Whether line `line` is inside a ``` or ~~~ fence (or is one of its
-    /// fence lines), counting fences from the top. Looks at no more than
-    /// `limit` lines; past that it answers false.
-    public static func isInFence(_ text: NSString, index: LineIndex, line: Int, limit: Int = 200_000) -> Bool {
-        guard line < index.lineCount, line <= limit else { return false }
-        var open: unichar = 0
-        var openLength = 0
-        for l in 0...line {
-            let start = index.starts[l]
-            let len = index.lineLength(l)
-            var i = start, sp = 0
-            while sp < 4, i < start + len, text.character(at: i) == 32 { i += 1; sp += 1 }
-            guard sp <= 3, i < start + len else { if l == line { return open != 0 }; continue }
-            let c = text.character(at: i)
-            guard c == 96 || c == 126 else { if l == line { return open != 0 }; continue }
-            var run = 0
-            while i + run < start + len, text.character(at: i + run) == c { run += 1 }
-            guard run >= 3 else { if l == line { return open != 0 }; continue }
-            if open == 0 {
-                open = c
-                openLength = run
-                if l == line { return true }
-            } else if c == open, run >= openLength {
-                open = 0
-                if l == line { return true }
-            } else if l == line {
-                return true
-            }
-        }
-        return open != 0
+    /// Whether line `line` is inside a fence (or is a fence line),
+    /// scanning from the top. The app keeps a `FenceIndex` instead, which
+    /// caches this; kept for callers with no cache.
+    public static func isInFence(_ text: NSString, index: LineIndex, line: Int) -> Bool {
+        FenceIndex().isInFence(text, index: index, line: line)
     }
 }

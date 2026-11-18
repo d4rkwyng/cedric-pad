@@ -13,7 +13,7 @@ public enum MarkdownPaste {
     /// itself: `[selection](url)`, caret after it. Nil otherwise, and in
     /// a code span (the caller skips fenced code).
     public static func linkPaste(in text: NSString, selection sel: NSRange, pasted: String) -> TextEdit? {
-        guard sel.length > 0, sel.length <= 4096, NSMaxRange(sel) <= text.length, MarkdownFormat.isURL(pasted) else { return nil }
+        guard MarkdownLists.valid(sel, in: text), sel.length > 0, sel.length <= 4096, MarkdownFormat.isURL(pasted) else { return nil }
         let selected = text.substring(with: sel)
         guard selected.rangeOfCharacter(from: .newlines) == nil, !MarkdownFormat.isURL(selected),
               !inCodeSpan(text, at: sel.location) else { return nil }
@@ -24,6 +24,7 @@ public enum MarkdownPaste {
     /// Whether `offset` is inside a `code span` on its line (an odd number
     /// of backtick runs before it; at most 4096 characters back).
     public static func inCodeSpan(_ text: NSString, at offset: Int) -> Bool {
+        let offset = min(max(0, offset), text.length)
         let line = text.lineRange(for: NSRange(location: min(offset, text.length), length: 0))
         var i = max(line.location, offset - 4096)
         var open = 0

@@ -194,7 +194,7 @@ public enum MarkdownTable {
 
     /// The table around the caret, with or without its delimiter row yet.
     static func find(in text: NSString, selection sel: NSRange) -> Found? {
-        guard sel.location <= text.length else { return nil }
+        guard MarkdownLists.valid(sel, in: text) else { return nil }
         let lineR = text.lineRange(for: NSRange(location: sel.location, length: 0))
         let content = MarkdownLists.lineContent(text, lineR)
         guard NSMaxRange(sel) <= NSMaxRange(content) else { return nil }

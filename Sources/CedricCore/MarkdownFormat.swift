@@ -52,7 +52,8 @@ public enum MarkdownFormat {
     }
 
     /// Toggles `style` on the selection, or at the caret.
-    public static func toggle(_ style: Style, in text: NSString, selection sel: NSRange) -> TextEdit {
+    public static func toggle(_ style: Style, in text: NSString, selection: NSRange) -> TextEdit {
+        let sel = clamped(selection, in: text)
         let m = style.marker
         let len = (m as NSString).length
         if sel.length > 0 {
@@ -98,6 +99,12 @@ public enum MarkdownFormat {
                             selection: NSRange(location: newCaret, length: 0))
         }
         return TextEdit(range: sel, replacement: m + m, selection: NSRange(location: caret + len, length: 0))
+    }
+
+    /// `sel` moved inside the text (a stale or NSNotFound range never traps).
+    static func clamped(_ sel: NSRange, in text: NSString) -> NSRange {
+        let loc = min(max(0, sel.location), text.length)
+        return NSRange(location: loc, length: min(max(0, sel.length), text.length - loc))
     }
 
     static func isSpace(_ c: unichar) -> Bool { c == 32 || c == 9 || c == 10 }
@@ -154,7 +161,8 @@ public enum MarkdownFormat {
     /// `url` from the clipboard if it holds one (caret after the link),
     /// else empty with the caret in it. No selection: `[](…)`, caret in
     /// the brackets.
-    public static func link(in text: NSString, selection sel: NSRange, clipboard: String?) -> TextEdit {
+    public static func link(in text: NSString, selection: NSRange, clipboard: String?) -> TextEdit {
+        let sel = clamped(selection, in: text)
         if let l = linkSpan(in: text, around: sel) {
             let inner = text.substring(with: l.text)
             return TextEdit(range: l.whole, replacement: inner, selection: NSRange(location: l.whole.location, length: (inner as NSString).length))

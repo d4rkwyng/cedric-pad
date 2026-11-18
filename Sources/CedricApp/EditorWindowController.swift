@@ -92,6 +92,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Highlight-all, marks, bookmarks and the other editing extras
     /// (EditingFeatures.swift).
     let editing = EditingState()
+    /// Which lines are in fenced code, for the Markdown editing keys
+    /// (cached per line start; dropped from an edited line down).
+    let fences = FenceIndex()
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -148,7 +151,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             guard let self else { return false }
             let index = self.lineIndex
             guard index.length == self.textView.textStorage?.length else { return false }
-            return MarkdownLists.isInFence(self.textView.string as NSString, index: index, line: index.line(containing: offset))
+            return self.fences.isInFence(self.textView.string as NSString, index: index, line: index.line(containing: offset))
         }
         textView.onImages = { [weak self] files, bitmap, at in self?.insertImages(files, bitmap: bitmap, at: at) }
         textView.onDropFiles = { urls in
@@ -247,6 +250,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         storage.endEditing()
         PerfTrace.mark("set_text_storage")
         lineIndex = LineIndex(storage.string as NSString)
+        fences.invalidateAll()
         PerfTrace.mark("line_index")
         editing.bookmarks.clamp(lineCount: lineIndex.lineCount)
         textView.typingAttributes = attrs
@@ -309,6 +313,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         textView.textEdited(oldRange: oldRange, newLength: edited.length)
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
+        fences.invalidate(fromLine: first)
         if loading { return }
         spellStep?.textEdited(oldRange, newLength: edited.length)
         storageEdits += 1
