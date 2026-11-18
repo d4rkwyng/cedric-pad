@@ -670,6 +670,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard doc.isDirty, !(doc.fileURL == nil && textView.string.isEmpty) else { return true }
+        // Hot close (ClosedTabs.swift): the unsaved text is kept for File ›
+        // Reopen Closed Tab. Only if it can't be written do we ask.
+        if (NSApp.delegate as? AppDelegate)?.keepTextForClose(self) == true { return true }
         let a = NSAlert()
         a.messageText = String(localized: "Save changes to “\(doc.displayName)”?")
         a.informativeText = String(localized: "Your changes are lost if you don’t save them.")

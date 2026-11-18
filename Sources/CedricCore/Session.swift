@@ -64,10 +64,15 @@ public struct Session: Codable, Equatable, Sendable {
     /// Unused since untitled names reuse the lowest free number (kept so
     /// older session files still decode).
     public var untitledCounter: Int
+    /// Tabs the user closed, oldest first, for File › Reopen Closed Tab.
+    /// One with `hasBuffer` keeps its text in its buffer file, so closing
+    /// a tab with unsaved changes never loses them. Nil in older sessions.
+    public var closedTabs: [SessionTab]?
 
-    public init(windows: [SessionWindow], untitledCounter: Int = 0) {
+    public init(windows: [SessionWindow], untitledCounter: Int = 0, closedTabs: [SessionTab]? = nil) {
         self.windows = windows
         self.untitledCounter = untitledCounter
+        self.closedTabs = closedTabs
     }
 
     public var allTabs: [SessionTab] { windows.flatMap(\.tabs) }
@@ -145,6 +150,29 @@ public final class SessionStore: @unchecked Sendable {
                 try? fm.removeItem(at: f)
             }
         }
+    }
+}
+
+/// The closed-tabs list behind File › Reopen Closed Tab.
+public enum ClosedTabs {
+    /// How many closed tabs are remembered.
+    public static let limit = 50
+
+    /// `tab` pushed on `list` (newest last). Past `limit`, the oldest tab
+    /// without unsaved text goes first; only when every remembered tab has
+    /// unsaved text does the oldest of those go. Returns the new list and
+    /// what was dropped (whose buffers the caller deletes).
+    public static func push(_ tab: SessionTab, onto list: [SessionTab], limit: Int = ClosedTabs.limit)
+        -> (list: [SessionTab], dropped: [SessionTab]) {
+        // Reopening and closing the same tab again: one entry.
+        var out = list.filter { $0.id != tab.id }
+        out.append(tab)
+        var dropped: [SessionTab] = []
+        while out.count > max(1, limit) {
+            let i = out.firstIndex { !$0.hasBuffer } ?? 0
+            dropped.append(out.remove(at: i))
+        }
+        return (out, dropped)
     }
 }
 

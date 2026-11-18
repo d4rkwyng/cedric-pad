@@ -23,7 +23,9 @@ import WebKit
 ///   CEDRIC_SNAPSHOT_QUIT=1        quit after writing
 ///   CEDRIC_TEST_TYPE=text         type this at the end of the frontmost tab (session tests)
 ///   CEDRIC_TEST_TYPE_UNTITLED=t   open a new untitled tab and type this
-///   CEDRIC_SESSION_DUMP=1         print the restored tabs and quit
+///   CEDRIC_TEST_CLOSE_LAST=1      then close the newest tab (as ⌘W does; session tests)
+///   CEDRIC_TEST_REOPEN_CLOSED=1   then reopen the newest closed tab (as ⇧⌘T does)
+///   CEDRIC_SESSION_DUMP=1         print the restored tabs and closed tabs, and quit
 ///   CEDRIC_TYPE_CHECK=1           run the typing check (TypingCheck.swift), print results, quit
 ///   CEDRIC_LAUNCH_METRICS=1       print "metric launch_ms=…" (process start → first window drawn)
 ///   CEDRIC_QUIT_AFTER_LAUNCH=1    quit right after that
@@ -101,11 +103,17 @@ enum DevHooks {
             app.newTab(nil)
             if let tab = app.tabs.last { tab.textView.insertText(t, replacementRange: NSRange(location: 0, length: 0)) }
         }
+        if env["CEDRIC_TEST_CLOSE_LAST"] == "1", let tab = app.tabs.last { tab.window?.performClose(nil) }
+        if env["CEDRIC_TEST_REOPEN_CLOSED"] == "1" { app.reopenClosedTab(nil) }
         if env["CEDRIC_SESSION_DUMP"] == "1" {
             DispatchQueue.main.async {
                 for t in app.tabs {
                     let body = t.text.replacingOccurrences(of: "\n", with: "\\n")
                     print("tab: name=\(t.doc.displayName) file=\(t.doc.fileURL?.path ?? "-") dirty=\(t.doc.isDirty) language=\(t.doc.language.rawValue) text=\(body.prefix(60))")
+                }
+                for c in app.closedTabs {
+                    let body = (c.hasBuffer ? app.store.readBuffer(c.id) ?? "<missing buffer>" : "-").replacingOccurrences(of: "\n", with: "\\n")
+                    print("closed: name=\(c.untitledName ?? "-") file=\(c.path ?? "-") unsaved=\(c.hasBuffer) text=\(body.prefix(60))")
                 }
                 exit(0)
             }

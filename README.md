@@ -12,8 +12,12 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   save: every tab, including untitled tabs and unsaved changes, is restored on
   the next launch, as Notepad++ does. Unsaved text is autosaved to
   `~/Library/Application Support/Cedric/Session/` about 1.5 seconds after you
-  stop typing, so a crash or power cut loses at most that. Closing a tab with
-  unsaved changes still asks.
+  stop typing, so a crash or power cut loses at most that. Closing a tab
+  doesn't ask either (hot close): its unsaved text is written to the
+  session first, and **File › Reopen Closed Tab** (⇧⌘T) brings it back,
+  unsaved changes and all, even after a quit or a crash. The last 50
+  closed tabs are remembered (tabs without unsaved text are forgotten
+  first).
 - **Fast to open.** TextKit 2 lays out only what is on screen; a 10 MB JSON
   file opens and is coloured in under 0.1 s, a 50 MB log in about 0.2 s on an
   M-series Mac (see Performance below).

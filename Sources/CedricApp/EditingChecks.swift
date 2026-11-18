@@ -14,6 +14,7 @@ extension DevChecks {
         case "highlight": highlight(app)
         case "lineops": lineOps(app)
         case "bookmarks": bookmarks(app)
+        case "closedtab": closedTab(app)
         default: return false
         }
         return true
@@ -303,6 +304,69 @@ extension DevChecks {
                 click(g, at: NSPoint(x: g.bounds.width - 10, y: p.y))
                 expect(marks.isEmpty, "and a second click removes it", "\(marks)")
             },
+        ])
+    }
+
+    // MARK: Hot close, Reopen Closed Tab
+
+    static func closedTab(_ app: AppDelegate) {
+        let file = app.open(write("kept.txt", "on disk\n"))!
+        sized(file)
+        var untitled: EditorWindowController!
+        run([
+            sync {
+                // Exactly one ⇧⌘T in the menus (AppKit's own tab items included).
+                var hits: [String] = []
+                func walk(_ m: NSMenu) {
+                    m.update()
+                    for i in m.items {
+                        if i.keyEquivalent.lowercased() == "t",
+                           i.keyEquivalentModifierMask.union(i.keyEquivalent != i.keyEquivalent.lowercased() ? .shift : []) == [.command, .shift] {
+                            hits.append(i.title)
+                        }
+                        if let s = i.submenu { walk(s) }
+                    }
+                }
+                if let m = NSApp.mainMenu { walk(m) }
+                expect(hits == ["Reopen Closed Tab"], "⇧⌘T is only Reopen Closed Tab", "\(hits)")
+                app.newTab(nil)
+                untitled = app.tabs.last
+                focus(untitled)
+                type("hot close")
+                expect(untitled.doc.isDirty && untitled.text == "hot close", "typed into an untitled tab", untitled.text)
+                key("w", [.command])
+            },
+            sync {
+                expect(!app.tabs.contains { $0 === untitled }, "⌘W closes the unsaved tab")
+                expect(NSApp.modalWindow == nil && NSApp.windows.allSatisfy { $0.attachedSheet == nil }, "without asking")
+                expect(app.closedTabs.count == 1 && app.closedTabs.last?.hasBuffer == true, "it is remembered with its text",
+                       "\(app.closedTabs.count)")
+                focus(file)
+                file.textView.setSelectedRange(NSRange(location: 7, length: 0))
+                type(" and edited")
+                key("w", [.command])
+            },
+            sync {
+                expect(!app.tabs.contains { $0 === file }, "⌘W closes the edited file tab too")
+                expect(app.closedTabs.count == 2, "both are remembered", "\(app.closedTabs.count)")
+                key("t", [.command, .shift])
+            },
+            sync {
+                let back = app.tabs.last
+                expect(back?.doc.fileURL?.lastPathComponent == "kept.txt", "⇧⌘T reopens the newest closed tab", back?.doc.displayName ?? "-")
+                expect(back?.text == "on disk and edited\n" && back?.doc.isDirty == true, "with its unsaved edit, still unsaved",
+                       back?.text ?? "-")
+                expect((try? String(contentsOf: back!.doc.fileURL!, encoding: .utf8)) == "on disk\n", "the file itself is untouched")
+                key("t", [.command, .shift])
+            },
+            sync {
+                let back = app.tabs.last
+                expect(back?.doc.fileURL == nil && back?.text == "hot close" && back?.doc.isDirty == true,
+                       "⇧⌘T again: the untitled tab and its text", back?.text ?? "-")
+                expect(app.closedTabs.isEmpty, "nothing left to reopen")
+                expect(key("t", [.command, .shift]) == false || app.tabs.count == 2, "⇧⌘T with nothing closed does nothing")
+            },
+            snapshot("reopened-tab.png"),
         ])
     }
 }

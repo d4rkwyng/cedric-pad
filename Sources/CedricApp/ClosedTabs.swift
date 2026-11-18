@@ -1,0 +1,137 @@
+import AppKit
+import CedricCore
+
+/// Hot close and File › Reopen Closed Tab (⇧⌘T). Closing a tab never
+/// asks: a tab with unsaved text has that text written to its session
+/// buffer first (synchronously, before the window goes), and the tab is
+/// remembered in the session's closed-tabs list, so a crash right after
+/// the close still keeps it. ⇧⌘T brings the newest one back, unsaved
+/// changes and all. The list keeps `ClosedTabs.limit` tabs, dropping ones
+/// without unsaved text first.
+extension AppDelegate {
+    private var sessionSaving: Bool { ProcessInfo.processInfo.environment["CEDRIC_NO_SESSION_SAVE"] != "1" }
+
+    /// Whether this tab's text must be kept to reopen it (unsaved edits,
+    /// or an untitled tab with text).
+    private func needsBuffer(_ t: EditorWindowController) -> Bool {
+        t.doc.isDirty || t.doc.fileURL == nil && (t.textView.textStorage?.length ?? 0) > 0
+    }
+
+    /// Writes the tab's unsaved text to its buffer now (closing): false if
+    /// that failed, and the caller asks the user as before.
+    func keepTextForClose(_ t: EditorWindowController) -> Bool {
+        guard needsBuffer(t) else { return true }
+        let d = t.doc
+        if !sessionSaving {
+            closedTexts[d.id] = t.text
+            return true
+        }
+        if d.sessionChangeCount == d.changeCount, FileManager.default.fileExists(atPath: store.bufferURL(d.id).path) { return true }
+        let text = t.text, id = d.id, store = self.store
+        var failure: Error?
+        sessionQueue.sync {
+            do { try store.writeBuffer(id, text: text) } catch { failure = error }
+        }
+        if let failure {
+            FileHandle.standardError.write(Data("session: closing tab, buffer write failed: \(failure)\n".utf8))
+            return false
+        }
+        d.sessionChangeCount = d.changeCount
+        return true
+    }
+
+    /// The tab has closed (not by quitting): remember it, keep or delete
+    /// its buffer, and save the session now.
+    func rememberClosed(_ t: EditorWindowController) {
+        let d = t.doc
+        let empty = (t.textView.textStorage?.length ?? 0) == 0
+        // An empty untitled tab isn't worth remembering.
+        if d.fileURL == nil && empty {
+            store.removeBuffer(d.id)
+            scheduleSessionSave()
+            return
+        }
+        let keepText = needsBuffer(t)
+        // A tab closed without windowShouldClose (programmatically): write now.
+        if keepText, !keepTextForClose(t) {
+            // Couldn't write it: keep it in memory at least, for this run.
+            closedTexts[d.id] = t.text
+        }
+        if !keepText { store.removeBuffer(d.id) }
+        let sel = t.textView.selectedRange()
+        let entry = SessionTab(id: d.id, path: d.fileURL?.path, untitledName: d.fileURL == nil ? d.untitledName : nil,
+                               hasBuffer: keepText, encoding: d.encoding, lineEnding: d.lineEnding,
+                               language: d.languageIsManual ? d.language : nil,
+                               selectionLocation: sel.location, selectionLength: sel.length, topLine: t.topLine,
+                               fileModified: d.fileModified,
+                               bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines)
+        let r = ClosedTabs.push(entry, onto: closedTabs)
+        closedTabs = r.list
+        for gone in r.dropped {
+            closedTexts[gone.id] = nil
+            if gone.hasBuffer { store.removeBuffer(gone.id) }
+        }
+        // Now, not in 1.5 s: the closed list must name the buffer before a
+        // later save could prune it.
+        saveSession()
+    }
+
+    @objc func reopenClosedTab(_ sender: Any?) {
+        guard let st = closedTabs.popLast() else { NSSound.beep(); return }
+        var text: String? = closedTexts.removeValue(forKey: st.id) ?? (st.hasBuffer ? store.readBuffer(st.id) : nil)
+        var url = st.path.map { URL(fileURLWithPath: $0) }
+        if let u = url, let open = tabs.first(where: { $0.doc.fileURL?.standardizedFileURL == u.standardizedFileURL }) {
+            guard text != nil else {
+                // The file is open again already, nothing unsaved to bring back.
+                open.window?.makeKeyAndOrderFront(nil)
+                saveSession()
+                return
+            }
+            // Open with other edits: bring the closed text back beside it, untitled, rather than drop either.
+            url = nil
+        }
+        let openNames = tabs.filter { $0.doc.fileURL == nil }.map(\.doc.untitledName)
+        var name = st.untitledName ?? st.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Untitled")
+        if url == nil, openNames.contains(name) { name = UntitledNames.next(open: openNames, base: name) }
+        let doc = EditorDocument(id: st.id, fileURL: url, untitledName: name)
+        if text == nil, let url, let (d, mod) = try? EditorDocument.read(url, encoding: st.encoding) {
+            doc.apply(d)
+            doc.fileModified = mod
+            text = d.text
+        } else if text != nil {
+            doc.encoding = st.encoding
+            doc.lineEnding = st.lineEnding
+            doc.fileModified = st.fileModified
+        }
+        guard let body = text else {
+            // The file has gone and there was no unsaved text.
+            NSSound.beep()
+            saveSession()
+            return
+        }
+        if let l = st.language {
+            doc.languageChoice.choose(l)
+        } else if let url {
+            doc.languageChoice = .forFile(named: url.lastPathComponent, content: body)
+        } else {
+            doc.languageChoice = .untitled(content: body)
+        }
+        let tab = makeTab(doc, text: body)
+        if st.hasBuffer || url == nil && st.path != nil {
+            doc.markDirtyFromSession()
+            // The buffer on disk already holds this text.
+            if sessionSaving, st.hasBuffer { doc.sessionChangeCount = doc.changeCount }
+        }
+        let len = (body as NSString).length
+        let loc = min(st.selectionLocation, len)
+        tab.textView.setSelectedRange(NSRange(location: loc, length: min(st.selectionLength, len - loc)))
+        if let marks = st.bookmarks {
+            tab.editing.bookmarks = Bookmarks(marks)
+            tab.editing.bookmarks.clamp(lineCount: tab.lineIndex.lineCount)
+        }
+        tab.updateTitle()
+        let top = st.topLine
+        DispatchQueue.main.async { tab.scrollToLine(top) }
+        saveSession()
+    }
+}

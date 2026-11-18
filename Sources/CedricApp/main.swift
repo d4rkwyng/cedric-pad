@@ -83,6 +83,7 @@ func buildMainMenu() -> NSMenu {
         submenu(AppDelegate.recentMenuTitle, []),
         .separator(),
         item(String(localized: "Close Tab"), #selector(NSWindow.performClose(_:)), "w"),
+        item(String(localized: "Reopen Closed Tab"), #selector(AppDelegate.reopenClosedTab(_:)), "t", [.command, .shift]),
         item(String(localized: "Save"), #selector(AppDelegate.saveDocument(_:)), "s"),
         item(String(localized: "Save As…"), #selector(AppDelegate.saveDocumentAs(_:)), "s", [.command, .shift]),
     ]))
