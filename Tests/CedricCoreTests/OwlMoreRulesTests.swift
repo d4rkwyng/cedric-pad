@@ -312,4 +312,16 @@ import Testing
         let part = try #require(find(RulesHintProvider.trailingID, text, facts: .init(isWholeDocument: false)))
         #expect(part.detail?.contains("Only the part of the file around what’s on screen is changed.") == true)
     }
+
+    @Test func csvTablesGetNoWhitespaceHints() {
+        // Leading tabs are empty first fields, trailing ones empty last fields.
+        let tsv = "name\tqty\tnote\t\n\tx\t \t\n  a\t2\t\t\nb \t3\t \t\nc\t4\t\t\nd\t5\t\t\ne\t6\t \t\n"
+        #expect(find(RulesHintProvider.mixedIndentID, tsv) != nil || find(RulesHintProvider.trailingID, tsv) != nil) // as Plain Text they would fire
+        for (text, name) in [(tsv, "a.tsv"), ("Dear Sir,,\nrow,1  \nrow,2  \nrow,3  \nrow,4  \nrow,5  \n", "a.csv")] {
+            let ids = check(text, language: "csv", fileName: name).map(\.id)
+            #expect(!ids.contains(RulesHintProvider.mixedIndentID), "\(name)")
+            #expect(!ids.contains(RulesHintProvider.trailingID), "\(name)")
+            #expect(!ids.contains(RulesHintProvider.letterID), "\(name)")
+        }
+    }
 }

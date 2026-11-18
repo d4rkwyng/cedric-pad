@@ -142,6 +142,16 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         window?.close()
     }
 
+    /// Its tab closed: closes the window and cuts it loose (as the tab's own
+    /// views are, EditorWindowController.detachViews): AppKit may keep the
+    /// window a while longer, so nothing in it may call back in.
+    func closeWithTab() {
+        closeQuietly()
+        tab = nil
+        window?.delegate = nil
+        window?.contentView = NSView()
+    }
+
     func windowWillClose(_ notification: Notification) {
         if !closingQuietly { tab?.previewWindowClosedByUser() }
     }

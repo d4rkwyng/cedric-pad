@@ -42,7 +42,10 @@ import Testing
             #expect(SpellScope.ranges(language: l, tokens: t, in: all).isEmpty, "\(l)")
             #expect(!SpellScope.checks(language: l, fileName: nil), "\(l)")
         }
-        // CSV and TSV open as Plain Text but are tables of data.
+        // CSV and TSV (their own language, or Plain Text by name) are tables of data.
+        #expect(SpellScope.isData(.csv))
+        #expect(!SpellScope.checks(language: .csv, fileName: "people.csv"))
+        #expect(!SpellScope.checks(language: .csv, fileName: nil))
         #expect(!SpellScope.checks(language: .plain, fileName: "people.csv"))
         #expect(!SpellScope.checks(language: .plain, fileName: "Export.TSV"))
         #expect(SpellScope.checks(language: .plain, fileName: "notes.txt"))

@@ -599,7 +599,24 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
         observers = []
         appearanceObserver.map { NotificationCenter.default.removeObserver($0) }
         appearanceObserver = nil
+        // Remembered (Reopen Closed Tab, its page and zoom) before the views go.
         onClose?(self)
+        detachViews()
+    }
+
+    /// The window is closing: AppKit may keep it (and its views) a while
+    /// after this controller is freed, so cut the views' paths back to it
+    /// and take them out of the window (as EditorWindowController does).
+    private func detachViews() {
+        pdfView?.onZoom = nil
+        pdfView?.onDropFiles = nil
+        if findBarBuilt {
+            findBar.onChange = nil
+            findBar.onFind = nil
+            findBar.onClose = nil
+        }
+        window?.delegate = nil
+        window?.contentView = NSView()
     }
 
     func windowDidBecomeKey(_ notification: Notification) { loadIfShown() }

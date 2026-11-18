@@ -760,7 +760,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         previewTimer?.invalidate()
-        if let pw = previewWindow { previewWindow = nil; pw.closeQuietly() }
+        if let pw = previewWindow { previewWindow = nil; pw.closeWithTab() }
         owl?.detach()
         sniffTimer?.invalidate()
         editing.stop()

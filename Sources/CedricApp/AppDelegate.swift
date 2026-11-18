@@ -594,7 +594,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleInvisibles(_:)): item.state = s.showInvisibles ? .on : .off
         case #selector(toggleLineNumbers(_:)): item.state = s.showLineNumbers ? .on : .off
         case #selector(toggleSpellingWhileTyping(_:)): item.state = s.checkSpellingWhileTyping ? .on : .off
-        case #selector(checkDocumentNow(_:)), #selector(fixTyposMenu(_:)): return tab != nil
+        case #selector(checkDocumentNow(_:)): return tab != nil
+        // Not in data files (JSON, YAML, INI, XML, CSV/TSV): nothing there is checked.
+        case #selector(fixTyposMenu(_:)): return tab?.spellingChecksThisDocument == true
         case #selector(toggleOwl(_:)): item.state = s.showOwl ? .on : .off
         case #selector(pickOwlHintSource(_:)):
             // "Rules + AI" stays off until an AI provider registers.

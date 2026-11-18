@@ -412,8 +412,15 @@ final class SpellStepPanel: NSPanel {
 }
 
 extension EditorWindowController {
+    /// Whether spelling is checked in this tab at all (SpellScope.checks).
+    var spellingChecksThisDocument: Bool {
+        SpellScope.checks(language: doc.language, fileName: doc.fileURL?.lastPathComponent)
+    }
+
     /// Edit › Spelling and Grammar › Fix Typos…: starts (or brings back) the step-through.
     func startSpellStep() {
+        // Data files (JSON, CSV…) aren't spell checked: nothing to step through.
+        guard spellingChecksThisDocument else { NSSound.beep(); return }
         if let s = spellStep, s.panel.parent != nil {
             s.panel.makeKeyAndOrderFront(nil)
             return

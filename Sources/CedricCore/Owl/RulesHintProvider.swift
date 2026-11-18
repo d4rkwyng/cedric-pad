@@ -48,7 +48,10 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
             hint(Self.saveCopyID, .tip, String(localized: "Unsaved for over 2 hours. Save a copy?"),
                  String(localized: "Cedric keeps unsaved tabs across launches, but a copy on disk is safer."))
         }
-        if facts.isWholeDocument, Self.isLetter(c.text) {
+        // CSV/TSV: a leading or trailing tab or space is an empty field or
+        // part of a value, not indentation or stray whitespace.
+        let table = c.language == Language.csv.rawValue
+        if facts.isWholeDocument, !table, Self.isLetter(c.text) {
             hint(Self.letterID, .tip, String(localized: "It looks like you’re writing a letter. Would you like help?"))
         }
         if facts.isWholeDocument, let pretty = JSONFormatter.prettyIfMinified(c.text) {
@@ -63,7 +66,7 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         }
         let lines = Self.lines(text)
         moreHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
-        if c.language != "yaml" || !out.contains(where: { $0.id == Self.yamlTabsID }), let r = mixedIndent(text, lines: lines, fileName: c.fileName) {
+        if !table, c.language != "yaml" || !out.contains(where: { $0.id == Self.yamlTabsID }), let r = mixedIndent(text, lines: lines, fileName: c.fileName) {
             hint(Self.mixedIndentID, .fix,
                  r.toTabs ? String(localized: "Mixed tabs and spaces. Convert to tabs?") : String(localized: "Mixed tabs and spaces. Convert to spaces?"),
                  r.toTabs ? String(localized: "\(r.tabs) lines indent with tabs and \(r.spaces) with spaces. Every \(tabWidth) spaces become a tab.")
@@ -71,7 +74,7 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
                  range: r.range, replacement: r.replacement)
         }
         tidyHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
-        if c.language != "markdown", let r = trailing(text, lines: lines) {
+        if c.language != "markdown", !table, let r = trailing(text, lines: lines) {
             hint(Self.trailingID, .fix, String(localized: "\(r.count) lines end in spaces. Trim?"),
                  String(localized: "Removes spaces and tabs at the ends of lines."), range: r.range, replacement: r.replacement)
         }

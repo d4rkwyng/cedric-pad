@@ -161,7 +161,7 @@ extension AppDelegate {
     @objc func printDocument(_ sender: Any?) { currentTab?.printText() }
     @objc func pageSetup(_ sender: Any?) {
         let layout = NSPageLayout()
-        if let w = currentTab?.window {
+        if let w = currentTab?.window ?? currentPDFTab?.window {
             layout.beginSheet(using: NSPrintInfo.shared, on: w, completionHandler: nil)
         } else {
             layout.runModal(with: NSPrintInfo.shared)
