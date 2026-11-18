@@ -288,6 +288,8 @@ enum DevChecks {
                 TypingCheck.settle()
                 key("j", [.control, .option, .command])
                 expect(dark.text == pretty, "Dracula: ⌃⌥⌘J pretty-prints JSON", dark.text)
+                expect(dark.textView.selectedRange() == NSRange(location: 0, length: 0),
+                       "a whole-document tool leaves the caret at the start", "\(dark.textView.selectedRange())")
                 let p = dark.palette
                 let bgs = [p.background, p.currentLine]
                 let tv = dark.textView

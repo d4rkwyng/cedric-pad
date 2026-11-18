@@ -142,7 +142,14 @@ exits 1 on a clash with another item or with a system shortcut (Lock Screen
   re-printed by a small validating parser that keeps key order and number
   spelling (JSONSerialization does neither) and reports the line and column
   of an error; XML uses `XMLDocument`. Errors show as an alert sheet and
-  leave the text alone.
+  leave the text alone. The owl's "Format it?" hint uses the same
+  formatter (`JSONFormatter.prettyIfMinified`), so both give identical
+  text. The output is inserted with `baseAttributes()` (theme text
+  colour) through the text storage, as typed text is, so it is never
+  drawn in a stale or default colour before the highlighter runs; a
+  whole-document transform leaves the caret at the start. tools-check
+  samples the pixels of pretty-printed JSON in the Dracula theme the way
+  typing-check samples typed text.
 - **Find in Files** (`FileSearch`): collects the files under the folder
   (exclude globs match any path component, so `.git`, `node_modules`,
   `build`, `dist` skip whole folders; include globs match the file name, or

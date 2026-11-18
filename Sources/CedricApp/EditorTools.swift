@@ -187,6 +187,8 @@ extension EditorWindowController {
         guard let storage = textView.textStorage, textView.isEditable else { NSSound.beep(); return }
         let ns = textView.string as NSString
         var range = textView.selectedRange()
+        // `ns` bridges the live storage string: take the length now, before the edit.
+        let wholeDocument = range.length == 0 || range.length == ns.length
         if range.length == 0 {
             range = NSRange(location: 0, length: ns.length)
         } else if tool.isLineBased {
@@ -217,7 +219,7 @@ extension EditorWindowController {
         um?.endUndoGrouping()
         um?.setActionName(tool.displayName)
         let newRange = NSRange(location: range.location, length: (output as NSString).length)
-        textView.setSelectedRange(range.length == ns.length ? NSRange(location: 0, length: 0) : newRange)
+        textView.setSelectedRange(wholeDocument ? NSRange(location: 0, length: 0) : newRange)
         colorizer.scheduleViewport()
     }
 
