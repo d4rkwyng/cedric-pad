@@ -98,7 +98,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Mixed line endings are shown as such and written as one kind on save.
 - **Files changed on disk** reload by themselves when the tab has no unsaved
   changes.
-- **`cedric` command-line launcher** (below).
+- **`cedric` command-line launcher** (below), with `-w` so it can be
+  git's editor, and `file:line:col`.
 - **Cedric the owl** (View › Show Cedric the Owl, off by default): a small
   assistant in the corner that offers one hint at a time, with **Fix it**
   where a safe fix exists, **Show Me** where it points at something, **Not
@@ -160,10 +161,15 @@ starts it). Link it onto your PATH:
 ln -s /Applications/Cedric.app/Contents/Resources/cedric /usr/local/bin/cedric
 cedric notes.md                 # open (a missing file opens as a new tab that saves there)
 cedric src/main.c:120           # open at line 120 (also: cedric +120 src/main.c)
+cedric src/main.c:120:7         # line 120, column 7 (grep -n / compiler output works too)
 git log | cedric -              # stdin into a new untitled tab
+git config --global core.editor "cedric -w"   # -w / --wait: return when the tab closes
 ```
 
-It talks to the app through a `cedric://open?path=…&line=…` URL.
+It talks to the app through a `cedric://open?path=…&line=…&col=…` URL.
+With `-w` the script makes a `cedric-wait.*` marker file in the temp
+folder and passes it along; Cedric deletes it when that file's tab closes
+(or when Cedric quits), and the script returns.
 
 ## Design notes
 

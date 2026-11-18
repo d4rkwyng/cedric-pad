@@ -74,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// No "save changes?" on quit: every tab, saved or not, comes back next launch.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         saveSession()
+        releaseAllWaiters()
         terminating = true
         sessionTimer?.invalidate()
         return .terminateNow
@@ -102,7 +103,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 doc.markDirtyFromSession()
                 tab.updateTitle()
             }
-            if let line = q["line"].flatMap(Int.init) { tabs.first { $0.doc.fileURL?.standardizedFileURL == url.standardizedFileURL }?.goToLine(line) }
+            let tab = tabs.first { $0.doc.fileURL?.standardizedFileURL == url.standardizedFileURL }
+            if let line = q["line"].flatMap(Int.init) { tab?.goToLine(line, column: q["col"].flatMap(Int.init) ?? 1) }
+            // `cedric -w`: the script waits until this marker file goes.
+            if let marker = q["wait"], let tab { addWaiter(marker, for: tab) }
         } else if let tmp = q["untitled"], tmp.hasPrefix(NSTemporaryDirectory()) || tmp.hasPrefix("/tmp/") || tmp.hasPrefix("/private/") {
             let url = URL(fileURLWithPath: tmp)
             if let (d, _) = try? EditorDocument.read(url) {
@@ -134,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let tab = EditorWindowController(doc: doc, text: text)
         tab.onChange = { [weak self] _ in self?.scheduleSessionSave() }
         tab.onClose = { [weak self] t in
+            self?.releaseWaiters(for: t.doc.id)
             guard let self, !self.terminating else { return }
             self.tabs.removeAll { $0 === t }
             // Hot close: remembered for Reopen Closed Tab, unsaved text and all.

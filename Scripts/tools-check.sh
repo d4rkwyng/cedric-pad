@@ -30,11 +30,19 @@ fail=0
 echo "== shortcuts"
 env CEDRIC_DUMP_SHORTCUTS=1 "$BIN" -ApplePersistenceIgnoreState YES 2>/dev/null | tee "$OUT/shortcuts.txt" | grep -E "CONFLICT|shortcuts:" || fail=1
 grep -q "no conflicts" "$OUT/shortcuts.txt" || fail=1
-for c in recent texttool findinfiles compare follow large highlight lineops bookmarks closedtab autoedit counts indent print macbasics filterlines encodings; do
+for c in recent texttool findinfiles compare follow large highlight lineops bookmarks closedtab autoedit counts indent print macbasics filterlines encodings cli; do
     echo "== $c"
     if ! env CEDRIC_CHECK=$c CEDRIC_THEME=${CEDRIC_THEME:-dark} perl -e 'alarm 90; exec @ARGV' "$BIN" -ApplePersistenceIgnoreState YES 2>/dev/null \
         | grep -E "^check:" | tee "$OUT/$c.txt"; then fail=1; fi
     grep -q "check: done .* 0 failed" "$OUT/$c.txt" || { echo "tools-check: $c FAILED" >&2; fail=1; }
 done
+echo "== cedric script (dry run: the URLs it would send)"
+cli=$(cd "$W" && CEDRIC_DRY_RUN=1 "$OLDPWD/Scripts/cedric" -w a.txt src/x.c:12:5 +3 b.md 'c.py:9:' 2>&1) || fail=1
+echo "$cli"
+echo "$cli" | grep -q "path=$W/a.txt&wait=.*cedric-wait\\." || { echo "tools-check: cli -w FAILED" >&2; fail=1; }
+echo "$cli" | grep -q "path=$W/src/x.c&line=12&col=5&wait=" || { echo "tools-check: cli file:line:col FAILED" >&2; fail=1; }
+echo "$cli" | grep -q "path=$W/b.md&line=3&wait=" || { echo "tools-check: cli +line FAILED" >&2; fail=1; }
+echo "$cli" | grep -q "path=$W/c.py&line=9&wait=" || { echo "tools-check: cli file:line: FAILED" >&2; fail=1; }
+ls "${TMPDIR:-/tmp}"/cedric-wait.* >/dev/null 2>&1 && echo "note: cedric-wait markers present in TMPDIR (other runs?)"
 echo "snapshots and logs in $OUT"
 exit $fail

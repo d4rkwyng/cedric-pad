@@ -5,7 +5,7 @@ import CedricCore
 /// like the other DevChecks: real key events where a key does it (Tab,
 /// ⇧Tab and the menus' key equivalents), menu items' actions otherwise.
 ///
-///   CEDRIC_CHECK=indent|print|macbasics|filterlines|encodings
+///   CEDRIC_CHECK=indent|print|macbasics|filterlines|encodings|cli
 @MainActor
 extension DevChecks {
     static func gapCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -15,6 +15,7 @@ extension DevChecks {
         case "macbasics": macBasics(app)
         case "filterlines": filterLinesCheck(app)
         case "encodings": encodings(app)
+        case "cli": cli(app)
         default: return false
         }
         return true
@@ -478,6 +479,52 @@ extension DevChecks {
                 let menu = NSApp.mainMenu?.items.first { $0.submenu?.title == "Format" }?.submenu?.items.first { $0.title == "Encoding" }?.submenu
                 expect(menu?.items.map(\.title).contains("Mac Roman") == true && menu?.items.map(\.title).contains("Windows-1252 (Western)") == true,
                        "both are in Format › Encoding")
+            },
+        ])
+    }
+
+    // MARK: cedric -w and file:line:col (the URLs Scripts/cedric sends)
+
+    static func openURL(_ app: AppDelegate, _ url: String) {
+        let e = NSAppleEventDescriptor(eventClass: AEEventClass(kInternetEventClass), eventID: AEEventID(kAEGetURL),
+                                       targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+        e.setParam(NSAppleEventDescriptor(string: url), forKeyword: keyDirectObject)
+        app.handleURL(e, reply: NSAppleEventDescriptor.null())
+    }
+
+    static func cli(_ app: AppDelegate) {
+        let file = write("cli.txt", "one\ntwo\nthree is here\nfour\n")
+        let enc = { (s: String) in s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s }
+        let marker = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cedric-wait.check\(getpid())").path
+        FileManager.default.createFile(atPath: marker, contents: nil)
+        let outside = dir.appendingPathComponent("cedric-wait.outside").path
+        FileManager.default.createFile(atPath: outside, contents: nil)
+        var tab: EditorWindowController?
+        run([
+            sync {
+                openURL(app, "cedric://open?path=\(enc(file.path))&line=3&col=7&wait=\(enc(marker))")
+                tab = app.tabs.first { $0.doc.fileURL?.standardizedFileURL == file.standardizedFileURL }
+                expect(tab != nil, "the URL opens the file")
+                let sel = tab?.textView.selectedRange()
+                expect(sel == NSRange(location: 14, length: 0), "line=3&col=7 puts the caret at line 3, column 7", "\(String(describing: sel))")
+                expect(tab.map { app.waitMarkers(for: $0) } == [marker], "the tab holds the -w marker")
+                // A marker outside the temp folder (or not named cedric-wait.*) is never taken.
+                openURL(app, "cedric://open?path=\(enc(file.path))&wait=\(enc(outside))")
+                openURL(app, "cedric://open?path=\(enc(file.path))&wait=\(enc(file.path))")
+                expect(tab.map { app.waitMarkers(for: $0) } == [marker], "markers elsewhere are ignored")
+                expect(FileManager.default.fileExists(atPath: marker), "the marker stays while the tab is open")
+                tab?.window?.performClose(nil)
+            },
+            sync {
+                expect(!FileManager.default.fileExists(atPath: marker), "closing the tab deletes the marker (cedric -w returns)")
+                expect(FileManager.default.fileExists(atPath: outside) && FileManager.default.fileExists(atPath: file.path),
+                       "nothing else is deleted")
+                // Quitting releases every waiter too.
+                let m2 = marker + "b"
+                FileManager.default.createFile(atPath: m2, contents: nil)
+                openURL(app, "cedric://open?path=\(enc(file.path))&wait=\(enc(m2))")
+                app.releaseAllWaiters()
+                expect(!FileManager.default.fileExists(atPath: m2), "quitting releases waiting scripts")
             },
         ])
     }
