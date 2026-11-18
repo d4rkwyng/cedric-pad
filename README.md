@@ -338,7 +338,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   pasting its path; dropped text is inserted as before. (On a Markdown
   tab a dropped image is linked instead; see Markdown editing.)
 - **Files changed on disk** reload by themselves when the tab has no unsaved
-  changes.
+  changes. With unsaved changes, a bar says so (**Reload** / **Keep Mine**),
+  owl or no owl. **⌘S never overwrites another app's changes:** if the file
+  changed since Cedric Pad read or saved it, a sheet asks first (**Keep My
+  Version**, **Reload Theirs** (undoable) or **Compare**).
 - **`cedric` command-line launcher** (below), with `-w` so it can be
   git's editor, and `file:line:col`.
 - **Cedric the owl** (View › Show Cedric the Owl, off by default): a small

@@ -167,14 +167,8 @@ extension AppDelegate: NSMenuDelegate {
     }
 
     func showCompare(_ left: EditorWindowController, _ right: EditorWindowController) {
-        let c = CompareWindowController(leftName: left.doc.displayName, leftText: left.text,
-                                        rightName: right.doc.displayName, rightText: right.text, palette: left.palette)
-        compareWindows.append(c)
-        c.onClose = { [weak self] c in self?.compareWindows.removeAll { $0 === c } }
-        if let w = c.window {
-            if let host = left.window, host.isVisible { host.addTabbedWindow(w, ordered: .above) } else { w.center() }
-            w.makeKeyAndOrderFront(nil)
-        }
+        showCompare(host: left, leftName: left.doc.displayName, leftText: left.text,
+                    rightName: right.doc.displayName, rightText: right.text)
     }
 
     // MARK: Follow

@@ -111,6 +111,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var binary: BinaryFileState?
     /// Its bar, built only for such a file.
     var binaryBar: BinaryFileBar?
+    /// "Changed on disk — Reload / Keep Mine" (DiskChange.swift), built when first needed.
+    var diskBar: NoticeBar?
+    /// A one-off notice in this tab (the closed-tab "not saved" notice).
+    var noticeBar: NoticeBar?
     /// Highlight-all, marks, bookmarks and the other editing extras
     /// (EditingFeatures.swift).
     let editing = EditingState()
@@ -688,6 +692,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     func save() -> Bool {
         guard !binaryBlocksSave else { NSSound.beep(); return false }
         guard let url = doc.fileURL else { return saveAs() }
+        // Another app changed the file since it was read or saved here: ask
+        // (DiskChange.swift) rather than overwrite its changes.
+        if fileChangedOnDisk(url) { askSaveConflict(url); return false }
         return write(to: url)
     }
 
@@ -711,6 +718,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             return false
         }
         if doc.languageChoice.saved(fileName: url.lastPathComponent, content: textView.string) { languageChanged() }
+        hideDiskBar()
         (NSApp.delegate as? AppDelegate)?.noteRecent(url)
         updateTitle()
         updateStatus()
@@ -726,19 +734,20 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     /// Reloads from disk if the file changed and the tab has no unsaved
-    /// edits; with unsaved edits, flags it for the owl's "Reload?".
+    /// edits; with unsaved edits, shows the "Changed on disk" bar (and
+    /// flags it for the owl's "Reload?"). Never drops unsaved edits.
     func reloadIfChangedOnDisk() {
-        guard tail == nil, let url = doc.fileURL,
-              let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-              let known = doc.fileModified, mod > known else { return }
+        guard tail == nil, let url = doc.fileURL, fileChangedOnDisk(url) else { return }
         if doc.isDirty {
-            if !doc.changedOnDisk, owl != nil {
+            if !doc.changedOnDisk {
                 doc.changedOnDisk = true
-                OwlHub.shared.activity(in: self)
+                if owl != nil { OwlHub.shared.activity(in: self) }
             }
+            showDiskBar()
             return
         }
         guard let (d, newMod) = try? EditorDocument.read(url, encoding: doc.encoding) else { return }
+        hideDiskBar()
         if case .held = binary {
             // Not shown yet (Open Anyway): only what it will show changes.
             binary = .held(d.text)
@@ -771,6 +780,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             doc.apply(d)
             doc.fileModified = mod
             doc.markSaved()
+            hideDiskBar()
             updateTitle()
             updateStatus()
             onChange?(self)
@@ -893,6 +903,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        // Changed on disk while another tab or app was in front (owl or
+        // not). Not before the first frame: nothing new on the launch path.
+        if AfterFirstFrame.passed { reloadIfChangedOnDisk() }
         gitTabShown()
         (NSApp.delegate as? AppDelegate)?.tabBecameKey(self)
     }

@@ -22,7 +22,14 @@ final class EditorDocument {
     var language: Language { languageChoice.language }
     /// Picked from the menu: never re-detected (typing, paste, save).
     var languageIsManual: Bool { languageChoice.isManual }
-    var fileModified: Date?
+    /// The file's date at the last read or save. Setting it drops the
+    /// size (unknown until `noteDisk`), so a stale size never fakes a change.
+    var fileModified: Date? { didSet { fileSize = nil } }
+    /// The file's size at the last read or save, when known.
+    private(set) var fileSize: Int?
+    /// What the file looked like when last read or written (DiskStamp).
+    var diskStamp: DiskStamp { DiskStamp(modified: fileModified, size: fileSize) }
+    func noteDisk(_ s: DiskStamp?) { fileModified = s?.modified; fileSize = s?.size }
 
     /// Edits since open; compared with the count at the last save.
     private(set) var changeCount = 0
@@ -101,7 +108,7 @@ final class EditorDocument {
         }
         try data.write(to: url, options: .atomic)
         fileURL = url
-        fileModified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        noteDisk(DiskStamp.of(url))
         mixedLineEndings = false
         markSaved()
     }
