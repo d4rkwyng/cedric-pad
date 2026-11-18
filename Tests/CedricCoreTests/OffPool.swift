@@ -1,0 +1,42 @@
+import Foundation
+import Testing
+
+// Swift's cooperative pool has one thread per core: three on a CI runner.
+// A test that blocks one of them (waiting on git, zip or openssl, or a
+// second of CPU work on a big document) takes it from every other test, and
+// a few of those at once stall the whole run: every test, timing tests
+// included, then absorbs the wait (release run 44409932572: 573 tests at
+// ~5.7 s). Tests marked `.offPool` run on GCD threads instead, which the
+// system adds more of while one is blocked. What they check is unchanged.
+
+@available(macOS 15, *)
+final class OffPoolExecutor: TaskExecutor, @unchecked Sendable {
+    static let shared = OffPoolExecutor()
+    private let queue = DispatchQueue(label: "cedric.tests.off-pool", qos: .userInitiated, attributes: .concurrent)
+
+    func enqueue(_ job: consuming ExecutorJob) {
+        let job = UnownedJob(job)
+        queue.async { job.runSynchronously(on: self.asUnownedTaskExecutor()) }
+    }
+}
+
+/// Runs each test it covers (on a suite: every test in it) with the
+/// off-pool executor as its task executor, so the test's own synchronous
+/// body runs there and task-locals (the current test, for `#expect`) stay.
+struct OffPoolTrait: TestTrait, SuiteTrait, TestScoping {
+    var isRecursive: Bool { true }
+
+    func provideScope(for test: Test, testCase: Test.Case?,
+                      performing function: @Sendable () async throws -> Void) async throws {
+        if testCase != nil, #available(macOS 15, *) {
+            try await withTaskExecutorPreference(OffPoolExecutor.shared) { try await function() }
+        } else {
+            try await function()
+        }
+    }
+}
+
+extension Trait where Self == OffPoolTrait {
+    /// Blocking or CPU-heavy: keep it off Swift's cooperative pool.
+    static var offPool: Self { .init() }
+}

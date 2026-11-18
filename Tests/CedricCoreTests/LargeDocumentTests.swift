@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CedricCore
 
-@Suite struct LargeDocumentTests {
+@Suite(.offPool) struct LargeDocumentTests {
     static func line(_ n: Int, _ c: Character = "A") -> String { String(repeating: c, count: n) }
 
     @Test func shortLinesAreNotLarge() {

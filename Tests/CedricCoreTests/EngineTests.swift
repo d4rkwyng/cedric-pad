@@ -21,7 +21,7 @@ import Testing
     }
 
     /// Random edits: the incremental index always equals a fresh one.
-    @Test func incrementalMatchesRebuild() {
+    @Test(.offPool) func incrementalMatchesRebuild() {
         var rng = SystemRandomNumberGenerator()
         let text = NSMutableString(string: "one\ntwo\nthree\n\nfour five\nsix")
         var idx = LineIndex(text)
@@ -84,7 +84,7 @@ import Testing
 
     /// A 10 MB JSON file: colouring a screenful at the end must be fast
     /// (no full-file scan). Generous bound; the app's perf numbers are in perf.md.
-    @Test func bigJSONViewportIsFast() {
+    @Test(.offPool) func bigJSONViewportIsFast() {
         var s = "[\n"
         let row = "  {\"id\": 123456, \"name\": \"Cedric the editor\", \"tags\": [\"a\", \"b\"], \"ok\": true},\n"
         while s.utf8.count < 10_000_000 { s += row }

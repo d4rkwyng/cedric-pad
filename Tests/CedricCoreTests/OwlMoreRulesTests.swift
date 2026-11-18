@@ -269,7 +269,7 @@ import Testing
         for h in check(busy) + check("x = (1]\nprint(“a”)\n", language: "python") { #expect(h.title.count <= 60, "\(h.title)") }
     }
 
-    @Test func rulesStayFastOnAFullWindow() {
+    @Test(.offPool) func rulesStayFastOnAFullWindow() {
         // The worst case the owl can hand them: 8 KB of dense code and of prose.
         let code = String(String(repeating: "f(a[\"(\"], {b: `${c}`}) // “x”\n", count: 400).utf16.prefix(OwlContextWindow.byteCap))!
         let prose = String(String(repeating: "the the word.  Next one. ", count: 400).utf16.prefix(OwlContextWindow.byteCap))!

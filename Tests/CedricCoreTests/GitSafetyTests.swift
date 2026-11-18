@@ -6,7 +6,7 @@ import Testing
 /// (security audit H1): config keys that name commands are refused, and
 /// the commands Cedric runs never invoke fsmonitor, filters, textconv or
 /// anything an includeIf pulls in.
-@Suite struct GitSafetyTests {
+@Suite(.offPool) struct GitSafetyTests {
     @Test func parsesScopedConfig() {
         let z = "global\0filter.lfs.clean\ngit-lfs clean -- %f\0local\0core.bare\nfalse\0local\0x.flag\0command\0core.fsmonitor\nfalse\0"
         let e = GitConfigSafety.parse(z)

@@ -59,7 +59,7 @@ import Testing
 
     /// Every command at every caret (and a few selections) of random
     /// Markdown-ish text: none traps, and every edit's ranges fit the text.
-    @Test func fuzz() {
+    @Test(.offPool) func fuzz() {
         var rng = SystemRandomNumberGenerator.Seeded(seed: 42)
         let pieces = ["- ", "* ", "1. ", "99) ", "> ", "  ", "\t", "[ ] ", "[x] ", "|", " | ", "---", ":-:", "```", "~~~", "**", "*", "~~", "`",
                       "[a](b)", "word", "日本", "🦉", "\n", "\n", "\n", "e\u{301}", "\\|", "_", "https://x.org", ""]

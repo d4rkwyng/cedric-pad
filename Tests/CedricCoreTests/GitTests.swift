@@ -95,7 +95,7 @@ import Testing
         #expect(wl?.gitDir.path == repo.appendingPathComponent(".git/worktrees/wt").standardizedFileURL.path)
     }
 
-    @Test func realRepositoryAndWorktree() throws {
+    @Test(.offPool) func realRepositoryAndWorktree() throws {
         guard GitRunner.executable != nil else { return }
         let root = try tempDir()
         defer { try? FileManager.default.removeItem(at: root) }

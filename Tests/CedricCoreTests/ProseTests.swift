@@ -200,7 +200,7 @@ import Testing
         #expect(m.hasPrefix("See ") && m.contains(" about it."))
     }
 
-    @Test func detectionIsBoundedAndFast() {
+    @Test(.offPool) func detectionIsBoundedAndFast() {
         let big = String(repeating: Self.prose[0], count: 2_000) as NSString // ~360 K
         let t0 = Date()
         for _ in 0..<10 { _ = ProseDetector.isProse(big, language: .plain) }

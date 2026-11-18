@@ -108,7 +108,7 @@ import Testing
         #expect(OfficeFormat.word.hasText && OfficeFormat.rtfd.hasText && !OfficeFormat.spreadsheet.hasText)
     }
 
-    @Test func aZipWithNoExtensionIsReadInside() throws {
+    @Test(.offPool) func aZipWithNoExtensionIsReadInside() throws {
         let dir = tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let x = try XLSXFixture.make(in: dir, name: "download")
@@ -195,7 +195,7 @@ enum XLSXFixture {
 }
 
 @Suite struct ZipAndXLSXTests {
-    @Test func zipReadsStoredAndDeflatedEntries() throws {
+    @Test(.offPool) func zipReadsStoredAndDeflatedEntries() throws {
         let dir = tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let big = String(repeating: "hoot hoot owl\n", count: 2000)
@@ -210,7 +210,7 @@ enum XLSXFixture {
         #expect(throws: ZipArchive.ZipError.notAZip) { try ZipArchive(data: Data()) }
     }
 
-    @Test func firstSheetAsCSV() throws {
+    @Test(.offPool) func firstSheetAsCSV() throws {
         let dir = tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let x = try XLSXFixture.make(in: dir)

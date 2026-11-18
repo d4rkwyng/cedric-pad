@@ -57,7 +57,7 @@ final class CertFixtures: @unchecked Sendable {
     func data(_ name: String) -> Data { (try? Data(contentsOf: dir.appendingPathComponent(name))) ?? Data() }
 }
 
-@Suite(.enabled(if: CertFixtures.available, "needs /usr/bin/openssl")) struct CertificateTests {
+@Suite(.enabled(if: CertFixtures.available, "needs /usr/bin/openssl"), .offPool) struct CertificateTests {
     let f = CertFixtures.shared
 
     @Test func readsAServerCertificate() throws {
