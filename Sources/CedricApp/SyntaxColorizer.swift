@@ -15,6 +15,8 @@ final class SyntaxColorizer {
     private weak var textView: EditorTextView?
     let engine: HighlightEngine
     private var colored = IndexSet()
+    /// For the checks.
+    func isColored(_ line: Int) -> Bool { colored.contains(line) }
     private var colors: [TokenKind: NSColor] = [:]
     private var foreground: NSColor = .textColor
     private var pending = false
@@ -55,14 +57,18 @@ final class SyntaxColorizer {
         colorViewport()
     }
 
-    /// After an edit: `firstLine` changed; `lineDelta` lines were added (+) or removed (−).
-    func textDidChange(firstLine: Int, lineDelta: Int, lineCount: Int) {
+    /// After an edit: lines `firstLine...lastLine` (after the edit) changed;
+    /// `lineDelta` lines were added (+) or removed (−). A replacement of
+    /// several lines by as many (Replace All, Toggle Comment, a pasted
+    /// block) changes every one of them, not only the first: they were
+    /// left in the plain text colour, still marked as coloured.
+    func textDidChange(firstLine: Int, lastLine: Int? = nil, lineDelta: Int, lineCount: Int) {
         engine.invalidate(fromLine: firstLine)
         let tokenizerCarriesState = Languages.tokenizer(for: engine.language).carriesState
         if tokenizerCarriesState || lineDelta != 0 {
             colored.remove(integersIn: firstLine..<Int.max)
         } else {
-            colored.remove(firstLine)
+            colored.remove(integersIn: firstLine...max(firstLine, lastLine ?? firstLine))
         }
         scheduleViewport()
     }

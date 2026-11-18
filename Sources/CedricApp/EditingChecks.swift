@@ -6,7 +6,7 @@ import CedricCore
 /// through the menus' key equivalents and the text view, then the text,
 /// the state and the drawn pixels are checked.
 ///
-///   CEDRIC_CHECK=highlight|lineops|bookmarks|closedtab|closefail|closedraw|jsonwhole|autoedit|counts
+///   CEDRIC_CHECK=highlight|lineops|bookmarks|closedtab|closefail|closedraw|jsonwhole|colours|autoedit|counts
 @MainActor
 extension DevChecks {
     static func editingCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -18,6 +18,7 @@ extension DevChecks {
         case "closefail": closeAfterFailedSave(app)
         case "closedraw": closedTabsStillDrawn(app)
         case "jsonwhole": formatWholeJSONCheck(app)
+        case "colours": colourConsistency(app)
         case "autoedit": autoEdit(app)
         case "counts": counts(app)
         default: return gapCheck(name, app)
@@ -591,6 +592,134 @@ extension DevChecks {
                 expect(said != nil, "and the reason is given", said ?? "-")
             },
         ], gap: 0.6)
+    }
+
+    // MARK: Colouring stays right after edits
+
+    /// Lines near the viewport whose colours differ from a fresh, full
+    /// re-highlight of the current text (first few, for the report).
+    static func colourMismatches(_ tab: EditorWindowController) -> [String] {
+        guard let storage = tab.textView.textStorage, let vr = tab.textView.visibleCharacterRange else { return ["no view"] }
+        let text = storage.string as NSString
+        let index = tab.lineIndex
+        let pal = tab.palette
+        let fresh = HighlightEngine(language: tab.doc.language)
+        // The visible lines and some way past them (the colorizer's own
+        // margin edge can move a line with TextKit's height estimates).
+        let first = max(0, index.line(containing: vr.location) - SyntaxColorizer.margin / 2)
+        let last = min(index.lineCount, index.line(containing: NSMaxRange(vr)) + SyntaxColorizer.margin / 2 + 1)
+        let tokens = fresh.tokens(forLines: 0..<last, in: text, index: index).filter { index.line(containing: $0.start) >= first }
+        let lo = index.starts[first], hi = last < index.lineCount ? index.starts[last] : index.length
+        var want = [UInt32](repeating: pal.foreground, count: hi - lo)
+        for t in tokens where t.start >= lo {
+            for k in t.start..<min(t.start + t.length, hi) { want[k - lo] = pal.color(for: t.kind) }
+        }
+        var bad: [String] = []
+        var k = lo
+        while k < hi, bad.count < 5 {
+            var eff = NSRange()
+            let c = storage.attribute(.foregroundColor, at: k, effectiveRange: &eff) as? NSColor
+            let end = min(NSMaxRange(eff), hi)
+            for j in k..<end where text.character(at: j) > 32 {
+                if c == nil || distance(c, want[j - lo]) > 0.02 {
+                    let line = index.line(containing: j)
+                    bad.append("line \(line + 1) col \(j - index.starts[line] + 1) '\(text.substring(with: NSRange(location: j, length: 1)))' coloured=\(tab.colorizer.isColored(line)) region \(first + 1)-\(last) got \(c?.description ?? "-")")
+                    break
+                }
+            }
+            k = max(end, k + 1)
+        }
+        return bad
+    }
+
+    /// A multi-KB JSON and a Swift file: random edits (typing, multi-line
+    /// replacements with and without a change in line count, pastes,
+    /// Replace All, Toggle Comment), scrolling far down and back, and a
+    /// language switch; after each, the colours near the viewport must
+    /// equal a fresh full re-highlight.
+    static func colourConsistency(_ app: AppDelegate) {
+        let rows = (0..<400).map { "  {\"id\": \($0), \"name\": \"item \($0)\", \"ok\": \($0 % 2 == 0), \"tags\": [\"a\", \"b\"], \"n\": null}" }
+        let json = app.open(write("colours.json", "[\n" + rows.joined(separator: ",\n") + "\n]\n"))!
+        let swiftSrc = (0..<300).map { "let v\($0) = \"s\($0)\" // note \($0)\n/* block \($0) */ func f\($0)() -> Int { \($0) }" }.joined(separator: "\n") + "\n"
+        let swift = app.open(write("colours.swift", swiftSrc))!
+        sized(json)
+        var seed: UInt64 = 0x5eed
+        func next(_ n: Int) -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int((seed >> 33) % UInt64(max(1, n))) }
+        func settle(_ tab: EditorWindowController) {
+            TypingCheck.settle(0.05)
+            tab.colorizer.colorViewport()
+            TypingCheck.settle(0.05)
+        }
+        func verify(_ tab: EditorWindowController, _ what: String) {
+            settle(tab)
+            let bad = colourMismatches(tab)
+            expect(bad.isEmpty, "colours match a fresh highlight: \(what)", bad.joined(separator: ", "))
+        }
+        func randomEdits(_ tab: EditorWindowController, _ name: String) {
+            for round in 0..<12 {
+                let ns = tab.text as NSString
+                let index = tab.lineIndex
+                let vr = tab.textView.visibleCharacterRange ?? NSRange(location: 0, length: 0)
+                let firstVis = index.line(containing: vr.location)
+                let line = min(index.lineCount - 1, firstVis + next(30))
+                let start = index.starts[line]
+                let r: NSRange, rep: String
+                switch round % 6 {
+                case 0: // typing a quote mid-line (changes what follows on the line)
+                    r = NSRange(location: start + min(index.lineLength(line), 3), length: 0); rep = "\""
+                case 1: // several lines replaced by as many (same line count)
+                    let e = index.starts[min(index.lineCount - 1, line + 3)]
+                    r = NSRange(location: start, length: e - start)
+                    rep = ns.substring(with: r).replacingOccurrences(of: "1", with: "\"x\"")
+                case 2: // a paste of several lines
+                    r = NSRange(location: start, length: 0); rep = ns.substring(with: NSRange(location: index.starts[0], length: index.starts[min(index.lineCount - 1, 4)]))
+                case 3: // lines deleted
+                    let e = index.starts[min(index.lineCount - 1, line + 2)]
+                    r = NSRange(location: start, length: e - start); rep = ""
+                case 4: // a block comment opened (Swift) / a string broken (JSON)
+                    r = NSRange(location: start, length: 0); rep = tab.doc.language == .swift ? "/* " : "\"open "
+                default: // and closed again
+                    r = NSRange(location: start, length: 0); rep = tab.doc.language == .swift ? " */" : "\" "
+                }
+                tab.replaceAsOneStep(r, with: rep, actionName: "Edit")
+                verify(tab, "\(name) edit \(round)")
+            }
+        }
+        run([
+            sync { focus(json); verify(json, "json opened") },
+            sync { randomEdits(json, "json") },
+            sync {
+                json.goToLine(json.lineIndex.lineCount - 5)
+                verify(json, "json scrolled to the end")
+                json.goToLine(json.lineIndex.lineCount / 2)
+                verify(json, "json scrolled to the middle")
+                randomEdits(json, "json middle")
+            },
+            sync {
+                // Replace All across the document, then undo.
+                json.showFindBar(replace: true)
+                json.findBar.findField.stringValue = "name"
+                json.findBar.replaceField.stringValue = "label"
+                json.findBar.onReplaceAll?()
+                json.hideFindBar()
+                verify(json, "json after Replace All")
+                json.textView.undoManager?.undo()
+                verify(json, "json after undo")
+            },
+            sync { focus(swift); sized(swift); verify(swift, "swift opened") },
+            sync { randomEdits(swift, "swift") },
+            sync {
+                swift.textView.setSelectedRange(NSRange(location: swift.lineIndex.starts[2], length: swift.lineIndex.starts[8] - swift.lineIndex.starts[2]))
+                swift.perform(.toggleComment)
+                verify(swift, "swift after Toggle Comment")
+                swift.goToLine(swift.lineIndex.lineCount - 3)
+                verify(swift, "swift scrolled to the end")
+                swift.setLanguage(.javascript)
+                verify(swift, "after switching to JavaScript")
+                swift.setLanguage(.swift)
+                verify(swift, "and back to Swift")
+            },
+        ], gap: 0.3)
     }
 
     // MARK: Auto-indent, pairing, bracket match

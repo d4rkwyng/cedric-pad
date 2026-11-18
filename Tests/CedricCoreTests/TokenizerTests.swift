@@ -184,3 +184,18 @@ func kinds(_ text: String, _ language: Language) -> [String: TokenKind] {
         #expect(s[0].map(\.0) == ["let", "\"x\""])
     }
 }
+
+@Suite struct JSONKeyColourTests {
+    @Test func keysAndStringValuesDiffer() {
+        // Tokens: a key is a string followed by a colon, a value isn't.
+        let ns = "{\"name\": \"value\", \"list\": [\"a\"]}\n" as NSString
+        var index = LineIndex()
+        _ = index.replace(NSRange(location: 0, length: 0), newLength: ns.length, in: ns)
+        let t = HighlightEngine(language: .json).tokens(forLines: 0..<index.lineCount, in: ns, index: index)
+        let kinds = t.map { (ns.substring(with: NSRange(location: $0.start, length: $0.length)), $0.kind) }
+        #expect(kinds.filter { $0.1 == .key }.map(\.0) == ["\"name\"", "\"list\""])
+        #expect(kinds.filter { $0.1 == .string }.map(\.0) == ["\"value\"", "\"a\""])
+        // And every theme draws them in different colours.
+        for p in EditorPalettes.all { #expect(p.color(for: .key) != p.color(for: .string), "\(p.name)") }
+    }
+}

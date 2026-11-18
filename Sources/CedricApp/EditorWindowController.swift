@@ -307,7 +307,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             editing.bookmarks.adjust(firstLine: e.first, removed: e.removed, inserted: lineIndex.lineCount - oldLines + e.removed,
                                      wholeLines: e.wholeLines)
         }
-        colorizer.textDidChange(firstLine: first, lineDelta: lineIndex.lineCount - oldLines, lineCount: lineIndex.lineCount)
+        colorizer.textDidChange(firstLine: first, lastLine: lineIndex.line(containing: NSMaxRange(edited)),
+                                lineDelta: lineIndex.lineCount - oldLines, lineCount: lineIndex.lineCount)
         if lineIndex.lineCount != oldLines { updateGutterWidth() }
         checkLargeAfterEdit(lines: first..<(first + max(1, lineIndex.lineCount - oldLines + 1)))
     }
