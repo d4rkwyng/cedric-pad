@@ -28,7 +28,7 @@ permissions: {}
 
 jobs:
   release:
-    runs-on: macos-26   # macOS 26 SDK: the Apple Intelligence engine (FoundationModels) compiles in; tests.yml stays on macos-15 to guard Swift 6.1
+    runs-on: macos-26   # macOS 26 SDK: the Apple Intelligence engine (FoundationModels) compiles in; tests.yml uses the same runner
     timeout-minutes: 90
     permissions:
       contents: write  # create the release and upload Cedric-Pad-<version>.zip
