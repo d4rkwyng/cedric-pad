@@ -171,7 +171,7 @@ public final class LocalAIOwlBridge {
     }
 
     /// The engine's name without the picker's parenthetical.
-    static func shortTitle(_ b: LocalAISettings.Backend) -> String {
+    nonisolated static func shortTitle(_ b: LocalAISettings.Backend) -> String {
         switch b {
         case .builtIn: return "Built-in"
         case .lmStudio: return "LM Studio"

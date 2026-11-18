@@ -82,6 +82,16 @@ final class Settings {
         set { defaults.set(newValue, forKey: "checkGrammarInProse"); changed() }
     }
 
+    /// Settings › "Owl chat (beta)", off by default: Ask Cedric (the owl's chat panel and
+    /// its tools) and Check Grammar with AI. CEDRIC_OWL_CHAT=0/1 for one run.
+    var owlChat: Bool {
+        get {
+            if let v = ProcessInfo.processInfo.environment["CEDRIC_OWL_CHAT"] { return v == "1" }
+            return defaults.object(forKey: "owlChat") as? Bool ?? false
+        }
+        set { defaults.set(newValue, forKey: "owlChat"); changed() }
+    }
+
     /// View › Highlight Occurrences: other occurrences of the selection or
     /// the word under the caret are tinted on screen. On by default.
     var highlightOccurrences: Bool {

@@ -155,15 +155,62 @@ def sparkle(c, x, y, r, col=YEL, owl=True):
             (x, y + r), (x - r * k, y + r * k), (x - r, y), (x - r * k, y - r * k)], col, owl)
 
 
+def one_wing(c, side, angle):
+    """side -1 = viewer's left, 1 = viewer's right; angle as in wings()."""
+    a = side * (angle - 10)
+    px, py = 0.5 + side * 0.215, 0.60   # shoulder
+    L = 0.17
+    cx = px + side * L * math.sin(math.radians(angle)) * 0.9
+    cy = py + L * math.cos(math.radians(angle)) * 0.55 - L * math.sin(math.radians(angle)) * 0.45
+    c.rot_ellipse(cx, cy, 0.06, 0.15, -a if side > 0 else -a, WING)
+
+
 def wings(c, angle):
     """angle 0 = folded at the sides, 90 = raised straight out."""
     for side in (-1, 1):
-        a = side * (angle - 10)
-        px, py = 0.5 + side * 0.215, 0.60   # shoulder
-        L = 0.17
-        cx = px + side * L * math.sin(math.radians(angle)) * 0.9
-        cy = py + L * math.cos(math.radians(angle)) * 0.55 - L * math.sin(math.radians(angle)) * 0.45
-        c.rot_ellipse(cx, cy, 0.06, 0.15, -a if side > 0 else -a, WING)
+        one_wing(c, side, angle)
+
+
+def wing_between(c, p0, p1, rx=0.06, col=WING):
+    """A wing as an ellipse whose long axis runs from p0 to p1 (owl units)."""
+    dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+    ang = math.degrees(math.atan2(-dx, dy))
+    c.rot_ellipse((p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2, rx, math.hypot(dx, dy) / 2, ang, col)
+
+
+def arm(c, side, angle, L=0.30):
+    """One wing raised from the shoulder, staying attached: angle 0 = hanging
+    down, 90 = straight out, 180 = straight up. Drawn behind the body."""
+    sx, sy = 0.5 + side * 0.20, 0.63
+    a = math.radians(angle)
+    tip = (sx + side * L * math.sin(a), sy + L * math.cos(a))
+    root = (sx - side * 0.04 * math.sin(a), sy - 0.04 * math.cos(a))
+    wing_between(c, root, tip, rx=0.062)
+
+
+def quill(c, nib, tip):
+    """A feather quill: navy shaft from the nib, yellow vane with a coral edge toward the tip."""
+    dx, dy = tip[0] - nib[0], tip[1] - nib[1]
+    L = math.hypot(dx, dy)
+    ux, uy = dx / L, dy / L
+    nx, ny = -uy, ux
+    def at(t, w):
+        return (nib[0] + ux * L * t + nx * w, nib[1] + uy * L * t + ny * w)
+    VW = 0.032
+    vane = []
+    for i in range(21):           # pointed leaf from t=0.25 to t=1
+        t = 0.25 + 0.75 * i / 20
+        w = VW * math.sin(math.pi * i / 20) ** 0.8
+        vane.append(at(t, w))
+    for i in range(20, -1, -1):
+        t = 0.25 + 0.75 * i / 20
+        w = VW * math.sin(math.pi * i / 20) ** 0.8
+        vane.append(at(t, -w))
+    c.poly([at(0.25 + 0.75 * i / 20, VW * math.sin(math.pi * i / 20) ** 0.8 + 0.01 * (i > 0 and i < 20))
+            for i in range(21)] + [at(0.25 + 0.75 * i / 20, 0) for i in range(20, -1, -1)], CORAL)
+    c.poly(vane, YEL)
+    c.line([at(0.0, 0), at(0.3, 0)], 0.016, YEL_D)    # bare shaft and nib, readable on the navy body
+    c.line([at(0.27, 0), at(0.97, 0)], 0.011, NAVY)
 
 
 def owl(c, eyes='open', beak='closed', monocle='on', wing=None, look=(0.0, 0.0), chevron=True):
@@ -343,7 +390,7 @@ def speech_bubble(c):
         c.circle(0.73 + i * 0.08, 0.15, 0.022, NAVY, owl=False)
 
 
-def thought_bubble(c):
+def thought_bubble(c, dots=None):
     for (x, y, r) in ((0.73, 0.15, 0.08), (0.82, 0.12, 0.09), (0.90, 0.17, 0.07), (0.80, 0.21, 0.07)):
         c.circle(x, y, r + 0.014, NAVY, owl=False)
     for (x, y, r) in ((0.73, 0.15, 0.08), (0.82, 0.12, 0.09), (0.90, 0.17, 0.07), (0.80, 0.21, 0.07)):
@@ -351,6 +398,10 @@ def thought_bubble(c):
     for (x, y, r) in ((0.66, 0.31, 0.028), (0.62, 0.37, 0.018)):
         c.circle(x, y, r + 0.012, NAVY, owl=False)
         c.circle(x, y, r, WHITE, owl=False)
+    if dots is not None:   # a "..." being thought, one dot per frame
+        for i in range(dots):
+            c.circle(0.745 + i * 0.07, 0.16, 0.021, NAVY, owl=False)
+        return
     sparkle(c, 0.815, 0.155, 0.06, YEL, owl=False)
     sparkle(c, 0.73, 0.14, 0.03, YEL_D, owl=False)
     sparkle(c, 0.90, 0.19, 0.025, YEL_D, owl=False)
@@ -400,10 +451,49 @@ def pose(name, size=256, frame=None):
         hop = [0.0, -0.02, -0.04, -0.02][frame]
         c.oy = AY + hop
         owl(c, wing=ang)
+    elif name == 'look-strip':
+        # right, up-right, up, up-left, left, down-left, down, down-right
+        a = math.radians(45 * frame)
+        owl(c, look=(round(0.028 * math.cos(a), 4), round(-0.028 * math.sin(a), 4)))
+    elif name == 'wave-strip':
+        arm(c, 1, [100, 140, 100, 140][frame])
+        owl(c, beak=['closed', 'open'][frame % 2])
+    elif name == 'nod-strip':
+        c.oy = AY + [0.015, 0.03, 0.015][frame]
+        owl(c, eyes=['open', 'half', 'open'][frame], look=(0.0, 0.02))
+    elif name == 'point-strip':
+        side, ang, look = [(1, 90, (0.03, 0.0)), (1, 160, (0.0, -0.03)),
+                           (-1, 90, (-0.03, 0.0)), (1, 40, (0.0, 0.03))][frame]
+        arm(c, side, ang)
+        owl(c, look=look)
+    elif name == 'think-strip':
+        owl(c, look=(-0.02, -0.035))
+        c.rot_ellipse(0.40, 0.70, 0.06, 0.12, -40, WING)   # wing to the chin
+        thought_bubble(c, dots=frame + 1)
+    elif name == 'search-strip':
+        look = [(-0.03, 0.0), (0.0, 0.03), (0.03, 0.0)][frame]
+        owl(c, monocle='off', look=look)
+        mx, my = ER[0] + look[0] * 0.8, ER[1] + 0.02 + look[1] * 0.8
+        r = MONO_R * 1.1
+        g = (mx + r * 0.6, my + r * 0.85)                      # where the wing grips the rim
+        wing_between(c, (0.80, 0.86), g, rx=0.062)
+        c.ring(mx, my, r, r - (MONO_R - EYE_R), YEL)
+        c.circle(mx, my, r - (MONO_R - EYE_R), (220, 238, 250, 70))
+        c.circle(g[0], g[1], 0.042, WING)                      # wing tip over the rim
+    elif name == 'write-strip':
+        owl(c, look=(0.0, 0.035))
+        nib = [(0.47, 0.80), (0.50, 0.785), (0.53, 0.80)][frame]
+        tip = (nib[0] + 0.22, nib[1] - 0.23)
+        grip = (nib[0] + 0.06, nib[1] - 0.06)
+        wing_between(c, (0.79, 0.70), grip, rx=0.058)
+        quill(c, nib, tip)
+        c.circle(grip[0], grip[1], 0.032, WING)              # wing tip over the shaft
     return c.image()
 
 
 POSES = ['idle', 'talking', 'blink', 'polish', 'flap', 'sleepy', 'thinking']
+STRIPS = [('blink-strip', 3), ('flap-strip', 4), ('look-strip', 8), ('wave-strip', 4), ('nod-strip', 3),
+          ('point-strip', 4), ('think-strip', 3), ('search-strip', 3), ('write-strip', 3)]
 
 
 def strip(name, frames, size):
@@ -446,10 +536,9 @@ def build(keep=None):
     for p in POSES:
         pose(p, 256).save(os.path.join(owl_dir, f'owl-{p}.png'))
         pose(p, 512).save(os.path.join(owl_dir, f'owl-{p}@2x.png'))
-    strip('blink-strip', 3, 256).save(os.path.join(owl_dir, 'owl-blink-strip.png'))
-    strip('blink-strip', 3, 512).save(os.path.join(owl_dir, 'owl-blink-strip@2x.png'))
-    strip('flap-strip', 4, 256).save(os.path.join(owl_dir, 'owl-flap-strip.png'))
-    strip('flap-strip', 4, 512).save(os.path.join(owl_dir, 'owl-flap-strip@2x.png'))
+    for name, n in STRIPS:
+        strip(name, n, 256).save(os.path.join(owl_dir, f'owl-{name}.png'))
+        strip(name, n, 512).save(os.path.join(owl_dir, f'owl-{name}@2x.png'))
     return cache
 
 
@@ -464,7 +553,7 @@ def sheet(path, cache):
     pad = 32
     sizes = [1024, 512, 256, 128, 64, 32, 16]
     W = 2400
-    H = 3000
+    H = 6000
     sh = Image.new('RGBA', (W, H), (238, 238, 242, 255))
     d = ImageDraw.Draw(sh)
     d.text((pad, pad), 'Cedric: app icon, flat vector (16 and 32 hand-tuned)', fill=(30, 30, 40), font=font(40))
@@ -498,7 +587,8 @@ def sheet(path, cache):
         sh.alpha_composite(im, (px, py))
         d.text((px, py + 262), p, fill=(60, 60, 70), font=font(24))
     py += 330
-    for name, n in (('owl-blink-strip', 3), ('owl-flap-strip', 4)):
+    for name, n in STRIPS:
+        name = f'owl-{name}'
         im = Image.open(os.path.join(ROOT, 'Resources', 'Owl', f'{name}.png'))
         d.text((pad, py), f'{name}.png ({n} frames)', fill=(30, 30, 40), font=font(30))
         py += 44

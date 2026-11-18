@@ -87,6 +87,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var onClose: ((EditorWindowController) -> Void)?
     /// Cedric the owl, while View › Show Cedric the Owl is on.
     private(set) var owl: OwlController?
+    /// Ask Cedric's panel, made on first use (OwlChatPanel.swift).
+    private(set) var owlChat: OwlChatPanel?
+    func chatPanel() -> OwlChatPanel {
+        if let p = owlChat { return p }
+        let p = OwlChatPanel(tab: self)
+        owlChat = p
+        return p
+    }
     /// Spell checking in scope (Spelling.swift).
     private(set) lazy var spelling = EditorSpelling(tab: self)
     /// Fix Typos… while its panel is open (SpellStepPanel.swift).
@@ -352,6 +360,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         spellStep?.textEdited(oldRange, newLength: edited.length)
         if !textView.grammarRanges.isEmpty { grammar.textEdited(oldRange, newLength: edited.length) }
         grammarStep?.textEdited(oldRange, newLength: edited.length)
+        if let chat = owlChat, chat.pending != nil { DispatchQueue.main.async { MainActor.assumeIsolated { chat.documentEdited() } } }
         storageEdits += 1
         let seen = storageEdits
         // Only undo and redo: Follow File appends on purpose without a
@@ -858,6 +867,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         grammar.stop()
         grammarStep?.closeWithTab()
         OwlHub.shared.closed(self)
+        owlChat?.close()
+        OwlChatStore.shared.closed(doc.id)
         tail?.stop()
         tail = nil
         gitState?.stop()

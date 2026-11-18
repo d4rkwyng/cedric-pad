@@ -42,6 +42,13 @@ CEDRIC_SESSION_DIR="$WORK/session-ai" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE
 CEDRIC_OPEN="$WORK/Total.swift" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_SOURCE=rulesAndAI \
 CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_AI_AUTO=0 CEDRIC_AI_PAUSE=0.2 CEDRIC_AI_MIN_IDLE=0.2 CEDRIC_AI_INTERVAL=0.2 \
 CEDRIC_AI_DEFAULTS="$SUITE" CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/ai" CEDRIC_OWL_CHECK_AI=1 "$BIN" || status=1
+# Ask Cedric (OwlChatCheck.swift): the panel, a streamed answer, tools
+# and a proposed edit applied as one undo step, a stale proposal, Stop.
+printf 'func total(_ items: [Int]) -> Int {\n    var t = 0\n    for i in items { t += i }\n    return t\n}\n' > "$WORK/Sum.swift"
+CEDRIC_SESSION_DIR="$WORK/session-chat" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
+CEDRIC_OPEN="$WORK/Sum.swift" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=1 CEDRIC_OWL_TOOLS=1 \
+CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_OWL_CHAT_FAKE_DELAY=0.12 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
+CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/chat" CEDRIC_OWL_CHECK_CHAT=1 "$BIN" || status=1
 defaults delete "$SUITE" >/dev/null 2>&1 || true
 rm -f "$HOME/Library/Preferences/$SUITE.plist"
 echo "owl-check: snapshots in $OUT"

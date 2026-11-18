@@ -147,11 +147,19 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
     private static let queueKey = DispatchSpecificKey<Bool>()
 
     func generate(_ request: GenerationRequest) async throws -> GenerationResult {
+        try await generate(request, stream: nil)
+    }
+
+    func generate(_ request: GenerationRequest, onText: @escaping @Sendable (String) -> Void) async throws -> GenerationResult {
+        try await generate(request, stream: onText)
+    }
+
+    private func generate(_ request: GenerationRequest, stream: (@Sendable (String) -> Void)?) async throws -> GenerationResult {
         cancelLock.withLock { cancelFlag = false }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { cont in
                 Self.queue.async { [self] in
-                    do { cont.resume(returning: try run(request)) } catch { cont.resume(throwing: error) }
+                    do { cont.resume(returning: try run(request, stream: stream)) } catch { cont.resume(throwing: error) }
                 }
             }
         } onCancel: {
@@ -163,9 +171,9 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
 
     // MARK: On `queue`
 
-    private func run(_ request: GenerationRequest) throws -> GenerationResult {
+    private func run(_ request: GenerationRequest, stream: (@Sendable (String) -> Void)? = nil) throws -> GenerationResult {
         guard let context, let vocab else { throw BuiltInError.notInstalled }
-        let prompt = formatChat(system: request.system, user: request.user)
+        let prompt = formatChat(request.conversation)
         var tokens = tokenize(prompt)
         let limit = Int(LlamaRuntime.contextTokens) - request.maxTokens
         guard tokens.count <= limit else { throw BuiltInError.promptTooLong(tokens: tokens.count, limit: limit) }
@@ -193,17 +201,23 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
         var bytes: [UInt8] = []
         var generated = 0
         var piece = [CChar](repeating: 0, count: 256)
+        var decoder = UTF8StreamDecoder()
         while generated < request.maxTokens {
             if isCancelled { throw BuiltInError.cancelled }
             var token = L.llama_sampler_sample!(sampler, context, -1)
             if L.llama_vocab_is_eog!(vocab, token) { break }
             let n = L.llama_token_to_piece!(vocab, token, &piece, Int32(piece.count), 0, false)
-            if n > 0 { bytes.append(contentsOf: piece[0..<Int(n)].map { UInt8(bitPattern: $0) }) }
+            if n > 0 {
+                let new = piece[0..<Int(n)].map { UInt8(bitPattern: $0) }
+                bytes.append(contentsOf: new)
+                if let stream { let t = decoder.append(new); if !t.isEmpty { stream(t) } }
+            }
             generated += 1
             let rc = L.llama_decode!(context, L.llama_batch_get_one!(&token, 1))
             guard rc == 0 else { throw BuiltInError.generationFailed("decode \(rc)") }
         }
         tokens.removeAll()
+        if let stream { let t = decoder.flush(); if !t.isEmpty { stream(t) } }
         return GenerationResult(text: String(decoding: bytes, as: UTF8.self),
                                 promptTokens: Int(i), completionTokens: generated,
                                 promptSeconds: promptSeconds, generateSeconds: Date().timeIntervalSince(t1))
@@ -232,22 +246,22 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
 
     /// The model's own chat template (llama.cpp knows ChatML, which every
     /// catalog model uses); plain ChatML if it can't be applied.
-    private func formatChat(system: String, user: String) -> String {
-        let chatML = "<|im_start|>system\n\(system)<|im_end|>\n<|im_start|>user\n\(user)<|im_end|>\n<|im_start|>assistant\n"
-        let applied: String? = system.withCString { s in user.withCString { u in
-            "system".withCString { rs in "user".withCString { ru in
-                var msgs = [llama_chat_message(role: rs, content: s), llama_chat_message(role: ru, content: u)]
-                var buf = [CChar](repeating: 0, count: (system.utf8.count + user.utf8.count) * 2 + 512)
-                var n = L.llama_chat_apply_template!(template, &msgs, 2, true, &buf, Int32(buf.count))
-                if n > Int32(buf.count) {
-                    buf = [CChar](repeating: 0, count: Int(n) + 1)
-                    n = L.llama_chat_apply_template!(template, &msgs, 2, true, &buf, Int32(buf.count))
-                }
-                guard n > 0 else { return nil }
-                return String(decoding: buf[0..<Int(n)].map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            } }
-        } }
-        return applied ?? chatML
+    private func formatChat(_ messages: [ChatMessage]) -> String {
+        let chatML = messages.map { "<|im_start|>\($0.role)\n\($0.content)<|im_end|>\n" }.joined() + "<|im_start|>assistant\n"
+        // C strings that live for the whole call.
+        let roles = messages.map { strdup($0.role) }
+        let contents = messages.map { strdup($0.content) }
+        defer { roles.forEach { free($0) }; contents.forEach { free($0) } }
+        var msgs = zip(roles, contents).map { llama_chat_message(role: $0, content: $1) }
+        let total = messages.reduce(0) { $0 + $1.content.utf8.count }
+        var buf = [CChar](repeating: 0, count: total * 2 + 512)
+        var n = L.llama_chat_apply_template!(template, &msgs, msgs.count, true, &buf, Int32(buf.count))
+        if n > Int32(buf.count) {
+            buf = [CChar](repeating: 0, count: Int(n) + 1)
+            n = L.llama_chat_apply_template!(template, &msgs, msgs.count, true, &buf, Int32(buf.count))
+        }
+        guard n > 0 else { return chatML }
+        return String(decoding: buf[0..<Int(n)].map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     private static func physicalCores() -> Int {

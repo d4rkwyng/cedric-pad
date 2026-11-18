@@ -7,9 +7,23 @@ public struct GenerationRequest: Sendable, Equatable {
     public var maxTokens: Int
     /// A GBNF grammar the output must follow (llama.cpp), or nil.
     public var grammar: String?
+    /// A whole conversation (Ask Cedric): when set, it replaces `system`
+    /// and `user` (roles "system", "user", "assistant").
+    public var messages: [ChatMessage]?
 
     public init(system: String, user: String, maxTokens: Int = 320, grammar: String? = nil) {
         self.system = system; self.user = user; self.maxTokens = maxTokens; self.grammar = grammar
+    }
+
+    public init(messages: [ChatMessage], maxTokens: Int, grammar: String? = nil) {
+        self.system = messages.first { $0.role == "system" }?.content ?? ""
+        self.user = messages.last { $0.role == "user" }?.content ?? ""
+        self.messages = messages; self.maxTokens = maxTokens; self.grammar = grammar
+    }
+
+    /// The conversation to format: `messages`, else system + user.
+    public var conversation: [ChatMessage] {
+        messages ?? [ChatMessage(role: "system", content: system), ChatMessage(role: "user", content: user)]
     }
 }
 
@@ -50,8 +64,19 @@ public protocol BuiltInRuntime: Sendable {
 /// A model in memory. `generate` calls are serialised by the implementation.
 public protocol LoadedModel: AnyObject, Sendable {
     func generate(_ request: GenerationRequest) async throws -> GenerationResult
+    /// The same, calling `onText` with each new piece of text as it is
+    /// generated (whole UTF-8 characters only). Default: all at the end.
+    func generate(_ request: GenerationRequest, onText: @escaping @Sendable (String) -> Void) async throws -> GenerationResult
     /// Frees the weights and context. Called once, after the last generate.
     func unload()
+}
+
+extension LoadedModel {
+    public func generate(_ request: GenerationRequest, onText: @escaping @Sendable (String) -> Void) async throws -> GenerationResult {
+        let r = try await generate(request)
+        onText(r.text)
+        return r
+    }
 }
 
 /// Keeps at most one built-in model in memory: loads it on the first
@@ -91,7 +116,8 @@ public actor BuiltInModelHost {
         armIdleTimer()
     }
 
-    public func generate(modelAt path: URL, _ request: GenerationRequest) async throws -> GenerationResult {
+    public func generate(modelAt path: URL, _ request: GenerationRequest,
+                         onText: (@Sendable (String) -> Void)? = nil) async throws -> GenerationResult {
         active += 1
         defer {
             active -= 1
@@ -100,6 +126,7 @@ public actor BuiltInModelHost {
         }
         let model = try await model(at: path)
         try Task.checkCancellation()
+        if let onText { return try await model.generate(request, onText: onText) }
         return try await model.generate(request)
     }
 
