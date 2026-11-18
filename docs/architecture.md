@@ -1043,9 +1043,8 @@ capped, so a shell script's `# comments` or a YAML `- item` list doesn't
 turn into Markdown, while "# Title / ## Sub Title / **Test**" does.
 
 **Spelling.** NSTextView's own continuous checking (NSSpellChecker: local,
-nothing sent anywhere), on by default (View › Check Spelling While Typing,
-saved; also in Edit › Spelling and Grammar with Show Spelling and Grammar
-and Check Document Now). Every batch of results passes through
+nothing sent anywhere), on by default (Edit › Spelling and Grammar › Check Spelling While Typing,
+saved; beside Show Spelling and Grammar and Check Document Now). Every batch of results passes through
 `EditorTextView.handleTextCheckingResults`, which keeps only misspellings
 inside `SpellScope.ranges`: prose in Plain Text and Markdown (minus code,
 links and markup tokens), only comments and strings in code, nothing in

@@ -248,7 +248,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   page, with the file name, date and page numbers; line numbers are an
   option in the print panel.
 - **Go to line** (⌘L, `42` or `42:7`), line numbers, current-line highlight,
-  show invisibles (⌥⌘I), wrap lines (⌥Z).
+  show invisibles (⌥⌘I), wrap lines (⌥⌘Z).
 - **Encodings and line endings:** UTF-8 (with or without BOM), UTF-16 LE/BE,
   Latin-1, Windows-1252 and Mac Roman, and LF/CRLF/CR, detected on open
   (a file that isn't UTF-8 is read as whichever 8-bit Western encoding

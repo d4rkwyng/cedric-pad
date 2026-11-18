@@ -24,6 +24,7 @@ extension DevChecks {
         case "diskconflict": diskConflict(app)
         case "help": helpCheck(app)
         case "closenotice": closeNoticeCheck(app)
+        case "menus": menusCheck(app)
         default: return gapCheck(name, app)
         }
         return true

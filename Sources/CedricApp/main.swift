@@ -13,6 +13,14 @@ func item(_ title: String, _ action: Selector?, _ key: String = "", _ mods: NSEv
     return i
 }
 
+/// A menu item that isn't shown but whose shortcut still works.
+@MainActor
+func hiddenAlias(_ i: NSMenuItem) -> NSMenuItem {
+    i.isHidden = true
+    i.allowsKeyEquivalentWhenHidden = true
+    return i
+}
+
 @MainActor
 func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
     let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -82,7 +90,8 @@ func buildMainMenu() -> NSMenu {
 
     main.addItem(submenu(String(localized: "File"), [
         item(String(localized: "New Tab"), #selector(AppDelegate.newTab(_:)), "n"),
-        item(String(localized: "New Tab"), #selector(AppDelegate.newTab(_:)), "t"),
+        // ⌘T opens a tab too (as in every tabbed Mac app), without a second "New Tab" in the menu.
+        hiddenAlias(item(String(localized: "New Tab"), #selector(AppDelegate.newTab(_:)), "t")),
         item(String(localized: "New Window"), #selector(AppDelegate.newWindow(_:)), "n", [.command, .shift]),
         item(String(localized: "Open…"), #selector(AppDelegate.openDocument(_:)), "o"),
         // Filled by AppDelegate.rebuildRecentMenu from the system recent-documents list.
@@ -183,11 +192,11 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Allow Network in Preview"), #selector(AppDelegate.togglePreviewNetwork(_:))),
         item(String(localized: "Show Outline"), #selector(AppDelegate.toggleOutlineMenu(_:)), "o", [.control, .command]),
         .separator(),
-        item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.option]),
+        // ⌥⌘Z, not bare ⌥Z: that types Ω (and other letters on other keyboards).
+        item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.command, .option]),
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
         item(String(localized: "Show Line Numbers"), #selector(AppDelegate.toggleLineNumbers(_:))),
         item(String(localized: "Highlight Occurrences"), #selector(AppDelegate.toggleHighlightOccurrences(_:))),
-        item(String(localized: "Check Spelling While Typing"), #selector(AppDelegate.toggleSpellingWhileTyping(_:))),
         .separator(),
         item(String(localized: "Show Cedric the Owl"), #selector(AppDelegate.toggleOwl(_:))),
         submenu(String(localized: "Owl Hint Source"), OwlHintSource.allCases.map {

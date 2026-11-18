@@ -32,3 +32,35 @@ extension DevChecks {
         ])
     }
 }
+
+/// CEDRIC_CHECK=menus: no duplicate items (one visible New Tab, Check
+/// Spelling While Typing only in Edit), ⌘N and ⌘T both open a tab, and
+/// Wrap Lines is ⌥⌘Z (bare ⌥Z types Ω).
+@MainActor
+extension DevChecks {
+    static func menusCheck(_ app: AppDelegate) {
+        let tab = app.open(write("menus.txt", "menus\n"))!
+        sized(tab)
+        func menu(_ t: String) -> NSMenu? { NSApp.mainMenu?.items.first { $0.title == t }?.submenu }
+        func press(_ ch: String) -> Bool {
+            guard let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+                                           windowNumber: tab.window?.windowNumber ?? 0, context: nil, characters: ch,
+                                           charactersIgnoringModifiers: ch, isARepeat: false, keyCode: keyCodes[Character(ch)] ?? 0)
+            else { return false }
+            return NSApp.mainMenu?.performKeyEquivalent(with: e) == true
+        }
+        run([
+            sync {
+                let file = menu("File")?.items.filter { !$0.isHidden }.map(\.title) ?? []
+                expect(file.filter { $0 == "New Tab" }.count == 1, "File shows New Tab once", "\(file)")
+                let view = menu("View")?.items.map(\.title) ?? []
+                expect(!view.contains("Check Spelling While Typing"), "View no longer repeats Check Spelling While Typing")
+                let wrap = menu("View")?.items.first { $0.title == "Wrap Lines" }
+                expect(wrap?.keyEquivalent == "z" && wrap?.keyEquivalentModifierMask == [.command, .option], "Wrap Lines is ⌥⌘Z")
+                let before = app.tabs.count
+                expect(press("n") && app.tabs.count == before + 1, "⌘N opens a tab", "\(app.tabs.count)")
+                expect(press("t") && app.tabs.count == before + 2, "⌘T (hidden alias) still opens a tab", "\(app.tabs.count)")
+            },
+        ])
+    }
+}
