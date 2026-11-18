@@ -62,7 +62,7 @@ extension EditorWindowController {
     }
 
     private func writeExport(_ data: Data, to url: URL) {
-        do { try data.write(to: url, options: .atomic) } catch { showError(error) }
+        do { try data.write(to: SafePaths.writeTarget(for: url), options: .atomic) } catch { showError(error) }
     }
 
     /// Edit › Copy as HTML: the rendered HTML of the selection (or the

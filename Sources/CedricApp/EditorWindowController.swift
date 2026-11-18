@@ -803,7 +803,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             showError(NSError(domain: "Cedric", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "Couldn’t encode the copy.")]))
             return
         }
-        do { try data.write(to: url, options: .atomic) } catch { showError(error) }
+        do { try data.write(to: SafePaths.writeTarget(for: url), options: .atomic) } catch { showError(error) }
     }
 
     // MARK: Owl

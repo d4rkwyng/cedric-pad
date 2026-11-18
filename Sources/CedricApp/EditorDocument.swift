@@ -110,7 +110,9 @@ final class EditorDocument {
             throw NSError(domain: "Cedric", code: 1, userInfo: [NSLocalizedDescriptionKey:
                 String(localized: "Some characters can’t be saved as \(encoding.displayName). Choose UTF-8 from the encoding menu in the status bar and save again.")])
         }
-        try data.write(to: url, options: .atomic)
+        // Through a symbolic link: replace its target (keeping the link and
+        // the target's permissions), not the link itself.
+        try data.write(to: SafePaths.writeTarget(for: url), options: .atomic)
         fileURL = url
         noteDisk(DiskStamp.of(url))
         mixedLineEndings = false

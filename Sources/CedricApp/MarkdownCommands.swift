@@ -90,12 +90,19 @@ extension EditorWindowController {
         let fm = FileManager.default
         var paths: [String] = []
         func copyTarget(_ name: String) throws -> URL {
+            // An "images" that is a link out of the document's folder is refused.
+            guard SafePaths.isInside(images, dir) else {
+                throw NSError(domain: "Cedric", code: 3, userInfo: [NSLocalizedDescriptionKey:
+                    String(localized: "The “images” folder next to this document points outside its folder, so pasted images aren’t saved there.")])
+            }
             try fm.createDirectory(at: images, withIntermediateDirectories: true)
             return images.appendingPathComponent(MarkdownPaste.uniqueName(name) { fm.fileExists(atPath: images.appendingPathComponent($0).path) })
         }
         do {
             for f in files {
                 if let rel = MarkdownPaste.relativePath(of: f, from: dir) { paths.append(rel); continue }
+                // Only a regular file is copied (not a folder named x.png).
+                guard SafePaths.isRegularFile(f) else { NSSound.beep(); continue }
                 let target = try copyTarget(f.lastPathComponent)
                 try fm.copyItem(at: f, to: target)
                 paths.append(MarkdownPaste.relativePath(of: target, from: dir) ?? "images/" + target.lastPathComponent)

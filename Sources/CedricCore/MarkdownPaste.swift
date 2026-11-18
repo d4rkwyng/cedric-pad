@@ -74,3 +74,35 @@ public enum MarkdownPaste {
     /// per line.
     public static func imageLinks(_ paths: [String]) -> String { paths.map { "![](\($0))" }.joined(separator: "\n") }
 }
+
+/// Where a save really writes, and where pasted images may go (security
+/// audit L1, L3).
+public enum SafePaths {
+    /// The file a save through `url` should replace: a symbolic link's
+    /// final target (relative links resolved, at most 32 hops), so the
+    /// link stays a link and the target keeps its permissions. A plain
+    /// file (or one that doesn't exist yet) is itself.
+    public static func writeTarget(for url: URL, fileManager fm: FileManager = .default) -> URL {
+        var u = url.standardizedFileURL
+        var hops = 0
+        while hops < 32, let dest = try? fm.destinationOfSymbolicLink(atPath: u.path) {
+            u = (dest.hasPrefix("/") ? URL(fileURLWithPath: dest) : u.deletingLastPathComponent().appendingPathComponent(dest)).standardizedFileURL
+            hops += 1
+        }
+        return u
+    }
+
+    /// `child` (symbolic links resolved) is `folder` or inside it.
+    public static func isInside(_ child: URL, _ folder: URL) -> Bool {
+        let c = PreviewFolder.resolved(child.standardizedFileURL).path
+        let f = PreviewFolder.resolved(folder.standardizedFileURL).path
+        return c == f || c.hasPrefix(f.hasSuffix("/") ? f : f + "/")
+    }
+
+    /// A pasted or dropped image file: a regular file (not a folder named
+    /// `x.png`, not a pipe or device).
+    public static func isRegularFile(_ url: URL) -> Bool {
+        var st = stat()
+        return stat(url.path, &st) == 0 && st.st_mode & S_IFMT == S_IFREG
+    }
+}

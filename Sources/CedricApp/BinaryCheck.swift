@@ -94,6 +94,26 @@ extension DevChecks {
                 expect(t.textView.selectedRange().location == (t.text as NSString).length, "line Int.max goes to the end",
                        "\(t.textView.selectedRange().location)")
             },
+            sync {
+                // Security audit L1: saving through a symbolic link writes the
+                // target and keeps the link and the target's 0600.
+                let target = write("real/secret.env", "A=1\n")
+                chmod(target.path, 0o600)
+                let link = dir.appendingPathComponent("secret-link.env")
+                try? FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "real/secret.env")
+                guard let t = app.open(link) else { expect(false, "opened the link"); return }
+                sized(t)
+                focus(t)
+                t.textView.setSelectedRange(NSRange(location: (t.text as NSString).length, length: 0))
+                type("B=2\n")
+                key("s", [.command])
+                let fm = FileManager.default
+                let mode = (try? fm.attributesOfItem(atPath: target.path)[.posixPermissions] as? NSNumber)?.intValue ?? -1
+                expect((try? fm.destinationOfSymbolicLink(atPath: link.path)) == "real/secret.env", "⌘S through a link: still a link")
+                expect((try? String(contentsOf: target, encoding: .utf8)) == "A=1\nB=2\n", "the target has the new text")
+                expect(mode == 0o600, "and keeps mode 600", String(mode, radix: 8))
+                expect(!t.doc.isDirty, "the tab is saved")
+            },
         ])
         return true
     }
