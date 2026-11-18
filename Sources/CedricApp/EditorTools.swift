@@ -1,0 +1,328 @@
+import AppKit
+import CedricCore
+
+/// A value passed into a @Sendable callback that is only used back on the
+/// main queue.
+struct MainBox<T>: @unchecked Sendable { let value: T }
+
+/// A weak reference for a @Sendable callback delivered on the main queue.
+final class WeakRef<T: AnyObject>: @unchecked Sendable {
+    weak var value: T?
+    init(_ v: T) { value = v }
+}
+
+// MARK: - App: Open Recent, text tools, Find in Files, Compare, Follow
+
+extension AppDelegate: NSMenuDelegate {
+    // MARK: Open Recent
+
+    static let recentMenuTitle = String(localized: "Open Recent")
+
+    /// The recent-documents list (NSDocumentController's: the same list
+    /// the Dock menu and Finder show), files that still exist.
+    var recentURLs: [URL] {
+        NSDocumentController.shared.recentDocumentURLs.filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    func noteRecent(_ url: URL) {
+        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        rebuildRecentMenu()
+    }
+
+    var recentMenu: NSMenu? {
+        NSApp.mainMenu?.items.first { $0.submenu?.title == String(localized: "File") }?
+            .submenu?.items.first { $0.title == Self.recentMenuTitle }?.submenu
+    }
+
+    /// Rebuilt whenever the list changes (and before the menu opens), so
+    /// the ⌥⌘1…⌥⌘9 key equivalents always match the list.
+    func rebuildRecentMenu() {
+        guard let menu = recentMenu else { return }
+        menu.delegate = self
+        menu.removeAllItems()
+        let urls = recentURLs
+        for (i, url) in urls.enumerated() {
+            let it = item(url.lastPathComponent, #selector(openRecentItem(_:)), i < 9 ? "\(i + 1)" : "", [.command, .option],
+                          represented: url)
+            it.toolTip = url.path
+            it.image = NSWorkspace.shared.icon(forFile: url.path)
+            it.image?.size = NSSize(width: 16, height: 16)
+            menu.addItem(it)
+        }
+        if !urls.isEmpty { menu.addItem(.separator()) }
+        menu.addItem(item(String(localized: "Clear Menu"), #selector(clearRecentMenu(_:))))
+    }
+
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === recentMenu { rebuildRecentMenu() }
+    }
+
+    @objc func openRecentItem(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        open(url)
+    }
+
+    @objc func clearRecentMenu(_ sender: Any?) {
+        NSDocumentController.shared.clearRecentDocuments(sender)
+        rebuildRecentMenu()
+    }
+
+    // MARK: Text tools
+
+    @objc func textToolMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let tool = TextTool(rawValue: raw) else { return }
+        currentTab?.applyTextTool(tool)
+    }
+
+    // MARK: Find in Files
+
+    @objc func findInFilesMenu(_ sender: Any?) {
+        let panel = findInFiles ?? FindInFilesPanel()
+        findInFiles = panel
+        panel.onOpen = { [weak self] result in self?.openResult(result) }
+        panel.onClose = { [weak self] in self?.hideFindInFiles() }
+        guard let tab = currentTab ?? tabs.last else { return }
+        if let dir = tab.doc.fileURL?.deletingLastPathComponent() {
+            panel.folderField.stringValue = dir.path
+        } else if panel.folderField.stringValue.isEmpty {
+            panel.folderField.stringValue = FileManager.default.homeDirectoryForCurrentUser.path
+        }
+        let sel = tab.textView.selectedRange()
+        if sel.length > 0, sel.length < 200 {
+            panel.queryField.stringValue = (tab.text as NSString).substring(with: sel)
+        }
+        panel.isShown = true
+        tab.dockSidePanel(panel)
+        tab.window?.makeFirstResponder(panel.queryField)
+        panel.queryField.selectText(nil)
+    }
+
+    func hideFindInFiles() {
+        guard let p = findInFiles else { return }
+        p.cancel()
+        p.isShown = false
+        p.removeFromSuperview()
+        if let t = currentTab { t.window?.makeFirstResponder(t.textView) }
+    }
+
+    func openResult(_ r: FileSearchResult) {
+        guard let tab = open(r.url) else { return }
+        // Keep the results beside the file they lead to.
+        if let p = findInFiles, p.isShown { tab.dockSidePanel(p) }
+        tab.goToLine(r.line, column: r.column)
+        if let first = r.ranges.first {
+            let start = tab.lineIndex.starts[max(0, min(r.line - 1, tab.lineIndex.lineCount - 1))]
+            let range = NSRange(location: start + r.column - 1, length: first.length)
+            if NSMaxRange(range) <= tab.lineIndex.length {
+                tab.textView.setSelectedRange(range)
+                tab.textView.showFindIndicator(for: range)
+            }
+        }
+        tab.window?.makeFirstResponder(tab.textView)
+    }
+
+    // MARK: Compare
+
+    @objc func compareWithMenu(_ sender: Any?) {
+        guard let tab = currentTab, let window = tab.window else { return }
+        let others = tabs.filter { $0 !== tab }
+        guard !others.isEmpty else { NSSound.beep(); return }
+        let a = NSAlert()
+        a.messageText = String(localized: "Compare “\(tab.doc.displayName)” With")
+        a.informativeText = String(localized: "Shows the two tabs side by side, line by line. Read-only.")
+        let pop = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 280, height: 26), pullsDown: false)
+        for t in others {
+            pop.addItem(withTitle: t.doc.displayName)
+            pop.lastItem?.representedObject = t
+            pop.lastItem?.toolTip = t.doc.fileURL?.path
+        }
+        // Default: the tab that was selected before this one.
+        let previous = NSApp.orderedWindows.lazy.compactMap { w in others.first { $0.window === w } }.first
+        if let previous, let i = others.firstIndex(where: { $0 === previous }) { pop.selectItem(at: i) }
+        a.accessoryView = pop
+        a.addButton(withTitle: String(localized: "Compare"))
+        a.addButton(withTitle: String(localized: "Cancel"))
+        a.beginSheetModal(for: window) { [weak self] resp in
+            guard resp == .alertFirstButtonReturn, let other = pop.selectedItem?.representedObject as? EditorWindowController else { return }
+            self?.showCompare(tab, other)
+        }
+    }
+
+    func showCompare(_ left: EditorWindowController, _ right: EditorWindowController) {
+        let c = CompareWindowController(leftName: left.doc.displayName, leftText: left.text,
+                                        rightName: right.doc.displayName, rightText: right.text, palette: left.palette)
+        compareWindows.append(c)
+        c.onClose = { [weak self] c in self?.compareWindows.removeAll { $0 === c } }
+        if let w = c.window {
+            if let host = left.window, host.isVisible { host.addTabbedWindow(w, ordered: .above) } else { w.center() }
+            w.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    // MARK: Follow
+
+    @objc func followFileMenu(_ sender: Any?) { currentTab?.toggleFollow() }
+
+    func validateToolItem(_ item: NSMenuItem) -> Bool {
+        let tab = currentTab
+        switch item.action {
+        case #selector(textToolMenu(_:)): return tab != nil && tab?.tail == nil
+        case #selector(compareWithMenu(_:)): return tab != nil && tabs.count > 1
+        case #selector(followFileMenu(_:)):
+            item.state = tab?.tail != nil ? .on : .off
+            return tab?.doc.fileURL != nil
+        case #selector(clearRecentMenu(_:)): return !NSDocumentController.shared.recentDocumentURLs.isEmpty
+        default: return true
+        }
+    }
+}
+
+// MARK: - Tab: text tools, side panel, follow
+
+extension EditorWindowController {
+    /// Applies a text tool to the selection, or the whole document if
+    /// nothing is selected, as one undo step. Line tools widen a partial
+    /// selection to whole lines.
+    func applyTextTool(_ tool: TextTool) {
+        guard let storage = textView.textStorage, textView.isEditable else { NSSound.beep(); return }
+        let ns = textView.string as NSString
+        var range = textView.selectedRange()
+        if range.length == 0 {
+            range = NSRange(location: 0, length: ns.length)
+        } else if tool.isLineBased {
+            range = ns.lineRange(for: range)
+        }
+        let input = ns.substring(with: range)
+        let output: String
+        do {
+            output = try TextTools.apply(tool, to: input)
+        } catch {
+            let a = NSAlert()
+            a.alertStyle = .warning
+            a.messageText = String(localized: "\(tool.displayName) failed")
+            a.informativeText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            if let window { a.beginSheetModal(for: window) } else { a.runModal() }
+            return
+        }
+        guard output != input else { return }
+        let um = textView.undoManager
+        textView.breakUndoCoalescing()
+        um?.beginUndoGrouping()
+        if textView.shouldChangeText(in: range, replacementString: output) {
+            storage.beginEditing()
+            storage.replaceCharacters(in: range, with: NSAttributedString(string: output, attributes: baseAttributes()))
+            storage.endEditing()
+            textView.didChangeText()
+        }
+        um?.endUndoGrouping()
+        um?.setActionName(tool.displayName)
+        let newRange = NSRange(location: range.location, length: (output as NSString).length)
+        textView.setSelectedRange(range.length == ns.length ? NSRange(location: 0, length: 0) : newRange)
+        colorizer.scheduleViewport()
+    }
+
+    /// Puts the Find in Files panel at the right of this tab's split view.
+    func dockSidePanel(_ panel: NSView) {
+        guard panel.superview !== split else { return }
+        panel.removeFromSuperview()
+        split.addArrangedSubview(panel)
+        split.adjustSubviews()
+        let w = split.bounds.width
+        if w > 0 { split.setPosition(max(w * 0.45, w - 460), ofDividerAt: split.arrangedSubviews.count - 2) }
+    }
+
+    // MARK: Follow File
+
+    var isFollowing: Bool { tail != nil }
+
+    func toggleFollow() {
+        if let t = tail {
+            t.stop()
+            tail = nil
+            textView.isEditable = true
+            window?.subtitle = ""
+            return
+        }
+        guard let url = doc.fileURL else { NSSound.beep(); return }
+        if doc.isDirty {
+            let a = NSAlert()
+            a.messageText = String(localized: "Follow “\(doc.displayName)”?")
+            a.informativeText = String(localized: "Following shows the file as it is on disk; your unsaved changes in this tab will be lost.")
+            a.addButton(withTitle: String(localized: "Follow"))
+            a.addButton(withTitle: String(localized: "Cancel"))
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        let data: Data
+        do { data = try Data(contentsOf: url) } catch { showError(error); return }
+        if let d = TextCodec.decode(data, as: doc.encoding) {
+            doc.apply(d)
+            setText(d.text)
+        }
+        doc.markSaved()
+        doc.fileModified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        updateTitle()
+        textView.isEditable = false
+        window?.subtitle = String(localized: "Following")
+        scrollToBottom()
+        let me = WeakRef(self)
+        let t = FileTail(url: url, encoding: doc.encoding, offset: UInt64(data.count)) { e in
+            MainActor.assumeIsolated { me.value?.tailEvent(e) }
+        }
+        tail = t
+        t.start()
+        onChange?(self)
+    }
+
+    var isScrolledToBottom: Bool {
+        let clip = scrollView.contentView
+        let lineHeight = Settings.shared.font.boundingRectForFont.height
+        return clip.bounds.maxY >= textView.frame.maxY - lineHeight
+    }
+
+    func tailEvent(_ e: FileTail.Event) {
+        guard tail != nil, let storage = textView.textStorage else { return }
+        let atBottom = isScrolledToBottom
+        switch e {
+        case .appended(let s):
+            // Not a user edit (no didChangeText): the tab stays clean, the
+            // line index and colouring update from the storage edit.
+            storage.beginEditing()
+            storage.append(NSAttributedString(string: s, attributes: baseAttributes()))
+            storage.endEditing()
+        case .reset(let s):
+            setText(s)
+        }
+        textView.undoManager?.removeAllActions()
+        doc.markSaved()
+        doc.fileModified = doc.fileURL.flatMap { (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate }
+        gutter.needsDisplay = true
+        updateStatus()
+        if atBottom {
+            scrollToBottom()
+            // Once more after TextKit 2 has re-estimated the heights.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                if self?.tail != nil { self?.scrollToBottom() }
+            }
+        }
+        trace("tail: \(e) atBottom=\(atBottom)")
+    }
+
+    /// Scrolls to the last line; repeats while TextKit 2 refines its
+    /// height estimates (as `reveal` does).
+    func scrollToBottom() {
+        let len = (textView.string as NSString).length
+        guard let tlm = textView.textLayoutManager, let r = textView.textRange(for: NSRange(location: len, length: 0)) else {
+            textView.scrollToEndOfDocument(nil)
+            return
+        }
+        for _ in 0..<10 {
+            tlm.ensureLayout(for: r)
+            let y = max(0, textView.frame.height - scrollView.contentView.bounds.height)
+            if abs(scrollView.contentView.bounds.minY - y) < 1 { break }
+            textView.scroll(NSPoint(x: 0, y: y))
+            tlm.textViewportLayoutController.layoutViewport()
+        }
+        colorizer.scheduleViewport()
+        gutter.needsDisplay = true
+    }
+}

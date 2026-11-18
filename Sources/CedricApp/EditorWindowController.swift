@@ -39,7 +39,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private(set) var colorizer: SyntaxColorizer!
     let findBar = FindBar()
     let statusBar = StatusBar()
-    private let split = NSSplitView()
+    let split = NSSplitView()
     private var container: EditorContainer!
     private(set) var preview: PreviewController?
     var previewVisible: Bool { preview != nil && !(preview!.webView.isHidden) && split.subviews.count > 1 }
@@ -49,6 +49,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private var loading = false
     var onChange: ((EditorWindowController) -> Void)?
     var onClose: ((EditorWindowController) -> Void)?
+    /// View › Follow File (EditorTools.swift).
+    var tail: FileTail?
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -163,7 +165,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     var text: String { textView.string }
 
-    private func baseAttributes() -> [NSAttributedString.Key: Any] {
+    func baseAttributes() -> [NSAttributedString.Key: Any] {
         let font = Settings.shared.font
         let para = NSMutableParagraphStyle()
         let space = ("    " as NSString).size(withAttributes: [.font: font]).width
@@ -440,7 +442,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             let l = LanguageDetector.detect(fileName: url.lastPathComponent, content: textView.string)
             if l != doc.language { setLanguage(l, manual: false) }
         }
-        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        (NSApp.delegate as? AppDelegate)?.noteRecent(url)
         updateTitle()
         updateStatus()
         onChange?(self)
@@ -454,7 +456,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     /// Reloads from disk if the file changed and the tab has no unsaved edits.
     func reloadIfChangedOnDisk() {
-        guard let url = doc.fileURL, !doc.isDirty,
+        guard tail == nil, let url = doc.fileURL, !doc.isDirty,
               let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
               let known = doc.fileModified, mod > known,
               let (d, newMod) = try? EditorDocument.read(url, encoding: doc.encoding) else { return }
@@ -490,6 +492,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         previewTimer?.invalidate()
+        tail?.stop()
+        tail = nil
         onClose?(self)
     }
 

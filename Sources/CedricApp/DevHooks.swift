@@ -29,6 +29,9 @@ import WebKit
 ///   CEDRIC_PERF_OPEN=/big.json    time open + colour + jump to end + typing, print metrics, quit
 ///   CEDRIC_PERF_TYPE=200          keystrokes for the typing measurement (default 200)
 ///   CEDRIC_PERF_LANGUAGE=shell    force a language for the perf file
+///   CEDRIC_DUMP_SHORTCUTS=1       print every menu shortcut, exit 1 on a clash
+///   CEDRIC_CHECK=name             in-process checks of the editor tools (DevChecks.swift;
+///                                 Scripts/tools-check.sh runs them all)
 @MainActor
 enum DevHooks {
     static let env = ProcessInfo.processInfo.environment
@@ -98,6 +101,8 @@ enum DevHooks {
         }
         if let path = env["CEDRIC_PERF_OPEN"] { DispatchQueue.main.async { perfOpen(app, path) } }
         if let out = env["CEDRIC_SNAPSHOT"], !out.isEmpty { scheduleSnapshot(out) }
+        if env["CEDRIC_DUMP_SHORTCUTS"] == "1" { exit(DevChecks.dumpShortcuts() ? 0 : 1) }
+        if let check = env["CEDRIC_CHECK"] { DevChecks.start(check, app) }
     }
 
     // MARK: Perf
@@ -208,8 +213,12 @@ enum DevHooks {
         func collect(_ v: NSView) {
             guard !v.isHidden else { return }
             if let w = v as? WKWebView { webs.append(w); return }
-            if v is GutterView || v is NSScroller || v is FindBar {
+            if v is GutterView || v is NSScroller || v is FindBar || v is FindInFilesPanel || v is DiffHeader {
                 if let r = render(v, v.bounds) { overlays.append((v.convert(v.bounds, to: root), r)) }
+                return
+            } else if let dv = v as? DiffView {
+                let vis = dv.visibleRect
+                if let r = render(dv, vis) { overlays.append((dv.convert(vis, to: root), r)) }
                 return
             } else if let tv = v as? EditorTextView {
                 let vis = tv.visibleRect
