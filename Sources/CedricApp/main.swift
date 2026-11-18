@@ -153,6 +153,7 @@ func buildMainMenu() -> NSMenu {
         submenu(String(localized: "Spelling and Grammar"), [
             item(String(localized: "Show Spelling and Grammar"), #selector(NSText.showGuessPanel(_:)), ":"),
             item(String(localized: "Check Document Now"), #selector(AppDelegate.checkDocumentNow(_:)), ";"),
+            item(String(localized: "Fix Typos…"), #selector(AppDelegate.fixTyposMenu(_:)), ";", [.command, .option]),
             .separator(),
             item(String(localized: "Check Spelling While Typing"), #selector(AppDelegate.toggleSpellingWhileTyping(_:))),
         ]),
@@ -160,6 +161,8 @@ func buildMainMenu() -> NSMenu {
 
     main.addItem(submenu(String(localized: "View"), [
         item(String(localized: "Show Preview"), #selector(AppDelegate.togglePreview(_:)), "p", [.command, .option]),
+        // "Attach Preview" while detached (AppDelegate.validateMenuItem).
+        item(String(localized: "Detach Preview"), #selector(AppDelegate.toggleDetachPreview(_:)), "p", [.command, .option, .shift]),
         item(String(localized: "Allow JavaScript in Preview"), #selector(AppDelegate.togglePreviewJavaScript(_:))),
         item(String(localized: "Allow Network in Preview"), #selector(AppDelegate.togglePreviewNetwork(_:))),
         .separator(),

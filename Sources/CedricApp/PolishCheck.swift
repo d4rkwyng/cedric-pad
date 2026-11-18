@@ -369,7 +369,9 @@ enum PolishCheck {
         let title = owl.bubble?.hint.title ?? "-"
         report(title == "Fix 3 typos?", "spelling/owl-offers-fix", "bubble=\(title)")
         _ = render(w, "\(out)/spelling-owl-offer.png")
-        if let fixIt = owl.bubble?.buttons.first(where: { $0.title == "Fix it" }) {
+        report(owl.bubble?.buttons.first?.title == "Fix Typos…", "spelling/owl-offers-step-through",
+               "buttons=\(owl.bubble?.buttons.map(\.title) ?? [])")
+        if let fixIt = owl.bubble?.buttons.first(where: { $0.title == "Fix All" }) {
             let um = tv.undoManager
             fixIt.performClick(nil)
             TypingCheck.settle(0.2)
@@ -380,7 +382,7 @@ enum PolishCheck {
             TypingCheck.settle(0.2)
             report(tv.string == original, "spelling/owl-fix-one-undo", "after one undo=\(tv.string.debugDescription)")
         } else {
-            report(false, "spelling/owl-fix-applied", "no Fix it button")
+            report(false, "spelling/owl-fix-applied", "no Fix All button")
         }
         Settings.shared.owlOverride = false
         NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil)

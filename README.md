@@ -24,14 +24,29 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Syntax colouring** for Swift, Python, JavaScript, TypeScript, JSON, YAML,
   Markdown, HTML (with embedded `<script>` and `<style>`), XML (with CDATA;
   `.xml`, `.plist` and friends, no longer coloured as HTML), CSS, shell,
-  C/C++/Objective-C, Ruby, SQL, diff/patch, and INI/TOML/.env/.properties. Only the visible lines plus a margin are coloured, so
+  C/C++/Objective-C, Ruby, SQL, diff/patch, and INI/TOML/.env/.properties (CSV and TSV open as plain text with a grid preview). Only the visible lines plus a margin are coloured, so
   big files stay fast. The language comes from the file extension, a `#!` line,
   or, for pasted text in an untitled tab, from the content; the status bar
   menu overrides it.
 - **Live preview** for Markdown and HTML, side by side (View › Show Preview,
   ⌥⌘P). JavaScript and network access in the preview are **off** by default
   and can be turned on per tab (View menu). Scrolling the editor scrolls the
-  preview to roughly the same place.
+  preview to roughly the same place. **Detach Preview** (View menu, ⇧⌥⌘P,
+  or Detach in the preview's header) moves it into its own resizable
+  window, "notes.md — Preview", still updating as you type; it stays
+  with its own document whichever tab is in front, and closes with that
+  tab. Attach Preview docks it again; closing its window closes the
+  preview. A detached preview and its window's frame are kept with the
+  session (restored just after the window first shows).
+- **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
+  or `.psv` file is a read-only grid: the first line is the header, row
+  numbers stay at the left, columns resize, and a click on a header sorts
+  the grid (never the text). Clicking a cell puts the caret in that field.
+  Quoted fields with commas, quotes and line breaks are read as RFC 4180
+  says; the separator (comma, tab, semicolon or pipe) is detected from
+  the first lines, and `.tsv` means tab. It updates as you type, parses
+  off the main thread, and shows the first 50,000 rows of a longer file
+  (with a note). It detaches like the other previews.
 - **Themes:** System (light or dark with macOS), Light, Dark, Tankard (deep
   purple and amber) and Dracula, the same set as Tankard. Every theme's text
   colours meet WCAG AA contrast (4.5:1), checked by a test. SF Mono by
@@ -89,6 +104,16 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   selection when there is one (characters are Unicode scalars). Documents
   over a million characters show lines only, so typing never waits on a
   count; over 50,000 they are counted when typing pauses, in the background.
+- **Fix Typos…** (Edit › Spelling and Grammar, ⌥⌘;, or **Fix Typos…** in
+  the owl's "Fix 3 typos?"): steps through the misspelled words one at a
+  time, from the caret to the end and round from the top, in a small panel
+  beside each word with the checker's suggestions (the first picked),
+  **Change**, **Change All**, **Skip**, **Ignore All** (this document),
+  **Learn Word** and **Done**, and "3 of 12". Return changes, Tab or ⌘→
+  skips, Esc is done. Each change is one undo step (Change All too). Only
+  the words spell check would mark: prose in Plain Text and Markdown,
+  comments and strings in code, never URLs or paths. Big files are
+  checked a chunk at a time, in large mode only as far as the next word.
 - **Print** (File › Print…, ⌘P; Page Setup…, ⇧⌘P): the text in the
   editor's font, dark on white (not the theme's colours), wrapped to the
   page, with the file name, date and page numbers; line numbers are an

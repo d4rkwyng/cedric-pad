@@ -57,14 +57,19 @@ public enum SpellScope {
     public static func isFixable(_ word: String, in text: NSString, at range: NSRange) -> Bool {
         guard word.count >= 2, word.rangeOfCharacter(from: .decimalDigits) == nil else { return false }
         if word == word.uppercased() { return false }
-        // The whitespace-delimited chunk it sits in.
+        return !isInLinkOrPath(text, at: range)
+    }
+
+    /// Whether the flagged word at `range` is part of a URL, a path or an
+    /// email address (the whitespace-delimited chunk it sits in).
+    public static func isInLinkOrPath(_ text: NSString, at range: NSRange) -> Bool {
         var s = range.location, e = NSMaxRange(range)
         let ws = CharacterSet.whitespacesAndNewlines
-        while s > 0, let u = UnicodeScalar(text.character(at: s - 1)), !ws.contains(u) { s -= 1 }
-        while e < text.length, let u = UnicodeScalar(text.character(at: e)), !ws.contains(u) { e += 1 }
+        // At most 512 characters each way (a huge line without spaces).
+        while s > 0, range.location - s < 512, let u = UnicodeScalar(text.character(at: s - 1)), !ws.contains(u) { s -= 1 }
+        while e < text.length, e - NSMaxRange(range) < 512, let u = UnicodeScalar(text.character(at: e)), !ws.contains(u) { e += 1 }
         let chunk = text.substring(with: NSRange(location: s, length: e - s)).lowercased()
-        if chunk.contains("://") || chunk.hasPrefix("www.") || chunk.contains("/") || chunk.contains("@") { return false }
-        return true
+        return chunk.contains("://") || chunk.hasPrefix("www.") || chunk.contains("/") || chunk.contains("@")
     }
 
     /// Typos to fix (range, replacement), as one edit: the span from the

@@ -239,6 +239,24 @@ Scroll sync: Markdown blocks carry `data-line`; the app scrolls the preview to
 the last block at or above the editor's top line (in the app's own content
 world, so it works with page JavaScript off). HTML scrolls by fraction.
 
+The preview sits in a `PreviewPane` (a 24 pt header with Detach / Attach,
+and a `PreviewRenderer`: the web view, or the CSV grid). **Detach Preview**
+moves the pane into a `PreviewWindowController` window owned by the tab,
+so it stays bound to that document (not the front tab) and closes with
+it; the same debounced `renderPreview` feeds it. `SessionTab` keeps
+`previewDetached` and `previewFrame`; restore detaches with
+`AfterFirstFrame`, so a restored detached preview costs nothing before the
+first frame and nothing at all when there is none.
+
+**CSV / TSV grid** (`CSVPreview`): `CSV.parse` (CedricCore, RFC 4180,
+UTF-16 offsets) on a background queue from an immutable copy of the text
+(at most 16 M characters, 2 M in large mode), at most 50,000 rows shown,
+a generation counter dropping stale results. A view-based `NSTableView`
+(cells only for visible rows), row numbers in an `NSRulerView` (clipped to
+its bounds), sorting by header on the same queue (view only), a click
+maps the view row back to the record's start and `CSV.fieldOffset` for the
+caret.
+
 ## Editor tools
 
 Notepad++'s everyday extras. The logic is in CedricCore (tested without a
@@ -932,7 +950,25 @@ identifiers). With the owl on, prose with three or more fixable
 misspellings in his context window gets "Fix 3 typos?": the first
 suggestion for each, as one replacement over their span, so one undo step.
 `SpellScope.isFixable` skips ALL-CAPS words, words with digits, URLs, paths
-and addresses. Offered once per document unless snoozed.
+and addresses. Offered once per document unless snoozed. The bubble's
+default is now **Fix Typos…** (the step-through below); **Fix All** is the
+one-step fix.
+
+**Fix Typos… (step-through).** `SpellStepper` (CedricCore, pure, tested)
+holds one pass: an anchor at the start of the caret's word, the document
+cut into line-aligned chunks of ~16 K characters from there to the end and
+then from the top back to it, the words found so far in pass order, the
+current word, Ignore All and Change All sets. Every edit (the panel's
+Change / Change All, and the user's typing or ⌘Z, via
+`EditorWindowController.storageEdited`) moves the words and chunks after
+it and drops what it touched. `SpellStepController` (the app) checks a
+chunk with `EditorSpelling.misspellings` (same scope as continuous
+checking, URLs and paths skipped), at most four per run-loop turn while
+looking for the next word; a normal document finishes the count in idle
+turns, large mode never goes further than the next word. Change All
+changes the words found so far as one undo group, and later ones as their
+chunk is checked. Learn Word is `NSSpellChecker.learnWord` (the user's
+dictionary; tools-check learns a nonsense word and forgets it again).
 
 **Themes.** Cedric (peach paper from the logo's coral plate, navy text,
 gold/coral/navy tokens, the chest chevron's grey-blue for comments) and

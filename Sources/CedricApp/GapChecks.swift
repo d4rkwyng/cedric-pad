@@ -17,7 +17,7 @@ extension DevChecks {
         case "encodings": encodings(app)
         case "cli": cli(app)
         case "dropfile": dropFile(app)
-        default: return false
+        default: return featureCheck(name, app)
         }
         return true
     }

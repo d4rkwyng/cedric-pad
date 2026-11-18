@@ -2,7 +2,7 @@ import Foundation
 
 /// The languages Cedric colours. `.plain` is everything else.
 public enum Language: String, CaseIterable, Codable, Sendable {
-    case plain, swift, python, javascript, typescript, json, yaml, markdown, html, css, shell, c, ruby, xml, sql, diff, ini
+    case plain, swift, python, javascript, typescript, json, yaml, markdown, html, css, shell, c, ruby, xml, sql, diff, ini, csv
 
     public var displayName: String {
         switch self {
@@ -23,11 +23,12 @@ public enum Language: String, CaseIterable, Codable, Sendable {
         case .sql: return "SQL"
         case .diff: return String(localized: "Diff / Patch")
         case .ini: return String(localized: "INI / TOML / .env")
+        case .csv: return "CSV / TSV"
         }
     }
 
     /// Whether the side-by-side preview applies.
-    public var hasPreview: Bool { self == .markdown || self == .html }
+    public var hasPreview: Bool { self == .markdown || self == .html || self == .csv }
 }
 
 /// Picks a language from a file name, a shebang line, or the content.
@@ -48,6 +49,7 @@ public enum LanguageDetector {
         "ini": .ini, "cfg": .ini, "conf": .ini, "toml": .ini, "properties": .ini, "env": .ini, "desktop": .ini,
         "gitconfig": .ini, "editorconfig": .ini, "service": .ini,
         "css": .css,
+        "csv": .csv, "tsv": .csv, "tab": .csv, "psv": .csv,
         "sh": .shell, "bash": .shell, "zsh": .shell, "ksh": .shell, "command": .shell,
         "c": .c, "h": .c, "m": .c, "cc": .c, "cpp": .c, "cxx": .c, "hpp": .c, "hh": .c, "mm": .c,
         "rb": .ruby, "rake": .ruby, "gemspec": .ruby,
@@ -181,7 +183,7 @@ struct MarkdownSignals {
 public enum Languages {
     public static func tokenizer(for language: Language) -> Tokenizer {
         switch language {
-        case .plain: return PlainTokenizer()
+        case .plain, .csv: return PlainTokenizer()
         case .json: return JSONTokenizer()
         case .yaml: return YAMLTokenizer()
         case .markdown: return MarkdownTokenizer()

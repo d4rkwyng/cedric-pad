@@ -183,7 +183,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     var currentTab: EditorWindowController? {
-        tabs.first { $0.window === NSApp.keyWindow } ?? tabs.first { $0.window === NSApp.mainWindow }
+        // A detached preview's window: its tab (View › Attach Preview).
+        if let key = NSApp.keyWindow, let t = tabs.first(where: { $0.previewWindow?.window === key }) { return t }
+        return tabs.first { $0.window === NSApp.keyWindow } ?? tabs.first { $0.window === NSApp.mainWindow }
             // Not active (launched from a script, screen locked): the
             // frontmost tab. The owl check (CEDRIC_OWL_ASSUME_VISIBLE) may
             // run with no window ordered in; it falls back to the newest tab.
@@ -304,7 +306,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                               selectionLocation: sel.location, selectionLength: sel.length,
                                               topLine: t.topLine, fileModified: d.fileModified,
                                               bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines,
-                                              indentation: d.indentation))
+                                              indentation: d.indentation,
+                                              previewDetached: t.previewDetached ? true : nil,
+                                              previewFrame: t.previewWindow?.window?.frameDescriptor))
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
             }
             if !sessionTabs.isEmpty {
@@ -442,6 +446,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let top = st.topLine
         DispatchQueue.main.async { tab.scrollToLine(top) }
+        // A detached preview comes back in its window, after the first
+        // frame: no preview work on the launch path.
+        if st.previewDetached == true {
+            let frame = st.previewFrame
+            AfterFirstFrame.run { [weak tab] in tab?.detachPreview(frame: frame, activate: false) }
+        }
         return tab
     }
 
@@ -515,6 +525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     @objc func goToLine(_ sender: Any?) { currentTab?.goToLinePrompt(sender) }
     @objc func togglePreview(_ sender: Any?) { currentTab?.togglePreview() }
+    @objc func toggleDetachPreview(_ sender: Any?) { currentTab?.toggleDetachPreviewAction(sender) }
     @objc func togglePreviewJavaScript(_ sender: Any?) { currentTab.map { $0.previewAllowsJavaScript.toggle() } }
     @objc func togglePreviewNetwork(_ sender: Any?) { currentTab.map { $0.previewAllowsNetwork.toggle() } }
     @objc func toggleWrap(_ sender: Any?) { Settings.shared.wrapLines.toggle() }
@@ -522,6 +533,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func toggleLineNumbers(_ sender: Any?) { Settings.shared.showLineNumbers.toggle() }
     @objc func toggleSpellingWhileTyping(_ sender: Any?) { Settings.shared.checkSpellingWhileTyping.toggle() }
     @objc func checkDocumentNow(_ sender: Any?) { currentTab?.spelling.selectNext() }
+    @objc func fixTyposMenu(_ sender: Any?) { currentTab?.startSpellStep() }
     @objc func toggleOwl(_ sender: Any?) { Settings.shared.showOwl.toggle() }
     @objc func showAISettings(_ sender: Any?) { AISettingsSheet.show(on: currentTab?.window) }
     @objc func pickOwlHintSource(_ sender: NSMenuItem) {
@@ -551,7 +563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleInvisibles(_:)): item.state = s.showInvisibles ? .on : .off
         case #selector(toggleLineNumbers(_:)): item.state = s.showLineNumbers ? .on : .off
         case #selector(toggleSpellingWhileTyping(_:)): item.state = s.checkSpellingWhileTyping ? .on : .off
-        case #selector(checkDocumentNow(_:)): return tab != nil
+        case #selector(checkDocumentNow(_:)), #selector(fixTyposMenu(_:)): return tab != nil
         case #selector(toggleOwl(_:)): item.state = s.showOwl ? .on : .off
         case #selector(pickOwlHintSource(_:)):
             // "Rules + AI" stays off until an AI provider registers.
@@ -563,12 +575,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(togglePreview(_:)):
             item.state = tab?.previewVisible == true ? .on : .off
             return tab?.doc.language.hasPreview == true
+        case #selector(toggleDetachPreview(_:)):
+            item.title = tab?.previewDetached == true ? String(localized: "Attach Preview") : String(localized: "Detach Preview")
+            return tab?.doc.language.hasPreview == true
         case #selector(togglePreviewJavaScript(_:)):
             item.state = tab?.previewAllowsJavaScript == true ? .on : .off
-            return tab?.previewVisible == true
+            return tab?.previewVisible == true && tab?.preview != nil
         case #selector(togglePreviewNetwork(_:)):
             item.state = tab?.previewAllowsNetwork == true ? .on : .off
-            return tab?.previewVisible == true
+            return tab?.previewVisible == true && tab?.preview != nil
         case #selector(pickLanguageMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.language.rawValue ? .on : .off
         case #selector(pickLineEndingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.lineEnding.rawValue ? .on : .off
         case #selector(pickEncodingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.encoding.rawValue ? .on : .off

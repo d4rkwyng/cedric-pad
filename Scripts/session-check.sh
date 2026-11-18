@@ -2,7 +2,8 @@
 # End-to-end check of session restore, the Notepad++ feature: unsaved
 # edits to a file and an untitled tab must survive both a crash (kill -9
 # after the autosave) and a normal quit; a tab closed with unsaved text
-# (hot close) must survive a crash and come back with Reopen Closed Tab. Uses a throwaway session
+# (hot close) must survive a crash and come back with Reopen Closed Tab; a
+# detached preview comes back in its window with its frame. Uses a throwaway session
 # directory and file; never touches the real session. Needs a GUI session
 # (works with the screen locked).
 #
@@ -150,6 +151,25 @@ got=$(order session6 | cut -d' ' -f3- | tr ' ' '\n' | sort | tr '\n' ' ')
 want=$(echo "t0.txt Untitled 1[1] t2.txt t4.txt[1] Untitled 5 Untitled 3[1]" | tr ' ' '\n' | sort | tr '\n' ' ')
 if [ "$got" = "$want" ]; then echo "session-check: OK   early reopen: all six tabs back, bookmarks kept, closed list empty"
 else echo "session-check: FAIL early reopen: got '$got', want '$want'" >&2; fail=1; fi
+
+# 7. Detached preview: a Markdown tab with its preview in its own window
+#    (View › Detach Preview), moved and sized, then a normal quit. The next
+#    launch brings the window back with that frame, after the first frame.
+export CEDRIC_SESSION_DIR="$W/session7"
+printf '# Detached\n\nlive preview\n' > "$W/doc.md"
+env -u CEDRIC_TEST_TYPE CEDRIC_OPEN="$W/doc.md" CEDRIC_TEST_DETACH_PREVIEW=140,120,520,410 "$BIN" -ApplePersistenceIgnoreState YES >/dev/null 2>&1 &
+pid=$!
+sleep 3
+quit_app $pid
+saved=$(python3 -c '
+import json,sys
+s=json.load(open(sys.argv[1])); t=[t for w in s["windows"] for t in w["tabs"] if (t.get("path") or "").endswith("doc.md")]
+print("%s %s" % (t[0].get("previewDetached"), " ".join(t[0].get("previewFrame","").split()[:4])) if t else "none")' "$W/session7/session.json")
+[ "$saved" = "True 140 120 520 410" ] && echo "session-check: OK   detached preview saved with its frame" \
+    || { echo "session-check: FAIL detached preview saved as '$saved', want 'True 140 120 520 410'" >&2; fail=1; }
+dump
+check "detached preview restored in its window, same frame, after the first frame" \
+    "^preview: name=doc.md detached=true visible=true title=doc.md — Preview frame=140,120,520,410 before-first-frame=0"
 
 [ $fail = 0 ] && echo "session-check: all OK"
 exit $fail
