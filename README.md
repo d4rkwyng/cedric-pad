@@ -407,6 +407,14 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   A one-word AI fix in prose ("definately" → "definitely") keeps its
   **Fix it**.
   In very large documents the owl only looks when clicked.
+  A network endpoint must resolve to a private address (loopback, LAN,
+  Tailscale); redirects to another host are refused.
+- **Careful with files:** pipes and devices (`/dev/zero`, a FIFO) are
+  refused before anything is read; saving through a symbolic link writes
+  the file it points to and keeps that file's permissions; Export as HTML
+  and Copy as HTML drop `<script>` and `on…=` handlers; Copy as Rich Text
+  loads nothing from the network; pasted images never go to an `images`
+  folder that points outside the document's folder.
 
 ## Build and run
 
