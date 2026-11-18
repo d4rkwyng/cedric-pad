@@ -59,9 +59,9 @@ fi
 APP="$OUT/Cedric.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-if [ -f Resources/AppIcon.icns ]; then
-    cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-fi
+# The app icon (Finder, Dock, About). Made by tools/icon/cedric_icon.py, committed.
+[ -f Resources/AppIcon.icns ] || { echo "bundle-app.sh: missing Resources/AppIcon.icns" >&2; exit 1; }
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 if [ ${#LIPO_FROM[@]} -gt 0 ]; then
     lipo -create "${LIPO_FROM[@]}" -output "$APP/Contents/MacOS/Cedric"
 else
