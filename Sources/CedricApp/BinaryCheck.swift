@@ -5,7 +5,8 @@ import CedricCore
 /// "This looks like a binary file" bar and nothing shown; ⌘S does nothing
 /// and the file is unchanged; Open Anyway shows it read-only (typing
 /// changes nothing, Save still off); Allow Editing makes it a text tab.
-/// A UTF-16 file and a log with escape codes open as text, with no bar.
+/// A UTF-16 file and a log with escape codes open as text, with no bar; a
+/// .crt of junk bytes is held as binary with no Certificate panel.
 @MainActor
 extension DevChecks {
     static func binaryCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -19,6 +20,7 @@ extension DevChecks {
         guard let tab = app.open(bin) else { expect(false, "opened binary.bin"); finish(); return true }
         sized(tab)
         func saveItem() -> NSMenuItem? { menuItem("s", [.command]) }
+        var junk: EditorWindowController?
         run([
             sync {
                 tab.window?.makeKeyAndOrderFront(nil)
@@ -58,6 +60,17 @@ extension DevChecks {
                     expect(t.binary == nil && t.binaryBar == nil && !t.text.isEmpty, "\(url.lastPathComponent) opens as text, no bar",
                            String(t.text.prefix(30)))
                 }
+                // A .crt that is neither DER nor PEM: the binary bar, no certificate tab or panel.
+                let crt = dir.appendingPathComponent("junk.crt")
+                try? bytes.write(to: crt)
+                let before = app.certificateTabs.count
+                junk = app.open(crt)
+                expect(junk?.binary == .held(junk?.binaryHeldText ?? "") && app.certificateTabs.count == before,
+                       "junk.crt is held as binary, not a certificate tab")
+            },
+            sync {
+                // The Certificate panel would open a turn after the open.
+                expect(junk?.previewPane == nil, "and gets no Certificate panel")
             },
         ])
         return true
