@@ -86,6 +86,9 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Reopen Closed Tab"), #selector(AppDelegate.reopenClosedTab(_:)), "t", [.command, .shift]),
         item(String(localized: "Save"), #selector(AppDelegate.saveDocument(_:)), "s"),
         item(String(localized: "Save As…"), #selector(AppDelegate.saveDocumentAs(_:)), "s", [.command, .shift]),
+        .separator(),
+        item(String(localized: "Page Setup…"), #selector(AppDelegate.pageSetup(_:)), "p", [.command, .shift]),
+        item(String(localized: "Print…"), #selector(AppDelegate.printDocument(_:)), "p"),
     ]))
 
     let findItems = [

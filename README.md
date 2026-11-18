@@ -72,6 +72,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   selection when there is one (characters are Unicode scalars). Documents
   over a million characters show lines only, so typing never waits on a
   count; over 50,000 they are counted when typing pauses.
+- **Print** (File › Print…, ⌘P; Page Setup…, ⇧⌘P): the text in the
+  editor's font, dark on white (not the theme's colours), wrapped to the
+  page, with the file name, date and page numbers; line numbers are an
+  option in the print panel.
 - **Go to line** (⌘L, `42` or `42:7`), line numbers, current-line highlight,
   show invisibles (⌥⌘I), wrap lines (⌥Z).
 - **Encodings and line endings:** UTF-8 (with or without BOM), UTF-16 LE/BE
@@ -187,7 +191,7 @@ version has, including its known gaps, and *Signing a release* in
 
 ## Not built yet
 
-Macros, printing, Replace in Files, automatic updates. See
+Macros, Replace in Files, automatic updates. See
 `docs/architecture.md` for where they plug in.
 
 ## Built with Claude

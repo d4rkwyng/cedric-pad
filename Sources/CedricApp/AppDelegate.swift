@@ -537,7 +537,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(pickEncodingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.encoding.rawValue ? .on : .off
         case #selector(reopenClosedTab(_:)): return !closedTabs.isEmpty
         case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)), #selector(showFind(_:)), #selector(showReplace(_:)),
-             #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(goToLine(_:)), #selector(useSelectionForFind(_:)):
+             #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(goToLine(_:)), #selector(useSelectionForFind(_:)),
+             #selector(printDocument(_:)):
             return tab != nil
         default: return validateEditingItem(item) ?? validateIndentationItem(item) ?? validateToolItem(item)
         }

@@ -5,12 +5,13 @@ import CedricCore
 /// like the other DevChecks: real key events where a key does it (Tab,
 /// ⇧Tab and the menus' key equivalents), menu items' actions otherwise.
 ///
-///   CEDRIC_CHECK=indent
+///   CEDRIC_CHECK=indent|print
 @MainActor
 extension DevChecks {
     static func gapCheck(_ name: String, _ app: AppDelegate) -> Bool {
         switch name {
         case "indent": indent(app)
+        case "print": printing(app)
         default: return false
         }
         return true
@@ -156,6 +157,85 @@ extension DevChecks {
                 app.newTab(nil)
                 let t = app.tabs.last!
                 expect(t.indentation == Indentation(usesTabs: false, width: 3), "a new tab uses the default from Settings", "\(t.indentation)")
+                restore()
+            },
+        ])
+    }
+
+    // MARK: Print
+
+    static func printing(_ app: AppDelegate) {
+        let long = String(repeating: "wrap me ", count: 40)
+        let src = "first line\n\tindented\n" + long + "\nlast\n"
+        let tab = app.open(write("print.txt", src))!
+        sized(tab)
+        let pdf = dir.appendingPathComponent("print.pdf")
+        let restore = keepDefaults([PrintOptions.lineNumbersKey])
+        run([
+            sync {
+                focus(tab)
+                let item = menuItem("p", [.command])
+                expect(item?.action == #selector(AppDelegate.printDocument(_:)), "⌘P is File › Print…", item?.title ?? "-")
+                let setup = menuItem("p", [.command, .shift])
+                expect(setup?.action == #selector(AppDelegate.pageSetup(_:)), "⇧⌘P is File › Page Setup…", setup?.title ?? "-")
+                // ⌘P: the print panel comes up as a sheet on the tab (then cancelled).
+                key("p", [.command])
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { next() } },
+            sync {
+                let sheet = tab.window?.attachedSheet
+                expect(sheet != nil, "⌘P shows the print panel", "\(String(describing: tab.window?.sheets))")
+                if let sheet { tab.window?.endSheet(sheet, returnCode: .cancel) }
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { next() } },
+            sync {
+                // To a PDF, without panels: with line numbers.
+                let info = NSPrintInfo()
+                info.jobDisposition = .save
+                info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL.rawValue] = pdf
+                let (op, view, _) = tab.makePrintOperation(lineNumbers: true, info: info)
+                op.showsPrintPanel = false
+                op.showsProgressPanel = false
+                let ok = op.run()
+                expect(ok, "printing to a PDF succeeds")
+                let printed = view.textStorage?.string ?? ""
+                expect(printed.hasPrefix("\t1\tfirst line\n\t2\t\tindented\n\t3\twrap"), "line numbers lead each line", printed.prefix(60).debugDescription)
+                expect(!printed.contains("\t5\t"), "the empty line after the final newline isn't numbered")
+                expect((view.textStorage?.attribute(.font, at: 4, effectiveRange: nil) as? NSFont)?.fontName == Settings.shared.font.fontName,
+                       "in the editor's font", "\(String(describing: view.textStorage?.attribute(.font, at: 4, effectiveRange: nil)))")
+                var fragments = 0
+                if let lm = view.layoutManager {
+                    lm.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: lm.numberOfGlyphs)) { _, _, _, _, _ in fragments += 1 }
+                }
+                expect(fragments > 4, "the long line wraps to the page width", "\(fragments) line fragments for 4 lines")
+                let doc = CGPDFDocument(pdf as CFURL)
+                expect((doc?.numberOfPages ?? 0) >= 1, "the PDF has a page", "\(doc?.numberOfPages ?? 0)")
+                // The page is the paper's white, not the theme's background (dark).
+                if let page = doc?.page(at: 1) {
+                    let box = page.getBoxRect(.mediaBox)
+                    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(box.width), pixelsHigh: Int(box.height), bitsPerSample: 8,
+                                               samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+                    NSGraphicsContext.saveGraphicsState()
+                    let ctx = NSGraphicsContext(bitmapImageRep: rep)!
+                    NSGraphicsContext.current = ctx
+                    NSColor.white.setFill()
+                    box.fill()
+                    ctx.cgContext.drawPDFPage(page)
+                    NSGraphicsContext.restoreGraphicsState()
+                    var dark = 0, total = 0
+                    for y in stride(from: 0, to: rep.pixelsHigh, by: 7) {
+                        for x in stride(from: 0, to: rep.pixelsWide, by: 7) {
+                            total += 1
+                            if let c = rep.colorAt(x: x, y: y), c.brightnessComponent < 0.5 { dark += 1 }
+                        }
+                    }
+                    expect(total > 0 && dark * 20 < total, "the page is mostly white (text only, no theme background)", "\(dark)/\(total) dark samples")
+                    expect(dark > 0, "and has text on it")
+                    try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("print-page1.png"))
+                }
+                // Without line numbers: the plain text.
+                let (_, plain, _) = tab.makePrintOperation(lineNumbers: false, info: NSPrintInfo())
+                expect(plain.textStorage?.string == src, "without line numbers, the text as it is")
                 restore()
             },
         ])

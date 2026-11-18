@@ -30,7 +30,7 @@ fail=0
 echo "== shortcuts"
 env CEDRIC_DUMP_SHORTCUTS=1 "$BIN" -ApplePersistenceIgnoreState YES 2>/dev/null | tee "$OUT/shortcuts.txt" | grep -E "CONFLICT|shortcuts:" || fail=1
 grep -q "no conflicts" "$OUT/shortcuts.txt" || fail=1
-for c in recent texttool findinfiles compare follow large highlight lineops bookmarks closedtab autoedit counts indent; do
+for c in recent texttool findinfiles compare follow large highlight lineops bookmarks closedtab autoedit counts indent print; do
     echo "== $c"
     if ! env CEDRIC_CHECK=$c CEDRIC_THEME=${CEDRIC_THEME:-dark} perl -e 'alarm 90; exec @ARGV' "$BIN" -ApplePersistenceIgnoreState YES 2>/dev/null \
         | grep -E "^check:" | tee "$OUT/$c.txt"; then fail=1; fi
