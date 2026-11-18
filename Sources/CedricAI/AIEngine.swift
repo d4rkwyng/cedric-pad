@@ -87,10 +87,13 @@ public struct ServerEngine: AIEngine {
 /// on). Never the Private Cloud Compute model.
 public struct AppleIntelligenceEngine: AIEngine {
     public static let modelID = "apple-on-device"
-    public init() {}
+    /// This Mac's Apple Intelligence state, read once when the engine is made
+    /// (`AppleFoundationModelsProvider.status`); tests pass one in.
+    public let status: AppleIntelligenceStatus
+    public init(status: AppleIntelligenceStatus = AppleFoundationModelsProvider.status) { self.status = status }
     public var kind: LocalAISettings.Backend { .apple }
-    public var isAvailable: Bool { AppleFoundationModelsProvider.isAvailable }
-    public var unavailableReason: String? { AppleFoundationModelsProvider.status.message }
+    public var isAvailable: Bool { status == .available }
+    public var unavailableReason: String? { status.message }
     public var needsAddress: Bool { false }
     public func models() async throws -> [LocalModelInfo] { isAvailable ? [LocalModelInfo(id: Self.modelID, type: "llm")] : [] }
     public func test() async -> ConnectionReport {

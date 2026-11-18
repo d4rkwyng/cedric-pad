@@ -630,7 +630,9 @@ struct LiveAppleTests {
 
     @MainActor @Test func bridgeReportsChecks() async throws {
         let registry = OwlProviderRegistry()
-        let bridge = LocalAIOwlBridge(registry: registry, makeProvider: { _ in FakeProvider() })
+        // Apple Intelligence injected as available: the runner's own state must not matter.
+        let bridge = LocalAIOwlBridge(registry: registry, engine: { _ in AppleIntelligenceEngine(status: .available) },
+                                      makeProvider: { _ in FakeProvider() })
         #expect(bridge.statusLine() == nil)
         var s = LocalAISettings(enabled: true, backend: .apple, pauseDelay: 0.05, minIdle: 0)
         s.minInterval = 0.1
@@ -644,5 +646,55 @@ struct LiveAppleTests {
         var off = s; off.enabled = false
         await bridge.apply(off)
         #expect(bridge.statusLine() == nil)
+    }
+
+    /// The path Intel and older Macs (and Macs with Apple Intelligence off)
+    /// take: choosing Apple Intelligence leaves the AI off with the reason
+    /// the settings sheet shows, no status line, nothing registered and no
+    /// provider asked for.
+    @MainActor @Test func bridgeWithoutAppleIntelligence() async {
+        let expected: [(AppleIntelligenceStatus, String)] = [
+            (.unsupported, "Needs macOS 26 or later on Apple silicon."),
+            (.osTooOld, "Needs macOS 26 or later on Apple silicon."),
+            (.deviceNotEligible, "This Mac can’t run Apple Intelligence."),
+            (.notEnabled, "Turn on Apple Intelligence in System Settings to use it."),
+            (.modelNotReady, "Apple Intelligence is still getting its model ready. Try again later."),
+            (.unknown, "Apple Intelligence isn’t available right now."),
+        ]
+        for (status, message) in expected {
+            let engine = AppleIntelligenceEngine(status: status)
+            #expect(!engine.isAvailable && engine.unavailableReason == message)
+            let provider = await engine.makeProvider(model: nil)
+            let models = try? await engine.models()
+            let report = await engine.test()
+            #expect(provider == nil && models?.isEmpty == true && report.error != nil)
+            let registry = OwlProviderRegistry()
+            let asked = Box(0)
+            let bridge = LocalAIOwlBridge(registry: registry, engine: { _ in engine },
+                                          makeProvider: { _ in asked.mutate { $0 += 1 }; return FakeProvider() })
+            await bridge.apply(LocalAISettings(enabled: true, backend: .apple, pauseDelay: 0.05, minIdle: 0))
+            #expect(!bridge.isActive && bridge.statusLine() == nil && bridge.engineTitle == nil)
+            #expect(bridge.lastProblem == message)
+            #expect(!registry.hasAIProvider && asked.value == 0)
+        }
+    }
+
+    /// The same path on this Mac's real state, no injection: active exactly
+    /// when Apple Intelligence is available, else off with its reason. On a
+    /// CI VM (or with CEDRIC_SIMULATE_NO_APPLE_INTELLIGENCE=1) it is the
+    /// unavailable case.
+    @MainActor @Test func bridgeOnThisMacsAppleIntelligence() async {
+        let registry = OwlProviderRegistry()
+        let bridge = LocalAIOwlBridge(registry: registry, makeProvider: { _ in FakeProvider() })
+        await bridge.apply(LocalAISettings(enabled: true, backend: .apple, pauseDelay: 0.05, minIdle: 0))
+        let status = AppleFoundationModelsProvider.status
+        if status == .available {
+            #expect(bridge.isActive && bridge.lastProblem == nil)
+            #expect(bridge.statusLine() == "Apple Intelligence · waiting for a pause in typing")
+        } else {
+            #expect(!bridge.isActive && bridge.statusLine() == nil && !registry.hasAIProvider)
+            #expect(bridge.lastProblem != nil && bridge.lastProblem == status.message)
+        }
+        await bridge.apply(.default)
     }
 }

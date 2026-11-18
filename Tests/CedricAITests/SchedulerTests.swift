@@ -168,12 +168,35 @@ import CedricCore
         #expect(await eventually { rig.provider.calls == [1, 1] })
     }
 
-    @Test func realRaceTimeoutWithSystemClock() async {
+    /// Smoke test on the real clock: a hanging provider still gives nil and
+    /// is cancelled exactly once. No wall-time bound (runner load varies);
+    /// the timing itself is covered on FakeClock below.
+    @Test func raceOnSystemClockTimesOut() async {
         let p = FakeProvider(hang: true)
-        let start = Date()
-        let r = await OwlScheduler.race(provider: p, context: context(), clock: SystemClock(), timeout: 0.2)
+        let r = await OwlScheduler.race(provider: p, context: context(), clock: SystemClock(), timeout: 0.05)
         #expect(r == nil)
-        #expect(Date().timeIntervalSince(start) < 2)
-        #expect(await eventually { p.cancellations == 1 })
+        #expect(p.cancellations == 1)
+    }
+
+    /// The race's own timeout on an injected clock: a hanging provider gives
+    /// nil once the clock passes the timeout (not before), and is cancelled.
+    /// Measured on the clock, not the wall: a loaded CI runner took 2.2 s
+    /// of real time for a 0.2 s sleep. Quarter steps keep the sums exact.
+    @Test func raceTimesOutAndCancelsHangingProvider() async {
+        let p = FakeProvider(hang: true)
+        let clock = FakeClock()
+        let done = Box(false)
+        let race = Task { () -> [OwlHint]? in
+            let r = await OwlScheduler.race(provider: p, context: context(), clock: clock, timeout: 0.5)
+            done.mutate { $0 = true }
+            return r
+        }
+        #expect(await eventually { clock.pendingSleepers == 1 && p.calls == [1] })
+        clock.advance(0.25)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        #expect(!done.value && p.cancellations == 0)
+        clock.advance(0.25)
+        #expect(await race.value == nil)
+        #expect(p.cancellations == 1)
     }
 }
