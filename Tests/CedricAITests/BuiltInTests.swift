@@ -492,7 +492,8 @@ final class FakeRuntime: BuiltInRuntime, @unchecked Sendable {
         #expect(AIEngines.defaultBackend(appleAvailable: true, builtInAvailable: true) == .apple)
         #expect(AIEngines.defaultBackend(appleAvailable: false, builtInAvailable: true) == .builtIn)
         #expect(AIEngines.defaultBackend(appleAvailable: false, builtInAvailable: false) == .lmStudio)
-        let d = UserDefaults(suiteName: "cedric-default-\(UUID())")!
+        let (d, suite) = TestDefaults.make("cedric-default-")
+        defer { TestDefaults.remove(suite) }
         let fresh = LocalAISettings.load(from: d, defaultBackend: .apple)
         #expect(fresh.backend == .apple && fresh.enabled == false)
         #expect(LocalAISettings.Backend.apple.title == "Apple Intelligence (on this Mac, private)")

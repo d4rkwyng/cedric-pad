@@ -30,9 +30,12 @@ func window(_ text: String, doc: UUID = UUID(), generation: Int = 0, language: S
 func context(_ text: String, language: String = "plain") -> OwlContext { window(text, language: language).context }
 
 @MainActor
-@Suite struct OwlCoordinatorTests {
+@Suite final class OwlCoordinatorTests {
     let clock = FakeClock()
-    let defaults = UserDefaults(suiteName: "cedric-owl-test-\(UUID().uuidString)")!
+    let suiteName = TestDefaults.name("cedric-owl-test-")
+    var defaults: UserDefaults { UserDefaults(suiteName: suiteName)! }
+
+    deinit { TestDefaults.remove(suiteName) }
 
     func make(_ hints: [OwlHint]) -> (OwlCoordinator, StubProvider) {
         let reg = OwlProviderRegistry()
@@ -298,9 +301,8 @@ func context(_ text: String, language: String = "plain") -> OwlContext { window(
     struct Marker: OwlHintProvider { let name = "local:m"; func hints(for context: OwlContext) async -> [OwlHint] { [] } }
 
     @Test func acceptAIOnlyWithRulesAndAIAndChecksRanges() {
-        let suite = "cedric-accept-\(UUID())"
-        let d = UserDefaults(suiteName: suite)!
-        defer { d.removePersistentDomain(forName: suite) }
+        let (d, suite) = TestDefaults.make("cedric-accept-")
+        defer { TestDefaults.remove(suite) }
         let c = OwlCoordinator(defaults: d)
         let doc = UUID()
         let ctx = OwlContext(fileName: "a.swift", language: "swift", text: "for i in 0...n {}", textStart: 400,
