@@ -3,6 +3,7 @@ import Foundation
 /// The languages Cedric colours. `.plain` is everything else.
 public enum Language: String, CaseIterable, Codable, Sendable {
     case plain, swift, python, javascript, typescript, json, yaml, markdown, html, css, shell, c, ruby, xml, sql, diff, ini, csv
+    case powershell, batch, registry
 
     public var displayName: String {
         switch self {
@@ -24,8 +25,15 @@ public enum Language: String, CaseIterable, Codable, Sendable {
         case .diff: return String(localized: "Diff / Patch")
         case .ini: return String(localized: "INI / TOML / .env")
         case .csv: return "CSV / TSV"
+        case .powershell: return "PowerShell"
+        case .batch: return String(localized: "Batch (.bat / .cmd)")
+        case .registry: return String(localized: "Registry (.reg)")
         }
     }
+
+    /// Whether View › Show Outline lists something: Markdown's headings,
+    /// PowerShell's functions.
+    public var hasOutline: Bool { self == .markdown || self == .powershell }
 
     /// Whether the side-by-side preview applies.
     public var hasPreview: Bool { self == .markdown || self == .html || self == .csv }
@@ -42,7 +50,7 @@ public enum LanguageDetector {
         "yaml": .yaml, "yml": .yaml,
         "md": .markdown, "markdown": .markdown, "mdown": .markdown, "mkd": .markdown,
         "html": .html, "htm": .html, "xhtml": .html, "svg": .html,
-        "xml": .xml, "plist": .xml, "xsd": .xml, "xsl": .xml, "xslt": .xml, "rss": .xml, "atom": .xml, "xib": .xml, "storyboard": .xml,
+        "xml": .xml, "ps1xml": .xml, "plist": .xml, "xsd": .xml, "xsl": .xml, "xslt": .xml, "rss": .xml, "atom": .xml, "xib": .xml, "storyboard": .xml,
         "csproj": .xml, "resx": .xml, "pom": .xml, "kml": .xml, "gpx": .xml,
         "sql": .sql, "ddl": .sql, "psql": .sql, "mysql": .sql,
         "diff": .diff, "patch": .diff, "rej": .diff,
@@ -53,6 +61,9 @@ public enum LanguageDetector {
         "sh": .shell, "bash": .shell, "zsh": .shell, "ksh": .shell, "command": .shell,
         "c": .c, "h": .c, "m": .c, "cc": .c, "cpp": .c, "cxx": .c, "hpp": .c, "hh": .c, "mm": .c,
         "rb": .ruby, "rake": .ruby, "gemspec": .ruby,
+        "ps1": .powershell, "psm1": .powershell, "psd1": .powershell,
+        "bat": .batch, "cmd": .batch,
+        "reg": .registry,
     ]
     static let byName: [String: Language] = [
         "Gemfile": .ruby, "Rakefile": .ruby, "Podfile": .ruby, "Brewfile": .ruby,
@@ -83,6 +94,7 @@ public enum LanguageDetector {
         if prog.hasPrefix("node") || prog == "deno" || prog == "bun" { return .javascript }
         if prog.hasPrefix("ruby") { return .ruby }
         if prog == "swift" { return .swift }
+        if prog == "pwsh" || prog.hasPrefix("pwsh-") || prog == "powershell" { return .powershell }
         return nil
     }
 
@@ -103,6 +115,8 @@ public enum LanguageDetector {
 
         let lower = trimmed.prefix(200).lowercased()
         if lower.hasPrefix("<!doctype html") || lower.hasPrefix("<html") { return .html }
+        if lower.hasPrefix("windows registry editor version") || lower.hasPrefix("regedit4") { return .registry }
+        if lower.hasPrefix("@echo off") { return .batch }
         if lower.hasPrefix("<?xml") { return lower.contains("<html") || lower.contains("<!doctype html") ? .html : .xml }
         // A unified diff: "diff --git …", or "--- a" followed by "+++ b".
         if trimmed.hasPrefix("diff --git ") || trimmed.hasPrefix("diff -") || trimmed.hasPrefix("Index: ")
@@ -121,6 +135,9 @@ public enum LanguageDetector {
         var md = MarkdownSignals()
         for raw in lines {
             let line = raw.trimmingCharacters(in: .whitespaces)
+            // PowerShell first: its `$variables` would otherwise count as shell.
+            let ps = PowerShellSignals.score(line)
+            if ps > 0 { score[.powershell, default: 0] += ps; continue }
             if line.hasPrefix("#include") || line.hasPrefix("#define") || line.hasPrefix("#pragma") { score[.c, default: 0] += 3 }
             if line.hasPrefix("import Foundation") || line.hasPrefix("import SwiftUI") || line.hasPrefix("import AppKit") || line.hasPrefix("import UIKit") { score[.swift, default: 0] += 5 }
             if line.hasPrefix("func ") || line.hasPrefix("guard ") || (line.hasPrefix("let ") && line.contains(":") == false && line.contains(" = ")) { score[.swift, default: 0] += 1 }
@@ -151,6 +168,29 @@ public enum LanguageDetector {
             return .plain
         }
         return best.key
+    }
+}
+
+/// PowerShell evidence in one line of typed or pasted text: `param(`,
+/// `function Verb-Noun`, `[CmdletBinding()]`, `$PSVersionTable`,
+/// `Write-Host`, any approved-verb cmdlet, `$x = …` assignments and
+/// `-eq`-style operators. 0 for a line with none.
+enum PowerShellSignals {
+    static let strong = try! NSRegularExpression(pattern:
+        #"(?i)^(param\s*\(|function\s+[a-z]+-[a-z]+|\[cmdletbinding\(|\[parameter\(|#requires\s+-)|\$PSVersionTable|\$PSScriptRoot|\$PSCmdlet"#)
+    static let cmdlet = try! NSRegularExpression(pattern:
+        #"(?i)\b(Write-(Host|Output|Verbose|Error|Warning)|Get-(ChildItem|Content|Item|Process|Service|Date)|Set-(Content|Item|Location)|New-(Object|Item)|Import-Module|Out-(File|Null)|Select-Object|Where-Object|ForEach-Object|Invoke-(WebRequest|RestMethod|Command)|Test-Path|Remove-Item|Start-Process)\b"#)
+    static let assignment = try! NSRegularExpression(pattern: #"^\$[A-Za-z_][\w:]*(\.\w+)*\s*[+-]?=\s"#)
+    static let comparison = try! NSRegularExpression(pattern: #"(?i)\s-(eq|ne|gt|lt|ge|le|like|match|notmatch|contains)\s"#)
+
+    static func score(_ line: String) -> Int {
+        let r = NSRange(location: 0, length: (line as NSString).length)
+        if strong.firstMatch(in: line, range: r) != nil { return 3 }
+        var s = 0
+        if cmdlet.firstMatch(in: line, range: r) != nil { s += 2 }
+        if assignment.firstMatch(in: line, range: r) != nil { s += 1 }
+        if comparison.firstMatch(in: line, range: r) != nil { s += 1 }
+        return s
     }
 }
 
@@ -205,6 +245,9 @@ public enum Languages {
         case .sql: return sql
         case .diff: return DiffTokenizer()
         case .ini: return INITokenizer()
+        case .powershell: return PowerShellTokenizer()
+        case .batch: return BatchTokenizer()
+        case .registry: return RegistryTokenizer()
         }
     }
 

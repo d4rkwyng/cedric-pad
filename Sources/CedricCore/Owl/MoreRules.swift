@@ -27,7 +27,8 @@ extension RulesHintProvider {
     }
 
     static let proseLanguages: Set<String> = ["plain", "markdown"]
-    static let codeLanguages: Set<String> = ["swift", "python", "javascript", "typescript", "json", "yaml", "css", "shell", "c", "ruby", "html"]
+    static let codeLanguages: Set<String> = ["swift", "python", "javascript", "typescript", "json", "yaml", "css", "shell", "c", "ruby", "html",
+                                             "powershell", "batch"]
 
     /// 1-based line of `offset` in `s`.
     static func lineNumber(_ s: NSString, at offset: Int) -> Int {
@@ -304,6 +305,94 @@ extension RulesHintProvider {
         return scan
     }
 
+    /// PowerShell's own lexer for the bracket check: `#` and `<# … #>`
+    /// comments, `'…'` (with `''`) and `"…"` strings (backtick escapes, `""`,
+    /// `$( … )` scanned as code, to any depth), here-strings `@' … '@` /
+    /// `@" … "@` skipped whole (they end only at a line starting `'@` /
+    /// `"@`), `${any name}` variables and backtick-escaped characters in
+    /// code. Typographic quotes are quotes in PowerShell, so none are
+    /// reported as curly.
+    static func scanPowerShell(_ s: NSString) -> CodeScan {
+        var scan = CodeScan()
+        let n = s.length
+        var stack: [(Character, Int)] = []
+        var i = 0
+        func ch(_ k: Int) -> unichar { k >= 0 && k < n ? s.character(at: k) : 0 }
+        func isDQ(_ c: unichar) -> Bool { c == 34 || c == 0x201C || c == 0x201D || c == 0x201E }
+        func isSQ(_ c: unichar) -> Bool { c == 39 || c == 0x2018 || c == 0x2019 || c == 0x201A || c == 0x201B }
+        func restOfLineBlank(_ k: Int) -> Bool {
+            var j = k
+            while j < n, ch(j) == 32 || ch(j) == 9 || ch(j) == 13 { j += 1 }
+            return j >= n || ch(j) == 10
+        }
+
+        func expandable() {   // on the opening quote
+            i += 1
+            while i < n, scan.problem == nil {
+                let k = ch(i)
+                if k == 96 { i += 2; continue }   // `x
+                if isDQ(k) { if isDQ(ch(i + 1)) { i += 2; continue }; i += 1; return }
+                if k == 36, ch(i + 1) == 40 { i += 2; code(until: 41); continue }   // $( … )
+                if k == 36, ch(i + 1) == 123 { i += 2; while i < n, ch(i) != 125 { i += 1 }; i += 1; continue }
+                i += 1
+            }
+        }
+
+        func code(until closer: unichar?) {
+            var depth = 0
+            while i < n, scan.problem == nil {
+                let k = ch(i)
+                if let closer, k == closer, depth == 0 { i += 1; return }
+                switch k {
+                case 96: i += 2; continue   // backtick escape
+                case 60 where ch(i + 1) == 35:   // <# … #>
+                    i += 2
+                    while i < n, !(ch(i) == 35 && ch(i + 1) == 62) { i += 1 }
+                    i += 2
+                    continue
+                case 35 where i == 0 || [32, 9, 10, 13, 59, 40, 123, 125, 124, 44, 61].contains(ch(i - 1)):
+                    while i < n, ch(i) != 10 { i += 1 }
+                    continue
+                case 64 where (isSQ(ch(i + 1)) || isDQ(ch(i + 1))) && restOfLineBlank(i + 2):   // here-string
+                    let single = isSQ(ch(i + 1))
+                    i += 2
+                    while i < n {
+                        if ch(i) == 10, single ? isSQ(ch(i + 1)) : isDQ(ch(i + 1)), ch(i + 2) == 64 { i += 3; break }
+                        i += 1
+                    }
+                    continue
+                case _ where isSQ(k):
+                    i += 1
+                    while i < n { if isSQ(ch(i)) { if isSQ(ch(i + 1)) { i += 2; continue }; i += 1; break }; i += 1 }
+                    continue
+                case _ where isDQ(k):
+                    expandable()
+                    continue
+                case 36 where ch(i + 1) == 123:   // ${any name}
+                    i += 2
+                    while i < n, ch(i) != 125, ch(i) != 10 { i += ch(i) == 96 ? 2 : 1 }
+                    i += 1
+                    continue
+                case 40, 91, 123:
+                    if closer != nil { depth += 1 }
+                    stack.append((Character(UnicodeScalar(k)!), i))
+                case 41, 93, 125:
+                    if closer != nil { depth -= 1 }
+                    let want: Character = k == 41 ? "(" : k == 93 ? "[" : "{"
+                    let got = Character(UnicodeScalar(k)!)
+                    guard let top = stack.popLast() else { scan.problem = .unexpected(got, at: i); return }
+                    if top.0 != want { scan.problem = .mismatched(got, at: i, opener: top.0, openedAt: top.1); return }
+                default: break
+                }
+                i += 1
+            }
+        }
+
+        code(until: nil)
+        if scan.problem == nil, let open = stack.last { scan.problem = .unclosed(open.0, at: open.1) }
+        return scan
+    }
+
     static let preprocessorConditional = try! NSRegularExpression(pattern: #"(?m)^[ \t]*#[ \t]*(if|ifdef|ifndef|elif|else)\b"#)
 
     /// C, C++ or Objective-C with #if/#ifdef/#else: its branches can't be
@@ -508,8 +597,8 @@ extension RulesHintProvider {
             hint(Self.jsonInvalidID, .warning, String(localized: "This JSON doesn’t parse (line \(Self.lineNumber(text, at: err.offset)))."),
                  String(localized: "The parser stopped: \(err.message)."), lineRange, nil)
         }
-        let scans = ["swift", "javascript", "typescript", "c", "css", "python"].contains(lang)
-        let scan = scans && whole ? Self.scanCode(text, language: lang) : nil
+        let scans = ["swift", "javascript", "typescript", "c", "css", "python", "powershell"].contains(lang)
+        let scan = scans && whole ? (lang == "powershell" ? Self.scanPowerShell(text) : Self.scanCode(text, language: lang)) : nil
         if let p = scan?.problem {
             switch p {
             case .unexpected where lang == "c" && Self.hasPreprocessorConditional(text):

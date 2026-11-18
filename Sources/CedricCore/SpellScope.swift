@@ -8,9 +8,9 @@ import Foundation
 public enum SpellScope {
     public static func isProse(_ l: Language) -> Bool { l == .plain || l == .markdown }
 
-    /// Data, not writing: JSON, YAML, TOML/INI/.env, XML and CSV/TSV. Their values
+    /// Data, not writing: JSON, YAML, TOML/INI/.env, XML, CSV/TSV and .reg. Their values
     /// are names, ids and settings, so nothing in them is checked.
-    public static func isData(_ l: Language) -> Bool { l == .json || l == .yaml || l == .ini || l == .xml || l == .csv }
+    public static func isData(_ l: Language) -> Bool { l == .json || l == .yaml || l == .ini || l == .xml || l == .csv || l == .registry }
 
     /// File names whose text is data even though it opens as Plain Text
     /// (CSV and TSV tables).

@@ -28,7 +28,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Syntax colouring** for Swift, Python, JavaScript, TypeScript, JSON, YAML,
   Markdown, HTML (with embedded `<script>` and `<style>`), XML (with CDATA;
   `.xml`, `.plist` and friends, no longer coloured as HTML), CSS, shell,
-  C/C++/Objective-C, Ruby, SQL, diff/patch, and INI/TOML/.env/.properties (CSV and TSV open as plain text with a grid preview). Only the visible lines plus a margin are coloured, so
+  C/C++/Objective-C, Ruby, SQL, diff/patch, INI/TOML/.env/.properties,
+  PowerShell (`.ps1` `.psm1` `.psd1`: comments and comment-based help,
+  literal, expandable and here-strings with `$var` and nested `$( … )`
+  coloured inside, variables, Verb-Noun cmdlets, `-Parameters`, `-eq`-style
+  operators, `[types]` and `[Attributes()]`, `1KB` numbers), Windows batch
+  files (`.bat` `.cmd`: `REM`/`::`, labels, `%var%`, `!var!`, `%%i`) and
+  registry exports (`.reg`) (CSV and TSV open as plain text with a grid preview). Only the visible lines plus a margin are coloured, so
   big files stay fast. The language comes from the file extension, a `#!` line,
   or, for pasted text in an untitled tab, from the content; the status bar
   menu overrides it.
@@ -99,7 +105,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     the link out but leaves the copied file. Other dropped files still
     open in their own tabs, and in other languages a dropped image opens
     as before.
-- **Markdown outline** (View › Show Outline, ⌃⌘O): the document's
+- **Markdown outline** (View › Show Outline, ⌃⌘O; for a PowerShell
+  script it lists the functions, filters, classes and enums): the document's
   headings (`#` and underlined ones, never a `#` inside fenced code or
   frontmatter), indented by level, at the left of the text. Click one to
   jump there; the heading the caret is under stays selected; the filter

@@ -129,6 +129,31 @@ edit. `Scripts/typing-check.sh` checks typing in every theme.) Lines longer than
 A tree-sitter tokenizer could later implement the same protocol for one
 language where lexical colouring isn't enough.
 
+**PowerShell, batch, .reg** (`PowerShellTokenizer.swift`,
+`WindowsTokenizers.swift`). PowerShell has its own tokenizer, not a
+`CodeSpec`: an expandable string's `$( … )` is code that may hold another
+string with its own subexpression, so the string scanner calls back into
+the code scanner (stopping at the `)` that balances it), to any depth on
+one line. State carries `<# … #>`, a `'…'` or `"…"` string open at the
+line end, and here-strings (`@'` / `@"` ending a line; closed only by
+`'@` / `"@` at column 0). A subexpression left open at a line end inside
+a string isn't carried (the next line is string again). `#` is a comment
+only at a token start (`fix#1` is a word); `[` after a name, `)` or `}` is
+an index, otherwise a `[type]` or, when a `(` follows the name, an
+`[Attribute(…)]` whose arguments are code. Verb-Noun words are cmdlets
+when the verb is an approved one (`Get-Verb`) or the word follows
+`function`/`filter`. Sniffing (`PowerShellSignals`): `param(`,
+`function Verb-Noun`, `[CmdletBinding(`, `$PSVersionTable`, common
+cmdlets, `$x = ` and `-eq` score PowerShell, and a line that scores is
+not also counted as shell (its `$variables` would be). The owl's bracket
+check has a PowerShell lexer (`RulesHintProvider.scanPowerShell`):
+here-strings are skipped whole, `$( … )` inside strings is scanned as
+code, `${any name}` and backtick escapes are skipped, and typographic
+quotes are quotes (PowerShell accepts them), so they are never "curly
+quotes in code". The outline lists `function`/`filter`/`class`/`enum`
+lines outside block comments and here-strings (`PowerShellOutline`).
+Batch and .reg are stateless line tokenizers; .reg is data for spelling.
+
 ## Large documents (long lines, big files)
 
 Derek's report: opening a 636,293-character file that is one line (a game

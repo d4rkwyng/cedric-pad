@@ -41,7 +41,9 @@ extension Language {
     public var commentSyntax: CommentSyntax? {
         switch self {
         case .swift, .javascript, .typescript, .c: return CommentSyntax(line: "//")
-        case .python, .yaml, .shell, .ruby: return CommentSyntax(line: "#")
+        case .python, .yaml, .shell, .ruby, .powershell: return CommentSyntax(line: "#")
+        case .batch: return CommentSyntax(line: "REM")
+        case .registry: return CommentSyntax(line: ";")
         case .css: return CommentSyntax(block: ("/*", "*/"))
         case .html, .markdown, .xml: return CommentSyntax(block: ("<!--", "-->"))
         case .sql: return CommentSyntax(line: "--")

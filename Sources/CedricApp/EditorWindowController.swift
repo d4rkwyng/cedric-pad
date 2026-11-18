@@ -588,7 +588,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         grammar.apply()
         updateStatus()
         previewLanguageChanged()
-        if outlineVisible, l != .markdown { hideOutline() }
+        if outlineVisible, !l.hasOutline { hideOutline() } else if outlineVisible { refreshOutline() }
         onChange?(self)
     }
 

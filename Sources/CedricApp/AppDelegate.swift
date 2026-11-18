@@ -683,8 +683,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(pickTheme(_:)): item.state = (item.representedObject as? String) == s.theme.rawValue ? .on : .off
         case #selector(toggleOutlineMenu(_:)):
             item.state = tab?.outlineVisible == true ? .on : .off
-            return tab?.doc.language == .markdown
-        case #selector(goToHeadingMenu(_:)), #selector(exportHTMLMenu(_:)), #selector(exportPDFMenu(_:)),
+            return tab?.doc.language.hasOutline == true
+        case #selector(goToHeadingMenu(_:)):
+            return tab?.doc.language.hasOutline == true
+        case #selector(exportHTMLMenu(_:)), #selector(exportPDFMenu(_:)),
              #selector(copyAsHTMLMenu(_:)), #selector(copyAsRichTextMenu(_:)):
             return tab?.doc.language == .markdown
         case #selector(togglePreview(_:)):
