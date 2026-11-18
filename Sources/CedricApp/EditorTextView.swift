@@ -12,6 +12,12 @@ final class EditorTextView: NSTextView {
     weak var spelling: EditorSpelling?
     /// Misspellings the checker has marked (in scope), for the checks.
     var markedMisspellings: [NSRange] = []
+    /// Drawn behind the text (EditingFeatures.swift): other occurrences of
+    /// the selection or word, Mark All's marks, and the bracket pair at
+    /// the caret. Only ranges in or near the visible text.
+    var occurrenceRanges: [NSRange] = []
+    var markRanges: [NSRange] = []
+    var bracketRanges: [NSRange] = []
 
     static func make() -> EditorTextView {
         let layoutManager = NSTextLayoutManager()
@@ -134,7 +140,50 @@ final class EditorTextView: NSTextView {
             f.intersection(rect).fill()
         }
 
+        drawHighlights(in: rect, layoutManager: tlm)
         if showInvisibles { drawInvisibles(in: rect, layoutManager: tlm) }
+    }
+
+    /// Marks, occurrences and the matching bracket pair, clipped to the
+    /// view (since macOS 14 `rect` can be larger than the bounds).
+    private func drawHighlights(in rect: NSRect, layoutManager tlm: NSTextLayoutManager) {
+        guard !markRanges.isEmpty || !occurrenceRanges.isEmpty || !bracketRanges.isEmpty else { return }
+        let clip = rect.intersection(bounds)
+        guard !clip.isEmpty else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: clip).addClip()
+        let match = NSColor(hex: palette.findMatch)
+        let sel = selectedRange()
+        forEachSegment(markRanges, clip: clip, layoutManager: tlm) { f in
+            match.setFill()
+            NSBezierPath(roundedRect: f, xRadius: 2, yRadius: 2).fill()
+        }
+        forEachSegment(occurrenceRanges.filter { $0 != sel }, clip: clip, layoutManager: tlm) { f in
+            match.withAlphaComponent(0.55).setFill()
+            NSBezierPath(roundedRect: f, xRadius: 2, yRadius: 2).fill()
+        }
+        let caret = NSColor(hex: palette.caret)
+        forEachSegment(bracketRanges, clip: clip, layoutManager: tlm) { f in
+            caret.withAlphaComponent(0.18).setFill()
+            NSBezierPath(rect: f).fill()
+            caret.withAlphaComponent(0.7).setStroke()
+            let p = NSBezierPath(rect: f.insetBy(dx: 0.5, dy: 0.5))
+            p.lineWidth = 1
+            p.stroke()
+        }
+    }
+
+    private func forEachSegment(_ ranges: [NSRange], clip: NSRect, layoutManager tlm: NSTextLayoutManager, _ draw: (NSRect) -> Void) {
+        let origin = textContainerOrigin
+        for r in ranges {
+            guard let tr = textRange(for: r) else { continue }
+            tlm.enumerateTextSegments(in: tr, type: .highlight, options: []) { _, frame, _, _ in
+                let f = frame.offsetBy(dx: origin.x, dy: origin.y)
+                if f.intersects(clip) { draw(f) }
+                return true
+            }
+        }
     }
 
     private func drawInvisibles(in rect: NSRect, layoutManager tlm: NSTextLayoutManager) {

@@ -415,7 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)), #selector(showFind(_:)), #selector(showReplace(_:)),
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(goToLine(_:)), #selector(useSelectionForFind(_:)):
             return tab != nil
-        default: return validateToolItem(item)
+        default: return validateEditingItem(item) ?? validateToolItem(item)
         }
         return true
     }

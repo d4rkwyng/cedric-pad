@@ -90,6 +90,9 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Find Next"), #selector(AppDelegate.findNextMatch(_:)), "g"),
         item(String(localized: "Find Previous"), #selector(AppDelegate.findPreviousMatch(_:)), "g", [.command, .shift]),
         item(String(localized: "Use Selection for Find"), #selector(AppDelegate.useSelectionForFind(_:)), "e"),
+        .separator(),
+        item(String(localized: "Mark All"), #selector(AppDelegate.markAllMenu(_:)), "m", [.control, .command]),
+        item(String(localized: "Clear Marks"), #selector(AppDelegate.clearMarksMenu(_:)), "m", [.control, .command, .shift]),
     ]
     main.addItem(submenu(String(localized: "Edit"), [
         item(String(localized: "Undo"), Selector(("undo:")), "z"),
@@ -121,6 +124,7 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.option]),
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
         item(String(localized: "Show Line Numbers"), #selector(AppDelegate.toggleLineNumbers(_:))),
+        item(String(localized: "Highlight Occurrences"), #selector(AppDelegate.toggleHighlightOccurrences(_:))),
         item(String(localized: "Check Spelling While Typing"), #selector(AppDelegate.toggleSpellingWhileTyping(_:))),
         .separator(),
         item(String(localized: "Show Cedric the Owl"), #selector(AppDelegate.toggleOwl(_:))),

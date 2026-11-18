@@ -75,6 +75,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var largePending = false
     var isLargeDocument: Bool { largeReason != nil }
     let largeBar = LargeDocumentBar()
+    /// Highlight-all, marks, bookmarks and the other editing extras
+    /// (EditingFeatures.swift).
+    let editing = EditingState()
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -269,6 +272,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             }
         }
         gutter.needsDisplay = true
+        editingTextChanged()
         updateStatus()
         schedulePreview()
         if let owl {
@@ -287,6 +291,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         updateStatus()
         gutter.needsDisplay = true
         owl?.caretMoved(byUser: true)
+        scheduleHighlights()
     }
 
     /// The line at the top when the user last scrolled: kept there when
@@ -308,6 +313,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.colorizer.colorViewport()
             self?.gutter.needsDisplay = true
+            self?.refreshHighlights()
         }
         gutter.needsDisplay = true
         syncPreviewScroll()
@@ -405,6 +411,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let col = sel.location - lineIndex.starts[line] + 1
         var pos = String(localized: "Ln \(line + 1), Col \(col)")
         if sel.length > 0 { pos += "  " + String(localized: "(\(sel.length) selected)") }
+        if let marks = editing.markCount { pos += "  " + String(localized: "\(marks) marked") }
         statusBar.position.stringValue = pos
         StatusBar.fill(statusBar.languageButton, title: doc.languageChoice.displayTitle,
                        items: Language.allCases.map { ($0.displayName, $0.rawValue, $0 == doc.language) },
@@ -669,6 +676,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         previewTimer?.invalidate()
         owl?.detach()
         sniffTimer?.invalidate()
+        editing.stop()
         spelling.stop()
         OwlHub.shared.closed(self)
         tail?.stop()
