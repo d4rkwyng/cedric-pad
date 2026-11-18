@@ -540,7 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(goToLine(_:)), #selector(useSelectionForFind(_:)),
              #selector(printDocument(_:)):
             return tab != nil
-        default: return validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateToolItem(item)
+        default: return validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
         }
         return true
     }

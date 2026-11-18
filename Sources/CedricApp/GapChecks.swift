@@ -5,7 +5,7 @@ import CedricCore
 /// like the other DevChecks: real key events where a key does it (Tab,
 /// ⇧Tab and the menus' key equivalents), menu items' actions otherwise.
 ///
-///   CEDRIC_CHECK=indent|print|macbasics
+///   CEDRIC_CHECK=indent|print|macbasics|filterlines
 @MainActor
 extension DevChecks {
     static func gapCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -13,6 +13,7 @@ extension DevChecks {
         case "indent": indent(app)
         case "print": printing(app)
         case "macbasics": macBasics(app)
+        case "filterlines": filterLinesCheck(app)
         default: return false
         }
         return true
@@ -371,6 +372,82 @@ extension DevChecks {
                 expect(app.tabs.count == before - 2, "⇧⌘W closes the window's tabs", "\(before) → \(app.tabs.count)")
                 expect(a.window?.isVisible == true && b.window != nil, "the other window stays")
             },
+        ])
+    }
+
+    // MARK: Keep / Delete Lines Matching, bookmarked lines
+
+    /// The editable text field in a sheet (the prompt's pattern).
+    static func field(in w: NSWindow) -> NSTextField? {
+        var hit: NSTextField?
+        func walk(_ v: NSView) {
+            if hit == nil, let f = v as? NSTextField, f.isEditable { hit = f }
+            v.subviews.forEach(walk)
+        }
+        w.contentView.map(walk)
+        return hit
+    }
+
+    static func filterLinesCheck(_ app: AppDelegate) {
+        let restore = keepDefaults(["filterLinesPattern", "filterLinesRegex", "filterLinesMatchCase"])
+        let src = "INFO start\nDEBUG x=1\nWARN disk\nDEBUG y=2\nINFO done\n"
+        let tab = app.open(write("app.log", src))!
+        sized(tab)
+        let pb = NSPasteboard.general
+        let savedClipboard = pb.string(forType: .string)
+        UserDefaults.standard.set(false, forKey: "filterLinesRegex")
+        UserDefaults.standard.set(true, forKey: "filterLinesMatchCase")
+        run([
+            sync {
+                focus(tab)
+                // Bookmark lines 3 and 5 (WARN, INFO done), then delete the DEBUG lines from the prompt.
+                tab.toggleBookmark(line: 2)
+                tab.toggleBookmark(line: 4)
+                tab.textView.setSelectedRange(NSRange(location: 11, length: 5)) // "DEBUG"
+                choose(#selector(AppDelegate.deleteLinesMatchingMenu(_:)))
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { next() } },
+            sync {
+                guard let sheet = tab.window?.attachedSheet, let f = field(in: sheet) else { expect(false, "the prompt is a sheet with a field"); return }
+                expect(f.stringValue == "DEBUG", "the prompt starts with the selection", f.stringValue)
+                pressReturn(in: sheet)
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { next() } },
+            sync {
+                expect(tab.text == "INFO start\nWARN disk\nINFO done\n", "Delete Lines Matching removes the DEBUG lines", tab.text)
+                expect(tab.editing.bookmarks.lines == [1, 2], "bookmarks follow their lines", "\(tab.editing.bookmarks.lines)")
+                expect(tab.textView.undoManager?.undoActionName == "Delete Lines Matching", "one named undo step",
+                       tab.textView.undoManager?.undoActionName ?? "-")
+                choose(#selector(AppDelegate.copyBookmarkedLinesMenu(_:)))
+                expect(pb.string(forType: .string) == "WARN disk\nINFO done\n", "Copy Bookmarked Lines", pb.string(forType: .string) ?? "-")
+                choose(#selector(AppDelegate.deleteBookmarkedLinesMenu(_:)))
+                expect(tab.text == "INFO start\n", "Delete Bookmarked Lines", tab.text)
+                expect(tab.editing.bookmarks.isEmpty, "their bookmarks go with them")
+            },
+            sync { key("z", [.command]) },
+            sync {
+                key("z", [.command])
+                expect(tab.text == src, "two ⌘Z: back to the original", tab.text)
+                // Keep Lines Matching with a regular expression.
+                UserDefaults.standard.set(true, forKey: "filterLinesRegex")
+                UserDefaults.standard.set(#"y=\d|^WARN"#, forKey: "filterLinesPattern")
+                tab.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                choose(#selector(AppDelegate.keepLinesMatchingMenu(_:)))
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { next() } },
+            sync {
+                guard let sheet = tab.window?.attachedSheet else { expect(false, "the Keep prompt is a sheet"); return }
+                pressReturn(in: sheet)
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { next() } },
+            sync {
+                expect(tab.text == "WARN disk\nDEBUG y=2\n", "Keep Lines Matching (regex) keeps only matching lines", tab.text)
+                expect(tab.filterLines(pattern: "nothing", regex: false, caseSensitive: true, keepMatching: false) == nil,
+                       "no match: nothing changes (beep)")
+                if let savedClipboard { pb.clearContents(); pb.setString(savedClipboard, forType: .string) }
+                restore()
+            },
+            snapshot("filter-lines.png"),
         ])
     }
 }
