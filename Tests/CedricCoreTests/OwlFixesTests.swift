@@ -93,6 +93,19 @@ import Testing
 
 
 
+    // MARK: F-L1 the letter easter egg needs a letter
+
+    @Test func letterNeedsLetterStructure() {
+        #expect(!RulesHintProvider.isLetter("Dear diary,\nToday was long.\nI walked to town.\nThe end.\n"))
+        #expect(!RulesHintProvider.isLetter("Dear Diary\n\nWent out.\nCame back.\n"))
+        // A greeting and nothing else letter-like: not yet.
+        #expect(!RulesHintProvider.isLetter("Dear Sam,\n\nI write\nto say\n"))
+        #expect(RulesHintProvider.isLetter("Dear Sam,\n\nI write to say thanks.\nIt was lovely.\n\nBest regards,\nAlex\n"))
+        #expect(RulesHintProvider.isLetter("Dear Mrs Patel,\n\nThank you for your letter.\nI agree.\n\nYours sincerely,\nJo\n"))
+        // Address lines before the greeting.
+        #expect(RulesHintProvider.isLetter("12 High Street\nLeeds LS1 4AB\n\n3 May 2026\n\nDear Sir or Madam,\n\nI write about my order.\n"))
+        #expect(!RulesHintProvider.isLetter("Shopping\n\nDear me, what a list.\nmilk\neggs\n"))
+    }
 
 
 

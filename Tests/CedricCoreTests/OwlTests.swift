@@ -264,11 +264,11 @@ func context(_ text: String, language: String = "plain") -> OwlContext { window(
     }
 
     @Test func letterEasterEgg() throws {
-        #expect(RulesHintProvider.isLetter("Dear Sir,\n\nI write\nto say\n"))
-        #expect(!RulesHintProvider.isLetter("Dear Sir,\nhi\nbye\n"))          // 3 lines
-        #expect(!RulesHintProvider.isLetter("dear Sir,\n\n\n\n"))
+        #expect(RulesHintProvider.isLetter("Dear Sir,\n\nI write\nto say\n\nYours faithfully,\nAl\n"))
+        #expect(!RulesHintProvider.isLetter("Dear Sir,\nhi\nbye\n"))          // no sign-off
+        #expect(!RulesHintProvider.isLetter("dear Sir,\n\n\n\nRegards\n"))
         #expect(!RulesHintProvider.isLetter("Hello\nDear x\n\n\n"))
-        let h = try #require(rules.check(context("Dear Owl,\nhello\nthere\nbye"), facts: .init()).first)
+        let h = try #require(rules.check(context("Dear Owl,\nhello\nthere\nLove,\nbye"), facts: .init()).first)
         #expect(h.id == RulesHintProvider.letterID)
         #expect(h.title == "It looks like you’re writing a letter. Would you like help?")
         #expect(h.title.count <= 60)

@@ -120,12 +120,41 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         }
     }
 
-    /// "Dear …" and more than three lines.
+    /// A letter: a greeting line ("Dear Sam," – not "Dear diary") within
+    /// the first dozen lines, and either a sign-off line after it ("Yours
+    /// sincerely,", "Best regards,", "Love,") or address or date lines
+    /// before it. A diary entry or "Dear me, …" is not one.
     public static func isLetter(_ s: String) -> Bool {
-        guard s.hasPrefix("Dear ") else { return false }
-        var lines = s.split(separator: "\n", omittingEmptySubsequences: false)
-        if lines.last?.isEmpty == true { lines.removeLast() }
-        return lines.count > 3
+        let lines = s.prefix(4_000).split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let g = lines.prefix(12).firstIndex(where: isGreeting) else { return false }
+        let before = lines[..<g].filter { !$0.isEmpty }
+        if before.count >= 2 { return true }
+        return lines[(g + 1)...].contains(where: isSignOff)
+    }
+
+    /// "Dear Sam," "Dear Mrs Patel:" "Dear Sir or Madam" – a name, short,
+    /// at most a comma or colon after it.
+    static func isGreeting(_ line: String) -> Bool {
+        guard line.hasPrefix("Dear "), line.count <= 48 else { return false }
+        var rest = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+        if rest.hasSuffix(",") || rest.hasSuffix(":") { rest.removeLast() }
+        guard let first = rest.first, first.isUppercase else { return false }
+        let words = rest.split(separator: " ")
+        if words.count > 5 || rest.contains(where: { "!?;".contains($0) }) { return false }
+        return !["diary", "me", "god", "lord"].contains(words[0].lowercased())
+    }
+
+    static let signOffs = ["yours sincerely", "yours faithfully", "yours truly", "sincerely", "faithfully", "best regards",
+                           "kind regards", "warm regards", "regards", "best wishes", "with best wishes", "all the best",
+                           "love", "lots of love", "with love", "cheers", "thanks", "many thanks", "thank you",
+                           "best", "warmly", "yours", "respectfully", "cordially"]
+
+    /// "Yours sincerely," "Best regards" "Love," – alone on a line.
+    static func isSignOff(_ line: String) -> Bool {
+        var t = line.lowercased()
+        while let last = t.last, ",.!".contains(last) { t.removeLast() }
+        return signOffs.contains(t)
     }
 
     /// Content ranges of each line (without the newline).
