@@ -98,6 +98,21 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   makes sense of its accented letters and quotes) and shown in the status bar,
   with menus to convert (applied on save) or reopen with another encoding.
   Mixed line endings are shown as such and written as one kind on save.
+- **PDFs open in a viewer tab** (read-only, PDFKit), from File › Open, a
+  drop on a window or the Dock icon, `cedric file.pdf` (`file.pdf:3` for
+  page 3), Open Recent or Finder's Open With (Cedric is registered as an
+  alternate PDF viewer; Preview stays the default). A PDF is recognised by
+  its `%PDF-` header, so one without the extension opens too. Continuous
+  scroll; ⌘+ / ⌘− zoom, ⌘0 actual size, ⌘9 fit to the window; View › Show
+  Page Thumbnails (⌥⌘B); ⌘F finds in the PDF with the find bar (⌘G / ⇧⌘G,
+  Match Case); select and ⌘C copies text; ⌘L is Go to Page; the status bar
+  shows page N of M and the zoom. **File › Open as Text** puts the PDF's
+  text in a new untitled tab to edit (extracted in the background). Saving
+  and editing commands are off in a PDF tab, and Cedric never writes to a
+  PDF. A password-protected PDF asks for its password; a damaged one says
+  so. PDF tabs come back with the session on their page and zoom (a PDF
+  tab that isn't selected loads when you first click it); the owl stays
+  out of them.
 - **Drop a file on the text to open it** (in its own tab), rather than
   pasting its path; dropped text is inserted as before.
 - **Files changed on disk** reload by themselves when the tab has no unsaved
@@ -149,6 +164,7 @@ Scripts/test.sh                     # unit tests: tokenizers, Markdown, codecs, 
 Scripts/session-check.sh            # end to end: unsaved tabs survive a kill -9 and a normal quit
 Scripts/typing-check.sh             # real key events in every theme; typed glyphs' pixels must be visible
 Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no crash report
+Scripts/pdf-check.sh                # PDF tabs in the running app: find, copy, zoom, Open as Text, session
 Scripts/launch-speed-check.sh       # launch phase medians: empty, 8-tab session, 500 KB file
 swift Scripts/launch-time.swift dist/Cedric.app /System/Applications/TextEdit.app
 ```
