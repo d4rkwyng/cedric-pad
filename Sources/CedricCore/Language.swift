@@ -2,7 +2,7 @@ import Foundation
 
 /// The languages Cedric colours. `.plain` is everything else.
 public enum Language: String, CaseIterable, Codable, Sendable {
-    case plain, swift, python, javascript, typescript, json, yaml, markdown, html, css, shell, c, ruby
+    case plain, swift, python, javascript, typescript, json, yaml, markdown, html, css, shell, c, ruby, xml, sql, diff, ini
 
     public var displayName: String {
         switch self {
@@ -19,6 +19,10 @@ public enum Language: String, CaseIterable, Codable, Sendable {
         case .shell: return String(localized: "Shell Script")
         case .c: return "C"
         case .ruby: return "Ruby"
+        case .xml: return "XML"
+        case .sql: return "SQL"
+        case .diff: return String(localized: "Diff / Patch")
+        case .ini: return String(localized: "INI / TOML / .env")
         }
     }
 
@@ -36,7 +40,13 @@ public enum LanguageDetector {
         "json": .json, "jsonc": .json, "geojson": .json, "webmanifest": .json,
         "yaml": .yaml, "yml": .yaml,
         "md": .markdown, "markdown": .markdown, "mdown": .markdown, "mkd": .markdown,
-        "html": .html, "htm": .html, "xhtml": .html, "xml": .html, "svg": .html, "plist": .html,
+        "html": .html, "htm": .html, "xhtml": .html, "svg": .html,
+        "xml": .xml, "plist": .xml, "xsd": .xml, "xsl": .xml, "xslt": .xml, "rss": .xml, "atom": .xml, "xib": .xml, "storyboard": .xml,
+        "csproj": .xml, "resx": .xml, "pom": .xml, "kml": .xml, "gpx": .xml,
+        "sql": .sql, "ddl": .sql, "psql": .sql, "mysql": .sql,
+        "diff": .diff, "patch": .diff, "rej": .diff,
+        "ini": .ini, "cfg": .ini, "conf": .ini, "toml": .ini, "properties": .ini, "env": .ini, "desktop": .ini,
+        "gitconfig": .ini, "editorconfig": .ini, "service": .ini,
         "css": .css,
         "sh": .shell, "bash": .shell, "zsh": .shell, "ksh": .shell, "command": .shell,
         "c": .c, "h": .c, "m": .c, "cc": .c, "cpp": .c, "cxx": .c, "hpp": .c, "hh": .c, "mm": .c,
@@ -46,11 +56,14 @@ public enum LanguageDetector {
         "Gemfile": .ruby, "Rakefile": .ruby, "Podfile": .ruby, "Brewfile": .ruby,
         ".bashrc": .shell, ".zshrc": .shell, ".profile": .shell, ".bash_profile": .shell, ".zprofile": .shell, ".zshenv": .shell,
         "Package.resolved": .json, ".babelrc": .json, ".eslintrc": .json,
+        ".env": .ini, ".gitconfig": .ini, ".editorconfig": .ini, ".npmrc": .ini, ".gitmodules": .ini, "Pipfile": .ini,
+        "Cargo.lock": .ini, "poetry.lock": .ini,
     ]
 
     /// By file name (extension or a well-known name), else nil.
     public static func language(forFileName name: String) -> Language? {
         if let l = byName[name] { return l }
+        if name.hasPrefix(".env.") { return .ini } // .env.local, .env.production
         guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return nil }
         return byExtension[name[name.index(after: dot)...].lowercased()]
     }
@@ -87,7 +100,13 @@ public enum LanguageDetector {
         guard !trimmed.isEmpty else { return .plain }
 
         let lower = trimmed.prefix(200).lowercased()
-        if lower.hasPrefix("<!doctype html") || lower.hasPrefix("<html") || lower.hasPrefix("<?xml") { return .html }
+        if lower.hasPrefix("<!doctype html") || lower.hasPrefix("<html") { return .html }
+        if lower.hasPrefix("<?xml") { return lower.contains("<html") || lower.contains("<!doctype html") ? .html : .xml }
+        // A unified diff: "diff --git …", or "--- a" followed by "+++ b".
+        if trimmed.hasPrefix("diff --git ") || trimmed.hasPrefix("diff -") || trimmed.hasPrefix("Index: ")
+            || (trimmed.hasPrefix("--- ") && trimmed.split(separator: "\n", maxSplits: 2).dropFirst().first?.hasPrefix("+++ ") == true) {
+            return .diff
+        }
         if let f = trimmed.first, f == "{" || f == "[" {
             // JSON if it parses, or (for a truncated sniff) if it looks like keys.
             if let data = trimmed.data(using: .utf8), (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil {
@@ -175,8 +194,36 @@ public enum Languages {
         case .shell: return shell
         case .c: return c
         case .ruby: return ruby
+        case .xml: return HTMLTokenizer(xml: true)
+        case .sql: return sql
+        case .diff: return DiffTokenizer()
+        case .ini: return INITokenizer()
         }
     }
+
+    static let sql: CodeTokenizer = {
+        var s = CodeSpec()
+        s.lineComments = [Array("--".utf16)]
+        s.blockComment = (Array("/*".utf16), Array("*/".utf16))
+        s.strings = [StringRule("'", multiline: true), StringRule("\"")]
+        s.keywords = WordSet(["select", "from", "where", "and", "or", "not", "in", "is", "like", "ilike", "between", "exists",
+            "insert", "into", "values", "update", "set", "delete", "create", "alter", "drop", "table", "view", "index",
+            "unique", "primary", "foreign", "key", "references", "constraint", "default", "check", "join", "inner", "left",
+            "right", "full", "outer", "cross", "on", "using", "as", "group", "by", "order", "having", "limit", "offset",
+            "union", "all", "distinct", "case", "when", "then", "else", "end", "begin", "commit", "rollback", "transaction",
+            "with", "recursive", "returning", "if", "asc", "desc", "database", "schema", "grant", "revoke", "trigger",
+            "function", "procedure", "return", "returns", "declare", "replace", "temporary", "temp", "cascade", "pragma",
+            "explain", "analyze", "vacuum", "upsert", "conflict", "do", "nothing", "over", "partition", "window", "fetch",
+            "next", "rows", "only", "top", "auto_increment", "autoincrement", "add", "column", "rename", "to", "truncate"],
+            caseInsensitive: true)
+        s.types = WordSet(["int", "integer", "smallint", "bigint", "tinyint", "serial", "bigserial", "real", "float", "double",
+            "precision", "decimal", "numeric", "char", "varchar", "nvarchar", "text", "blob", "bytea", "boolean", "bool",
+            "date", "time", "timestamp", "timestamptz", "interval", "json", "jsonb", "uuid", "money", "datetime"],
+            caseInsensitive: true)
+        s.constants = WordSet(["null", "true", "false", "current_date", "current_time", "current_timestamp"], caseInsensitive: true)
+        s.atVariables = true
+        return CodeTokenizer(s)
+    }()
 
     static let swift: CodeTokenizer = {
         var s = CodeSpec()

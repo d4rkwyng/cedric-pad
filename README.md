@@ -22,8 +22,9 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   file opens and is coloured in under 0.1 s, a 50 MB log in about 0.2 s on an
   M-series Mac (see Performance below).
 - **Syntax colouring** for Swift, Python, JavaScript, TypeScript, JSON, YAML,
-  Markdown, HTML (with embedded `<script>` and `<style>`), CSS, shell, C/C++/
-  Objective-C and Ruby. Only the visible lines plus a margin are coloured, so
+  Markdown, HTML (with embedded `<script>` and `<style>`), XML (with CDATA;
+  `.xml`, `.plist` and friends, no longer coloured as HTML), CSS, shell,
+  C/C++/Objective-C, Ruby, SQL, diff/patch, and INI/TOML/.env/.properties. Only the visible lines plus a margin are coloured, so
   big files stay fast. The language comes from the file extension, a `#!` line,
   or, for pasted text in an untitled tab, from the content; the status bar
   menu overrides it.

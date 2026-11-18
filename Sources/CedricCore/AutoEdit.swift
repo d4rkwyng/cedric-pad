@@ -6,7 +6,7 @@ import Foundation
 /// costs the same on a 636 K-character line.
 public enum AutoEdit {
     /// Brackets and quotes pair in code, not in prose (plain text, Markdown).
-    public static func pairs(in language: Language) -> Bool { language != .plain && language != .markdown }
+    public static func pairs(in language: Language) -> Bool { language != .plain && language != .markdown && language != .diff }
 
     static let openers: [unichar: unichar] = [40: 41, 91: 93, 123: 125] // ( [ {
     static let closers: Set<unichar> = [41, 93, 125]

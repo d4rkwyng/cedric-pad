@@ -329,13 +329,17 @@ public struct CSSTokenizer: Tokenizer {
 /// a tag, 3 script body, 4 style body, 5 inside a <script tag, 6 inside a
 /// <style tag); bits 8+ carry the embedded tokenizer's own state.
 public struct HTMLTokenizer: Tokenizer {
-    public init() {}
+    /// XML: no embedded <script>/<style> languages, and `<![CDATA[ … ]]>`
+    /// sections are coloured as strings (state 7, across lines).
+    public let xml: Bool
+    public init(xml: Bool = false) { self.xml = xml }
     public var carriesState: Bool { true }
     private static let js = Languages.tokenizer(for: .javascript)
     private static let css = CSSTokenizer()
     private static let commentOpen = Array("<!--".utf16), commentClose = Array("-->".utf16)
     private static let scriptClose = Array("</script".utf16), styleClose = Array("</style".utf16)
     private static let script = Array("script".utf16), style = Array("style".utf16)
+    private static let cdataOpen = Array("<![CDATA[".utf16), cdataClose = Array("]]>".utf16)
 
     public func tokenize(_ b: UnsafeBufferPointer<UInt16>, state: inout UInt32, into t: inout [Token]) {
         let n = b.count
@@ -352,6 +356,12 @@ public struct HTMLTokenizer: Tokenizer {
                 }
             case 2, 5, 6:
                 i = tagBody(b, from: i, into: &t, mode: &mode)
+            case 7:
+                if let close = b.find(Self.cdataClose, from: i) {
+                    t.add(i, close + 3, .string); i = close + 3; mode = 0
+                } else {
+                    t.add(i, n, .string); i = n
+                }
             case 3, 4:
                 let closer = mode == 3 ? Self.scriptClose : Self.styleClose
                 let end = b.find(closer, from: i, caseInsensitive: true) ?? n
@@ -368,6 +378,7 @@ public struct HTMLTokenizer: Tokenizer {
                 let c = b[i]
                 if c == C.lt {
                     if b.has(Self.commentOpen, at: i) { mode = 1; t.add(i, i + 4, .comment); i += 4; continue }
+                    if xml, b.has(Self.cdataOpen, at: i) { mode = 7; t.add(i, i + 9, .string); i += 9; continue }
                     var j = i + 1
                     if j < n, b[j] == C.slash || b[j] == C.bang || b[j] == C.question { j += 1 }
                     let nameStart = j
@@ -375,7 +386,8 @@ public struct HTMLTokenizer: Tokenizer {
                     if j > nameStart {
                         t.add(i, j, .tag)
                         let closing = nameStart > i + 1 && b[i + 1] == C.slash
-                        if !closing, j - nameStart == 6, b.has(Self.script, at: nameStart, caseInsensitive: true) { mode = 5 }
+                        if xml { mode = 2 }
+                        else if !closing, j - nameStart == 6, b.has(Self.script, at: nameStart, caseInsensitive: true) { mode = 5 }
                         else if !closing, j - nameStart == 5, b.has(Self.style, at: nameStart, caseInsensitive: true) { mode = 6 }
                         else { mode = 2 }
                         i = j

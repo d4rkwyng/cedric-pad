@@ -43,8 +43,10 @@ extension Language {
         case .swift, .javascript, .typescript, .c: return CommentSyntax(line: "//")
         case .python, .yaml, .shell, .ruby: return CommentSyntax(line: "#")
         case .css: return CommentSyntax(block: ("/*", "*/"))
-        case .html, .markdown: return CommentSyntax(block: ("<!--", "-->"))
-        case .plain, .json: return nil
+        case .html, .markdown, .xml: return CommentSyntax(block: ("<!--", "-->"))
+        case .sql: return CommentSyntax(line: "--")
+        case .ini: return CommentSyntax(line: "#")
+        case .plain, .json, .diff: return nil
         }
     }
 }
