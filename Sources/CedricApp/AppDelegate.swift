@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Files handed over before launch finished (Finder, `open`).
     private var pendingOpen: [URL] = []
     private var launched = false
+    /// Open Recent rebuild queued (EditorTools.swift).
+    var recentRebuildScheduled = false
     /// Set once quitting: windows closed by termination keep their buffers.
     private var terminating = false
 
@@ -30,9 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         // The owl hub listens for View › Show Cedric the Owl; it must exist
         // before the first toggle (it was created lazily, so with the owl
-        // off and only untitled tabs the menu item did nothing).
-        _ = OwlHub.shared
-        LaunchTrace.mark("owl_hub")
+        // off and only untitled tabs the menu item did nothing). Not needed
+        // for the first frame (a tab with the owl on creates it at once).
+        AfterFirstFrame.run { _ = OwlHub.shared }
         if env["CEDRIC_NO_RESTORE"] != "1" { restoreSession() }
         LaunchTrace.mark("restored")
         var toOpen = pendingOpen
@@ -44,8 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if tabs.isEmpty { newTab(nil) }
         schedulePendingRestore()
         LaunchTrace.mark("tabs_ready")
-        rebuildRecentMenu()
-        LaunchTrace.mark("recent_menu")
+        recentMenu?.delegate = self
+        scheduleRecentMenuRebuild()
         launched = true
         DevHooks.afterLaunch(self)
         LaunchTrace.afterLaunch(self)
@@ -396,18 +398,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Starts building the pending tabs once the first frame is on screen.
     private func schedulePendingRestore() {
         guard !pendingRestore.isEmpty else { return }
-        var done = false
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { obs, _ in
-            MainActor.assumeIsolated {
-                guard !done else { return }
-                done = true
-                CFRunLoopRemoveObserver(CFRunLoopGetMain(), obs, .commonModes)
-                Timer.scheduledTimer(withTimeInterval: Self.pendingRestoreDelay, repeats: false) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.restoreNextPending() }
-                }
+        AfterFirstFrame.run {
+            Timer.scheduledTimer(withTimeInterval: Self.pendingRestoreDelay, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated { self?.restoreNextPending() }
             }
         }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
     /// One pending tab per run-loop turn (key events get through in between).

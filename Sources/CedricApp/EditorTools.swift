@@ -25,8 +25,26 @@ extension AppDelegate: NSMenuDelegate {
     }
 
     func noteRecent(_ url: URL) {
+        guard AfterFirstFrame.passed else {
+            // Opening a file at launch: not on the way to the first frame.
+            AfterFirstFrame.run { NSDocumentController.shared.noteNewRecentDocumentURL(url) }
+            scheduleRecentMenuRebuild()
+            return
+        }
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
         rebuildRecentMenu()
+    }
+
+    /// At launch: rebuilds the menu once, after the first frame (each item
+    /// asks LaunchServices for an icon). Later: now.
+    func scheduleRecentMenuRebuild() {
+        guard !AfterFirstFrame.passed else { rebuildRecentMenu(); return }
+        guard !recentRebuildScheduled else { return }
+        recentRebuildScheduled = true
+        AfterFirstFrame.run { [weak self] in
+            self?.recentRebuildScheduled = false
+            self?.rebuildRecentMenu()
+        }
     }
 
     var recentMenu: NSMenu? {
