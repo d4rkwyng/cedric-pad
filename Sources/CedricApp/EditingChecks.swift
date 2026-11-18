@@ -23,6 +23,7 @@ extension DevChecks {
         case "counts": counts(app)
         case "diskconflict": diskConflict(app)
         case "help": helpCheck(app)
+        case "closenotice": closeNoticeCheck(app)
         default: return gapCheck(name, app)
         }
         return true

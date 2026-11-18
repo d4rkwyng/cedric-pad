@@ -19,6 +19,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   unsaved changes and all, even after a quit or a crash. The last 50
   closed tabs are remembered (tabs without unsaved text are forgotten
   first; a closed tab with unsaved text is never forgotten).
+  The first time in a launch that a file tab with unsaved edits is closed,
+  the tab in front says the file wasn't written, with **Save Now**.
   Closing the last document window (text, PDF, image or Office tab) quits Cedric Pad, as
   Quit does: that tab, unsaved text and all, is open again next launch.
   Detached previews, Settings and panels don't keep Cedric Pad running.
