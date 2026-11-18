@@ -38,7 +38,8 @@ them; orphan buffers are pruned after each save.
 - `Scripts/session-check.sh` checks it end to end (kill -9 and normal quit).
 
 Known gaps: a large unsaved file is rewritten whole on each autosave; a file
-changed on disk under unsaved edits isn't flagged yet (clean tabs reload).
+changed on disk under unsaved edits is only flagged by the owl's "Reload?"
+(when the owl is on; clean tabs reload).
 
 ## Text system
 
@@ -116,12 +117,89 @@ world, so it works with page JavaScript off). HTML scrolls by fraction.
   append only the new bytes and keep the caret at the end.
 - **Macros:** record the `NSTextView` insert/delete commands the window
   controller already routes.
-- **The owl assistant / local AI:** a side panel in the preview slot; the
-  session store already keeps every tab's text locally.
+- **Local AI hints:** an `OwlHintProvider` registered with `isAI: true`
+  (see *Cedric the owl*); it gets the same 8 KB context as the rules.
+
+## Cedric the owl
+
+View › Show Cedric the Owl (off by default, `Settings.showOwl`). A 72 pt owl
+sits in the bottom-right corner of the editor, above the status bar, and
+offers hints in a speech bubble.
+
+**Core** (`CedricCore/Owl`, Foundation only, unit-tested in `OwlTests`):
+
+- `OwlHint.swift`: the shared contract (`OwlHint`, `OwlContext`,
+  `OwlHintProvider`), identical in the ai-owl branch.
+- `OwlContextWindow` builds the context: the visible lines ±40, whole lines,
+  capped at 8,192 UTF-16 units (a smaller document is sent whole).
+  **Ranges:** `visibleRange`, `selection` and every hint's `range` are
+  relative to `context.text`; `context.textStart` is where that text starts
+  in the document. The coordinator moves a hint's range by `textStart` and
+  drops the hint if the result is out of the document's bounds or the
+  document's edit generation (`EditorDocument.changeCount`) moved while the
+  providers ran. The rules provider follows the same convention (its ranges
+  are document ranges only when `textStart` is 0). Apply checks once more
+  that the text at the range is still what the provider saw.
+- `RulesHintProvider` (no AI): one-line JSON → "Format it?" (re-indents
+  without reordering keys; whole document only); mixed tab/space
+  indentation → convert tabs to spaces; ≥5 lines with trailing whitespace →
+  trim (not in Markdown, where two spaces are a line break); file changed
+  on disk under unsaved edits → "Reload?"; unsaved for over 2 h → "Save a
+  copy?"; CRLF → an info line; and a document that starts with "Dear " and
+  has more than three lines gets, once ever, "It looks like you're writing a
+  letter. Would you like help?" with "No thanks, I'm an owl" as the only
+  button. The document facts it needs come in `OwlDocumentFacts` through
+  `OwlFactsAwareProvider`.
+- `OwlProviderRegistry`: providers in order; `register(_:isAI:)`. View ›
+  Owl Hint Source › Rules + AI is disabled until an AI provider registers.
+- `OwlCoordinator`: asks at most once per 30 s and only after 3 s without
+  typing (activity = an edit, an open, a file changed on disk); shows each
+  hint id once per document; "Not now" snoozes the id for an hour; "Don't
+  show again" is saved in UserDefaults (`owlNeverShowHints`); "Quiet for 1
+  hour" stops queries. No timers: it reports `nextDueDate`, on an injected
+  clock.
+
+**App** (`CedricApp/Owl`):
+
+- `OwlHub` (one per app) owns the registry and coordinator and a single
+  one-shot timer at the due date. Typing doesn't reset it; when it fires
+  early it re-arms for the new due date.
+- `OwlController` (one per tab) puts an `OwlOverlay` over the scroll view's
+  content (clicks pass through except on the owl and bubble), and runs the
+  idle behaviour: a blink every 4–9 s (random), a monocle polish about one
+  time in eight, the sleepy pose after 5 min without typing (no timer at all
+  while asleep; typing wakes it), two wing beats on save, the talking pose
+  while the bubble is up. The idle timer exists only while the window is
+  visible (occlusion state), not miniaturized, and the app is active.
+  Blinks and flaps run a short frame timer only while they play.
+- Keeping out of the way: on every selection change, edit and scroll the
+  caret's rect is compared with the owl's and the bubble's frames; whichever
+  is near fades to ~12% and comes back when the caret leaves.
+- Apply replaces only the changed span (`OwlEdit.minimal`) inside
+  `shouldChangeText`/`didChangeText` with undo coalescing broken on both
+  sides, so it is exactly one undo step. "Reload" is also one undoable
+  edit. Clicking the owl opens a popover with recent hints, "Quiet for 1
+  Hour" and "Hide Cedric".
+- Art: `Resources/Owl` (from `tools/icon/cedric_icon.py`), copied into
+  Cedric.app/Contents/Resources/Owl by `bundle-app.sh`; `swift run` loads it
+  from the source tree. On dark themes a faint disc behind the navy owl
+  keeps it readable.
+
+**Checks.** `OwlTests` (throttle, pause, dedupe, snooze, never-again,
+quiet, once-ever letter, textStart/generation dropping, every rule,
+minimal edits). `CEDRIC_OWL_CHECK=/dir` runs `OwlCheck` in process: waits for
+the JSON hint on a one-line JSON file, snapshots the bubble, clicks Apply
+with real mouse events, checks the formatted text, ⌘Z once restores the
+original and ⇧⌘Z reapplies, types until the caret reaches the owl and checks
+it faded, ⌘S and checks it flaps. On a locked screen (every window
+occluded, app inactive) it first checks the owl has no timer and made no
+query, then treats the window as visible; with no key window it performs
+the menu item a key equivalent maps to, and hands a click the window
+swallowed to the control under it.
 
 ## Dev hooks
 
 `DevHooks.swift` documents the `CEDRIC_*` launch variables used for
 screenshots (`CEDRIC_SNAPSHOT`, rendered with `cacheDisplay`, so it works
-with the screen locked), perf (`CEDRIC_PERF_OPEN`, `CEDRIC_LAUNCH_METRICS`)
-and the session check. None of them is saved.
+with the screen locked), perf (`CEDRIC_PERF_OPEN`, `CEDRIC_LAUNCH_METRICS`),
+the session check, and the owl (`CEDRIC_OWL*`). None of them is saved.

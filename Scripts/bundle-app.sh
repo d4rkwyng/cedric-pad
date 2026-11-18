@@ -62,6 +62,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # The app icon (Finder, Dock, About). Made by tools/icon/cedric_icon.py, committed.
 [ -f Resources/AppIcon.icns ] || { echo "bundle-app.sh: missing Resources/AppIcon.icns" >&2; exit 1; }
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# The assistant owl's poses and sprite strips (same generator).
+mkdir -p "$APP/Contents/Resources/Owl"
+cp Resources/Owl/*.png "$APP/Contents/Resources/Owl/"
 if [ ${#LIPO_FROM[@]} -gt 0 ]; then
     lipo -create "${LIPO_FROM[@]}" -output "$APP/Contents/MacOS/Cedric"
 else

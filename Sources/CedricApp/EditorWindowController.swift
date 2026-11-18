@@ -6,6 +6,14 @@ final class EditorContainer: NSView {
     let gutter: GutterView
     let scrollView: NSScrollView
     var gutterWidth: CGFloat = 40 { didSet { needsLayout = true } }
+    /// The owl's layer over the editor (nil while the owl is off).
+    var overlay: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let overlay { addSubview(overlay) }
+            needsLayout = true
+        }
+    }
     var showsGutter = true { didSet { gutter.isHidden = !showsGutter; needsLayout = true } }
 
     init(gutter: GutterView, scrollView: NSScrollView) {
@@ -23,6 +31,11 @@ final class EditorContainer: NSView {
         let g = showsGutter ? gutterWidth : 0
         gutter.frame = NSRect(x: 0, y: 0, width: g, height: bounds.height)
         scrollView.frame = NSRect(x: g, y: 0, width: bounds.width - g, height: bounds.height)
+        if let overlay {
+            // Over the text area, clear of the scrollers.
+            scrollView.layoutSubtreeIfNeeded()
+            overlay.frame = scrollView.convert(scrollView.contentView.frame, to: self)
+        }
     }
 }
 
@@ -49,6 +62,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private var loading = false
     var onChange: ((EditorWindowController) -> Void)?
     var onClose: ((EditorWindowController) -> Void)?
+    /// Cedric the owl, while View › Show Cedric the Owl is on.
+    private(set) var owl: OwlController?
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -67,6 +82,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         applyAppearance()
         observe()
         updateTitle()
+        setOwlVisible(Settings.shared.showOwl)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -197,6 +213,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gutter.needsDisplay = true
         updateStatus()
         schedulePreview()
+        if let owl {
+            owl.noteTyping()
+            OwlHub.shared.activity(in: self)
+        }
         onChange?(self)
     }
 
@@ -207,6 +227,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if !textView.hasMarkedText() { textView.typingAttributes = baseAttributes() }
         updateStatus()
         gutter.needsDisplay = true
+        owl?.caretMoved()
     }
 
     /// The line at the top when the user last scrolled: kept there when
@@ -231,6 +252,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         gutter.needsDisplay = true
         syncPreviewScroll()
+        owl?.caretMoved()
     }
 
     // MARK: Appearance
@@ -448,6 +470,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
         updateTitle()
         updateStatus()
+        owl?.noteSave()
         onChange?(self)
         return true
     }
@@ -457,12 +480,20 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if let window { a.beginSheetModal(for: window) } else { a.runModal() }
     }
 
-    /// Reloads from disk if the file changed and the tab has no unsaved edits.
+    /// Reloads from disk if the file changed and the tab has no unsaved
+    /// edits; with unsaved edits, flags it for the owl's "Reload?".
     func reloadIfChangedOnDisk() {
-        guard let url = doc.fileURL, !doc.isDirty,
+        guard let url = doc.fileURL,
               let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-              let known = doc.fileModified, mod > known,
-              let (d, newMod) = try? EditorDocument.read(url, encoding: doc.encoding) else { return }
+              let known = doc.fileModified, mod > known else { return }
+        if doc.isDirty {
+            if !doc.changedOnDisk, owl != nil {
+                doc.changedOnDisk = true
+                OwlHub.shared.activity(in: self)
+            }
+            return
+        }
+        guard let (d, newMod) = try? EditorDocument.read(url, encoding: doc.encoding) else { return }
         let sel = textView.selectedRange()
         doc.apply(d)
         doc.fileModified = newMod
@@ -471,6 +502,73 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let len = (textView.string as NSString).length
         textView.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
         if previewVisible { renderPreview() }
+    }
+
+    /// The owl's "Reload?": replaces the text with the file on disk as one
+    /// undoable edit (unlike `setText`, which clears undo).
+    func reloadFromDisk() {
+        guard let url = doc.fileURL, let storage = textView.textStorage else { return }
+        do {
+            let (d, mod) = try EditorDocument.read(url, encoding: doc.encoding)
+            let all = NSRange(location: 0, length: storage.length)
+            textView.breakUndoCoalescing()
+            if textView.shouldChangeText(in: all, replacementString: d.text) {
+                storage.replaceCharacters(in: all, with: d.text)
+                textView.didChangeText()
+                textView.undoManager?.setActionName(String(localized: "Reload"))
+            }
+            doc.apply(d)
+            doc.fileModified = mod
+            doc.markSaved()
+            updateTitle()
+            updateStatus()
+            onChange?(self)
+        } catch {
+            showError(error)
+        }
+    }
+
+    /// The owl's "Save a copy?": writes the text elsewhere; the tab keeps
+    /// its file and stays unsaved.
+    func saveCopy() {
+        let panel = NSSavePanel()
+        let base = (doc.displayName as NSString).deletingPathExtension
+        let ext = (doc.displayName as NSString).pathExtension
+        panel.nameFieldStringValue = String(localized: "\(base) copy") + (ext.isEmpty ? ".txt" : "." + ext)
+        panel.directoryURL = doc.fileURL?.deletingLastPathComponent()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let data = TextCodec.encode(textView.string, encoding: doc.encoding, lineEnding: doc.lineEnding) else {
+            showError(NSError(domain: "Cedric", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "Couldn’t encode the copy.")]))
+            return
+        }
+        do { try data.write(to: url, options: .atomic) } catch { showError(error) }
+    }
+
+    // MARK: Owl
+
+    func setOwlVisible(_ on: Bool) {
+        if on, owl == nil {
+            let o = OwlController(tab: self)
+            owl = o
+            container.overlay = o.overlay
+            OwlHub.shared.activity(in: self)
+        } else if !on, let o = owl {
+            o.detach()
+            owl = nil
+            container.overlay = nil
+        }
+    }
+
+    /// What the providers see: the visible lines and their margin.
+    func owlContextWindow() -> OwlContextWindow {
+        OwlContextWindow(text: textView.string as NSString, visible: textView.visibleCharacterRange ?? NSRange(location: 0, length: 0),
+                         selection: textView.selectedRange(), fileName: doc.fileURL?.lastPathComponent,
+                         language: doc.language.rawValue, documentID: doc.id, editGeneration: doc.changeCount)
+    }
+
+    func owlFacts(wholeDocument: Bool) -> OwlDocumentFacts {
+        OwlDocumentFacts(isWholeDocument: wholeDocument, changedOnDisk: doc.changedOnDisk,
+                         unsavedSince: doc.isDirty ? doc.unsavedSince : nil, lineEnding: doc.lineEnding)
     }
 
     // MARK: Closing
@@ -495,6 +593,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         previewTimer?.invalidate()
+        owl?.detach()
         onClose?(self)
     }
 

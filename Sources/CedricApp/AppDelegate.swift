@@ -150,6 +150,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     var currentTab: EditorWindowController? {
         tabs.first { $0.window === NSApp.keyWindow } ?? tabs.first { $0.window === NSApp.mainWindow }
+            // The owl check on a locked screen has no key window.
+            ?? (OwlController.assumeVisible ? tabs.last : nil)
     }
 
     /// Opens a file in a new tab, or focuses the tab that has it. An empty,
@@ -170,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let blank = tabs.count == 1 && tabs[0].doc.fileURL == nil && !tabs[0].doc.isDirty && tabs[0].text.isEmpty ? tabs[0] : nil
             let tab = makeTab(doc, text: d.text)
             blank?.window?.close()
+            OwlHub.shared.activity(in: tab)
             NSDocumentController.shared.noteNewRecentDocumentURL(std)
             return tab
         } catch {
@@ -318,6 +321,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func toggleWrap(_ sender: Any?) { Settings.shared.wrapLines.toggle() }
     @objc func toggleInvisibles(_ sender: Any?) { Settings.shared.showInvisibles.toggle() }
     @objc func toggleLineNumbers(_ sender: Any?) { Settings.shared.showLineNumbers.toggle() }
+    @objc func toggleOwl(_ sender: Any?) { Settings.shared.showOwl.toggle() }
+    @objc func pickOwlHintSource(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String, let src = OwlHintSource(rawValue: raw) { Settings.shared.owlHintSource = src }
+    }
     @objc func zoomIn(_ sender: Any?) { Settings.shared.fontSize += 1 }
     @objc func zoomOut(_ sender: Any?) { Settings.shared.fontSize -= 1 }
     @objc func zoomReset(_ sender: Any?) { Settings.shared.fontSize = Settings.defaultFontSize }
@@ -341,6 +348,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleWrap(_:)): item.state = s.wrapLines ? .on : .off
         case #selector(toggleInvisibles(_:)): item.state = s.showInvisibles ? .on : .off
         case #selector(toggleLineNumbers(_:)): item.state = s.showLineNumbers ? .on : .off
+        case #selector(toggleOwl(_:)): item.state = s.showOwl ? .on : .off
+        case #selector(pickOwlHintSource(_:)):
+            // "Rules + AI" stays off until an AI provider registers.
+            let ai = OwlHub.shared.registry.hasAIProvider
+            let effective = ai ? s.owlHintSource : .rules
+            item.state = (item.representedObject as? String) == effective.rawValue ? .on : .off
+            return s.showOwl && (item.representedObject as? String == OwlHintSource.rules.rawValue || ai)
         case #selector(pickTheme(_:)): item.state = (item.representedObject as? String) == s.theme.rawValue ? .on : .off
         case #selector(togglePreview(_:)):
             item.state = tab?.previewVisible == true ? .on : .off

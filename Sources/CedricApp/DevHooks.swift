@@ -30,6 +30,14 @@ import WebKit
 ///   CEDRIC_PERF_OPEN=/big.json    time open + colour + jump to end + typing, print metrics, quit
 ///   CEDRIC_PERF_TYPE=200          keystrokes for the typing measurement (default 200)
 ///   CEDRIC_PERF_LANGUAGE=shell    force a language for the perf file
+///   CEDRIC_OWL=1                  show the owl for this run (CEDRIC_OWL=0: hide it)
+///   CEDRIC_OWL_PAUSE=3            seconds of no typing before the owl asks for hints
+///   CEDRIC_OWL_INTERVAL=30        at most one hint query per this many seconds
+///   CEDRIC_OWL_SLEEP_AFTER=300    seconds without typing before the owl dozes off
+///   CEDRIC_OWL_RESET=1            forget "Don't show again" choices
+///   CEDRIC_OWL_LOG=1              print each hint shown
+///   CEDRIC_OWL_ASSUME_VISIBLE=1   treat windows as visible and the app as active (screen locked)
+///   CEDRIC_OWL_CHECK=/out/dir     run the owl's in-process check (OwlCheck.swift) and quit
 @MainActor
 enum DevHooks {
     static let env = ProcessInfo.processInfo.environment
@@ -104,6 +112,15 @@ enum DevHooks {
             Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { _ in MainActor.assumeIsolated { TypingCheck.run(app) } }
         }
         if let path = env["CEDRIC_PERF_OPEN"] { DispatchQueue.main.async { perfOpen(app, path) } }
+        if env["CEDRIC_OWL_ASSUME_VISIBLE"] == "1" {
+            OwlController.assumeVisible = true
+            for t in app.tabs { t.owl?.updateTimer() }
+            OwlHub.shared.schedule()
+        }
+        if env["CEDRIC_OWL_LOG"] == "1" {
+            OwlHub.shared.onPresent = { _, h in print("owl: shown \(h.id): \(h.title)"); fflush(stdout) }
+        }
+        if let out = env["CEDRIC_OWL_CHECK"], !out.isEmpty { OwlCheck.run(app, out: out) }
         if let out = env["CEDRIC_SNAPSHOT"], !out.isEmpty { scheduleSnapshot(out) }
     }
 
@@ -191,12 +208,16 @@ enum DevHooks {
 
     /// Renders part of a view at 2x (also when the screen is locked and
     /// reports 1x).
-    static func render(_ v: NSView, _ rect: NSRect) -> NSBitmapImageRep? {
+    static func render(_ v: NSView, _ rect: NSRect, ignoringOpacity: Bool = false) -> NSBitmapImageRep? {
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(rect.width * 2), pixelsHigh: Int(rect.height * 2),
                                          bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                          colorSpaceName: .calibratedRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
         rep.size = rect.size
-        v.cacheDisplay(in: rect, to: rep)
+        if ignoringOpacity, let ctx = NSGraphicsContext(bitmapImageRep: rep) {
+            v.displayIgnoringOpacity(rect, in: ctx)
+        } else {
+            v.cacheDisplay(in: rect, to: rep)
+        }
         return rep
     }
 
@@ -210,17 +231,26 @@ enum DevHooks {
         root.layoutSubtreeIfNeeded()
         root.displayIfNeeded()
         guard let base = render(root, root.bounds) else { done(); return }
-        var overlays: [(NSRect, NSImageRep)] = []
+        var overlays: [(NSRect, NSImageRep, CGFloat)] = []
         var webs: [WKWebView] = []
         func collect(_ v: NSView) {
             guard !v.isHidden else { return }
             if let w = v as? WKWebView { webs.append(w); return }
+            if v is OwlOverlay {
+                // Transparent and as big as the editor: rendered whole it
+                // comes out opaque over the text, so render the owl and
+                // the bubble on their own.
+                for sub in v.subviews where !sub.isHidden && sub.alphaValue > 0 {
+                    if let r = render(sub, sub.bounds, ignoringOpacity: true) { overlays.append((sub.convert(sub.bounds, to: root), r, sub.alphaValue)) }
+                }
+                return
+            }
             if v is GutterView || v is NSScroller || v is FindBar {
-                if let r = render(v, v.bounds) { overlays.append((v.convert(v.bounds, to: root), r)) }
+                if let r = render(v, v.bounds) { overlays.append((v.convert(v.bounds, to: root), r, 1)) }
                 return
             } else if let tv = v as? EditorTextView {
                 let vis = tv.visibleRect
-                if let r = render(tv, vis) { overlays.append((tv.convert(vis, to: root), r)) }
+                if let r = render(tv, vis) { overlays.append((tv.convert(vis, to: root), r, 1)) }
                 return
             }
             v.subviews.forEach(collect)
@@ -231,7 +261,7 @@ enum DevHooks {
             let out = NSImage(size: root.bounds.size)
             out.lockFocus()
             base.draw(in: root.bounds)
-            for (frame, rep) in overlays { rep.draw(in: frame) }
+            for (frame, rep, alpha) in overlays { rep.draw(in: frame, from: .zero, operation: .sourceOver, fraction: alpha, respectFlipped: false, hints: nil) }
             out.unlockFocus()
             if let tiff = out.tiffRepresentation, let bmp = NSBitmapImageRep(data: tiff),
                let png = bmp.representation(using: .png, properties: [:]) {
@@ -244,7 +274,7 @@ enum DevHooks {
             let frame = w.convert(w.bounds, to: root)
             w.takeSnapshot(with: nil) { img, _ in
                 MainActor.assumeIsolated {
-                    if let img, let rep = img.representations.first { overlays.append((frame, rep)) }
+                    if let img, let rep = img.representations.first { overlays.append((frame, rep, 1)) }
                     remaining -= 1
                     if remaining == 0 { finish() }
                 }

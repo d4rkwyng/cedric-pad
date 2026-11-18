@@ -11,6 +11,8 @@ extension NSColor {
 extension Notification.Name {
     /// The theme, font size or a view option changed: every editor restyles.
     static let cedricAppearanceChanged = Notification.Name("CedricAppearanceChanged")
+    /// The owl was switched on or off, or its hint source changed.
+    static let cedricOwlSettingsChanged = Notification.Name("CedricOwlSettingsChanged")
 }
 
 /// App-wide view settings: theme, font size, wrap, invisibles, line
@@ -55,6 +57,21 @@ final class Settings {
     var showLineNumbers: Bool {
         get { defaults.object(forKey: "showLineNumbers") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "showLineNumbers"); changed() }
+    }
+
+    /// CEDRIC_OWL=1: show the owl for this run, not saved.
+    let owlOverride = ProcessInfo.processInfo.environment["CEDRIC_OWL"].map { $0 == "1" }
+
+    /// "Show Cedric the owl": off by default.
+    var showOwl: Bool {
+        get { owlOverride ?? defaults.bool(forKey: "showOwl") }
+        set { defaults.set(newValue, forKey: "showOwl"); NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil) }
+    }
+
+    /// "Hint source": Rules, or Rules + AI (only once an AI provider registers).
+    var owlHintSource: OwlHintSource {
+        get { defaults.string(forKey: "owlHintSource").flatMap(OwlHintSource.init(rawValue:)) ?? .rules }
+        set { defaults.set(newValue.rawValue, forKey: "owlHintSource"); NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil) }
     }
 
     var font: NSFont { NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular) }

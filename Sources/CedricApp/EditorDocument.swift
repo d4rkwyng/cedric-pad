@@ -29,6 +29,10 @@ final class EditorDocument {
     var sessionChangeCount = -1
 
     var isDirty: Bool { changeCount != savedChangeCount }
+    /// When the document last went from saved to unsaved (the owl's "Save a copy?").
+    private(set) var unsavedSince: Date?
+    /// The file changed on disk while the tab had unsaved edits (clean tabs just reload).
+    var changedOnDisk = false
 
     init(id: UUID = UUID(), fileURL: URL? = nil, untitledName: String) {
         self.id = id
@@ -38,10 +42,14 @@ final class EditorDocument {
 
     var displayName: String { fileURL?.lastPathComponent ?? untitledName }
 
-    func noteChange() { changeCount += 1 }
-    func markSaved() { savedChangeCount = changeCount }
+    func noteChange() {
+        if !isDirty { unsavedSince = Date() }
+        changeCount += 1
+        if !isDirty { unsavedSince = nil }
+    }
+    func markSaved() { savedChangeCount = changeCount; unsavedSince = nil; changedOnDisk = false }
     /// Restored from a session buffer: unsaved by definition.
-    func markDirtyFromSession() { changeCount = savedChangeCount + 1 }
+    func markDirtyFromSession() { changeCount = savedChangeCount + 1; unsavedSince = unsavedSince ?? Date() }
 
     enum LoadError: Error, LocalizedError {
         case unreadable(URL, Error)
