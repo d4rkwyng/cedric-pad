@@ -168,6 +168,16 @@ import CedricCore
         #expect(await eventually { rig.provider.calls == [1, 1] })
     }
 
+    /// Smoke test on the real clock: a hanging provider still gives nil and
+    /// is cancelled exactly once. No wall-time bound (runner load varies);
+    /// the timing itself is covered on FakeClock below.
+    @Test func raceOnSystemClockTimesOut() async {
+        let p = FakeProvider(hang: true)
+        let r = await OwlScheduler.race(provider: p, context: context(), clock: SystemClock(), timeout: 0.05)
+        #expect(r == nil)
+        #expect(p.cancellations == 1)
+    }
+
     /// The race's own timeout on an injected clock: a hanging provider gives
     /// nil once the clock passes the timeout (not before), and is cancelled.
     /// Measured on the clock, not the wall: a loaded CI runner took 2.2 s
