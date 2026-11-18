@@ -109,6 +109,13 @@ extension EditorWindowController {
     /// After an edit: recount the marks a moment later (small documents
     /// only), and highlight again.
     func editingTextChanged() {
+        // The ranges are stale after an edit: drop them until the pause
+        // (refreshHighlights) finds them again.
+        if !textView.occurrenceRanges.isEmpty || !textView.markRanges.isEmpty {
+            textView.occurrenceRanges = []
+            textView.markRanges = []
+            textView.needsDisplay = true
+        }
         if let needle = editing.markNeedle {
             editing.markCountTimer?.invalidate()
             if (textView.string as NSString).length <= Self.markRecountLimit {

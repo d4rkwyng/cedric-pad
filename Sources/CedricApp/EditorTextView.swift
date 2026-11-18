@@ -254,10 +254,20 @@ final class EditorTextView: NSTextView {
         }
     }
 
+    /// Draws the segments of `ranges` that lie in TextKit's viewport (the
+    /// laid-out text); anything else is skipped, so a stale or far-away
+    /// range never makes TextKit lay out other parts of a big document.
+    /// Locations are found from the viewport's start, not the document's.
     private func forEachSegment(_ ranges: [NSRange], clip: NSRect, layoutManager tlm: NSTextLayoutManager, _ draw: (NSRect) -> Void) {
+        guard !ranges.isEmpty, let tcm = tlm.textContentManager,
+              let vp = tlm.textViewportLayoutController.viewportRange else { return }
+        let vpStart = offset(of: vp.location)
+        let vpEnd = vpStart + tcm.offset(from: vp.location, to: vp.endLocation)
         let origin = textContainerOrigin
-        for r in ranges {
-            guard let tr = textRange(for: r) else { continue }
+        for r in ranges where r.location >= vpStart && NSMaxRange(r) <= vpEnd {
+            guard let start = tcm.location(vp.location, offsetBy: r.location - vpStart),
+                  let end = tcm.location(start, offsetBy: r.length),
+                  let tr = NSTextRange(location: start, end: end) else { continue }
             tlm.enumerateTextSegments(in: tr, type: .highlight, options: []) { _, frame, _, _ in
                 let f = frame.offsetBy(dx: origin.x, dy: origin.y)
                 if f.intersects(clip) { draw(f) }
