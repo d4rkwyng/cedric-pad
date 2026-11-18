@@ -14,6 +14,7 @@ extension DevChecks {
         case "mdpreview": markdownPreview(app)
         case "outline": outlineCheck(app)
         case "mdexport": exportCheck(app)
+        case "previewbar": previewBarCheck(app)
         default: return false
         }
         return true
@@ -52,6 +53,174 @@ extension DevChecks {
             }
             poll()
         }
+    }
+
+    /// The preview's quick-actions bar (PreviewBar): Markdown, the
+    /// detached window, CSV; light and dark snapshots.
+    static func previewBarCheck(_ app: AppDelegate) {
+        var md = "# Bar\n\n"
+        for k in 1...120 { md += "## Part \(k)\n\nLine \(k) of the bar check, long enough to fill the page.\n\n" }
+        let tab = app.open(write("bar.md", md))!
+        let csvTab = app.open(write("people.csv", "name,age\nzoe,31\namy,47\nbob,25\n"))!
+        sized(tab); sized(csvTab)
+        var bar: PreviewBar? { tab.previewPane?.bar }
+        var webFrame = NSRect.zero, buttonFrames: [NSRect] = []
+        func frames() -> [NSRect] { PreviewBarItem.allCases.compactMap { bar?.view($0) }.filter { !$0.isHidden }.map(\.frame) }
+        func jsItem() -> NSMenuItem? { menuItem(action: #selector(AppDelegate.togglePreviewJavaScript(_:))) }
+        func scrollY(_ then: @escaping @MainActor (Double) -> Void) { previewJS(tab, "window.scrollY") { then(($0 as? Double) ?? (($0 as? Int).map(Double.init) ?? -1)) } }
+        var loadsBefore = 0
+        run([
+            sync {
+                focus(tab)
+                key("p", [.command, .option])
+                expect(tab.previewVisible, "⌥⌘P shows the preview")
+                let want: [PreviewBarItem] = [.refresh, .syncScroll, .zoomOut, .zoomIn, .export, .allowJavaScript, .allowNetwork, .detach]
+                expect(bar?.state.items == want, "Markdown: the bar has its eight controls", "\(bar?.state.items ?? [])")
+                for item in want {
+                    guard let v = bar?.view(item) else { expect(false, "bar \(item)", "no view"); continue }
+                    let tip = (v as? NSControl)?.toolTip ?? ""
+                    let label = v.accessibilityLabel() ?? ""
+                    let img = (v as? NSButton)?.image ?? (v as? NSPopUpButton)?.itemArray.first?.image
+                    expect(!v.isHidden && !tip.isEmpty && !label.isEmpty && img != nil, "bar \(item.rawValue): shown, symbol, tooltip, VoiceOver label",
+                           "hidden=\(v.isHidden) tip=\(tip) label=\(label) image=\(img != nil)")
+                }
+                expect(bar?.view(.sortReset)?.isHidden == true && bar?.rowLabel.isHidden == true, "no CSV controls on Markdown")
+                let titles = bar?.exportButton.itemArray.dropFirst().map(\.title) ?? []
+                expect(titles == ["Export as HTML…", "Export as PDF…"], "Export ▸ HTML / PDF", "\(titles)")
+                expect(bar?.exportButton.itemArray.dropFirst().allSatisfy { $0.target === bar && $0.action != nil } == true, "the export items are wired")
+                tab.window?.layoutIfNeeded()
+                let h = tab.previewPane?.header.frame.height ?? 0
+                expect(h == PreviewPane.headerHeight, "one compact row", "\(h)")
+                expect(tab.previewPane?.header.appearance?.name == .darkAqua, "the bar follows the dark theme",
+                       tab.previewPane?.header.appearance?.name.rawValue ?? "-")
+            },
+            waitForPreview(tab, contains: "Part 3", "the preview shows the document"),
+            snapshot("previewbar-dark.png"),
+            sync {
+                Settings.shared.themeOverride = .light
+                NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil)
+                tab.renderPreview()
+                expect(tab.previewPane?.header.appearance?.name == .aqua, "the bar follows the light theme",
+                       tab.previewPane?.header.appearance?.name.rawValue ?? "-")
+            },
+            snapshot("previewbar-light.png"),
+            sync {
+                webFrame = tab.previewPane?.renderer.view.frame ?? .zero
+                buttonFrames = frames()
+                guard let b = bar?.buttons[.allowJavaScript] else { return }
+                press(b)
+                expect(tab.previewAllowsJavaScript, "the bar's JavaScript toggle turns it on")
+                expect(b.state == .on, "and shows it on")
+                if let i = jsItem() { _ = app.validateMenuItem(i); expect(i.state == .on, "View › Allow JavaScript agrees") }
+                expect(tab.previewPane?.renderer.view.frame == webFrame && frames() == buttonFrames, "no layout shift on toggling")
+                app.togglePreviewJavaScript(nil)
+                expect(!tab.previewAllowsJavaScript && b.state == .off, "the menu item still works and the bar follows it")
+                if let n = bar?.buttons[.allowNetwork] {
+                    press(n)
+                    expect(tab.previewAllowsNetwork && n.state == .on, "the bar's Network toggle turns it on")
+                    press(n)
+                    expect(!tab.previewAllowsNetwork && n.state == .off, "and off")
+                }
+                expect(frames() == buttonFrames, "still no layout shift")
+            },
+            sync {
+                guard let zin = bar?.buttons[.zoomIn], let zout = bar?.buttons[.zoomOut] else { return }
+                press(zin)
+                expect(abs((tab.preview?.webView.pageZoom ?? 0) - 1.1) < 0.001, "Zoom + zooms the page", "\(tab.preview?.webView.pageZoom ?? 0)")
+                press(zout); press(zout)
+                expect(abs((tab.preview?.webView.pageZoom ?? 0) - 0.9) < 0.001, "Zoom − zooms out", "\(tab.preview?.webView.pageZoom ?? 0)")
+                expect(zin.toolTip?.contains("90%") == true, "the tooltip says the zoom", zin.toolTip ?? "-")
+                press(zin)
+                loadsBefore = tab.preview?.pageLoads ?? 0
+                if let r = bar?.buttons[.refresh] { press(r) }
+            },
+            { next in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    expect((tab.preview?.pageLoads ?? 0) > loadsBefore, "Refresh reloads the whole page", "\(loadsBefore) → \(tab.preview?.pageLoads ?? 0)")
+                    expect(abs((tab.preview?.webView.pageZoom ?? 0) - 1) < 0.001, "the zoom survives a reload")
+                    next()
+                }
+            },
+            sync {
+                guard let s = bar?.buttons[.syncScroll] else { return }
+                expect(s.state == .on && tab.previewSyncsScroll, "Sync Scrolling is on by default")
+                press(s)
+                expect(!tab.previewSyncsScroll && s.state == .off, "the bar turns Sync Scrolling off")
+            },
+            { next in
+                scrollY { y0 in
+                    tab.scrollToLine(200)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { scrollY { y in
+                        expect(y == y0, "with sync off, the preview stays put", "scrollY \(y0) → \(y)")
+                        if let s = bar?.buttons[.syncScroll] { press(s) }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            scrollY { y in
+                                expect(y > y0 + 200, "turned back on, it catches up with the text", "scrollY \(y0) → \(y)")
+                                next()
+                            }
+                        }
+                    } }
+                }
+            },
+            sync {
+                guard let d = bar?.buttons[.detach] else { return }
+                press(d)
+                expect(tab.previewDetached, "Detach on the bar")
+                expect(d.accessibilityLabel() == "Attach", "it now says Attach", d.accessibilityLabel() ?? "-")
+                expect(bar?.window === tab.previewWindow?.window, "the bar goes with it into its window")
+            },
+            { next in
+                guard let w = tab.previewWindow?.window else { next(); return }
+                snapshot("previewbar-detached-window-light.png", window: w)(next)
+            },
+            sync {
+                guard let d = bar?.buttons[.detach] else { return }
+                press(d)
+                expect(!tab.previewDetached && tab.previewPane?.superview === tab.split, "Attach on the bar docks it again")
+                Settings.shared.themeOverride = .dark
+                NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil)
+                focus(csvTab)
+                key("p", [.command, .option])
+            },
+            { next in
+                let deadline = Date().addingTimeInterval(5)
+                @MainActor func poll() {
+                    if (csvTab.previewPane?.renderer as? CSVPreview)?.renders ?? 0 > 0 || Date() > deadline { next() }
+                    else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { MainActor.assumeIsolated { poll() } } }
+                }
+                poll()
+            },
+            sync {
+                let cbar = csvTab.previewPane?.bar
+                expect(cbar?.state.items == [.rowCount, .sortReset, .refresh, .syncScroll, .zoomOut, .zoomIn, .detach],
+                       "CSV: row count, Unsort, refresh, sync, zoom, detach", "\(cbar?.state.items ?? [])")
+                expect(cbar?.rowLabel.stringValue == "3 rows" && cbar?.rowLabel.isHidden == false, "the row count", cbar?.rowLabel.stringValue ?? "-")
+                csvTab.window?.layoutIfNeeded()
+                if let l = cbar?.rowLabel {
+                    expect(l.frame.width >= l.attributedStringValue.size().width, "the row count isn't cut short", "\(l.frame.width) < \(l.attributedStringValue.size().width)")
+                }
+                expect(cbar?.buttons[.allowJavaScript]?.isHidden == true && cbar?.exportButton.isHidden == true, "no web controls on CSV")
+                expect(cbar?.buttons[.sortReset]?.isEnabled == false, "Unsort is off in file order")
+                (csvTab.previewPane?.renderer as? CSVPreview)?.table.sortDescriptors = [NSSortDescriptor(key: "c1", ascending: true)]
+            },
+            snapshot("previewbar-csv-dark.png"),
+            sync {
+                let cbar = csvTab.previewPane?.bar
+                let g = csvTab.previewPane?.renderer as? CSVPreview
+                expect(g?.cell(row: 0, column: 0) == "bob", "sorted by age", g?.cell(row: 0, column: 0) ?? "-")
+                expect(cbar?.buttons[.sortReset]?.isEnabled == true, "Unsort is on once sorted")
+                if let u = cbar?.buttons[.sortReset] { press(u) }
+            },
+            sync {
+                let cbar = csvTab.previewPane?.bar
+                let g = csvTab.previewPane?.renderer as? CSVPreview
+                expect(g?.isSorted == false && g?.cell(row: 0, column: 0) == "zoe", "Unsort puts it back in file order", g?.cell(row: 0, column: 0) ?? "-")
+                expect(cbar?.buttons[.sortReset]?.isEnabled == false, "and Unsort is off again")
+                let h0 = g?.table.rowHeight ?? 0
+                if let z = cbar?.buttons[.zoomIn] { press(z); press(z) }
+                expect(abs((g?.zoom ?? 0) - 1.25) < 0.001 && (g?.table.rowHeight ?? 0) > h0, "Zoom + enlarges the grid", "zoom=\(g?.zoom ?? 0) row=\(g?.table.rowHeight ?? 0)")
+            },
+        ], gap: 0.4)
     }
 
     static func markdownPreview(_ app: AppDelegate) {

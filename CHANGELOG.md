@@ -6,6 +6,9 @@ are its section below (`Scripts/changelog-section.sh`).
 
 ## [Unreleased]
 
+### Added
+- **Preview bar.** A compact bar across the top of the preview (docked or detached) with Refresh, Sync Scrolling, Zoom − / +, Export ▸ HTML / PDF for Markdown, Allow JavaScript, Allow Network and Detach / Attach; for CSV, the row count and Unsort. The View menu items still work.
+
 ### Changed
 - **Closing the last tab no longer brings it back.** Closing the last document tab or window still quits Cedric Pad, but it is now a close like any other: the tab goes to File › Reopen Closed Tab (⇧⌘T) with any unsaved text kept, and the next launch opens an empty Untitled tab. Quit (⌘Q) still restores every open tab.
 

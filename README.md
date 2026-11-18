@@ -45,7 +45,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   menu overrides it.
 - **Live preview** for Markdown and HTML, side by side (View › Show Preview,
   ⌥⌘P). JavaScript and network access in the preview are **off** by default
-  and can be turned on per tab (View menu). A link in the preview never
+  and can be turned on per tab (View menu, or the preview bar). A compact
+  **preview bar** across the top of the preview (and of a detached
+  preview's window) has Refresh, Sync Scrolling on/off, Zoom − / +,
+  Export ▸ HTML / PDF (Markdown), Allow JavaScript, Allow Network and
+  Detach / Attach; for CSV, the row count and Unsort (back to file order).
+  It follows the theme; every button has a tooltip and a VoiceOver label.
+  A link in the preview never
   launches anything: web and mail links open only after you confirm the
   full URL, a text file in the document's folder opens in a tab, any
   other file (or one outside the folder) is shown in Finder, and other
@@ -65,7 +71,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   coloured by their language (```` ```swift ````, `py`, `js`, `bash`, …)
   both in the editor and in the preview, by Cedric Pad's own tokenizers and
   the theme's colours (no JavaScript highlighter). **Detach Preview** (View menu, ⇧⌥⌘P,
-  or Detach in the preview's header) moves it into its own resizable
+  or Detach on the preview bar) moves it into its own resizable
   window, "notes.md — Preview", still updating as you type; it stays
   with its own document whichever tab is in front, and closes with that
   tab. Attach Preview docks it again; closing its window closes the

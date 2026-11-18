@@ -140,6 +140,10 @@ final class PreviewController: NSObject, WKNavigationDelegate {
 
     func resetMainThreadTimes() { mainThreadTimes = [] }
 
+    /// The preview bar's Refresh: the next render loads the whole page
+    /// again (images and linked files re-read), not just a body swap.
+    func forceReload() { shellKey = nil }
+
     /// Swaps the body into the loaded page, or loads the page.
     private func apply(body: String, key: String, palette: EditorPalette, csp: String, baseURL: URL?) {
         if key == shellKey, !allowJavaScript {

@@ -272,6 +272,22 @@ first shown (no WebKit work at launch). Markdown goes through
   Content-Security-Policy meta tag is injected as a second layer.
 - Non-persistent website data store; clicked links open in the browser.
 
+The preview bar (`PreviewBar` in `PreviewPane.swift`) sits in the pane's
+24 pt header, docked or detached. Which controls a preview gets is
+`PreviewBarItem.items(for:certificate:)` in CedricCore (Markdown: refresh,
+sync, zoom −/+, export, JavaScript, network, detach; HTML the same without
+export; CSV: row count, Unsort, refresh, sync, zoom, detach; the
+Certificate panel: refresh, detach). The tab recomputes a
+`PreviewBarState` after each render, toggle, detach/attach and CSV sort
+(`updatePreviewBar`, a no-op when nothing changed). Buttons are fixed-size
+SF Symbols laid out from the right edge, so toggles and a changing row count
+never move anything. Zoom steps through `PreviewZoom.ladder`
+(`WKWebView.pageZoom` for the web preview, the grid's font and row height
+for CSV). Refresh drops the loaded page (`forceReload`) so the next render
+is a whole load. Sync off stops scroll sync both ways until it is on again.
+The View menu's JavaScript/Network items still work; the bar follows them.
+Nothing of it exists until a preview is first shown.
+
 Scroll sync: Markdown blocks carry `data-line`; the app scrolls the preview to
 the last block at or above the editor's top line (in the app's own content
 world, so it works with page JavaScript off). HTML scrolls by fraction.
