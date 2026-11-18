@@ -41,7 +41,14 @@ them; orphan buffers are pruned after each save.
   dropped.
 - `Scripts/session-check.sh` checks it end to end (kill -9 and normal quit).
 
-Known gaps: a large unsaved file is rewritten whole on each autosave; a file
+- The timed saves snapshot the tabs on the main thread (one copy of each
+  changed buffer's text) and write the buffers, then `session.json`, then
+  the prune, in that order, on a serial utility queue; quit runs the same
+  work synchronously on that queue, so it also waits for a timed save in
+  flight.
+
+Known gaps: a large unsaved file is rewritten whole on each autosave (off
+the main thread since the large-documents work); a file
 changed on disk under unsaved edits is only flagged by the owl's "Reload?"
 (when the owl is on; clean tabs reload).
 
@@ -87,10 +94,100 @@ colour on every selection change, so new text never inherits a token's colour
 or a default black. (v0 used TextKit 2 rendering attributes; after the
 "typed text invisible" report on the first test build they were replaced by
 the ordinary attribute path, which TextKit re-lays out and redraws like any
-edit. `Scripts/typing-check.sh` checks typing in every theme.) Lines longer than 20,000 characters are coloured up to that point.
+edit. `Scripts/typing-check.sh` checks typing in every theme.) Lines longer than 20,000 characters are coloured up to that point; in large mode (below) colouring is paused.
 
 A tree-sitter tokenizer could later implement the same protocol for one
 language where lexical colouring isn't enough.
+
+## Large documents (long lines, big files)
+
+Derek's report: opening a 636,293-character file that is one line (a game
+add-on import string, base64-like, no newline) made Cedric sluggish and
+set the owl thinking. Measured on this M4 Pro with `CEDRIC_PERF_BIG`
+(LargeDocPerf.swift), owl on, before → after:
+
+| His file | before | after |
+|---|---|---|
+| open to first window drawn | 2,177 ms | 71–87 ms |
+| keystroke, median (start / middle / end of the line) | 105 / 110 / 107 ms | 4.4 / 5.8 / 3.4 ms |
+| keystroke, worst | 120 ms | 26 ms (the first one) |
+| scripted scroll, worst step | 106 ms | 3–6 ms |
+| idle CPU, owl on | 1.0 % | 0.4 % |
+
+Where the time went: TextKit 2 lays out a paragraph as a whole, so every
+keystroke and every newly exposed scroll position re-typeset the whole
+636 K line (~0.16 µs per character; wrapping off was no cure: 100 ms per
+keystroke unwrapped). The first full layout was forced by the owl's
+`appeared()` (`layoutSubtreeIfNeeded`), which is why the open took 2 s with
+the owl on and 0.44 s without. The highlighter costs nothing on that file
+(plain text) but its whole-document `addAttribute` in `recolorAll` was a
+second full relayout (57 ms). Reading, decoding, the line index and
+language detection are 1–3 ms each. Keystroke cost by line length,
+unchunked, wrapping on: 5 ms at 20 K characters, 9 ms at 40 K, 24 ms at
+80 K, 34 ms at 160 K, 142 ms at 636 K.
+
+What Cedric does now:
+
+- **Chunked layout.** `ChunkedContentStorage` (an `NSTextContentStorage`
+  subclass) hands TextKit lines longer than `LargeDocument.chunkLength`
+  (2,048) as consecutive text elements of that length instead of one
+  paragraph, so TextKit lays out only the chunks near the viewport and
+  re-lays out only the chunk being edited. The text is untouched (copy,
+  save, find and the line index see one line); a chunk boundary is a
+  forced row break on screen, so a wrapped row ends early there. Chunks
+  start at fixed steps from the line start (moved back so they never split
+  a composed character), so an edit only drops the cached chunk elements
+  from the edit on. Chunk elements are `NSTextParagraph`s with their
+  content and separator ranges supplied (TextKit raises without them).
+  Chunk size, measured: 500 → 31 ms per keystroke (too many elements),
+  1,000 → 6–10 ms, 2,048 → 6.5 ms, 4,096 → 6.7 ms, 8,192 → 7.6 ms.
+  Wrapping stays as the user set it: chunked, wrapped and unwrapped cost
+  the same, so there's no reason to turn it off.
+- **Large mode** (`LargeDocument` in CedricCore): on when any line is
+  longer than 20,000 characters (from the table above: well under a frame
+  on slower Macs) or the document is longer than 5,000,000 UTF-16 units.
+  Checked before the text reaches TextKit on open, reload and restore, and
+  after each edit for the edited lines only (a long paste turns it on; the
+  pause takes effect for that same edit, the chunks a run-loop turn later).
+  Typing a line short again doesn't turn it off; a new text does. It
+  shows a slim bar ("Very long lines: colouring, spell check and the owl
+  are paused for speed. [Turn On Anyway]"), pauses colouring
+  (`SyntaxColorizer.paused`, including the whole-document recolour), spell
+  checking (`EditorSpelling.apply`, and the owl's typo offer) and the
+  untitled-tab language sniff. "Turn On Anyway" brings those and the owl
+  back; the chunks stay.
+- **The owl never analyses the whole document.** The rules only ever see
+  the `OwlContextWindow` (≤ 8 KB around the viewport; a test checks this on
+  a 636 K line). In large mode the owl stays idle: no scheduled rules
+  query, nothing fed to the AI. Clicking him runs the rules once on the
+  window (`OwlCoordinator.queryNow`, rules only); with nothing to say he
+  shows his popover as before. His caret-avoidance no longer asks TextKit
+  for the rect of a caret that is scrolled out of view (that laid out up to
+  the caret and re-anchored the viewport: scrolling stalled).
+- **AI gates, every engine.** `OwlScheduler` never asks for a document
+  marked large (`setLargeDocument`, kept by `LocalAIOwlBridge` across
+  scheduler rebuilds; going large cancels a request in flight), and asks
+  only once a document has been open and untouched for `minIdle` (10 s,
+  `LocalAISettings.minIdle`; settings saved before it existed load with
+  10). The built-in llama.cpp engine loads its model on the first request,
+  so a large document never loads a model.
+- **Per-keystroke work** is O(edit) or O(log n): the line index, the
+  status bar's Ln/Col (a binary search and a subtraction), the gutter
+  (numbers the first fragment of each line only, so chunks of one line
+  don't repeat its number), and the session autosave (coalesced to 1.5 s,
+  written off the main thread, see Session restore).
+
+Checks: `LargeDocumentTests` (triggers, chunk tiling, composed
+characters, the capped owl window), `LargeDocumentGateTests` (no request
+for a large document, the 10 s idle gate, the bridge keeping marks across
+rebuilds, old settings), `CEDRIC_CHECK=large` in `Scripts/tools-check.sh`
+(opens a 636 K line with the owl on: bar, chunks, paused extras, typing
+through real key events under 16 ms, no owl query or AI feed, click → one
+rules query and a bubble, Turn On Anyway, a long paste; snapshots), and
+`Scripts/perf-check.sh` (a generated 636 K base64 line and a 6 MB log
+with thresholds: open < 300 ms, keystroke median < 16 ms at start, middle
+and end, worst scroll step < 50 ms with no snap-back, idle CPU < 3 %;
+`--file` runs it on any file).
 
 ## Preview
 
