@@ -1,6 +1,7 @@
 import AppKit
 import CedricCore
 import QuartzCore
+import CedricAI
 
 extension Notification.Name {
     /// The owl was moved: every tab's owl follows.
@@ -267,6 +268,17 @@ final class OwlController: NSObject, NSPopoverDelegate {
     }
 
     func noteSave() { owl.flap() }
+
+    /// Ask Cedric's state: thinking / searching / writing, nil when done.
+    /// (The poses come with the animations; until then, thinking.)
+    func chatPhase(_ phase: OwlChatPhase?) {
+        guard bubble == nil else { return }
+        owl.setPose(phase == nil ? .idle : .thinking)
+        if phase == nil { updateTimer() }
+    }
+
+    /// An edit was accepted (Ask Cedric's Apply, a hint's Fix it).
+    func nod() {}
 
     func setThinking(_ on: Bool) {
         guard bubble == nil else { return }
@@ -590,6 +602,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
             g.toolTip = String(localized: "Shows a grammar suggestion for the text in view.")
             stack.addArrangedSubview(g)
         }
+        if let tab, tab.canAskCedric {
+            let chat = NSButton(title: String(localized: "Ask Cedric…"), target: self, action: #selector(askCedric))
+            chat.controlSize = .small
+            chat.toolTip = String(localized: "Questions, quick actions and proposed edits about this text (⌥⌘/).")
+            stack.addArrangedSubview(chat)
+        }
         let hide = NSButton(title: String(localized: "Hide Cedric"), target: self, action: #selector(hideOwl))
         hide.controlSize = .small
         let reset = NSButton(title: String(localized: "Reset Position"), target: self, action: #selector(resetFromPopover))
@@ -641,6 +659,11 @@ final class OwlController: NSObject, NSPopoverDelegate {
         closePopover()   // at once: a fast answer must not find it still up
         guard let tab else { return }
         OwlHub.shared.askAI(in: tab)
+    }
+
+    @objc func askCedric() {
+        closePopover()
+        tab?.openAskCedric()
     }
 
     @objc func grammarHintNow() {

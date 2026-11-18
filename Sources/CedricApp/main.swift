@@ -164,11 +164,13 @@ func buildMainMenu() -> NSMenu {
         ]),
         submenu(String(localized: "Text Tools"), textToolItems()),
         item(String(localized: "Auto-Close Brackets and Quotes"), #selector(AppDelegate.toggleAutoCloseBrackets(_:))),
+        item(String(localized: "Ask Cedric…"), #selector(AppDelegate.askCedricMenu(_:)), "/", [.command, .option]),
         submenu(String(localized: "Spelling and Grammar"), [
             item(String(localized: "Show Spelling and Grammar"), #selector(NSText.showGuessPanel(_:)), ":"),
             item(String(localized: "Check Document Now"), #selector(AppDelegate.checkDocumentNow(_:)), ";"),
             item(String(localized: "Fix Typos…"), #selector(AppDelegate.fixTyposMenu(_:)), ";", [.command, .option]),
             item(String(localized: "Fix Grammar…"), #selector(AppDelegate.fixGrammarMenu(_:))),
+            item(String(localized: "Check Grammar with AI"), #selector(AppDelegate.checkGrammarWithAIMenu(_:))),
             .separator(),
             item(String(localized: "Check Spelling While Typing"), #selector(AppDelegate.toggleSpellingWhileTyping(_:))),
             item(String(localized: "Check Grammar in Prose"), #selector(AppDelegate.toggleGrammar(_:))),

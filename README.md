@@ -388,6 +388,19 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   A one-word AI fix in prose ("definately" → "definitely") keeps its
   **Fix it**.
   In very large documents the owl only looks when clicked.
+- **Ask Cedric** (beta; Settings › "Owl chat (beta)", off by default):
+  Edit › Ask Cedric… (⌥⌘/) or the owl's **Ask Cedric…** opens a small
+  panel about the current document, made on first use. A chip picks what
+  Cedric sees (Selection, Visible text, or the Whole document when it fits
+  the model); quick actions **Explain**, **Summarise**, **Find Problems**,
+  **Rewrite** (prose) / **Simplify** (code) and **Add Comments**, or type a
+  question. Answers stream in from the engine in Cedric AI Settings
+  (built-in, Apple Intelligence, or LM Studio / Ollama on this Mac or the
+  local network, never the cloud); **Stop** cancels. An edit is never
+  made by the model: it comes back as a diff with **Apply** / **Discard**,
+  applied as one undo step only if the document hasn't changed since you
+  asked (otherwise **Ask Again**). History is per document, in memory
+  only, with **Copy as Markdown** and **Clear**.
 
 ## Build and run
 
