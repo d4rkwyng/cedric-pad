@@ -6,6 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private(set) var tabs: [EditorWindowController] = []
     /// PDF viewer tabs (PDFTab.swift), in the same windows' tab groups.
     var pdfTabs: [PDFTabController] = []
+    /// Image tabs (ImageTab.swift), likewise. `viewerTabs` is both (ViewerTabs.swift).
+    var imageTabs: [ImageTabController] = []
     let store = SessionStore(directory: SessionStore.defaultDirectory())
     private let env = ProcessInfo.processInfo.environment
     private var sessionTimer: Timer?
@@ -51,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         for url in toOpen { open(url) }
         pendingOpen = []
-        if tabs.isEmpty && pdfTabs.isEmpty { newTab(nil) }
+        if tabs.isEmpty && viewerTabs.isEmpty { newTab(nil) }
         schedulePendingRestore()
         LaunchTrace.mark("tabs_ready")
         recentMenu?.delegate = self
@@ -84,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         tabs.forEach { $0.reloadIfChangedOnDisk() }
-        pdfTabs.forEach { $0.reloadIfChangedOnDisk() }
+        viewerTabs.forEach { $0.reloadIfChangedOnDisk() }
     }
 
     /// `cedric://open?path=/abs/file&line=12` (the command-line launcher)
@@ -111,6 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if tab == nil, let pdf = pdfTab(for: url) {
                 if let page = q["line"].flatMap(Int.init) { pdf.goToPage(page - 1) }
                 if let marker = q["wait"] { addWaiter(marker, forID: pdf.id) }
+            } else if tab == nil, let viewer = viewerTab(for: url), let marker = q["wait"] {
+                // An image tab: -w waits for it too.
+                addWaiter(marker, forID: viewer.id)
             }
             if let line = q["line"].flatMap(Int.init) { tab?.goToLine(line, column: q["col"].flatMap(Int.init) ?? 1) }
             // `cedric -w`: the script waits until this marker file goes.
@@ -193,8 +198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var currentTab: EditorWindowController? {
         // A detached preview's window: its tab (View › Attach Preview).
         if let key = NSApp.keyWindow, let t = tabs.first(where: { $0.previewWindow?.window === key }) { return t }
-        // A PDF tab in front: no text tab is current (the editor's commands are off).
-        if currentPDFTab != nil { return nil }
+        // A viewer tab (PDF, image) in front: no text tab is current (the editor's commands are off).
+        if currentViewerTab != nil { return nil }
         return tabs.first { $0.window === NSApp.keyWindow } ?? tabs.first { $0.window === NSApp.mainWindow }
             // Not active (launched from a script, screen locked): the
             // frontmost tab. The owl check (CEDRIC_OWL_ASSUME_VISIBLE) may
@@ -212,9 +217,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let std = url.standardizedFileURL
         restorePendingTab(for: std)
         // A PDF (by its first bytes, or its name) opens in a viewer tab.
-        if DocumentKind.detect(url: std) == .pdf {
-            openPDF(std)
-            return nil
+        switch DocumentKind.detect(url: std) {
+        case .pdf: openPDF(std); return nil
+        // An image (by its signature, or its name) in an image tab; SVG stays text.
+        case .image: openImage(std); return nil
+        case .text: break
         }
         if let existing = tabs.first(where: { $0.doc.fileURL?.standardizedFileURL == std }) {
             existing.window?.makeKeyAndOrderFront(nil)
@@ -269,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func windowGroups() -> [[NSWindow]] {
         var seen = Set<ObjectIdentifier>()
         var groups: [[NSWindow]] = []
-        let ours = tabs.compactMap(\.window) + pdfTabs.compactMap(\.window)
+        let ours = tabs.compactMap(\.window) + viewerTabs.compactMap(\.window)
         let isOurs = { (w: NSWindow) in ours.contains { $0 === w } }
         for w in NSApp.orderedWindows + ours {
             guard !seen.contains(ObjectIdentifier(w)), isOurs(w) else { continue }
@@ -300,7 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             var sessionTabs: [SessionTab] = []
             var selected = 0
             for win in group {
-                if let p = pdfTabs.first(where: { $0.window === win }) {
+                if let p = viewerTab(for: win) {
                     sessionTabs.append(p.sessionTab)
                     if win === NSApp.keyWindow || win.tabGroup?.selectedWindow === win { selected = sessionTabs.count - 1 }
                     continue
@@ -444,6 +451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if st.pdf != nil || !st.hasBuffer && st.path.map(DocumentKind.hasPDFExtension) == true {
             return restorePDFTab(st, into: place)
         }
+        if st.image != nil { return restoreViewerTab(st, into: place) }
         let doc = EditorDocument(id: st.id, fileURL: st.path.map { URL(fileURLWithPath: $0) },
                                  untitledName: st.untitledName ?? st.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Untitled"))
         doc.indentation = st.indentation
@@ -508,7 +516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func restorePending(_ p: PendingTab) {
         // The saved window's tabs still open (the user may have closed some).
-        let live = p.group.built.filter { b in tabs.contains { $0.window === b.window } || pdfTabs.contains { $0.window === b.window } }
+        let live = p.group.built.filter { b in tabs.contains { $0.window === b.window } || viewerTab(for: b.window) != nil }
         guard let anchor = live.first?.window, let tg = anchor.tabGroup else {
             // All of them closed before this one was built: it gets its own window.
             if let tab = restoreTab(p.tab, into: nil), let w = tab.window {

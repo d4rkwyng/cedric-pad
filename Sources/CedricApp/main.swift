@@ -89,6 +89,8 @@ func buildMainMenu() -> NSMenu {
         submenu(AppDelegate.recentMenuTitle, []),
         // A PDF tab's text in a new editable tab (PDFTab.swift).
         item(String(localized: "Open as Text"), #selector(PDFTabController.openAsText(_:))),
+        // Viewer tabs: the file in its default app ("Open in Preview"; ViewerTabs.swift).
+        item(String(localized: "Open in Default App"), #selector(ImageTabController.openInDefaultApp(_:))),
         .separator(),
         item(String(localized: "Close Tab"), #selector(NSWindow.performClose(_:)), "w"),
         item(String(localized: "Close Window"), #selector(AppDelegate.closeWindow(_:)), "w", [.command, .shift]),

@@ -32,11 +32,17 @@ public struct SessionTab: Codable, Equatable, Sendable {
     /// A PDF tab (a read-only viewer, never written): its page and zoom.
     /// Nil for text tabs and in sessions saved before PDF tabs.
     public var pdf: PDFTabState?
+    /// An image tab (read-only): its zoom and scroll. Nil otherwise.
+    public var image: ImageTabState?
+
+    /// A read-only viewer tab (PDF, image): no text, no buffer.
+    public var isViewer: Bool { pdf != nil || image != nil }
 
     public init(id: UUID = UUID(), path: String? = nil, untitledName: String? = nil, hasBuffer: Bool = false,
                 encoding: TextEncoding = .utf8, lineEnding: LineEnding = .lf, language: Language? = nil,
                 selectionLocation: Int = 0, selectionLength: Int = 0, topLine: Int = 0, fileModified: Date? = nil,
-                bookmarks: [Int]? = nil, indentation: Indentation? = nil, previewDetached: Bool? = nil, previewFrame: String? = nil, pdf: PDFTabState? = nil) {
+                bookmarks: [Int]? = nil, indentation: Indentation? = nil, previewDetached: Bool? = nil, previewFrame: String? = nil, pdf: PDFTabState? = nil,
+                image: ImageTabState? = nil) {
         self.id = id
         self.path = path
         self.untitledName = untitledName
@@ -53,6 +59,7 @@ public struct SessionTab: Codable, Equatable, Sendable {
         self.previewDetached = previewDetached
         self.previewFrame = previewFrame
         self.pdf = pdf
+        self.image = image
     }
 }
 

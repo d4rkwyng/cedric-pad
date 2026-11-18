@@ -154,6 +154,32 @@ cat > "$APP/Contents/Info.plist" <<PLIST
             </array>
         </dict>
         <dict>
+            <!-- Images open in a read-only image tab. Alternate: Preview stays the default. SVG is text. -->
+            <key>CFBundleTypeName</key>
+            <string>Image</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.png</string>
+                <string>public.jpeg</string>
+                <string>com.compuserve.gif</string>
+                <string>public.heic</string>
+                <string>public.heif</string>
+                <string>public.avif</string>
+                <string>org.webmproject.webp</string>
+                <string>public.tiff</string>
+                <string>com.microsoft.bmp</string>
+                <string>com.microsoft.ico</string>
+                <string>com.apple.icns</string>
+                <string>public.jpeg-2000</string>
+                <string>com.adobe.photoshop-image</string>
+                <string>com.truevision.tga-image</string>
+            </array>
+        </dict>
+        <dict>
             <key>CFBundleTypeName</key>
             <string>Text</string>
             <key>CFBundleTypeRole</key>

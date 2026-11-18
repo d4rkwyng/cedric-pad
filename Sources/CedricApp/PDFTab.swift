@@ -583,6 +583,9 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
 
     // MARK: Printing, closing
 
+    /// File › Open in Preview (the file's default app other than Cedric).
+    @objc func openInDefaultApp(_ sender: Any?) { AppDelegate.openInDefaultApp(fileURL) }
+
     @objc func printDocument(_ sender: Any?) {
         pdfView?.print(with: NSPrintInfo.shared, autoRotate: true)
     }
@@ -669,6 +672,9 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
             item.state = pdfView?.autoScales == true ? .on : .off
             return ready
         case #selector(openAsText(_:)): return ready && !extracting
+        case #selector(openInDefaultApp(_:)):
+            item.title = AppDelegate.openInTitle(fileURL)
+            return AppDelegate.defaultApp(for: fileURL) != nil
         case #selector(useSelectionForFind(_:)): return pdfView?.currentSelection?.string?.isEmpty == false
         case #selector(closeWindow(_:)): return true
         default: return ready
@@ -685,21 +691,8 @@ extension AppDelegate {
         return pdfTabs.first { $0.fileURL.standardizedFileURL == std }
     }
 
-    /// The PDF tab in front, if the front tab is one (nil when a text tab is).
-    var currentPDFTab: PDFTabController? {
-        guard !pdfTabs.isEmpty else { return nil }
-        if let k = NSApp.keyWindow, tabs.contains(where: { $0.window === k }) { return nil }
-        if let p = pdfTabs.first(where: { $0.window === NSApp.keyWindow }) ?? pdfTabs.first(where: { $0.window === NSApp.mainWindow }) {
-            return p
-        }
-        guard NSApp.keyWindow == nil, NSApp.mainWindow == nil else { return nil }
-        // Not active: the frontmost of Cedric's tabs.
-        for w in NSApp.orderedWindows {
-            if let p = pdfTabs.first(where: { $0.window === w }) { return p }
-            if tabs.contains(where: { $0.window === w }) { return nil }
-        }
-        return nil
-    }
+    /// The PDF tab in front, if the front tab is one (nil when a text or other viewer tab is).
+    var currentPDFTab: PDFTabController? { currentViewerTab as? PDFTabController }
 
     /// Opens a PDF in a viewer tab (File › Open, drops, the Dock, `cedric`,
     /// Open Recent, Finder): or focuses the tab that has it. A damaged file
@@ -719,7 +712,7 @@ extension AppDelegate {
             return nil
         }
         // An empty, untouched untitled tab is replaced, as for text files.
-        let blank = tabs.count == 1 && pdfTabs.isEmpty && tabs[0].doc.fileURL == nil && !tabs[0].doc.isDirty && tabs[0].text.isEmpty ? tabs[0] : nil
+        let blank = replaceableBlankTab
         let tab = makePDFTab(PDFTabController(fileURL: std, pdfDocument: doc))
         tab.ensureLoaded()
         blank?.window?.close()
@@ -736,11 +729,11 @@ extension AppDelegate {
             self?.releaseWaiters(for: t.id)
             guard let self, !self.terminating else { return }
             self.pdfTabs.removeAll { $0 === t }
-            self.rememberClosedPDF(t)
+            self.rememberClosedViewer(t)
         }
         pdfTabs.append(tab)
         guard let window = tab.window else { return tab }
-        let host = newWindow ? nil : group ?? NSApp.keyWindow ?? (tabs.last?.window ?? pdfTabs.dropLast().last?.window)
+        let host = newWindow ? nil : group ?? NSApp.keyWindow ?? (tabs.last?.window ?? viewerTabs.last { $0.window !== window }?.window)
         if let tabIndex, let host = group, host !== window, let tg = host.tabGroup {
             tg.insertWindow(window, at: min(tabIndex, tg.windows.count))
         } else if let host, host !== window, host.isVisible {
@@ -771,18 +764,6 @@ extension AppDelegate {
         let tab = makeTab(doc, text: text)
         doc.markDirtyFromSession()
         tab.updateTitle()
-    }
-
-    /// A closed PDF tab, for File › Reopen Closed Tab (no text to keep).
-    func rememberClosedPDF(_ t: PDFTabController) {
-        finishRestore()
-        let r = ClosedTabs.push(t.sessionTab, onto: closedTabs)
-        closedTabs = r.list
-        for gone in r.dropped {
-            closedTexts[gone.id] = nil
-            if gone.hasBuffer { store.removeBuffer(gone.id) }
-        }
-        saveSession()
     }
 
     /// Reopen Closed Tab for a PDF: on the page it was closed at.

@@ -1,18 +1,21 @@
 import Foundation
 
-/// What a file opens as: text in the editor, or a PDF in a read-only
-/// viewer tab. Decided by the file's first bytes (`%PDF-`), so a PDF
-/// without the extension is still a PDF; a file named `.pdf` that doesn't
-/// start that way is treated as a PDF too, so it gets the viewer's clear
-/// "damaged" error instead of opening as binary garbage in the editor.
+/// What a file opens as: text in the editor, a PDF in a read-only viewer
+/// tab, or an image in a read-only image tab. Decided by the file's first
+/// bytes (`%PDF-`, the image formats' signatures), so a file without the
+/// usual extension still opens the right way; a file named `.pdf` /
+/// `.png`… that doesn't start that way goes to its viewer too, so it gets
+/// the viewer's clear "damaged" error instead of opening as binary garbage
+/// in the editor. SVG stays text (it has the HTML preview).
 public enum DocumentKind: String, Codable, Sendable {
     case text
     case pdf
+    case image
 
     /// The PDF header every PDF file starts with.
     public static let pdfMagic: [UInt8] = Array("%PDF-".utf8)
     /// How many bytes `detect(url:)` reads.
-    public static let prefixLength = 8
+    public static let prefixLength = 32
 
     /// Whether `prefix` (a file's first bytes) starts with `%PDF-`.
     public static func hasPDFHeader<D: Collection>(_ prefix: D) -> Bool where D.Element == UInt8 {
@@ -25,12 +28,17 @@ public enum DocumentKind: String, Codable, Sendable {
 
     /// The kind from a file's first bytes and its name.
     public static func detect<D: Collection>(prefix: D, fileName: String) -> DocumentKind where D.Element == UInt8 {
-        hasPDFHeader(prefix) || hasPDFExtension(fileName) ? .pdf : .text
+        let bytes = Array(prefix.prefix(prefixLength))
+        if hasPDFHeader(bytes) { return .pdf }
+        if ImageFormat.detect(bytes) != nil { return .image }
+        if hasPDFExtension(fileName) { return .pdf }
+        if ImageFormat.forExtension(fileName) != nil { return .image }
+        return .text
     }
 
     /// Reads the first few bytes of the file (not the whole file). A file
-    /// that can't be read is `.text`, unless named `.pdf` (the caller's
-    /// own read reports why).
+    /// that can't be read is `.text`, unless its name says otherwise (the
+    /// caller's own read reports why).
     public static func detect(url: URL) -> DocumentKind {
         var prefix: [UInt8] = []
         if let h = try? FileHandle(forReadingFrom: url) {

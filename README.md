@@ -141,6 +141,22 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   so. PDF tabs come back with the session on their page and zoom (a PDF
   tab that isn't selected loads when you first click it); the owl stays
   out of them.
+- **Images open in a viewer tab** (read-only): PNG, JPEG, GIF, HEIC/HEIF,
+  AVIF, WebP, TIFF, BMP, ICO, ICNS, JPEG 2000, PSD, TGA (whatever ImageIO
+  decodes), from every route a PDF takes (Open, drops, the Dock,
+  `cedric photo.jpg`, Open Recent, Reopen Closed Tab, the session).
+  Recognised by their first bytes, so one without its extension opens
+  too; SVG stays a text file with its preview. Fitted to the window (never
+  enlarged); ⌘+ / ⌘− zoom, ⌘0 actual size, ⌘9 fit, pinch to zoom, scroll
+  to pan; a checkerboard behind transparency; animated GIFs play (Pause /
+  Play button, or Space). The status bar shows pixel size, file size,
+  format, colour space and zoom. ⌘C copies the image; File › Open in
+  Preview (the file's default app); Print fits it to the page. A big
+  image is decoded downsampled (about 32 megapixels at most) off the main
+  thread, so a 12000×12000 PNG doesn't hold up typing in other tabs.
+  Cedric is an alternate image viewer (Preview stays the default) and
+  never writes to an image; image tabs come back with the session at
+  their zoom and place.
 - **Drop a file on the text to open it** (in its own tab), rather than
   pasting its path; dropped text is inserted as before.
 - **Files changed on disk** reload by themselves when the tab has no unsaved
@@ -196,6 +212,7 @@ Scripts/session-check.sh            # end to end: unsaved tabs survive a kill -9
 Scripts/typing-check.sh             # real key events in every theme; typed glyphs' pixels must be visible
 Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no crash report
 Scripts/pdf-check.sh                # PDF tabs in the running app: find, copy, zoom, Open as Text, session
+Scripts/image-check.sh              # image tabs: zoom, copy, GIFs, session, a 12000² PNG vs typing
 Scripts/launch-speed-check.sh       # launch phase medians: empty, 8-tab session, 500 KB file
 swift Scripts/launch-time.swift dist/Cedric.app /System/Applications/TextEdit.app
 ```

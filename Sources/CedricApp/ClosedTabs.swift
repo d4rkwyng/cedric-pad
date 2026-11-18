@@ -83,6 +83,7 @@ extension AppDelegate {
     @objc func reopenClosedTab(_ sender: Any?) {
         guard let st = closedTabs.popLast() else { NSSound.beep(); return }
         if st.pdf != nil { reopenClosedPDF(st); return }
+        if st.image != nil { reopenClosedViewer(st); return }
         // A restored tab for the same file may not be built yet: build them
         // all first, so the check below sees it and it isn't opened twice.
         finishRestore()
