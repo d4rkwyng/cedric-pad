@@ -72,6 +72,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private(set) var owl: OwlController?
     /// Spell checking in scope (Spelling.swift).
     private(set) lazy var spelling = EditorSpelling(tab: self)
+    /// Fix Typos… while its panel is open (SpellStepPanel.swift).
+    var spellStep: SpellStepController?
     /// View › Follow File (EditorTools.swift).
     var tail: FileTail?
     /// Large mode (LargeDocumentMode.swift): why, and "Turn On Anyway".
@@ -289,6 +291,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
         if loading { return }
+        spellStep?.textEdited(oldRange, newLength: edited.length)
         storageEdits += 1
         let seen = storageEdits
         // Only undo and redo: Follow File appends on purpose without a
@@ -746,6 +749,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         sniffTimer?.invalidate()
         editing.stop()
         spelling.stop()
+        spellStep?.closeWithTab()
         OwlHub.shared.closed(self)
         tail?.stop()
         tail = nil

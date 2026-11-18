@@ -86,6 +86,16 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   selection when there is one (characters are Unicode scalars). Documents
   over a million characters show lines only, so typing never waits on a
   count; over 50,000 they are counted when typing pauses.
+- **Fix Typos…** (Edit › Spelling and Grammar, ⌥⌘;, or **Fix Typos…** in
+  the owl's "Fix 3 typos?"): steps through the misspelled words one at a
+  time, from the caret to the end and round from the top, in a small panel
+  beside each word with the checker's suggestions (the first picked),
+  **Change**, **Change All**, **Skip**, **Ignore All** (this document),
+  **Learn Word** and **Done**, and "3 of 12". Return changes, Tab or ⌘→
+  skips, Esc is done. Each change is one undo step (Change All too). Only
+  the words spell check would mark: prose in Plain Text and Markdown,
+  comments and strings in code, never URLs or paths. Big files are
+  checked a chunk at a time, in large mode only as far as the next word.
 - **Print** (File › Print…, ⌘P; Page Setup…, ⇧⌘P): the text in the
   editor's font, dark on white (not the theme's colours), wrapped to the
   page, with the file name, date and page numbers; line numbers are an

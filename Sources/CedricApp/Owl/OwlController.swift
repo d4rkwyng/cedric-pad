@@ -361,7 +361,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
         let local = NSRange(location: fix.range.location - ctx.textStart, length: fix.range.length)
         guard local.location >= 0, NSMaxRange(local) <= (ctx.text as NSString).length else { return }
         let hint = OwlHint(id: Self.typoFixID, kind: .fix, title: String(localized: "Fix \(fix.count) typos?"),
-                           detail: String(localized: "Uses the first spelling suggestion for each, as one undo step."),
+                           detail: String(localized: "Fix Typos… goes through them one by one; Fix All uses the first suggestion for each, as one undo step."),
                            range: local, replacement: fix.replacement, source: "rules")
         hub.coordinator.markShown(hint, documentID: tab.doc.id)
         present(hint, context: ctx)
@@ -373,7 +373,13 @@ final class OwlController: NSObject, NSPopoverDelegate {
             return [.init(title: String(localized: "No thanks, I’m an owl"), isDefault: false) { [weak self] in self?.hideBubble() }]
         }
         var out: [OwlBubble.Button] = []
-        if hint.replacement != nil {
+        if hint.id == Self.typoFixID {
+            // One at a time (the step-through), or all at once as before.
+            out.append(.init(title: String(localized: "Fix Typos…"), isDefault: true) { [weak self, weak tab] in
+                self?.hideBubble(); tab?.startSpellStep()
+            })
+            out.append(.init(title: String(localized: "Fix All"), isDefault: false) { [weak self] in _ = self?.applyPresented() })
+        } else if hint.replacement != nil {
             out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self, weak tab] in
                 guard let self, self.applyPresented() else { return }
                 // A to-do list in checkboxes reads best coloured as Markdown.
