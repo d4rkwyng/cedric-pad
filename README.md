@@ -116,7 +116,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     OpenAI/Anthropic token); JSON that doesn't parse (with the line);
     an unmatched or unclosed bracket in Swift, JavaScript, TypeScript, C,
     CSS or Python (strings, comments and regexes skipped; "never closed"
-    only in a saved file); a file changed on disk under your edits;
+    only in a saved file, and not in C with `#if`/`#else`); a file changed on disk under your edits;
   - fixes: format one-line JSON; curly quotes pasted into code; tabs
     indenting YAML; tabs and spaces mixed (to whichever the file mostly
     uses; a Makefile keeps its tabs); zero-width and stray byte-order-mark

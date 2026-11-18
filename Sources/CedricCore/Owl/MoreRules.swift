@@ -70,16 +70,37 @@ extension RulesHintProvider {
             (String(localized: "a GitHub token"), "\\bgithub" + "_pat_[A-Za-z0-9_]{60,}"),
             (String(localized: "a Slack token"), "\\bxox[baprs]" + "-[0-9]{6,}-[0-9A-Za-z-]{10,}"),
             (String(localized: "a Stripe live key"), "\\b[sr]k" + "_live_[0-9A-Za-z]{20,}"),
-            (String(localized: "an OpenAI or Anthropic API key"), "\\bsk-(ant-|proj-)?[A-Za-z0-9_-]{32,}"),
+            // sk-ant-…, sk-proj-… (hyphens and underscores in the key), or
+            // a plain sk- and letters and digits only; either way checked
+            // for a random-looking mix below (not "sk-learn-model-…").
+            (Self.apiKeyKind, "\\bsk-(ant|proj|svcacct|admin)-[A-Za-z0-9_-]{32,}"),
+            (Self.apiKeyKind, "\\bsk-[A-Za-z0-9]{32,}\\b"),
         ]
         return raw.compactMap { name, p in (try? NSRegularExpression(pattern: p)).map { (name, $0) } }
     }()
 
+    static let apiKeyKind = String(localized: "an OpenAI or Anthropic API key")
+
+    /// A generated key mixes upper case, lower case and digits; a slug or
+    /// a sentence of words doesn't.
+    static func looksRandom(_ s: Substring) -> Bool {
+        var upper = 0, lower = 0, digit = 0
+        for u in s.unicodeScalars {
+            if ("A"..."Z").contains(u) { upper += 1 } else if ("a"..."z").contains(u) { lower += 1 } else if ("0"..."9").contains(u) { digit += 1 }
+        }
+        return upper >= 2 && lower >= 2 && digit >= 2
+    }
+
     static func secret(_ s: String) -> (kind: String, range: NSRange)? {
-        let all = NSRange(location: 0, length: (s as NSString).length)
+        let ns = s as NSString
+        let all = NSRange(location: 0, length: ns.length)
         var best: (String, NSRange)?
         for (name, re) in secretPatterns {
-            if let m = re.firstMatch(in: s, range: all), best == nil || m.range.location < best!.1.location { best = (name, m.range) }
+            for m in re.matches(in: s, range: all) {
+                if name == apiKeyKind, !looksRandom(ns.substring(with: m.range).dropFirst(3)) { continue }
+                if best == nil || m.range.location < best!.1.location { best = (name, m.range) }
+                break
+            }
         }
         return best
     }
@@ -179,6 +200,15 @@ extension RulesHintProvider {
                 case 34: skipString(); continue
                 case 39 where singleQuoteStrings: skipString(); continue
                 case 96 where js: skipString(); continue
+                case 35 where swift && swiftRegexHashes(at: i) > 0:   // #/ … /# (extended regex literal)
+                    let hashes = swiftRegexHashes(at: i)
+                    i += hashes + 1
+                    while i < n {
+                        if ch(i) == 92 { i += 2; continue }
+                        if ch(i) == 47, (0..<hashes).allSatisfy({ ch(i + 1 + $0) == 35 }) { i += 1 + hashes; break }
+                        i += 1
+                    }
+                    continue
                 case 35 where swift && (ch(i + 1) == 34 || ch(i + 1) == 35): skipString(); continue
                 case 35 where python:
                     while i < n, ch(i) != 10 { i += 1 }
@@ -195,6 +225,10 @@ extension RulesHintProvider {
                         i += 1
                     }
                     continue
+                case 47 where swift && regexCanStart(at: i):
+                    // A bare /…/ regex literal: no space after the opening
+                    // slash and closed on the same line, else it's division.
+                    if let end = swiftBareRegexEnd(from: i) { i = end; continue }
                 case 47 where js && regexCanStart(at: i):
                     i += 1
                     var inClass = false
@@ -230,6 +264,29 @@ extension RulesHintProvider {
         }
 
         /// A `/` starts a regex after an operator or an opening bracket, not after a value.
+        /// How many #s open a Swift `#/…/#` regex literal at `k`, or 0.
+        func swiftRegexHashes(at k: Int) -> Int {
+            var j = k
+            while ch(j) == 35 { j += 1 }
+            return ch(j) == 47 && j > k ? j - k : 0
+        }
+
+        /// Past the closing slash of a Swift bare regex literal starting at `k`.
+        func swiftBareRegexEnd(from k: Int) -> Int? {
+            let first = ch(k + 1)
+            guard first != 32, first != 9, first != 10, first != 0, first != 61 else { return nil }   // not "/ ", "/="
+            var j = k + 1, inClass = false
+            while j < n, ch(j) != 10 {
+                let r = ch(j)
+                if r == 92 { j += 2; continue }
+                if r == 91 { inClass = true } else if r == 93 { inClass = false } else if r == 47, !inClass {
+                    return ch(j - 1) == 32 || ch(j - 1) == 9 ? nil : j + 1   // can't end with a space either
+                }
+                j += 1
+            }
+            return nil
+        }
+
         func regexCanStart(at k: Int) -> Bool {
             var j = k - 1
             while j >= 0, ch(j) == 32 || ch(j) == 9 { j -= 1 }
@@ -245,6 +302,14 @@ extension RulesHintProvider {
         code(until: nil)
         if scan.problem == nil, let open = stack.last { scan.problem = .unclosed(open.0, at: open.1) }
         return scan
+    }
+
+    static let preprocessorConditional = try! NSRegularExpression(pattern: #"(?m)^[ \t]*#[ \t]*(if|ifdef|ifndef|elif|else)\b"#)
+
+    /// C, C++ or Objective-C with #if/#ifdef/#else: its branches can't be
+    /// bracket-counted as one text.
+    static func hasPreprocessorConditional(_ s: NSString) -> Bool {
+        preprocessorConditional.firstMatch(in: s as String, range: NSRange(location: 0, length: s.length)) != nil
     }
 
     // MARK: YAML tabs
@@ -340,9 +405,11 @@ extension RulesHintProvider {
                                           "knock", "chop", "tut", "aye", "yeah", "yes", "well", "far", "many", "more", "again",
                                           "blah", "there", "can", "boo", "choo", "ding", "dum", "hip", "la", "na", "oh", "ho",
                                           "mm", "hmm", "uh", "um", "ah", "go", "wait", "please", "come", "out", "on", "and",
-                                          "round", "over", "bang", "tick", "tock", "hush", "night", "pom", "run", "too", "her", "him"]
+                                          "round", "over", "bang", "tick", "tock", "hush", "night", "pom", "run", "too", "her", "him",
+                                          // Grammatical in other languages: "die die …", "nous nous …".
+                                          "die", "das", "der", "nous", "vous"]
 
-    static let doubledWord = try! NSRegularExpression(pattern: #"\b(\p{L}+)([ \t]+|[ \t]*\n[ \t]*)(\1)\b"#, options: [.caseInsensitive])
+    static let doubledWord = try! NSRegularExpression(pattern: #"\b(\p{L}+)( | *\n *)(\1)\b"#, options: [.caseInsensitive])
 
     /// Doubled words outside Markdown code: the rewrite drops each second word.
     static func duplicateWords(_ s: NSString, lines: [NSRange], markdown: Bool) -> (range: NSRange, replacement: String, count: Int, word: String)? {
@@ -351,11 +418,13 @@ extension RulesHintProvider {
         Self.doubledWord.enumerateMatches(in: s as String, range: NSRange(location: 0, length: s.length)) { m, _, _ in
             guard let m else { return }
             let w = s.substring(with: m.range(at: 1))
-            // The second copy in lower case ("The the", "the the"; not
-            // "Duran Duran"), and across a line break only mid-prose (not
+            // The second copy in lower case and the first the same or
+            // capitalised ("The the", "the the"; not "Duran Duran" or
+            // "ERROR error"), and across a line break only mid-prose (not
             // a column of single words).
             let second = s.substring(with: m.range(at: 3))
-            guard !meantTwice.contains(w.lowercased()), second == second.lowercased(), second == w.lowercased(),
+            guard !meantTwice.contains(w.lowercased()), second == second.lowercased(),
+                  w == second || w == second.prefix(1).uppercased() + second.dropFirst(),
                   !skip.contains(where: { NSLocationInRange(m.range.location, $0) }) else { return }
             if s.substring(with: m.range(at: 2)).contains("\n") {
                 let before = m.range.location - 1, after = NSMaxRange(m.range)
@@ -443,6 +512,10 @@ extension RulesHintProvider {
         let scan = scans && whole ? Self.scanCode(text, language: lang) : nil
         if let p = scan?.problem {
             switch p {
+            case .unexpected where lang == "c" && Self.hasPreprocessorConditional(text):
+                // #if / #else branches each open or close their own copy of
+                // a bracket: counted together they never balance.
+                break
             case .unexpected(let ch, let at):
                 hint(Self.bracketsID, .warning, String(localized: "An extra “\(String(ch))” \(Self.whereText(text, at, whole: true))."),
                      String(localized: "Nothing before it opens it."), NSRange(location: at, length: 1), nil)
@@ -450,6 +523,8 @@ extension RulesHintProvider {
                 hint(Self.bracketsID, .warning, String(localized: "“\(String(opener))” closed by “\(String(ch))” \(Self.whereText(text, at, whole: true))."),
                      String(localized: "The “\(String(opener))” opens \(Self.whereText(text, openedAt, whole: true)); a bracket is missing or extra in between."),
                      NSRange(location: at, length: 1), nil)
+            case .unclosed where lang == "c" && Self.hasPreprocessorConditional(text):
+                break
             case .unclosed(let ch, let at) where facts.unsavedSince == nil:
                 // Only for a saved file: while typing, an open bracket is normal.
                 hint(Self.bracketsID, .warning, String(localized: "“\(String(ch))” \(Self.whereText(text, at, whole: true)) is never closed."),

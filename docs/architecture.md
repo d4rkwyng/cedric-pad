@@ -363,8 +363,11 @@ offers hints in a speech bubble.
   `OwlFactsAwareProvider`.
   `MoreRules.swift` adds (in the order offered): merge-conflict markers,
   secrets (warning, no fix), JSON that doesn't parse, brackets (a small
-  lexer skipping strings, comments, JS regexes and Swift/JS
-  interpolations; whole documents only, "never closed" only when saved),
+  lexer skipping strings, comments, JS and Swift regexes and Swift/JS
+  interpolations; whole documents only, "never closed" only when saved,
+  and no "never closed" or extra closer in C with `#if`/`#else`), the
+  word typed twice (one plain space or a line break between; not
+  case-differing pairs, nor "die die", "nous nous" and the like),
   curly quotes in code, YAML tabs, then mixed indentation (minority →
   majority), invisible characters, to-do list → checkboxes, plain text
   that sniffs as Markdown/HTML/JSON (`rules.language-guess.<lang>`, "Use

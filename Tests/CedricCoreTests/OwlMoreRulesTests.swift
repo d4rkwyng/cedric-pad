@@ -56,6 +56,22 @@ import Testing
         }
     }
 
+    @Test func apiKeysNeedTheirShape() throws {
+        // Obviously fake keys, built in pieces: a random-looking mix of upper, lower and digits.
+        let body = String(repeating: "FaKe0", count: 8)
+        for k in ["s" + "k-" + body, "s" + "k-ant-" + "api03-" + body + "_x-Y", "s" + "k-proj-" + body + "-Ab_9"] {
+            let h = try #require(find(RulesHintProvider.secretID, "key = \(k)\n"), "\(k)")
+            #expect(h.detail?.contains("OpenAI or Anthropic") == true)
+        }
+        // Slugs and words after "sk-" aren't keys.
+        for s in ["s" + "k-learn-model-selection-cross-validation-guide-v2",
+                  "s" + "k-" + String(repeating: "a", count: 40),
+                  "s" + "k-ant-" + "this-is-just-a-long-lower-case-hyphenated-slug",
+                  "s" + "k-" + String(repeating: "Ab", count: 20)] {
+            #expect(find(RulesHintProvider.secretID, "see \(s) for details\n") == nil, "\(s)")
+        }
+    }
+
     @Test func invalidJSONSaysWhere() throws {
         let text = "{\n  \"a\": 1,\n  \"b\": [1, 2,]\n}\n"
         let h = try #require(find(RulesHintProvider.jsonInvalidID, text, language: "json"))
@@ -91,6 +107,18 @@ import Testing
             ("css", "a { background: url(\"x).png\"); } /* { */\n"),
         ]
         for (lang, code) in fine { #expect(find(RulesHintProvider.bracketsID, code, language: lang) == nil, "\(lang)") }
+        // C with #if/#else branches that each open a brace: not "never closed", nor an extra closer.
+        let ifdef = "#ifdef WIN32\nif (a) {\n#else\nif (b) {\n#endif\n    run();\n}\n"
+        #expect(find(RulesHintProvider.bracketsID, ifdef, language: "c") == nil)
+        let ifdef2 = "void f() {\n#if X\n}\n#else\n}\n#endif\n"
+        #expect(find(RulesHintProvider.bracketsID, ifdef2, language: "c") == nil)
+        // Without conditionals it still warns.
+        #expect(find(RulesHintProvider.bracketsID, "void f() {\n  g();\n", language: "c")?.title == "“{” on line 1 is never closed.")
+        // Swift regex literals: bare and extended.
+        let regexes = "let a = /[(]+/\nlet b = #/\\d+ ( [a-z\n]* /#\nlet c = x.firstMatch(of: /\\)/)\nlet d = e / (f / g)\n"
+        #expect(find(RulesHintProvider.bracketsID, regexes, language: "swift") == nil)
+        // Division isn't taken for a regex: a real missing closer after it is still found.
+        #expect(find(RulesHintProvider.bracketsID, "let d = (e / f\nlet g = [1, 2)\n", language: "swift") != nil)
         // Not for languages it can't lex well, nor a window.
         #expect(find(RulesHintProvider.bracketsID, "case $x in\n a) echo;;\nesac\n", language: "shell") == nil)
         #expect(find(RulesHintProvider.bracketsID, swift, language: "swift", facts: .init(isWholeDocument: false)) == nil)
@@ -173,6 +201,12 @@ import Testing
             #expect(find(RulesHintProvider.duplicateWordID, s) == nil, "\(s)")
         }
         #expect(find(RulesHintProvider.duplicateWordID, "int int x;", language: "c") == nil)
+        // Tab-separated columns, case-differing pairs, grammatical doubles in other languages.
+        for s in ["name\tname\tage\n", "ERROR error in step 2\n", "Error ERROR\n", "Ich glaube, die die Regeln kennen.",
+                  "Das das stimmt.", "Nous nous sommes levés.", "Vous vous trompez.", "Der der Mann.", "error  error\n"] {
+            #expect(find(RulesHintProvider.duplicateWordID, s) == nil, "\(s)")
+        }
+        #expect(find(RulesHintProvider.duplicateWordID, "The the end.\n") != nil)
         #expect(find(RulesHintProvider.duplicateWordID, "Run `go go` now\n", language: "markdown") == nil)
         #expect(find(RulesHintProvider.duplicateWordID, "```\nthe the\n```\n", language: "markdown") == nil)
     }
