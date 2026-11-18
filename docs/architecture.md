@@ -31,7 +31,10 @@ Writes are atomic; buffers are written before the session that refers to
 them; orphan buffers are pruned after each save.
 
 - Every edit schedules a save 1.5 s later (coalesced). Only tabs whose
-  change count moved since their last buffer write are rewritten.
+  change count moved since their last buffer write are rewritten. A
+  tab's written count moves only after its write succeeded (a failed one
+  is logged and retried by the next save), because hot close skips its
+  own write when the count matches (`CEDRIC_CHECK=closefail`).
 - Quit (`applicationShouldTerminate`) saves synchronously and returns
   `.terminateNow`: no prompts. Windows closed by termination keep their
   buffers. A tab the user closes doesn't ask (hot close): its unsaved

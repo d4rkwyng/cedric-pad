@@ -6,7 +6,7 @@ import CedricCore
 /// through the menus' key equivalents and the text view, then the text,
 /// the state and the drawn pixels are checked.
 ///
-///   CEDRIC_CHECK=highlight|lineops|bookmarks|closedtab|autoedit|counts
+///   CEDRIC_CHECK=highlight|lineops|bookmarks|closedtab|closefail|autoedit|counts
 @MainActor
 extension DevChecks {
     static func editingCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -15,6 +15,7 @@ extension DevChecks {
         case "lineops": lineOps(app)
         case "bookmarks": bookmarks(app)
         case "closedtab": closedTab(app)
+        case "closefail": closeAfterFailedSave(app)
         case "autoedit": autoEdit(app)
         case "counts": counts(app)
         default: return gapCheck(name, app)
@@ -369,6 +370,47 @@ extension DevChecks {
                 expect(key("t", [.command, .shift]) == false || app.tabs.count == 2, "⇧⌘T with nothing closed does nothing")
             },
             snapshot("reopened-tab.png"),
+        ])
+    }
+
+    /// A timed session save whose buffer write fails, then a hot close:
+    /// the close must still write the text (it used to trust the failed
+    /// save and keep the older buffer). Needs session saving on (run
+    /// without CEDRIC_NO_SESSION_SAVE, in a throwaway CEDRIC_SESSION_DIR).
+    static func closeAfterFailedSave(_ app: AppDelegate) {
+        let file = app.open(write("failed-save.txt", "on disk\n"))!
+        sized(file)
+        let dir = app.store.directory.path
+        let fm = FileManager.default
+        func buffer() -> String? { app.store.readBuffer(file.doc.id) }
+        run([
+            sync {
+                expect(ProcessInfo.processInfo.environment["CEDRIC_NO_SESSION_SAVE"] != "1", "session saving is on for this check")
+                focus(file)
+                file.textView.setSelectedRange(NSRange(location: 7, length: 0))
+                type(" one")
+            },
+            sync {
+                app.saveSession(sync: true)
+                expect(buffer() == "on disk one\n", "a timed save writes the buffer", buffer() ?? "-")
+                type(" two")
+            },
+            sync {
+                // The buffer can't be written now (as on a full disk or a
+                // folder made read-only).
+                try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir)
+                app.saveSession(sync: true)
+                expect(buffer() == "on disk one\n", "the save's buffer write failed", buffer() ?? "-")
+                expect(file.doc.sessionChangeCount != file.doc.changeCount, "and the tab isn't counted as written")
+                try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir)
+                key("w", [.command])
+            },
+            sync {
+                expect(!app.tabs.contains { $0 === file }, "⌘W closes the tab")
+                expect(app.closedTabs.last?.hasBuffer == true, "it is remembered with its text")
+                expect(buffer() == "on disk one two\n", "the close wrote the latest text, not the older buffer", buffer() ?? "-")
+                try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir)
+            },
         ])
     }
 

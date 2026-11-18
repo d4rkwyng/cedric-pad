@@ -272,6 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         var windows: [SessionWindow] = []
         var keep = Set<UUID>()
         var buffers: [(UUID, String)] = []
+        var written: [UUID: (EditorDocument, Int)] = [:]
         for group in tabGroups() {
             var sessionTabs: [SessionTab] = []
             var selected = 0
@@ -281,10 +282,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 let needsBuffer = d.isDirty || d.fileURL == nil && !isEmpty
                 if needsBuffer {
                     keep.insert(d.id)
-                    if d.sessionChangeCount != d.changeCount {
+                    if d.sessionChangeCount != d.changeCount, d.sessionWritingCount != d.changeCount {
                         // One copy of the text (the storage keeps changing).
                         buffers.append((d.id, t.text))
-                        d.sessionChangeCount = d.changeCount
+                        written[d.id] = (d, d.changeCount)
+                        // sessionChangeCount moves only once the write has
+                        // worked (finished, below): hot close skips its own
+                        // write when it matches, so a failed write must not
+                        // look done.
+                        d.sessionWritingCount = d.changeCount
                     }
                 } else {
                     d.sessionChangeCount = -1
@@ -309,9 +315,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let session = Session(windows: windows, closedTabs: closedTabs.isEmpty ? nil : closedTabs)
         let store = self.store
         let toWrite = buffers, keeping = keep
-        let write: @Sendable () -> Void = {
+        let write: @Sendable () -> Set<UUID> = {
+            var ok = Set<UUID>()
             for (id, text) in toWrite {
-                do { try store.writeBuffer(id, text: text) } catch {
+                do {
+                    try store.writeBuffer(id, text: text)
+                    ok.insert(id)
+                } catch {
                     FileHandle.standardError.write(Data("session: buffer write failed: \(error)\n".utf8))
                 }
             }
@@ -321,8 +331,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             } catch {
                 FileHandle.standardError.write(Data("session: save failed: \(error)\n".utf8))
             }
+            return ok
         }
-        if sync { sessionQueue.sync(execute: write) } else { sessionQueue.async(execute: write) }
+        // Each written tab's count, once its write is done: advanced if it
+        // worked, else left as it was so the next save (or a close) tries again.
+        let finished: @MainActor (Set<UUID>) -> Void = { ok in
+            for (id, (d, count)) in written {
+                if d.sessionWritingCount == count { d.sessionWritingCount = -1 }
+                if ok.contains(id) { d.sessionChangeCount = count }
+            }
+        }
+        if sync {
+            finished(sessionQueue.sync(execute: write))
+        } else {
+            sessionQueue.async {
+                let ok = write()
+                DispatchQueue.main.async { MainActor.assumeIsolated { finished(ok) } }
+            }
+        }
     }
 
     /// A restored tab not built yet: each window's selected tab is built

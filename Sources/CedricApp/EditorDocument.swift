@@ -27,8 +27,13 @@ final class EditorDocument {
     /// Edits since open; compared with the count at the last save.
     private(set) var changeCount = 0
     private var savedChangeCount = 0
-    /// The change count the session store last saved a buffer for.
+    /// The change count the session store last saved a buffer for: set
+    /// only once that write has succeeded (hot close trusts it to skip
+    /// its own write).
     var sessionChangeCount = -1
+    /// The change count of a buffer write queued and not yet done, so the
+    /// next timed save doesn't queue the same text again; -1 if none.
+    var sessionWritingCount = -1
 
     var isDirty: Bool { changeCount != savedChangeCount }
     /// When the document last went from saved to unsaved (the owl's "Save a copy?").
