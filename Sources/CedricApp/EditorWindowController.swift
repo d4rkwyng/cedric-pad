@@ -53,6 +53,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Built the first time it is used (an NSSearchField and its row cost
     /// ~5 ms of every tab's launch otherwise).
     private(set) lazy var findBar: FindBar = makeFindBar()
+    /// Whether the find bar exists and shows (without building it).
+    var isFindBarOpen: Bool { findBarBuilt && !findBar.isHidden }
+    private var findBarBuilt = false
     private var stack: NSStackView!
     let statusBar = StatusBar()
     let split = NSSplitView()
@@ -167,6 +170,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         findBar.onClose = { [weak self] in self?.hideFindBar() }
         // Between the large-document bar and the editor.
         stack.insertArrangedSubview(findBar, at: 1)
+        findBarBuilt = true
         return findBar
     }
 

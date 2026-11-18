@@ -43,6 +43,9 @@ extension AppDelegate {
     /// The tab has closed (not by quitting): remember it, keep or delete
     /// its buffer, and save the session now.
     func rememberClosed(_ t: EditorWindowController) {
+        // Restored tabs not built yet (AppDelegate.restoreNextPending) are
+        // built first, so the save below keeps them and their bookmarks.
+        finishRestore()
         let d = t.doc
         let empty = (t.textView.textStorage?.length ?? 0) == 0
         // An empty untitled tab isn't worth remembering.
@@ -78,6 +81,9 @@ extension AppDelegate {
 
     @objc func reopenClosedTab(_ sender: Any?) {
         guard let st = closedTabs.popLast() else { NSSound.beep(); return }
+        // A restored tab for the same file may not be built yet: build them
+        // all first, so the check below sees it and it isn't opened twice.
+        finishRestore()
         var text: String? = closedTexts.removeValue(forKey: st.id) ?? (st.hasBuffer ? store.readBuffer(st.id) : nil)
         var url = st.path.map { URL(fileURLWithPath: $0) }
         if let u = url, let open = tabs.first(where: { $0.doc.fileURL?.standardizedFileURL == u.standardizedFileURL }) {

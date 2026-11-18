@@ -332,7 +332,7 @@ extension EditorWindowController {
     func bookmarkAllMatches() -> Int {
         let ns = textView.string as NSString
         var ranges: [NSRange] = []
-        if !findBar.isHidden, !findBar.findField.stringValue.isEmpty,
+        if isFindBarOpen, !findBar.findField.stringValue.isEmpty,
            let re = try? FindEngine.regex(findBar.findField.stringValue, findBar.options) {
             ranges = FindEngine.matches(re, in: ns).map(\.range)
         } else if let needle = Occurrences.needle(selection: textView.selectedRange(), in: ns) {

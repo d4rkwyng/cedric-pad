@@ -28,6 +28,8 @@ import WebKit
 ///   CEDRIC_TEST_TYPE_UNTITLED=t   open a new untitled tab and type this
 ///   CEDRIC_TEST_CLOSE_LAST=1      then close the newest tab (as ⌘W does; session tests)
 ///   CEDRIC_TEST_REOPEN_CLOSED=1   then reopen the newest closed tab (as ⇧⌘T does)
+///   CEDRIC_TEST_EARLY_CLOSE=1     close the selected tab 0.5 s in, before deferred tabs are built
+///   CEDRIC_TEST_EARLY_REOPEN=1    reopen the newest closed tab 0.5 s in, likewise
 ///   CEDRIC_SESSION_DUMP=1         print the restored tabs and closed tabs, and quit
 ///   CEDRIC_TYPE_CHECK=1           run the typing check (TypingCheck.swift), print results, quit
 ///   CEDRIC_LAUNCH_METRICS=1       print "metric launch_ms=…" (process start → first window drawn)
@@ -84,12 +86,22 @@ enum DevHooks {
 
     /// Variables that don't inspect or drive the tabs after launch.
     static let launchOnly: Set<String> = ["CEDRIC_SESSION_DIR", "CEDRIC_NO_SESSION_SAVE", "CEDRIC_NO_RESTORE", "CEDRIC_OPEN",
-                                          "CEDRIC_THEME", "CEDRIC_LAUNCH_TRACE", "CEDRIC_RESTORE_DELAY"]
+                                          "CEDRIC_THEME", "CEDRIC_LAUNCH_TRACE", "CEDRIC_RESTORE_DELAY",
+                                          "CEDRIC_TEST_EARLY_CLOSE", "CEDRIC_TEST_EARLY_REOPEN"]
 
     static func afterLaunch(_ app: AppDelegate) {
         // The hooks below expect every restored tab to exist now, not
         // after the first frame (AppDelegate.restoreNextPending).
         if env.keys.contains(where: { $0.hasPrefix("CEDRIC_") && !launchOnly.contains($0) }) { app.finishRestore() }
+        // Session check: close the selected tab, or reopen the newest closed
+        // one, half a second in, while the other restored tabs are still
+        // waiting to be built (run with a long CEDRIC_RESTORE_DELAY).
+        if env["CEDRIC_TEST_EARLY_CLOSE"] == "1" || env["CEDRIC_TEST_EARLY_REOPEN"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if env["CEDRIC_TEST_EARLY_CLOSE"] == "1", let tab = app.currentTab ?? app.tabs.last { tab.window?.performClose(nil) }
+                if env["CEDRIC_TEST_EARLY_REOPEN"] == "1" { app.reopenClosedTab(nil) }
+            }
+        }
         if let s = env["CEDRIC_SNAPSHOT_SIZE"]?.split(separator: "x"), s.count == 2, let w = Double(s[0]), let h = Double(s[1]) {
             for t in app.tabs { t.window?.setContentSize(NSSize(width: w, height: h)) }
         }
