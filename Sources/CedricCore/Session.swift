@@ -161,18 +161,18 @@ public enum ClosedTabs {
     /// How many closed tabs are remembered.
     public static let limit = 50
 
-    /// `tab` pushed on `list` (newest last). Past `limit`, the oldest tab
-    /// without unsaved text goes first; only when every remembered tab has
-    /// unsaved text does the oldest of those go. Returns the new list and
-    /// what was dropped (whose buffers the caller deletes).
+    /// `tab` pushed on `list` (newest last). Past `limit`, the oldest tabs
+    /// without unsaved text go. A tab with unsaved text is never dropped
+    /// (its buffer would be deleted, and that text is nowhere else): when
+    /// they alone pass the limit, the list grows past it. Returns the new
+    /// list and what was dropped (whose buffers the caller deletes).
     public static func push(_ tab: SessionTab, onto list: [SessionTab], limit: Int = ClosedTabs.limit)
         -> (list: [SessionTab], dropped: [SessionTab]) {
         // Reopening and closing the same tab again: one entry.
         var out = list.filter { $0.id != tab.id }
         out.append(tab)
         var dropped: [SessionTab] = []
-        while out.count > max(1, limit) {
-            let i = out.firstIndex { !$0.hasBuffer } ?? 0
+        while out.count > max(1, limit), let i = out.firstIndex(where: { !$0.hasBuffer }) {
             dropped.append(out.remove(at: i))
         }
         return (out, dropped)

@@ -26,10 +26,25 @@ import Testing
         // c1 (the oldest without unsaved text) went, not d1.
         #expect(list.map(\.untitledName) == ["d1", "d2", "c2"])
         #expect(dropped.map(\.untitledName) == ["c1"])
-        // All unsaved: only then does the oldest unsaved one go.
+    }
+
+    @Test func unsavedTabsAreNeverDropped() {
+        // All unsaved: none goes (its buffer would be deleted); the list grows past the limit.
         let r = ClosedTabs.push(tab("d3", dirty: true), onto: [tab("x", dirty: true), tab("y", dirty: true)], limit: 2)
-        #expect(r.list.map(\.untitledName) == ["y", "d3"])
-        #expect(r.dropped.map(\.untitledName) == ["x"])
+        #expect(r.list.map(\.untitledName) == ["x", "y", "d3"])
+        #expect(r.dropped.isEmpty)
+        // A clean tab pushed onto a full list of unsaved ones: the clean one is what goes.
+        let c = ClosedTabs.push(tab("c", dirty: false), onto: r.list, limit: 2)
+        #expect(c.list.map(\.untitledName) == ["x", "y", "d3"])
+        #expect(c.dropped.map(\.untitledName) == ["c"])
+        // 60 unsaved closes at the default limit of 50: all 60 kept.
+        var list: [SessionTab] = []
+        for n in 0..<60 {
+            let p = ClosedTabs.push(tab("u\(n)", dirty: true), onto: list)
+            #expect(p.dropped.isEmpty)
+            list = p.list
+        }
+        #expect(list.count == 60)
     }
 
     @Test func savedWithTheSession() throws {

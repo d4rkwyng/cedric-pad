@@ -36,8 +36,9 @@ them; orphan buffers are pruned after each save.
   `.terminateNow`: no prompts. Windows closed by termination keep their
   buffers. A tab the user closes doesn't ask (hot close): its unsaved
   text is written to its buffer synchronously before the window goes, it
-  joins `Session.closedTabs` (newest last, `ClosedTabs.limit` 50, clean
-  tabs dropped first) and the session is saved at once, so the buffer is
+  joins `Session.closedTabs` (newest last, `ClosedTabs.limit` 50: clean
+  tabs are dropped; tabs with unsaved text never are, so the list may
+  grow past 50) and the session is saved at once, so the buffer is
   never pruned and a kill -9 right after keeps it. File › Reopen Closed
   Tab (⇧⌘T) pops the newest, with the same id (the buffer stays its
   buffer). If writing the buffer fails, closing asks as before.

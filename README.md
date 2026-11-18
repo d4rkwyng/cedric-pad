@@ -17,7 +17,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   session first, and **File › Reopen Closed Tab** (⇧⌘T) brings it back,
   unsaved changes and all, even after a quit or a crash. The last 50
   closed tabs are remembered (tabs without unsaved text are forgotten
-  first).
+  first; a closed tab with unsaved text is never forgotten).
 - **Fast to open.** TextKit 2 lays out only what is on screen; a 10 MB JSON
   file opens and is coloured in under 0.1 s, a 50 MB log in about 0.2 s on an
   M-series Mac (see Performance below).
