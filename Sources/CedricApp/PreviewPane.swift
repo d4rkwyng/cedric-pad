@@ -129,8 +129,10 @@ final class PreviewBar: NSView {
         }
     }
 
-    func apply(_ s: PreviewBarState) {
-        guard s != state || buttons.values.allSatisfy({ $0.image == nil }) else { return }
+    /// Shows `s`; false (and nothing done) when it is what is shown already.
+    @discardableResult
+    func apply(_ s: PreviewBarState) -> Bool {
+        guard s != state || buttons.values.allSatisfy({ $0.image == nil }) else { return false }
         let itemsChanged = s.items != state.items
         state = s
         for item in PreviewBarItem.allCases { view(item)?.isHidden = !s.items.contains(item) }
@@ -155,6 +157,7 @@ final class PreviewBar: NSView {
         rowLabel.setAccessibilityLabel(s.rowCount)
         if itemsChanged { needsLayout = true }
         layoutRowLabel()
+        return true
     }
 
     /// Symbol, label, tooltip and on-state for an item.

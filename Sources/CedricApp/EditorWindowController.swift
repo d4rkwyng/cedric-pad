@@ -1151,8 +1151,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         s.detached = previewDetached
         s.sorted = csv?.isSorted ?? false
         s.rowCount = csv?.rowCountText ?? ""
-        pane.bar.apply(s)
-        pane.needsLayout = true
+        // Called after every render: a no-op unless something changed.
+        if pane.bar.apply(s) { pane.needsLayout = true }
     }
 
     /// A preview bar button.
