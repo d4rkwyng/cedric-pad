@@ -68,6 +68,12 @@ final class Settings {
         set { defaults.set(newValue, forKey: "showOwl"); NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil) }
     }
 
+    /// View › Check Spelling While Typing: on by default.
+    var checkSpellingWhileTyping: Bool {
+        get { defaults.object(forKey: "checkSpellingWhileTyping") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "checkSpellingWhileTyping"); changed() }
+    }
+
     /// The checks move the owl without saving where he is.
     var owlPlacementInMemory: OwlPlacement?
     var owlPlacementSaves = ProcessInfo.processInfo.environment["CEDRIC_NO_SESSION_SAVE"] != "1"

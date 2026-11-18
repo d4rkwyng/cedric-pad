@@ -64,6 +64,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var onClose: ((EditorWindowController) -> Void)?
     /// Cedric the owl, while View › Show Cedric the Owl is on.
     private(set) var owl: OwlController?
+    /// Spell checking in scope (Spelling.swift).
+    private(set) lazy var spelling = EditorSpelling(tab: self)
     /// View › Follow File (EditorTools.swift).
     var tail: FileTail?
 
@@ -246,6 +248,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if let owl {
             owl.noteTyping()
             OwlHub.shared.activity(in: self)
+            spelling.schedule()
         }
         onChange?(self)
     }
@@ -324,6 +327,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         textView.needsDisplay = true
         if previewVisible { renderPreview() }
         owl?.layoutViews()
+        spelling.apply()
     }
 
     private func applyWrap(_ wrap: Bool) {
@@ -402,6 +406,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private func languageChanged() {
         let l = doc.language
         colorizer.setLanguage(l)
+        // What counts as a word changed (code vs prose): check again.
+        if textView.isContinuousSpellCheckingEnabled { textView.isContinuousSpellCheckingEnabled = false; textView.isContinuousSpellCheckingEnabled = true }
+        textView.markedMisspellings = []
         updateStatus()
         if previewVisible, !l.hasPreview { togglePreview() }
         onChange?(self)
@@ -630,6 +637,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         previewTimer?.invalidate()
         owl?.detach()
         sniffTimer?.invalidate()
+        spelling.stop()
         OwlHub.shared.closed(self)
         tail?.stop()
         tail = nil

@@ -320,6 +320,35 @@ final class OwlController: NSObject, NSPopoverDelegate {
         showBubble(hint, buttons: buttons(for: hint, tab: tab))
     }
 
+    // MARK: Typos
+
+    static let typoFixID = "spelling.fixTypos"
+
+    /// Prose with three or more fixable misspellings in view: "Fix 3
+    /// typos?", applying the first suggestion for each as one undo step
+    /// (through `applyPresented`, like any hint with a replacement). Once
+    /// per document unless snoozed; never over another bubble, while
+    /// quiet, or when turned off with "Don't show again".
+    func offerTypoFix(_ spelling: EditorSpelling, tab: EditorWindowController) {
+        let hub = OwlHub.shared
+        guard bubble == nil, !hub.coordinator.isQuiet else { return }
+        let window = tab.owlContextWindow()
+        let ctx = window.context
+        let probe = OwlHint(id: Self.typoFixID, kind: .fix, title: "", source: "rules")
+        guard hub.coordinator.isEligible(probe, documentID: tab.doc.id) else { return }
+        // Only what the owl can see in his context window.
+        let ctxRange = NSRange(location: ctx.textStart, length: (ctx.text as NSString).length)
+        let found = spelling.misspellings(in: ctxRange)
+        guard let fix = spelling.typoFix(found) else { return }
+        let local = NSRange(location: fix.range.location - ctx.textStart, length: fix.range.length)
+        guard local.location >= 0, NSMaxRange(local) <= (ctx.text as NSString).length else { return }
+        let hint = OwlHint(id: Self.typoFixID, kind: .fix, title: String(localized: "Fix \(fix.count) typos?"),
+                           detail: String(localized: "Uses the first spelling suggestion for each, as one undo step."),
+                           range: local, replacement: fix.replacement, source: "rules")
+        hub.coordinator.markShown(hint, documentID: tab.doc.id)
+        present(hint, context: ctx)
+    }
+
     private func buttons(for hint: OwlHint, tab: EditorWindowController) -> [OwlBubble.Button] {
         let hub = OwlHub.shared
         if hint.id == RulesHintProvider.letterID {

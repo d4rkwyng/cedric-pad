@@ -339,6 +339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func toggleWrap(_ sender: Any?) { Settings.shared.wrapLines.toggle() }
     @objc func toggleInvisibles(_ sender: Any?) { Settings.shared.showInvisibles.toggle() }
     @objc func toggleLineNumbers(_ sender: Any?) { Settings.shared.showLineNumbers.toggle() }
+    @objc func toggleSpellingWhileTyping(_ sender: Any?) { Settings.shared.checkSpellingWhileTyping.toggle() }
+    @objc func checkDocumentNow(_ sender: Any?) { currentTab?.spelling.selectNext() }
     @objc func toggleOwl(_ sender: Any?) { Settings.shared.showOwl.toggle() }
     @objc func showAISettings(_ sender: Any?) { AISettingsSheet.show(on: currentTab?.window) }
     @objc func pickOwlHintSource(_ sender: NSMenuItem) {
@@ -367,6 +369,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleWrap(_:)): item.state = s.wrapLines ? .on : .off
         case #selector(toggleInvisibles(_:)): item.state = s.showInvisibles ? .on : .off
         case #selector(toggleLineNumbers(_:)): item.state = s.showLineNumbers ? .on : .off
+        case #selector(toggleSpellingWhileTyping(_:)): item.state = s.checkSpellingWhileTyping ? .on : .off
+        case #selector(checkDocumentNow(_:)): return tab != nil
         case #selector(toggleOwl(_:)): item.state = s.showOwl ? .on : .off
         case #selector(pickOwlHintSource(_:)):
             // "Rules + AI" stays off until an AI provider registers.

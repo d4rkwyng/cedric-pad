@@ -282,4 +282,105 @@ enum PolishCheck {
             }
         }
     }
+
+    // MARK: Spelling
+
+    /// Comment-only checking in Swift, prose in Markdown (red underlines
+    /// rendered in the light and dark themes), text colours untouched, and
+    /// the owl's "Fix 3 typos?" as one undo step.
+    static func spelling(_ app: AppDelegate, out: String, report: Report) {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cedric-spelling-\(getpid())")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let swift = "let mispeled = 1 // this comment has a mispeled word\nlet b = \"a mispeled string\"\n"
+        let md = "# Notes\n\nThis is a sentense with a tpyo.\nSee `codde` and [the dcos](https://exmple.com).\n"
+        for (i, c) in [TypingCheck.themes[2], TypingCheck.themes[3]].enumerated() {
+            TypingCheck.apply(c)
+            for (file, text) in [("typos.swift", swift), ("typos.md", md)] {
+                let url = dir.appendingPathComponent(file)
+                try? text.write(to: url, atomically: true, encoding: .utf8)
+                guard let tab = app.open(url), let w = tab.window else { report(false, "spelling/\(file)", "didn't open"); continue }
+                w.setContentSize(NSSize(width: 900, height: 420))
+                w.makeKeyAndOrderFront(nil)
+                let tv = tab.textView
+                let colours = { () -> [String] in
+                    var out: [String] = []
+                    tv.textStorage?.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: tv.textStorage!.length)) { v, r, _ in
+                        out.append("\(r.location),\(r.length):\((v as? NSColor)?.description ?? "-")")
+                    }
+                    return out
+                }
+                TypingCheck.settle(0.3)
+                let before = colours()
+                tv.checkTextInDocument(nil)
+                let ns = tv.string as NSString
+                // Continuous checking answers asynchronously: wait for both words.
+                var marked: [String] = []
+                let until = Date().addingTimeInterval(4)
+                repeat {
+                    TypingCheck.settle(0.1)
+                    marked = tv.markedMisspellings.map { ns.substring(with: $0) }.sorted()
+                } while marked.count < 2 && Date() < until
+                TypingCheck.settle(0.2)
+                marked = tv.markedMisspellings.map { ns.substring(with: $0) }.sorted()
+                if i == 0 {
+                    if file.hasSuffix("swift") {
+                        // The identifier "mispeled" is not marked; the comment's and the string's are.
+                        let first = ns.range(of: "mispeled")
+                        let idMarked = tv.markedMisspellings.contains { $0.location == first.location }
+                        report(!idMarked && marked == ["mispeled", "mispeled"], "spelling/swift-comments-and-strings-only",
+                               "marked=\(tv.markedMisspellings.map(\.location)) identifier at \(first.location)")
+                    } else {
+                        report(marked == ["sentense", "tpyo"], "spelling/markdown-prose-not-code-or-links", "marked=\(marked)")
+                    }
+                    report(before == colours(), "spelling/\(file)/colours-untouched", "runs before=\(before.count) after=\(colours().count)")
+                    report(tv.textLayoutManager != nil, "spelling/\(file)/textkit2", "still TextKit 2")
+                }
+                _ = render(w, "\(out)/spelling-\(c.name)-\((file as NSString).pathExtension).png")
+                tab.doc.markSaved()
+                w.close()
+                TypingCheck.settle(0.05)
+            }
+        }
+
+        // The owl: three typos in Markdown prose → "Fix 3 typos?" → one undo step.
+        TypingCheck.apply(TypingCheck.themes[2])
+        let url = dir.appendingPathComponent("owl-typos.md")
+        try? "# Owl\n\nI beleive teh owl is verry wise, said NASA.\n".write(to: url, atomically: true, encoding: .utf8)
+        Settings.shared.owlOverride = true
+        NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil)
+        guard let tab = app.open(url), let w = tab.window, let owl = tab.owl else { report(false, "spelling/owl", "no tab or owl"); return }
+        w.setContentSize(NSSize(width: 900, height: 420))
+        w.makeKeyAndOrderFront(nil)
+        let tv = tab.textView
+        tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
+        w.makeFirstResponder(tv)
+        // What typing does (textDidChange → spelling.schedule), without an
+        // open typing undo group: injected events never close one.
+        tab.spelling.schedule(after: 0.2)
+        let original = tv.string
+        let deadline = Date().addingTimeInterval(4)
+        while owl.bubble == nil && Date() < deadline { TypingCheck.settle(0.1) }
+        let title = owl.bubble?.hint.title ?? "-"
+        report(title == "Fix 3 typos?", "spelling/owl-offers-fix", "bubble=\(title)")
+        _ = render(w, "\(out)/spelling-owl-offer.png")
+        if let fixIt = owl.bubble?.buttons.first(where: { $0.title == "Fix it" }) {
+            let um = tv.undoManager
+            fixIt.performClick(nil)
+            TypingCheck.settle(0.2)
+            let fixed = tv.string
+            report(fixed == "# Owl\n\nI believe the owl is very wise, said NASA.\n", "spelling/owl-fix-applied", "text=\(fixed.debugDescription)")
+            w.makeFirstResponder(tv)
+            um?.undo()
+            TypingCheck.settle(0.2)
+            report(tv.string == original, "spelling/owl-fix-one-undo", "after one undo=\(tv.string.debugDescription)")
+        } else {
+            report(false, "spelling/owl-fix-applied", "no Fix it button")
+        }
+        Settings.shared.owlOverride = false
+        NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil)
+        tab.doc.markSaved()
+        w.close()
+        TypingCheck.settle(0.05)
+    }
 }
