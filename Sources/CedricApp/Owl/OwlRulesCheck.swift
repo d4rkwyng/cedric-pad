@@ -8,7 +8,8 @@ import CedricCore
 ///   1. Types three "- item" lines under the title; waits for "It looks
 ///      like you're writing a to-do list"; clicks Fix it: the lines are
 ///      Markdown checkboxes and the tab is Markdown. ⌘Z undoes the edit.
-///   2. Types "Fix the the bug"; waits for the doubled-word hint; Fix it.
+///   2. Types "Fix the the bug"; waits for the doubled-word hint; Show Me
+///      selects "the the"; then Fix it.
 ///   3. Types merge-conflict markers; waits for the warning; Show Me
 ///      selects the `<<<<<<<` line.
 ///
@@ -78,12 +79,25 @@ enum OwlRulesCheck {
         guard let window = tab.window else { return }
         typeAtEnd(tab, "Fix the the bug\n")
         waitFor(RulesHintProvider.duplicateWordID, in: tab) { bubble in
-            guard let bubble, let fix = button(bubble, String(localized: "Fix it")) else { OwlCheck.finish(out); return }
-            check(bubble.buttons.count == 3, "Fix it, Not now, Don’t show again")
+            guard let bubble, let show = button(bubble, String(localized: "Show Me")) else { OwlCheck.finish(out); return }
+            check(bubble.buttons.map(\.title) == ["Fix it", "Show Me", "Not now", "Don’t show again"].map { String(localized: String.LocalizationValue($0)) },
+                  "Fix it, Show Me, Not now, Don’t show again (\(bubble.buttons.map(\.title)))")
             OwlCheck.snapshot(window, "\(out)/rules-2-twice.png") {
-                click(fix)
-                check(tab.text.hasSuffix("- [ ] call Mum\nFix the bug\n"), "Fix it removed the second “the”")
-                step3(tab, out: out)
+                click(show)
+                let sel = tab.textView.selectedRange()
+                check((tab.text as NSString).substring(with: sel) == "the the", "Show Me selected the doubled words")
+                // Shown once per document: present the rules' hint again for Fix it.
+                let ctx = tab.owlContextWindow().context
+                guard let again = RulesHintProvider().check(ctx, facts: tab.owlFacts(wholeDocument: true)).first(where: { $0.id == RulesHintProvider.duplicateWordID }) else {
+                    check(false, "the doubled word is still there"); OwlCheck.finish(out); return
+                }
+                tab.owl?.present(again, context: ctx)
+                OwlCheck.after(0.4) {
+                    guard let b2 = tab.owl?.bubble, let fix = button(b2, String(localized: "Fix it")) else { check(false, "Fix it"); OwlCheck.finish(out); return }
+                    click(fix)
+                    check(tab.text.hasSuffix("- [ ] call Mum\nFix the bug\n"), "Fix it removed the second “the”")
+                    step3(tab, out: out)
+                }
             }
         }
     }

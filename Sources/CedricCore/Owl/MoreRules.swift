@@ -409,30 +409,78 @@ extension RulesHintProvider {
                                           // Grammatical in other languages: "die die …", "nous nous …".
                                           "die", "das", "der", "nous", "vous"]
 
-    static let doubledWord = try! NSRegularExpression(pattern: #"\b(\p{L}+)( | *\n *)(\1)\b"#, options: [.caseInsensitive])
+    /// A word and one or more copies of it right after it (one space, or
+    /// a line break inside a paragraph): "the the", "the the the".
+    static let doubledWord = try! NSRegularExpression(pattern: #"\b(\p{L}+)(?:(?: | *\n *)\1\b)+"#, options: [.caseInsensitive])
+    static let nextCopy = try! NSRegularExpression(pattern: #"\G( | *\n *)(\p{L}+)"#)
 
-    /// Doubled words outside Markdown code: the rewrite drops each second word.
+    /// Articles of Spanish, Italian, Portuguese and French that are also
+    /// sung ("la la la"): typed twice only as exactly two copies after a
+    /// word that takes an article ("por la la tarde").
+    static let sungArticles: Set<String> = ["la"]
+    static let beforeArticle: Set<String> = [
+        // Spanish, Portuguese
+        "a", "de", "en", "por", "para", "con", "sin", "sobre", "entre", "hacia", "desde", "hasta", "que", "y", "o",
+        "es", "era", "como", "pero", "ver", "toda", "todo", "em", "com", "pela", "na", "da",
+        // Italian ("tra" and "fra" left out: "tra la la")
+        "di", "in", "su", "per", "e", "è", "sulla", "alla",
+        // French
+        "à", "dans", "sur", "pour", "avec", "sous", "chez", "vers", "et", "est", "c'est", "par",
+    ]
+
+    /// The word before `location` (lower case), skipping spaces.
+    static func wordBefore(_ s: NSString, _ location: Int) -> String {
+        var e = location
+        while e > 0, s.character(at: e - 1) == 32 { e -= 1 }
+        var b = e
+        while b > 0, let u = UnicodeScalar(s.character(at: b - 1)), CharacterSet.letters.contains(u) || u == "'" { b -= 1 }
+        return s.substring(with: NSRange(location: b, length: e - b)).lowercased()
+    }
+
+    /// One run of a doubled word: the first word, and each further copy's
+    /// range (its separator and itself), if it counts as typed twice.
+    static func doubledRun(_ s: NSString, _ m: NSTextCheckingResult, skip: [NSRange]) -> (first: NSRange, copies: [NSRange])? {
+        let firstWord = m.range(at: 1)
+        let w = s.substring(with: firstWord)
+        var copies: [NSRange] = []
+        var at = NSMaxRange(firstWord)
+        while at < NSMaxRange(m.range), let c = nextCopy.firstMatch(in: s as String, range: NSRange(location: at, length: NSMaxRange(m.range) - at)) {
+            copies.append(c.range)
+            at = NSMaxRange(c.range)
+        }
+        guard !copies.isEmpty else { return nil }
+        let lower = w.lowercased()
+        // Meant twice ("that that", "ha ha ha"); an article that is also
+        // sung counts only as exactly two copies after a word that takes it.
+        if meantTwice.contains(lower) {
+            guard sungArticles.contains(lower), copies.count == 1,
+                  beforeArticle.contains(wordBefore(s, firstWord.location)) else { return nil }
+        }
+        // Each copy in lower case and the first the same or capitalised
+        // ("The the", "the the"; not "Duran Duran" or "ERROR error").
+        for c in copies {
+            let second = s.substring(with: NSRange(location: NSMaxRange(c) - firstWord.length, length: firstWord.length))
+            guard second == second.lowercased(), w == second || w == second.prefix(1).uppercased() + second.dropFirst() else { return nil }
+        }
+        guard !skip.contains(where: { NSLocationInRange(m.range.location, $0) }) else { return nil }
+        // Across a line break only mid-prose (not a column of single words).
+        if s.substring(with: m.range).contains("\n") {
+            let before = m.range.location - 1, after = NSMaxRange(m.range)
+            guard before >= 0, s.character(at: before) != 10, after < s.length, s.character(at: after) != 10 else { return nil }
+        }
+        return (firstWord, copies)
+    }
+
+    /// Doubled words outside Markdown code: the rewrite drops every copy
+    /// after the first ("the the the" → "the").
     static func duplicateWords(_ s: NSString, lines: [NSRange], markdown: Bool) -> (range: NSRange, replacement: String, count: Int, word: String)? {
         let skip = markdown ? markdownCodeRanges(s, lines: lines) : []
         var hits: [NSRange] = [], word = ""
         Self.doubledWord.enumerateMatches(in: s as String, range: NSRange(location: 0, length: s.length)) { m, _, _ in
-            guard let m else { return }
-            let w = s.substring(with: m.range(at: 1))
-            // The second copy in lower case and the first the same or
-            // capitalised ("The the", "the the"; not "Duran Duran" or
-            // "ERROR error"), and across a line break only mid-prose (not
-            // a column of single words).
-            let second = s.substring(with: m.range(at: 3))
-            guard !meantTwice.contains(w.lowercased()), second == second.lowercased(),
-                  w == second || w == second.prefix(1).uppercased() + second.dropFirst(),
-                  !skip.contains(where: { NSLocationInRange(m.range.location, $0) }) else { return }
-            if s.substring(with: m.range(at: 2)).contains("\n") {
-                let before = m.range.location - 1, after = NSMaxRange(m.range)
-                guard before >= 0, s.character(at: before) != 10, after < s.length, s.character(at: after) != 10 else { return }
-            }
+            guard let m, let run = doubledRun(s, m, skip: skip) else { return }
             if hits.isEmpty { word = s.substring(with: m.range) }
-            // Drop the separator and the second word.
-            hits.append(NSRange(location: NSMaxRange(m.range(at: 1)), length: NSMaxRange(m.range(at: 3)) - NSMaxRange(m.range(at: 1))))
+            // Drop the separators and the copies.
+            hits.append(NSRange(location: NSMaxRange(run.first), length: NSMaxRange(run.copies.last!) - NSMaxRange(run.first)))
         }
         guard let first = hits.first, let last = hits.last else { return nil }
         let span = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
@@ -443,6 +491,19 @@ extension RulesHintProvider {
         }
         out += s.substring(with: NSRange(location: at, length: NSMaxRange(span) - at))
         return (span, out, hits.count, word.replacingOccurrences(of: "\n", with: " "))
+    }
+
+    /// Show Me for the doubled-word hint: the first doubled run in it (the
+    /// words, "the the"), from the hint's range (which starts right after
+    /// the first word) in `s`, the document or the window the hint came from.
+    public static func doubledWordFocus(_ s: NSString, hintRange: NSRange) -> NSRange? {
+        guard hintRange.location <= s.length else { return nil }
+        var b = hintRange.location
+        while b > 0, let u = UnicodeScalar(s.character(at: b - 1)), CharacterSet.letters.contains(u) { b -= 1 }
+        guard b < hintRange.location else { return nil }
+        let limit = min(s.length - b, max(hintRange.length, 0) + 256)
+        guard let m = doubledWord.firstMatch(in: s as String, options: .anchored, range: NSRange(location: b, length: limit)) else { return nil }
+        return m.range
     }
 
     /// Fenced blocks and indented code spans' lines in Markdown.

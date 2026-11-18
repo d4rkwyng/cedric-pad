@@ -424,6 +424,10 @@ final class OwlController: NSObject, NSPopoverDelegate {
                 // A to-do list in checkboxes reads best coloured as Markdown.
                 if hint.id == RulesHintProvider.todoListID, let tab, tab.doc.language == .plain { tab.setLanguage(.markdown) }
             })
+            if hint.id == RulesHintProvider.duplicateWordID {
+                // Where it is, before fixing blind: selects the doubled words.
+                out.append(.init(title: String(localized: "Show Me"), isDefault: false) { [weak self] in self?.showPresented() })
+            }
         } else if let language = RulesHintProvider.guessedLanguage(hint) {
             out.append(.init(title: String(localized: "Use \(language.displayName)"), isDefault: true) { [weak self, weak tab] in
                 tab?.setLanguage(language); self?.hideBubble()
@@ -477,8 +481,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
         guard let p = presented, let range = p.range, let expected = p.expected, let tv = tab?.textView else { return false }
         let ns = tv.string as NSString
         guard NSMaxRange(range) <= ns.length, ns.substring(with: range) == expected else { NSSound.beep(); return false }
-        tv.setSelectedRange(range)
-        tv.scrollRangeToVisible(range)
+        // A doubled word: the words themselves ("the the"), not the span
+        // the fix rewrites (which starts after the first one).
+        let target = p.hint.id == RulesHintProvider.duplicateWordID
+            ? RulesHintProvider.doubledWordFocus(ns, hintRange: range) ?? range : range
+        tv.setSelectedRange(target)
+        tv.scrollRangeToVisible(target)
         tv.window?.makeFirstResponder(tv)
         return true
     }

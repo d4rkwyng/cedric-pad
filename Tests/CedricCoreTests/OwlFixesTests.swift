@@ -90,8 +90,53 @@ import Testing
         #expect(find(RulesHintProvider.trailingID, poem, language: "markdown") == nil)
     }
 
+    // MARK: F-L2 doubled words
 
+    @Test func doubledWordRunsCollapse() throws {
+        let h = try #require(find(RulesHintProvider.duplicateWordID, "And that was the the the end.\n"))
+        #expect(apply(h, to: "And that was the the the end.\n") == "And that was the end.\n")
+        #expect(h.title == "“the the the”? A word typed twice. Fix it?")
+        let two = try #require(find(RulesHintProvider.duplicateWordID, "the the the end and a a cat"))
+        #expect(apply(two, to: "the the the end and a a cat") == "the end and a cat")
+        // Runs of words meant more than once stay alone.
+        #expect(find(RulesHintProvider.duplicateWordID, "Ha ha ha, very very funny.") == nil)
+        #expect(find(RulesHintProvider.duplicateWordID, "Tra la la la, she sang.") == nil)
+    }
 
+    @Test func romanceArticlesTypedTwice() throws {
+        let es = "Nos vemos por la la tarde en el parque."
+        let h = try #require(find(RulesHintProvider.duplicateWordID, es))
+        #expect(apply(h, to: es) == "Nos vemos por la tarde en el parque.")
+        for s in ["Vamos a la la playa.", "Ci vediamo con la la mamma.", "Vou para la la casa."] {
+            #expect(find(RulesHintProvider.duplicateWordID, s) != nil, "\(s)")
+        }
+        for s in ["El el perro.", "Los los niños juegan.", "Con il il gatto."] {
+            #expect(find(RulesHintProvider.duplicateWordID, s) != nil, "\(s)")
+        }
+        // Singing stays alone.
+        for s in ["She sang la la la all day.", "Tra la la!", "La la land is a film.", "And la la, off she went."] {
+            #expect(find(RulesHintProvider.duplicateWordID, s) == nil, "\(s)")
+        }
+    }
+
+    // MARK: F-M9 Show Me on a doubled word
+
+    @Test func doubledWordFocusSelectsTheWords() throws {
+        let text = "I went to the the shop and saw a a cat."
+        let h = try #require(find(RulesHintProvider.duplicateWordID, text))
+        let focus = try #require(RulesHintProvider.doubledWordFocus(text as NSString, hintRange: h.range!))
+        #expect((text as NSString).substring(with: focus) == "the the")
+        let run = "Then the the the end."
+        let h2 = try #require(find(RulesHintProvider.duplicateWordID, run))
+        let f2 = try #require(RulesHintProvider.doubledWordFocus(run as NSString, hintRange: h2.range!))
+        #expect((run as NSString).substring(with: f2) == "the the the")
+        // Across a line break.
+        let nl = "It was the\nthe end of it."
+        let h3 = try #require(find(RulesHintProvider.duplicateWordID, nl))
+        let f3 = try #require(RulesHintProvider.doubledWordFocus(nl as NSString, hintRange: h3.range!))
+        #expect((nl as NSString).substring(with: f3) == "the\nthe")
+        #expect(RulesHintProvider.doubledWordFocus("no doubles" as NSString, hintRange: NSRange(location: 2, length: 3)) == nil)
+    }
 
     // MARK: F-L1 the letter easter egg needs a letter
 
