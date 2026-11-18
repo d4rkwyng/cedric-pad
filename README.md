@@ -42,6 +42,49 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   tab. Attach Preview docks it again; closing its window closes the
   preview. A detached preview and its window's frame are kept with the
   session (restored just after the window first shows).
+- **Markdown editing:**
+  - **Lists:** Return continues a `-`, `*`, `+`, `1.` or `1)` list (and
+    one in a `> ` block quote) with the same indent; the number goes up
+    and a task item `- [x]` continues as `- [ ]`. Return on an empty item
+    outdents it if it is nested, else ends the list. Tab and ⇧Tab in a
+    list item indent or outdent the item with its sub-items, by the
+    parent's content width (2 under `- `, 3 under `1. `). Ordered lists
+    renumber after Return, Tab and ⇧Tab (a list written `1. 1. 1.` stays
+    so; a nested list starts at 1). Each is one undo step; nothing
+    happens inside fenced code or while an input method is composing.
+  - **Format › Markdown:** Bold ⌘B, Italic ⌘I, Strikethrough ⇧⌘X,
+    Inline Code ⌃\` and Link ⌘K wrap the selection, or with no
+    selection put the pair in with the caret between. Each takes its
+    markers off when they are already there (around or inside the
+    selection, or around the caret's word), so ⌘I on `*word*` doesn't
+    stack another pair. ⌘K turns the selection into `[text](|)` with the
+    caret in the URL, or uses the URL on the clipboard; a selected URL
+    becomes `[](url)`; in a link it unlinks. Only in Markdown tabs.
+  - **Checkboxes:** Format › Markdown › Toggle Checkbox (⌘↩) checks
+    or unchecks `- [ ]` / `- [x]` on the caret's line or every selected
+    line, adds a box to a list item without one, and turns a plain line
+    into `- [ ] line`. One undo step.
+  - **Tables:** in a GFM table, Tab and ⇧Tab move to the next or
+    previous cell (selecting its text) and line up the whole table's
+    pipes; Tab past the last cell adds a row, and Tab after a lone
+    `| a | b |` header builds the `| --- |` row. Return in a row goes to
+    the same cell in the row below (adding one at the end); Return in an
+    empty last row ends the table. Format › Markdown › Format Table
+    lines it up without moving. Widths count East Asian wide characters
+    and emoji as two columns (the CJK fallback font isn't exactly twice
+    SF Mono's width, so on screen those rows can be a pixel or two off);
+    alignment colons are kept. Tables in fenced code, and tables over
+    2,000 lines, are left alone.
+  - **Smart paste:** a URL pasted over a selection makes
+    `[selection](url)` (not in code). An image pasted or dropped on a
+    Markdown tab (an image file, or a picture such as a screenshot on the
+    clipboard) is copied into an `images` folder next to the document and
+    goes in as `![](images/name.png)`; an image already inside the
+    document's folder is linked where it is, not copied. An untitled tab
+    has no folder yet: it inserts nothing and offers Save As. Undo takes
+    the link out but leaves the copied file. Other dropped files still
+    open in their own tabs, and in other languages a dropped image opens
+    as before.
 - **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
   or `.psv` file is a read-only grid: the first line is the header, row
   numbers stay at the left, columns resize, and a click on a header sorts
@@ -89,7 +132,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   one tab (kept with the session) and converts the whole file between
   them. Where spaces were chosen (the file's own, the tab's, or a default
   saved in Settings), Tab inserts spaces to the next tab stop; otherwise
-  it types a tab character, as before.
+  it types a tab character, as before. **YAML always indents with
+  spaces** (2, or the file's own width; the YAML spec forbids tabs), and
+  **Python with 4 spaces** unless the file uses tabs or tabs are the
+  default saved in Settings.
 - **Bookmarks** (Edit › Bookmarks, as in Notepad++): Toggle Bookmark (⌘F2,
   or click a line number), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
   Bookmark All Matches (⌥⌘F2: every line matching the find bar's search,
@@ -104,7 +150,12 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   as one undo step; bookmarks on the lines that stay follow them.
 - **Auto-indent and pairing:** Return keeps the line's indent, one step
   more after `{` `[` `(` (and `:` in Python and YAML); Return between a
-  pair puts the closer on its own line. In code, brackets and quotes close
+  pair puts the closer on its own line. In Python, Return after
+  `return`, `pass`, `break`, `continue` or `raise` steps one level out,
+  and typing the `:` of `else`, `elif`, `except` or `finally` lines the
+  clause up with its `if`, `try`, `for` or `while`. In YAML, Return
+  continues a `- ` item (an empty one ends the list), and after
+  `- key: value` lines up under the key. In code, brackets and quotes close
   themselves (no `'` in Swift or JSON), typing the closer steps over it
   (a quote only over one that pairing typed), Backspace between a pair
   deletes both, and typing one with a selection wraps it (Edit ›
@@ -192,7 +243,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   formulas' cached values; dates come out as their serial numbers). File ›
   Open in <default app>. Registered as an alternate viewer.
 - **Drop a file on the text to open it** (in its own tab), rather than
-  pasting its path; dropped text is inserted as before.
+  pasting its path; dropped text is inserted as before. (On a Markdown
+  tab a dropped image is linked instead; see Markdown editing.)
 - **Files changed on disk** reload by themselves when the tab has no unsaved
   changes.
 - **`cedric` command-line launcher** (below), with `-w` so it can be

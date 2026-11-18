@@ -95,6 +95,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Branch, change bars and GitHub links (GitIntegration.swift); made
     /// after the first frame, for files only.
     var gitState: GitTabState?
+    /// Which lines are in fenced code, for the Markdown editing keys
+    /// (cached per line start; dropped from an edited line down).
+    let fences = FenceIndex()
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -147,6 +150,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         textView.indentation = { [weak self] in self?.indentation ?? Settings.shared.defaultIndentation }
         textView.onShiftLines = { [weak self] right in self?.shiftLines(right: right) }
         textView.tabInsertsSpaces = { [weak self] in self?.tabKeyInsertsSpaces ?? false }
+        textView.onEdit = { [weak self] e, name in self?.apply(e, actionName: name) }
+        textView.inFence = { [weak self] offset in
+            guard let self else { return false }
+            let index = self.lineIndex
+            guard index.length == self.textView.textStorage?.length else { return false }
+            return self.fences.isInFence(self.textView.string as NSString, index: index, line: index.line(containing: offset))
+        }
+        textView.onImages = { [weak self] files, bitmap, at in self?.insertImages(files, bitmap: bitmap, at: at) }
         textView.onDropFiles = { urls in
             for u in urls { (NSApp.delegate as? AppDelegate)?.open(u) }
         }
@@ -247,6 +258,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         storage.endEditing()
         PerfTrace.mark("set_text_storage")
         lineIndex = LineIndex(storage.string as NSString)
+        fences.invalidateAll()
         PerfTrace.mark("line_index")
         editing.bookmarks.clamp(lineCount: lineIndex.lineCount)
         textView.typingAttributes = attrs
@@ -310,6 +322,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         textView.textEdited(oldRange: oldRange, newLength: edited.length)
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
+        fences.invalidate(fromLine: first)
         if loading { return }
         spellStep?.textEdited(oldRange, newLength: edited.length)
         storageEdits += 1

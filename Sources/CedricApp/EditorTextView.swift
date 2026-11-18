@@ -118,6 +118,21 @@ final class EditorTextView: NSTextView {
     override func insertNewline(_ sender: Any?) {
         guard isEditable, !hasMarkedText(), let lineStartFor else { super.insertNewline(sender); return }
         let sel = selectedRange()
+        // YAML: "- " items carry on (MarkdownLists handles both).
+        if language == .yaml, onEdit != nil,
+           let e = MarkdownLists.newline(in: string as NSString, selection: sel, language: .yaml) {
+            applyEdit(e, String(localized: "Typing"))
+            return
+        }
+        if let e = markdownEdit({ d, _ in MarkdownTable.newline(in: d, selection: sel) }) {
+            applyEdit(e, String(localized: "Add Table Row"))
+            return
+        }
+        if let e = markdownEdit({ MarkdownLists.newline(in: $0, selection: sel, language: language,
+                                                        tabWidth: $1.width, useTabs: $1.usesTabs) }) {
+            applyEdit(e, String(localized: "Typing"))
+            return
+        }
         let r = AutoEdit.newline(in: string as NSString, lineStart: lineStartFor(sel.location), caret: sel.location,
                                  after: NSMaxRange(sel), language: language, unit: indentation?().unit)
         guard r.text != "\n" || r.caret != 1 else { super.insertNewline(sender); return }
@@ -140,6 +155,15 @@ final class EditorTextView: NSTextView {
         guard isEditable, !hasMarkedText(), let indentation, let lineStartFor else { super.insertTab(sender); return }
         let sel = selectedRange()
         let ns = string as NSString
+        // Markdown: Tab in a table goes to the next cell; in a list item it indents the item.
+        if let e = markdownEdit({ d, _ in MarkdownTable.tab(in: d, selection: sel, forward: true) }) {
+            applyEdit(e, String(localized: "Format Table"))
+            return
+        }
+        if let e = markdownEdit({ MarkdownLists.shiftItem(in: $0, selection: sel, right: true, useTabs: $1.usesTabs, tabWidth: $1.width) }) {
+            applyEdit(e, String(localized: "Indent"))
+            return
+        }
         if sel.length > 0, ns.rangeOfCharacter(from: .newlines, options: [], range: sel).location != NSNotFound {
             onShiftLines?(true)
             return
@@ -157,13 +181,44 @@ final class EditorTextView: NSTextView {
     /// Shift-Tab: outdents the selected lines (or the caret's line).
     override func insertBacktab(_ sender: Any?) {
         guard isEditable, !hasMarkedText(), let onShiftLines else { super.insertBacktab(sender); return }
+        let sel = selectedRange()
+        if let e = markdownEdit({ d, _ in MarkdownTable.tab(in: d, selection: sel, forward: false) }) {
+            applyEdit(e, String(localized: "Format Table"))
+            return
+        }
+        if let e = markdownEdit({ MarkdownLists.shiftItem(in: $0, selection: sel, right: false, useTabs: $1.usesTabs, tabWidth: $1.width) }) {
+            applyEdit(e, String(localized: "Outdent"))
+            return
+        }
         onShiftLines(false)
     }
+
+    // MARK: Markdown editing (MarkdownLists, MarkdownTable in CedricCore)
+
+    /// Applies an edit as one undo step (the window controller's `apply`).
+    var onEdit: ((TextEdit, String) -> Void)?
+    /// Whether the line holding an offset is inside a fenced code block.
+    var inFence: ((Int) -> Bool)?
+
+    /// `make`'s edit, in a Markdown tab, outside fenced code, with the
+    /// selection on one line; nil otherwise (the key does what it did).
+    func markdownEdit(_ make: (NSString, Indentation) -> TextEdit?) -> TextEdit? {
+        guard language == .markdown, onEdit != nil else { return nil }
+        let sel = selectedRange()
+        let ns = string as NSString
+        if sel.length > 0, ns.rangeOfCharacter(from: .newlines, options: [], range: sel).location != NSNotFound { return nil }
+        if language == .markdown, inFence?(sel.location) == true { return nil }
+        return make(ns, indentation?() ?? Indentation(usesTabs: false, width: 4))
+    }
+
+    func applyEdit(_ e: TextEdit, _ name: String) { onEdit?(e, name) }
 
     /// Typing an opener or quote pairs it, a closer steps over the one
     /// already there, and with a selection both go around it. Only for
     /// single typed characters (not paste, not input methods).
     override func insertText(_ string: Any, replacementRange: NSRange) {
+        if language == .python, isEditable, !hasMarkedText(), replacementRange.location == NSNotFound,
+           (string as? String) == ":", realignPythonClause() { return }
         guard pairing, isEditable, !hasMarkedText(), replacementRange.location == NSNotFound,
               let s = (string as? String) ?? (string as? NSAttributedString)?.string, s.utf16.count == 1,
               let c = s.utf16.first else {
@@ -188,6 +243,29 @@ final class EditorTextView: NSTextView {
         case nil:
             super.insertText(string, replacementRange: replacementRange)
         }
+    }
+
+    /// Python: ":" typed after `else`, `elif …`, `except …` or `finally`
+    /// lines the clause up with its `if`/`try`/… (one undo step with the
+    /// ":"). False when there's nothing to move.
+    private func realignPythonClause() -> Bool {
+        let sel = selectedRange()
+        guard sel.length == 0, let lineStartFor else { return false }
+        let ns = self.string as NSString
+        let start = lineStartFor(sel.location)
+        guard sel.location - start <= 512 else { return false }
+        let head = ns.substring(with: NSRange(location: start, length: sel.location - start))
+        var above: [String] = []
+        var p = start
+        while p > 0, above.count < 300 {
+            let r = ns.lineRange(for: NSRange(location: p - 1, length: 0))
+            above.append(r.length > 4096 ? "x" : ns.substring(with: r).trimmingCharacters(in: .newlines))
+            p = r.location
+        }
+        guard let indent = LanguageIndent.pythonClauseIndent(head: head, above: above, tabWidth: indentation?().width ?? 4) else { return false }
+        let body = head.drop { $0 == " " || $0 == "\t" }
+        super.insertText(indent + body + ":", replacementRange: NSRange(location: start, length: sel.location - start))
+        return true
     }
 
     /// Where closers that pairing typed are (a few, newest last): a quote
@@ -223,13 +301,42 @@ final class EditorTextView: NSTextView {
     /// (v0 rejected the edit in shouldChangeText and re-inserted it later,
     /// which silently dropped pastes.)
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        // Markdown: image files or a bitmap become image links (the window
+        // controller copies them next to the document); a URL pasted over
+        // a selection makes a link.
+        if language == .markdown, isEditable, let onImages {
+            let sel = selectedRange()
+            let files = Self.imageFiles(pboard)
+            if !files.isEmpty { onImages(files, nil, sel); return true }
+            if let s = pboard.string(forType: .string) {
+                if inFence?(sel.location) != true, let e = MarkdownPaste.linkPaste(in: string as NSString, selection: sel, pasted: s) {
+                    applyEdit(e, String(localized: "Paste"))
+                    return true
+                }
+            } else if let data = pboard.data(forType: .png) ?? pboard.data(forType: .tiff) {
+                onImages([], data, sel)
+                return true
+            }
+        }
         guard let s = pboard.string(forType: .string) else { return super.readSelection(from: pboard, type: type) }
         let normalized = TextCodec.normalizeLineEndings(s)
         insertText(normalized, replacementRange: selectedRange())
         return true
     }
 
-    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        language == .markdown && onImages != nil ? [.string, .fileURL, .png, .tiff] : [.string]
+    }
+
+    /// Markdown: image files (or bitmap data) pasted or dropped, to go in
+    /// at the range as image links. Set by the window controller.
+    var onImages: ((_ files: [URL], _ bitmap: Data?, _ at: NSRange) -> Void)?
+
+    /// The image files on a pasteboard (existing files with an image extension).
+    static func imageFiles(_ pboard: NSPasteboard) -> [URL] {
+        let urls = pboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return urls.filter { MarkdownPaste.isImageFile($0) && FileManager.default.fileExists(atPath: $0.path) }
+    }
 
     // MARK: Dropping files
 
@@ -266,6 +373,21 @@ final class EditorTextView: NSTextView {
     override func performDragOperation(_ info: NSDraggingInfo) -> Bool {
         let files = droppedFiles(info)
         guard !files.isEmpty, let onDropFiles else { return super.performDragOperation(info) }
+        // Markdown: image files go in as image links where they were
+        // dropped; other files still open in tabs.
+        if language == .markdown, isEditable, let onImages {
+            let images = files.filter(MarkdownPaste.isImageFile)
+            if !images.isEmpty {
+                let others = files.filter { !MarkdownPaste.isImageFile($0) }
+                var at = characterIndexForInsertion(at: convert(info.draggingLocation, from: nil))
+                if at == NSNotFound || at > (string as NSString).length { at = selectedRange().location }
+                DispatchQueue.main.async {
+                    onImages(images, nil, NSRange(location: at, length: 0))
+                    if !others.isEmpty { onDropFiles(others) }
+                }
+                return true
+            }
+        }
         // After the drag session ends (opening a tab inside it upsets AppKit's drag bookkeeping).
         DispatchQueue.main.async { onDropFiles(files) }
         return true

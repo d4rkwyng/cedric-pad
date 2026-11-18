@@ -7,34 +7,24 @@ import CedricCore
 // launch), else Settings' default.
 
 extension EditorWindowController {
-    /// The indentation this tab uses now.
-    var indentation: Indentation {
-        if let manual = doc.indentation { return manual }
-        let def = Settings.shared.defaultIndentation
-        if doc.detectedIndentation == nil {
+    /// The indentation this tab uses now, and whether Tab types spaces
+    /// (LanguageIndent.resolve): this tab's pick, else what the file
+    /// already uses, else Settings' default; YAML always spaces (2 unless
+    /// the file says otherwise), Python 4 spaces unless tabs were saved as
+    /// the default. Otherwise Tab types spaces only when spaces were
+    /// chosen (untouched, a tab character, as it always has).
+    private var resolvedIndentation: (indentation: Indentation, tabTypesSpaces: Bool) {
+        if doc.indentation == nil, doc.detectedIndentation == nil {
             doc.detectedIndentation = .some(Indentation.detect(textView.string as NSString))
         }
-        if let found = doc.detectedIndentation ?? nil {
-            // A tab's width isn't in the file: the default's.
-            return found.usesTabs ? Indentation(usesTabs: true, width: def.width) : found
-        }
-        // Nothing to go by: YAML and Ruby indent by 2 by convention.
-        if !def.usesTabs, def.width == 4, doc.language == .yaml || doc.language == .ruby {
-            return Indentation(usesTabs: false, width: 2)
-        }
-        return def
+        return LanguageIndent.resolve(language: doc.language, manual: doc.indentation, detected: doc.detectedIndentation ?? nil,
+                                      default: Settings.shared.defaultIndentation,
+                                      defaultSaved: UserDefaults.standard.object(forKey: "indentWithTabs") != nil)
     }
 
-    /// Whether the Tab key types spaces: only when spaces were chosen
-    /// (this tab's pick, the file's own indentation, or a default saved in
-    /// Settings). Untouched, Tab types a tab character, as it always has.
-    var tabKeyInsertsSpaces: Bool {
-        let ind = indentation
-        guard !ind.usesTabs else { return false }
-        if doc.indentation != nil { return true }
-        if case .some(.some) = doc.detectedIndentation { return true }
-        return UserDefaults.standard.object(forKey: "indentWithTabs") != nil
-    }
+    var indentation: Indentation { resolvedIndentation.indentation }
+
+    var tabKeyInsertsSpaces: Bool { resolvedIndentation.tabTypesSpaces }
 
     /// How wide a tab is drawn: the tab's own choice, else the default
     /// (needs no detection, so building a tab never scans its text).
