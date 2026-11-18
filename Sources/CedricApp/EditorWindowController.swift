@@ -52,7 +52,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private(set) var colorizer: SyntaxColorizer!
     let findBar = FindBar()
     let statusBar = StatusBar()
-    private let split = NSSplitView()
+    let split = NSSplitView()
     private var container: EditorContainer!
     private(set) var preview: PreviewController?
     var previewVisible: Bool { preview != nil && !(preview!.webView.isHidden) && split.subviews.count > 1 }
@@ -64,6 +64,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var onClose: ((EditorWindowController) -> Void)?
     /// Cedric the owl, while View › Show Cedric the Owl is on.
     private(set) var owl: OwlController?
+    /// View › Follow File (EditorTools.swift).
+    var tail: FileTail?
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -179,7 +181,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     var text: String { textView.string }
 
-    private func baseAttributes() -> [NSAttributedString.Key: Any] {
+    func baseAttributes() -> [NSAttributedString.Key: Any] {
         let font = Settings.shared.font
         let para = NSMutableParagraphStyle()
         let space = ("    " as NSString).size(withAttributes: [.font: font]).width
@@ -468,7 +470,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             let l = LanguageDetector.detect(fileName: url.lastPathComponent, content: textView.string)
             if l != doc.language { setLanguage(l, manual: false) }
         }
-        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        (NSApp.delegate as? AppDelegate)?.noteRecent(url)
         updateTitle()
         updateStatus()
         owl?.noteSave()
@@ -484,7 +486,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Reloads from disk if the file changed and the tab has no unsaved
     /// edits; with unsaved edits, flags it for the owl's "Reload?".
     func reloadIfChangedOnDisk() {
-        guard let url = doc.fileURL,
+        guard tail == nil, let url = doc.fileURL,
               let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
               let known = doc.fileModified, mod > known else { return }
         if doc.isDirty {
@@ -514,7 +516,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             let all = NSRange(location: 0, length: storage.length)
             textView.breakUndoCoalescing()
             if textView.shouldChangeText(in: all, replacementString: d.text) {
-                storage.replaceCharacters(in: all, with: d.text)
+                storage.replaceCharacters(in: all, with: NSAttributedString(string: d.text, attributes: baseAttributes()))
                 textView.didChangeText()
                 textView.undoManager?.setActionName(String(localized: "Reload"))
             }
@@ -596,6 +598,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         previewTimer?.invalidate()
         owl?.detach()
         OwlHub.shared.closed(self)
+        tail?.stop()
+        tail = nil
         onClose?(self)
     }
 
@@ -751,7 +755,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if sel.length > 0, let m = re.firstMatch(in: ns as String, options: [.anchored], range: sel), m.range == sel {
             let rep = FindEngine.replacement(for: m, in: ns, template: findBar.replaceField.stringValue, regex: re, options: findBar.options)
             if textView.shouldChangeText(in: sel, replacementString: rep) {
-                textView.textStorage?.replaceCharacters(in: sel, with: rep)
+                textView.textStorage?.replaceCharacters(in: sel, with: NSAttributedString(string: rep, attributes: baseAttributes()))
                 textView.didChangeText()
                 textView.setSelectedRange(NSRange(location: sel.location + (rep as NSString).length, length: 0))
             }
@@ -774,7 +778,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             newSpan.replaceCharacters(in: NSRange(location: m.range.location - span.location, length: m.range.length), with: rep)
         }
         if textView.shouldChangeText(in: span, replacementString: newSpan as String) {
-            storage.replaceCharacters(in: span, with: newSpan as String)
+            storage.replaceCharacters(in: span, with: NSAttributedString(string: newSpan as String, attributes: baseAttributes()))
             textView.didChangeText()
         }
         findBar.status.stringValue = String(localized: "Replaced \(found.count)")

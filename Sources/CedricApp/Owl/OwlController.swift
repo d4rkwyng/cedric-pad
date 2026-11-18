@@ -265,7 +265,9 @@ final class OwlController: NSObject, NSPopoverDelegate {
         let edit = OwlEdit.minimal(in: ns, range: range, replacement: rep)
         tv.breakUndoCoalescing()
         guard tv.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return false }
-        storage.replaceCharacters(in: edit.range, with: edit.replacement)
+        // In the theme's base attributes, like typed text: never the colour
+        // of the text it replaces (the highlighter recolours it shortly).
+        storage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.replacement, attributes: tab?.baseAttributes() ?? [:]))
         tv.didChangeText()
         tv.breakUndoCoalescing()
         tv.undoManager?.setActionName(p.hint.title)

@@ -42,6 +42,9 @@ import WebKit
 ///   CEDRIC_AI_CHECK=/out/dir      run the local-AI check (AICheck.swift) and quit; with
 ///                                 CEDRIC_AI_FAKE=1.5 (fake provider) or CEDRIC_AI_CHECK_MODEL=id (live)
 ///   CEDRIC_AI*                    run-only AI settings: see AIStore in Owl/OwlAISettings.swift
+///   CEDRIC_DUMP_SHORTCUTS=1       print every menu shortcut, exit 1 on a clash
+///   CEDRIC_CHECK=name             in-process checks of the editor tools (DevChecks.swift;
+///                                 Scripts/tools-check.sh runs them all)
 @MainActor
 enum DevHooks {
     static let env = ProcessInfo.processInfo.environment
@@ -129,6 +132,8 @@ enum DevHooks {
             Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in MainActor.assumeIsolated { AICheck.run(app, out: out) } }
         }
         if let out = env["CEDRIC_SNAPSHOT"], !out.isEmpty { scheduleSnapshot(out) }
+        if env["CEDRIC_DUMP_SHORTCUTS"] == "1" { exit(DevChecks.dumpShortcuts() ? 0 : 1) }
+        if let check = env["CEDRIC_CHECK"] { DevChecks.start(check, app) }
     }
 
     // MARK: Perf
@@ -252,8 +257,12 @@ enum DevHooks {
                 }
                 return
             }
-            if v is GutterView || v is NSScroller || v is FindBar {
+            if v is GutterView || v is NSScroller || v is FindBar || v is FindInFilesPanel || v is DiffHeader {
                 if let r = render(v, v.bounds) { overlays.append((v.convert(v.bounds, to: root), r, 1)) }
+                return
+            } else if let dv = v as? DiffView {
+                let vis = dv.visibleRect
+                if let r = render(dv, vis) { overlays.append((dv.convert(vis, to: root), r, 1)) }
                 return
             } else if let tv = v as? EditorTextView {
                 let vis = tv.visibleRect
