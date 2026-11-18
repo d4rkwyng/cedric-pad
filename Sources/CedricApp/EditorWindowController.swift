@@ -1143,7 +1143,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let p = PreviewController()
         p.onLoaded = { [weak self] in self?.syncPreviewScroll() }
         p.onScrolledToLine = { [weak self] line in self?.previewScrolled(toLine: line) }
-        p.onOpenFile = { url in (NSApp.delegate as? AppDelegate)?.open(url) }
+        p.onLink = { [weak self] action in self?.previewLink(action) }
         return p
     }
 

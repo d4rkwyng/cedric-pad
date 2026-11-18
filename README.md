@@ -43,7 +43,11 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   menu overrides it.
 - **Live preview** for Markdown and HTML, side by side (View › Show Preview,
   ⌥⌘P). JavaScript and network access in the preview are **off** by default
-  and can be turned on per tab (View menu). The Markdown preview doesn't
+  and can be turned on per tab (View menu). A link in the preview never
+  launches anything: web and mail links open only after you confirm the
+  full URL, a text file in the document's folder opens in a tab, any
+  other file (or one outside the folder) is shown in Finder, and other
+  schemes are ignored. The Markdown preview doesn't
   flicker or jump: it is rendered in the background (a 1 MB file costs the
   main thread about a millisecond per update), and only the blocks that
   changed are swapped into the page, so it keeps its place and its images.

@@ -66,3 +66,49 @@ public enum PageBreaks {
         return cuts
     }
 }
+
+/// What a click on a preview link does (security audit H2). Nothing a
+/// link names is ever launched: web and mail links open only after the
+/// user confirms the full URL, a text file inside the document's folder
+/// opens in Cedric, any other local file is only shown in Finder, and
+/// every other scheme is ignored.
+public enum PreviewLinkAction: Equatable, Sendable {
+    /// http, https or mailto: ask first, showing the whole URL.
+    case confirmExternal(URL)
+    /// A text file inside the document's folder (symbolic links resolved).
+    case openInCedric(URL)
+    /// Any other local file or folder, or one outside the document's folder.
+    case revealInFinder(URL)
+    /// A scheme Cedric doesn't follow, or a file that isn't there.
+    case ignore(String)
+
+    public static let externalSchemes: Set<String> = ["http", "https", "mailto"]
+
+    /// `folder`: the document's folder (nil for an untitled document).
+    /// `isText`: whether Cedric edits a file of that name and kind.
+    public static func action(for url: URL, folder: URL?, isText: (URL) -> Bool,
+                              fileManager fm: FileManager = .default) -> PreviewLinkAction {
+        let scheme = url.scheme?.lowercased() ?? ""
+        if externalSchemes.contains(scheme) {
+            if scheme != "mailto", url.host?.isEmpty ?? true { return .ignore(scheme) }
+            return .confirmExternal(url)
+        }
+        let file: URL
+        if scheme == PreviewFolder.scheme, let f = PreviewFolder.fileURL(for: url) {
+            file = f
+        } else if url.isFileURL {
+            file = url.standardizedFileURL
+        } else {
+            return .ignore(scheme.isEmpty ? "?" : scheme)
+        }
+        let target = PreviewFolder.resolved(file)
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: target.path, isDirectory: &isDir) else { return .ignore("missing") }
+        guard let folder else { return .revealInFinder(file) }
+        let root = PreviewFolder.resolved(folder.standardizedFileURL).path
+        let inside = target.path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+        // A folder (an .app bundle is one) is never opened, only shown.
+        if inside, !isDir.boolValue, isText(target) { return .openInCedric(file) }
+        return .revealInFinder(file)
+    }
+}
