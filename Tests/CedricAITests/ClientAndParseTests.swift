@@ -81,10 +81,10 @@ import CedricCore
     }
 
     @Test func endpointPolicy() {
-        let ok = ["http://localhost:1234/v1", "http://127.0.0.1:11434/v1", "http://dereks-mac-studio.local:1234/v1",
+        let ok = ["http://localhost:1234/v1", "http://127.0.0.1:11434/v1", "http://studio.local:1234/v1",
                   "http://192.168.2.50:1234/v1", "http://10.0.0.5/v1", "http://172.20.1.1/v1",
                   "http://100.64.0.1:1234/v1", "http://studio:1234/v1", "http://[::1]:1234/v1",
-                  "http://geonosis.tail1234.ts.net:1234/v1"]
+                  "http://mac.tail0000.ts.net:1234/v1"]
         let bad = ["https://api.openai.com/v1", "http://8.8.8.8/v1", "http://172.32.0.1/v1",
                    "http://example.com:1234/v1", "ftp://localhost/v1", "http://100.128.0.1/v1"]
         for s in ok { #expect(LocalEndpointPolicy.isAllowed(URL(string: s)!), "\(s)") }

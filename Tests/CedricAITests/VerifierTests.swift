@@ -12,7 +12,7 @@ import CedricCore
         String(data: try! JSONSerialization.data(withJSONObject: ["hints": hints]), encoding: .utf8)!
     }
 
-    @Test func dereksValidHTMLGetsNoTagHint() {
+    @Test func ownersValidHTMLGetsNoTagHint() {
         // What Apple Intelligence said on Derek's Mac, with and without a category.
         for category: Any in ["unclosed-tag", "other", NSNull()] {
             var h: [String: Any] = ["kind": "warning", "title": "Missing closing tag",

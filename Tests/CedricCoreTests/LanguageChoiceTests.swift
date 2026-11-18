@@ -75,7 +75,7 @@ import Testing
 
 /// Markdown from typed content (Derek, 2026-11-17: his four lines stayed Plain Text).
 @Suite struct MarkdownSniffTests {
-    @Test func dereksTypedMarkdown() {
+    @Test func ownersTypedMarkdown() {
         #expect(LanguageDetector.sniff("# Title\n## Sub Title\n**Test**\nTesting markdown\n") == .markdown)
         // Every prefix he typed after the second heading is Markdown too.
         #expect(LanguageDetector.sniff("# Title\n## Sub Title\n**Test**") == .markdown)
