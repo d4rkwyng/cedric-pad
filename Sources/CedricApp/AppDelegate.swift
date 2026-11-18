@@ -301,7 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             OwlHub.shared.activity(in: tab)
             noteRecent(std)
             // A certificate file (or PEM text): the Certificate panel beside it, a turn later.
-            if Certificates.isCertificateText(d.text, fileName: std.lastPathComponent) {
+            if Certificates.isCertificateText(d.text, fileName: std.lastPathComponent), !CertificatePanel.closedByUser {
                 DispatchQueue.main.async { [weak tab] in
                     guard let tab, tab.previewPane == nil, !tab.extrasPaused, tab.showsCertificatePanel else { return }
                     tab.togglePreview()

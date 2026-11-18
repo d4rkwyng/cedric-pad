@@ -6,10 +6,13 @@ import CedricCore
 /// days" badge, then its fields in plain words. Shared by the Certificate
 /// panel beside a PEM text and the certificate tab for a DER file.
 @MainActor
-final class CertificateDetailsView: NSView {
+final class CertificateDetailsView: NSView, NSTextViewDelegate {
     let scroll = NSScrollView()
     let textView = NSTextView()
     private(set) var items: [CertificateItem] = []
+    /// What each "Copy" link copies: (what, the exact text), in link order.
+    private(set) var copyTargets: [(label: String, value: String)] = []
+    static let copyScheme = "cedric-copy"
     /// What is shown, for the checks.
     var renderedText: String { textView.string }
 
@@ -26,6 +29,7 @@ final class CertificateDetailsView: NSView {
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
+        textView.delegate = self
         scroll.documentView = textView
         scroll.frame = bounds
         scroll.autoresizingMask = [.width, .height]
@@ -34,8 +38,37 @@ final class CertificateDetailsView: NSView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    func show(_ items: [CertificateItem], palette: EditorPalette, now: Date = Date(), emptyText: String? = nil) {
+    /// Copies `copyTargets[index].value` to the general pasteboard, as is.
+    func performCopy(_ index: Int) {
+        guard copyTargets.indices.contains(index) else { NSSound.beep(); return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(copyTargets[index].value, forType: .string)
+    }
+
+    /// The index of the Copy link for `label` (the nth one with that label).
+    func copyIndex(_ label: String, _ nth: Int = 0) -> Int? {
+        copyTargets.indices.filter { copyTargets[$0].label == label }.dropFirst(nth).first
+    }
+
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        guard let url = (link as? URL) ?? (link as? String).flatMap(URL.init(string:)), url.scheme == Self.copyScheme,
+              let i = Int(url.host ?? "") else { return false }
+        performCopy(i)
+        return true
+    }
+
+    /// `pems`: each item's own PEM block, exactly (from the text, or
+    /// encoded from DER), for its "Copy Certificate (PEM)".
+    func show(_ items: [CertificateItem], pems: [String?] = [], palette: EditorPalette, now: Date = Date(), emptyText: String? = nil) {
         self.items = items
+        copyTargets = []
+        textView.linkTextAttributes = [.foregroundColor: NSColor.controlAccentColor, .cursor: NSCursor.pointingHand]
+        func copyLink(_ label: String, _ value: String, title: String = String(localized: "Copy")) -> NSAttributedString {
+            copyTargets.append((label, value))
+            return NSAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                                                                   .link: URL(string: "\(Self.copyScheme)://\(copyTargets.count - 1)")!])
+        }
         let bg = NSColor(hex: palette.background), fg = NSColor(hex: palette.foreground)
         scroll.backgroundColor = bg
         textView.backgroundColor = bg
@@ -93,12 +126,20 @@ final class CertificateDetailsView: NSView {
                     .paragraphStyle: heading,
                 ]))
             }
+            if let pem = pems.indices.contains(k) ? pems[k] : nil {
+                out.append(NSAttributedString(string: "   "))
+                out.append(copyLink("pem", pem, title: String(localized: "Copy Certificate (PEM)")))
+            }
             for row in c.rows() {
                 let isHash = row.name.hasPrefix("SHA") || row.name == String(localized: "Serial number")
                 out.append(NSAttributedString(string: "\n" + row.name + "\t", attributes: [.font: body, .foregroundColor: dim,
                                                                                          .paragraphStyle: isHash ? hashes : table]))
                 out.append(NSAttributedString(string: row.value, attributes: [.font: isHash ? mono : body, .foregroundColor: fg,
                                                                                .paragraphStyle: isHash ? hashes : table]))
+                // Fingerprints wrap by character: their Copy goes on a line of its own, under them.
+                out.append(NSAttributedString(string: isHash && row.value.count > 40 ? "\u{2028}" : "  ",
+                                              attributes: [.paragraphStyle: isHash ? hashes : table]))
+                out.append(copyLink(row.name, row.value))
             }
         }
         textView.textStorage?.setAttributedString(out)
@@ -116,6 +157,13 @@ final class CertificatePanel: PreviewRenderer {
     /// Rendered at least once (for the checks).
     private(set) var renders = 0
     private static let queue = DispatchQueue(label: "cedric.certificates", qos: .userInitiated)
+    /// The user closed the panel (⌥⌘P): certificate files open without it
+    /// until it is shown again. Kept in UserDefaults.
+    static var closedByUser: Bool {
+        get { UserDefaults.standard.bool(forKey: "certificatePanelClosed") }
+        set { UserDefaults.standard.set(newValue, forKey: "certificatePanelClosed") }
+    }
+
     /// In large mode only the first megabyte is read.
     var isLarge: () -> Bool = { false }
 
@@ -124,11 +172,15 @@ final class CertificatePanel: PreviewRenderer {
         let gen = generation
         let source = isLarge() ? String((text as NSString).substring(to: min((text as NSString).length, 1 << 20))) : text
         Self.queue.async {
-            let items = Certificates.items(inText: source).map(\.item)
+            let found = Certificates.items(inText: source)
+            let ns = source as NSString
+            let items = found.map(\.item)
+            // Each certificate's own block, exactly as it is in the text.
+            let pems: [String?] = found.map { $0.item.certificate != nil ? ns.substring(with: $0.range) : nil }
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, gen == self.generation else { return }
-                    self.details.show(items, palette: palette, emptyText: String(localized: "No certificate here yet. Paste one (-----BEGIN CERTIFICATE-----)."))
+                    self.details.show(items, pems: pems, palette: palette, emptyText: String(localized: "No certificate here yet. Paste one (-----BEGIN CERTIFICATE-----)."))
                     self.renders += 1
                 }
             }
@@ -140,16 +192,18 @@ final class CertificatePanel: PreviewRenderer {
 }
 
 /// A binary (DER) certificate or PKCS#7 bundle (.cer .crt .der .p7b
-/// .p7c): read-only details in a window tabbed with the editor's, and
-/// **View as PEM Text**, which opens the certificates as PEM in a new
-/// untitled tab. Never writes to the file.
+/// .p7c): read-only details in a window tabbed with the editor's, **Copy
+/// as PEM** (the main action) and **Open as PEM Text**, which opens the
+/// certificates as PEM in a new untitled tab. Never writes to the file.
 @MainActor
 final class CertificateTabController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, ViewerTab {
     let id: UUID
     let fileURL: URL
     private(set) var isLoaded = false
     let details = CertificateDetailsView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
-    let pemButton = NSButton(title: String(localized: "View as PEM Text"), target: nil, action: nil)
+    /// The main action: the certificates as PEM on the clipboard.
+    let copyPEMButton = NSButton(title: String(localized: "Copy as PEM"), target: nil, action: nil)
+    let pemButton = NSButton(title: String(localized: "Open as PEM Text"), target: nil, action: nil)
     let statusBar = StatusBar()
     private var fileModified: Date?
     private var appearanceObserver: NSObjectProtocol?
@@ -169,11 +223,11 @@ final class CertificateTabController: NSWindowController, NSWindowDelegate, NSMe
         super.init(window: window)
         window.delegate = self
         for b in [statusBar.languageButton, statusBar.encodingButton, statusBar.lineEndingButton] { b.isHidden = true }
-        pemButton.bezelStyle = .rounded
-        pemButton.controlSize = .small
-        pemButton.target = self
+        for b in [copyPEMButton, pemButton] { b.bezelStyle = .rounded; b.controlSize = .small; b.target = self }
+        copyPEMButton.action = #selector(copyAsPEM(_:))
+        copyPEMButton.keyEquivalent = "\r"
         pemButton.action = #selector(viewAsPEM(_:))
-        let bar = NSStackView(views: [pemButton])
+        let bar = NSStackView(views: [copyPEMButton, pemButton])
         bar.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
         bar.alignment = .centerY
         let stack = NSStackView(views: [bar, details, statusBar])
@@ -191,7 +245,7 @@ final class CertificateTabController: NSWindowController, NSWindowDelegate, NSMe
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.applyAppearance()
-                if self.isLoaded { self.details.show(self.items, palette: self.palette) }
+                if self.isLoaded { self.details.show(self.items, pems: self.itemPEMs, palette: self.palette) }
             }
         }
     }
@@ -222,10 +276,11 @@ final class CertificateTabController: NSWindowController, NSWindowDelegate, NSMe
             return
         }
         items = Certificates.items(inDER: data)
-        details.show(items, palette: palette, emptyText: String(localized: "“\(fileURL.lastPathComponent)” isn’t a certificate Cedric can read."))
+        details.show(items, pems: itemPEMs, palette: palette, emptyText: String(localized: "“\(fileURL.lastPathComponent)” isn’t a certificate Cedric can read."))
         let n = items.filter { $0.certificate != nil }.count
         statusBar.position.stringValue = n == 1 ? String(localized: "Certificate (DER)") : String(localized: "\(n) certificates (PKCS#7)")
         pemButton.isEnabled = n > 0
+        copyPEMButton.isEnabled = n > 0
     }
 
     func reloadIfChangedOnDisk() {
@@ -238,6 +293,18 @@ final class CertificateTabController: NSWindowController, NSWindowDelegate, NSMe
 
     /// The certificates as PEM, one block each.
     var pemText: String { items.compactMap { $0.certificate.map { PEM.encode($0.der) } }.joined() }
+
+    /// Each item's PEM (certificates only), for its Copy Certificate (PEM).
+    var itemPEMs: [String?] { items.map { $0.certificate.map { PEM.encode($0.der) } } }
+
+    /// Copy as PEM: every certificate, BEGIN/END lines, 64 columns.
+    @objc func copyAsPEM(_ sender: Any?) {
+        let text = pemText
+        guard !text.isEmpty else { NSSound.beep(); return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        statusBar.counts.stringValue = String(localized: "Copied as PEM")
+    }
 
     @objc func viewAsPEM(_ sender: Any?) {
         let text = pemText

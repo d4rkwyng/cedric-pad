@@ -306,17 +306,23 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Open in <default app>. Registered as an alternate viewer.
 - **Certificates.** A PEM file (`.pem` `.crt` `.cer` `.csr`, or any text
   with a `-----BEGIN CERTIFICATE-----` block) opens in the editor with a
-  compact **Certificate** panel beside it (View › Show Preview, ⌥⌘P, hides
-  it): each certificate in the file, in order, with an **Expired** /
+  compact **Certificate** panel beside it. The text stays whole and
+  editable (⌘A ⌘C copies it exactly); the panel never replaces it, and
+  View › Show Preview (⌥⌘P) closes it, which is remembered for the next
+  certificate file until it is shown again. The panel lists each certificate in the file, in order, with an **Expired** /
   **Expires in N days** badge and its subject, issuer, validity, other
   names (SANs), whether it is a CA, key usage, what it is used for, public
   key, signature algorithm, serial number and SHA-256 / SHA-1
-  fingerprints, in plain words. It follows your edits. Private keys are
+  fingerprints, in plain words, each with a **Copy** link, and **Copy
+  Certificate (PEM)** per certificate, which copies exactly that
+  certificate's BEGIN/END block from the text. It follows your edits. Private keys are
   never read or shown ("Private key — not shown"; the owl's secret
   warning still applies); a certificate request shows its subject; a
   PKCS#7 bundle (`.p7b`, PEM or DER) lists its certificates. A binary
   (DER) `.cer` `.crt` `.der` `.p7b` opens in a read-only certificate tab
-  with the same details and **View as PEM Text**. With the owl on, he
+  with the same details; its main action is **Copy as PEM** (BEGIN/END
+  lines, 64 columns), and **Open as PEM Text** opens the PEM in a new
+  untitled tab. With the owl on, he
   warns when a certificate in view has expired or expires within 30
   days. Read with macOS's Security framework; nothing is sent anywhere.
 - **Drop a file on the text to open it** (in its own tab), rather than

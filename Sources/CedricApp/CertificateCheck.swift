@@ -35,7 +35,36 @@ extension DevChecks {
         let bundle = read("site.key") + read("site.pem") + read("ca.pem")
         let pemURL = write("bundle.pem", bundle)
 
-        guard let tab = app.open(pemURL) else { expect(false, "bundle.pem opens as text"); finish(); return }
+        // The clipboard and the remembered panel state are put back at the end.
+        let savedClipboard = (NSPasteboard.general.pasteboardItems ?? []).map { item -> NSPasteboardItem in
+            let copy = NSPasteboardItem()
+            for t in item.types { if let d = item.data(forType: t) { copy.setData(d, forType: t) } }
+            return copy
+        }
+        let savedClosed = UserDefaults.standard.object(forKey: "certificatePanelClosed")
+        CertificatePanel.closedByUser = false
+        func restore() {
+            NSPasteboard.general.clearContents()
+            if !savedClipboard.isEmpty { NSPasteboard.general.writeObjects(savedClipboard) }
+            UserDefaults.standard.set(savedClosed, forKey: "certificatePanelClosed")
+        }
+        var clip: String? { NSPasteboard.general.string(forType: .string) }
+        /// A click on the panel's nth Copy link labelled `label`, through NSTextView's link handling.
+        func clickCopy(_ d: CertificateDetailsView?, _ label: String, _ nth: Int = 0) -> Bool {
+            guard let d, let i = d.copyIndex(label, nth), let storage = d.textView.textStorage else { return false }
+            var at: Int?
+            storage.enumerateAttribute(.link, in: NSRange(location: 0, length: storage.length)) { v, r, stop in
+                if (v as? URL)?.absoluteString == "\(CertificateDetailsView.copyScheme)://\(i)" { at = r.location; stop.pointee = true }
+            }
+            guard let at, let link = storage.attribute(.link, at: at, effectiveRange: nil) else { return false }
+            NSPasteboard.general.clearContents()
+            d.textView.clicked(onLink: link, at: at)
+            return true
+        }
+        let siteBlock = read("site.pem").trimmingCharacters(in: .newlines)
+        let caBlock = read("ca.pem").trimmingCharacters(in: .newlines)
+
+        guard let tab = app.open(pemURL) else { expect(false, "bundle.pem opens as text"); restore(); finish(); return }
         sized(tab)
         var panel: CertificatePanel? { tab.previewPane?.renderer as? CertificatePanel }
         var shown: String { panel?.details.renderedText ?? "" }
@@ -75,10 +104,37 @@ extension DevChecks {
             },
             snapshot("cert-panel.png"),
             sync {
+                // The text is the file's, whole: ⌘A ⌘C copies it exactly.
+                focus(tab)
+                key("a", [.command])
+                NSPasteboard.general.clearContents()
+                key("c", [.command])
+                let file = (try? Data(contentsOf: pemURL)) ?? Data()
+                expect(clip.map { Data($0.utf8) } == file, "⌘A ⌘C copies the PEM text byte for byte",
+                       "\(clip?.utf8.count ?? -1) vs \(file.count) bytes")
+                tab.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                // The panel's Copy links.
+                let d = panel?.details
+                expect(clickCopy(d, "pem", 0) && clip == siteBlock, "Copy Certificate (PEM) copies exactly the first block",
+                       String((clip ?? "-").suffix(40)))
+                expect(clickCopy(d, "pem", 1) && clip == caBlock, "and the second one its own block")
+                expect(clickCopy(d, "Subject") && clip == "CN=site.check", "Copy subject", clip ?? "-")
+                expect(clickCopy(d, "Issued by") && clip == "CN=Check CA, O=Cedric Check", "Copy issuer", clip ?? "-")
+                let info = d?.items.compactMap(\.certificate).first
+                expect(clickCopy(d, "SHA-256") && clip == info?.sha256 && clip?.count == 95, "Copy SHA-256 fingerprint", clip ?? "-")
+                expect(clickCopy(d, "Serial number") && clip == info?.serialNumber, "Copy serial", clip ?? "-")
+                expect(tab.text == bundle && !tab.doc.isDirty, "copying never touches the text")
+            },
+            sync {
                 key("p", [.command, .option])
-                expect(tab.previewPane == nil, "⌥⌘P hides the panel")
+                expect(tab.previewPane == nil && CertificatePanel.closedByUser, "⌥⌘P hides the panel, and that is remembered")
+                let other = app.open(write("again.pem", read("ca.pem")))
+                TypingCheck.settle(0.3)
+                expect(other?.previewPane == nil && other?.text == read("ca.pem"), "the next certificate file opens as text only")
+                other?.window?.close()
+                focus(tab)
                 key("p", [.command, .option])
-                expect(panel != nil, "⌥⌘P shows it again")
+                expect(panel != nil && !CertificatePanel.closedByUser, "⌥⌘P shows it again (remembered too)")
                 renders = panel?.renders ?? 0
             },
             waitRender("it renders again", after: { renders }, panelOf: { panel }),
@@ -108,6 +164,15 @@ extension DevChecks {
             },
             snapshot("cert-der-tab.png"),
             sync {
+                guard let der else { return }
+                NSPasteboard.general.clearContents()
+                press(der.copyPEMButton)
+                expect(clip == read("site.pem"), "Copy as PEM: BEGIN/END lines, 64 columns, byte for byte as openssl writes it",
+                       String((clip ?? "-").prefix(70)))
+                expect(clickCopy(der.details, "pem", 0) && clip == read("site.pem"), "the tab's Copy Certificate (PEM) too")
+                expect(clickCopy(der.details, "Subject") && clip == "CN=site.check", "and its field Copy links")
+            },
+            sync {
                 let count = app.tabs.count
                 guard let der else { return }
                 press(der.pemButton)
@@ -134,6 +199,9 @@ extension DevChecks {
                 let plain = app.open(write("notes.txt", "Just notes.\n"))
                 expect(plain?.previewApplies == false, "an ordinary .txt has no Certificate panel")
                 plain?.window?.close()
+                restore()
+                expect(UserDefaults.standard.object(forKey: "certificatePanelClosed") as? Bool == savedClosed as? Bool,
+                       "the clipboard and the panel setting are put back")
             },
         ])
     }

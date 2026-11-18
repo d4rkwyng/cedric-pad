@@ -1054,8 +1054,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// View › Show Preview (⌥⌘P): docked beside the text, or closed
     /// (detached too).
     func togglePreview() {
-        if previewPane != nil { closePreview(); return }
+        if previewPane != nil {
+            if previewPane?.renderer is CertificatePanel { CertificatePanel.closedByUser = true }
+            closePreview()
+            return
+        }
         guard previewApplies else { NSSound.beep(); return }
+        if showsCertificatePanel { CertificatePanel.closedByUser = false }
         dock(makePreviewPane())
         renderPreview()
         onChange?(self)

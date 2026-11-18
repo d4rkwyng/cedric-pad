@@ -1319,17 +1319,27 @@ signed, a request, PKCS#7 in DER and PEM) and
   large mode, then only the first megabyte), a generation counter
   dropping stale results. `AppDelegate.open` shows it one run-loop turn
   after a certificate text file opens (never during session restore,
-  never in large mode). Certificate, key and request file names are data
+  never in large mode, never once the user closed it with ⌥⌘P:
+  `CertificatePanel.closedByUser`, UserDefaults `certificatePanelClosed`,
+  cleared when it is shown again). Copy links are `.link` attributes
+  (`cedric-copy://N`) handled by the details view's text delegate: each
+  field's value as shown, and per certificate its block exactly as it is
+  in the editor's text (the panel keeps each block's range from
+  `PEM.blocks`); the DER tab's blocks are `PEM.encode` (64 columns, LF). Certificate, key and request file names are data
   for spelling (no underlines in base64).
 - **DER files**: `DocumentKind.certificate` when the name is .der .cer
   .crt .p7b .p7c and the file starts with an ASN.1 SEQUENCE (`0x30` and a
   valid length byte); a PEM `.crt` stays text. `CertificateTabController`
   is a `ViewerTab` like the Office tab (`certificateTabs`,
   `SessionTab.certificate`, Reopen Closed Tab, deferred loading for
-  restored tabs); files over 4 MB are refused. View as PEM Text opens the
-  certificates as PEM in an untitled tab.
+  restored tabs); files over 4 MB are refused. Copy as PEM (the default
+  button) puts every certificate's PEM on the clipboard; Open as PEM Text
+  opens it in an untitled tab.
 - **The owl** (`RulesHintProvider.certificateExpiry`, warning
   `rules.certificate-expiry`): the first whole certificate block in his
   8 KB window that has expired or expires within 30 days
   (`OwlDocumentFacts.now`, nil = now, lets tests pick the date).
-- **Check:** `CEDRIC_CHECK=cert` in `Scripts/tools-check.sh`.
+- **Check:** `CEDRIC_CHECK=cert` in `Scripts/tools-check.sh`: ⌘A ⌘C, each
+  Copy link (clicked through `NSTextView.clicked(onLink:at:)`) and Copy as
+  PEM compared byte for byte with the files openssl wrote; the clipboard
+  and the remembered setting are saved first and put back.
