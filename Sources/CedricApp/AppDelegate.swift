@@ -144,39 +144,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// `cedric://open?path=/abs/file&line=12` (the command-line launcher)
-    /// and `cedric://open?untitled=/tmp/file` (stdin: opened as a new
+    /// and `cedric://open?untitled=<temp file>` (stdin: opened as a new
     /// untitled tab, then the temp file is deleted).
+    ///
+    /// Any app or web page can send a cedric:// URL, so (CLIHandoff,
+    /// CLIToken in CedricCore): the `cedric` script adds `token=`, a secret
+    /// only this user can read. Without it, `untitled=` and `wait=` are
+    /// refused and `path=` asks first ("Open … requested by a link?", one
+    /// question at a time). A file is deleted only if it is the script's
+    /// own temp file (cedric-stdin.* / cedric-wait.* in the user's temp
+    /// folder, checked after resolving `..` and symlinks, on an O_NOFOLLOW
+    /// descriptor: regular, one link, this user's) and still the same
+    /// inode when it is deleted.
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let comps = URLComponents(string: s), comps.scheme == "cedric" else { return }
         let q = Dictionary((comps.queryItems ?? []).compactMap { i in i.value.map { (i.name, $0) } }, uniquingKeysWith: { a, _ in a })
-        if let path = q["path"] {
-            let url = URL(fileURLWithPath: path)
-            if FileManager.default.fileExists(atPath: path) {
-                open(url)
+        let trusted = CLIToken.matches(q["token"], CLIToken.ensure())
+        if let raw = q["path"] {
+            guard raw.hasPrefix("/") else { refuseURL("path isn’t absolute"); return }
+            let path = (raw as NSString).standardizingPath
+            if trusted {
+                openFromURL(path, q)
             } else {
-                // A new file: an empty tab that saves there.
-                let doc = EditorDocument(fileURL: url, untitledName: url.lastPathComponent)
-                doc.languageChoice = .forFile(named: url.lastPathComponent, content: "")
-                let tab = makeTab(doc, text: "")
-                doc.markDirtyFromSession()
-                tab.updateTitle()
+                askToOpenFromLink(path, q)
+                return
             }
-            let tab = tabs.first { $0.doc.fileURL?.standardizedFileURL == url.standardizedFileURL }
-            // A PDF: `cedric file.pdf:3` opens it at page 3; -w waits for its tab.
-            if tab == nil, let pdf = pdfTab(for: url) {
-                if let page = q["line"].flatMap(Int.init) { pdf.goToPage(page - 1) }
-                if let marker = q["wait"] { addWaiter(marker, forID: pdf.id) }
-            } else if tab == nil, let viewer = viewerTab(for: url), let marker = q["wait"] {
-                // An image or Office tab: -w waits for it too.
-                addWaiter(marker, forID: viewer.id)
+        } else if let tmp = q["untitled"] {
+            guard trusted else { refuseURL("untitled= without the cedric script’s token"); return }
+            guard let h = CLIHandoff.inspect(tmp, kind: .stdin, read: true), let data = h.data else {
+                refuseURL("untitled= isn’t the cedric script’s temp file: \(tmp)")
+                return
             }
-            if let line = q["line"].flatMap(Int.init) { tab?.goToLine(line, column: q["col"].flatMap(Int.init) ?? 1) }
-            // `cedric -w`: the script waits until this marker file goes.
-            if let marker = q["wait"], let tab { addWaiter(marker, for: tab) }
-        } else if let tmp = q["untitled"], tmp.hasPrefix(NSTemporaryDirectory()) || tmp.hasPrefix("/tmp/") || tmp.hasPrefix("/private/") {
-            let url = URL(fileURLWithPath: tmp)
-            if let (d, _) = try? EditorDocument.read(url) {
+            if let d = TextCodec.decode(data, as: nil) {
                 let doc = newDocument()
                 doc.apply(d)
                 doc.languageChoice = .untitled(content: d.text)
@@ -184,9 +184,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 doc.markDirtyFromSession()
                 tabs.last?.updateTitle()
             }
-            try? FileManager.default.removeItem(at: url)
+            CLIHandoff.remove(h)
         }
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func refuseURL(_ why: String) {
+        FileHandle.standardError.write(Data("cedric://: refused (\(why))\n".utf8))
+    }
+
+    /// A tokenless `path=` (a link, not the cedric script): ask, one at a time; never with `wait=`.
+    private func askToOpenFromLink(_ path: String, _ q: [String: String]) {
+        guard !Self.askingAboutLink else { refuseURL("a link is already being asked about"); return }
+        if ProcessInfo.processInfo.environment["CEDRIC_URL_ASK_ANSWER"] == "no" { refuseURL("declined: \(path)"); return }
+        Self.askingAboutLink = true
+        defer { Self.askingAboutLink = false }
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert()
+        a.messageText = String(localized: "Open “\((path as NSString).lastPathComponent)” requested by a link?")
+        a.informativeText = String(localized: "Another app or a web page asked Cedric Pad to open \(path).")
+        a.addButton(withTitle: String(localized: "Open"))
+        a.addButton(withTitle: String(localized: "Cancel"))
+        guard a.runModal() == .alertFirstButtonReturn else { refuseURL("declined: \(path)"); return }
+        var q = q
+        q["wait"] = nil
+        openFromURL(path, q)
+    }
+
+    private static var askingAboutLink = false
+
+    private func openFromURL(_ path: String, _ q: [String: String]) {
+        let url = URL(fileURLWithPath: path)
+        if FileManager.default.fileExists(atPath: path) {
+            open(url)
+        } else {
+            // A new file: an empty tab that saves there.
+            let doc = EditorDocument(fileURL: url, untitledName: url.lastPathComponent)
+            doc.languageChoice = .forFile(named: url.lastPathComponent, content: "")
+            let tab = makeTab(doc, text: "")
+            doc.markDirtyFromSession()
+            tab.updateTitle()
+        }
+        let line = q["line"].flatMap(Int.init).map { max(1, $0) }
+        let col = q["col"].flatMap(Int.init).map { max(1, $0) } ?? 1
+        let tab = tabs.first { $0.doc.fileURL?.standardizedFileURL == url.standardizedFileURL }
+        // A PDF: `cedric file.pdf:3` opens it at page 3; -w waits for its tab.
+        if tab == nil, let pdf = pdfTab(for: url) {
+            if let line { pdf.goToPage(line - 1) }
+            if let marker = q["wait"] { addWaiter(marker, forID: pdf.id) }
+        } else if tab == nil, let viewer = viewerTab(for: url), let marker = q["wait"] {
+            // An image or Office tab: -w waits for it too.
+            addWaiter(marker, forID: viewer.id)
+        }
+        if let line { tab?.goToLine(line, column: col) }
+        // `cedric -w`: the script waits until this marker file goes.
+        if let marker = q["wait"], let tab { addWaiter(marker, for: tab) }
     }
 
     // MARK: Tabs

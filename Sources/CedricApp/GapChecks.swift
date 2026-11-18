@@ -497,7 +497,9 @@ extension DevChecks {
 
     // MARK: cedric -w and file:line:col (the URLs Scripts/cedric sends)
 
-    static func openURL(_ app: AppDelegate, _ url: String) {
+    /// As the cedric script sends it: with the user's token (`token: false`: as a web page would, without).
+    static func openURL(_ app: AppDelegate, _ url: String, token: Bool = true) {
+        let url = token ? url + "&token=" + (CLIToken.ensure() ?? "") : url
         let e = NSAppleEventDescriptor(eventClass: AEEventClass(kInternetEventClass), eventID: AEEventID(kAEGetURL),
                                        targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
         e.setParam(NSAppleEventDescriptor(string: url), forKeyword: keyDirectObject)
@@ -519,11 +521,11 @@ extension DevChecks {
                 expect(tab != nil, "the URL opens the file")
                 let sel = tab?.textView.selectedRange()
                 expect(sel == NSRange(location: 14, length: 0), "line=3&col=7 puts the caret at line 3, column 7", "\(String(describing: sel))")
-                expect(tab.map { app.waitMarkers(for: $0) } == [marker], "the tab holds the -w marker")
+                expect(tab.map { app.waitMarkers(for: $0) } == [CLIHandoff.realpath(marker)!], "the tab holds the -w marker")
                 // A marker outside the temp folder (or not named cedric-wait.*) is never taken.
                 openURL(app, "cedric://open?path=\(enc(file.path))&wait=\(enc(outside))")
                 openURL(app, "cedric://open?path=\(enc(file.path))&wait=\(enc(file.path))")
-                expect(tab.map { app.waitMarkers(for: $0) } == [marker], "markers elsewhere are ignored")
+                expect(tab.map { app.waitMarkers(for: $0) } == [CLIHandoff.realpath(marker)!], "markers elsewhere are ignored")
                 expect(FileManager.default.fileExists(atPath: marker), "the marker stays while the tab is open")
                 tab?.window?.performClose(nil)
             },
@@ -537,6 +539,37 @@ extension DevChecks {
                 openURL(app, "cedric://open?path=\(enc(file.path))&wait=\(enc(m2))")
                 app.releaseAllWaiters()
                 expect(!FileManager.default.fileExists(atPath: m2), "quitting releases waiting scripts")
+            },
+            sync {
+                // cedric://open?untitled= from a web page: `..` out of a temp-looking prefix to a victim file.
+                let victim = dir.appendingPathComponent("victim.txt")
+                try? "precious\n".write(to: victim, atomically: true, encoding: .utf8)
+                let before = app.tabs.count
+                for u in ["cedric://open?untitled=" + enc("/private/.." + victim.path),
+                          "cedric://open?untitled=" + enc(NSTemporaryDirectory() + "../../../.." + victim.path)] {
+                    openURL(app, u, token: false)
+                    openURL(app, u)
+                }
+                // A correctly named symlink in the temp folder pointing at it, with the token.
+                let link = NSTemporaryDirectory() + "cedric-stdin.link\(getpid())"
+                try? FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: victim.path)
+                openURL(app, "cedric://open?untitled=" + enc(link))
+                expect(FileManager.default.fileExists(atPath: victim.path) && (try? String(contentsOf: victim, encoding: .utf8)) == "precious\n",
+                       "the malicious untitled= URLs leave the victim file alone")
+                expect(app.tabs.count == before, "and open nothing", "\(app.tabs.count - before)")
+                try? FileManager.default.removeItem(atPath: link)
+                // A tokenless path= (a link): asked first; declined here (CEDRIC_URL_ASK_ANSWER=no), nothing opens.
+                setenv("CEDRIC_URL_ASK_ANSWER", "no", 1)
+                openURL(app, "cedric://open?path=" + enc(victim.path), token: false)
+                unsetenv("CEDRIC_URL_ASK_ANSWER")
+                expect(!app.tabs.contains { $0.doc.fileURL?.lastPathComponent == "victim.txt" }, "a tokenless path= link opens nothing unless allowed")
+                // The real hand-off, as `cedric -` makes it: read, then deleted.
+                let tmp = NSTemporaryDirectory() + "cedric-stdin.ok\(getpid())"
+                try? "piped in\n".write(toFile: tmp, atomically: false, encoding: .utf8)
+                openURL(app, "cedric://open?untitled=" + enc(tmp))
+                expect(app.tabs.last?.text == "piped in\n" && app.tabs.last?.doc.fileURL == nil, "cedric - still opens stdin in an untitled tab",
+                       app.tabs.last?.text ?? "-")
+                expect(!FileManager.default.fileExists(atPath: tmp), "and deletes its temp file")
             },
         ])
     }

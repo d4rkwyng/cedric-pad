@@ -1,0 +1,134 @@
+import Foundation
+import Testing
+@testable import CedricCore
+
+/// cedric://open?untitled= and wait= paths: only the script's own temp files.
+@Suite struct CLIHandoffTests {
+    let fm = FileManager.default
+
+    /// A fresh "temp folder" and a fresh "home" outside it.
+    func dirs() throws -> (temp: String, home: String) {
+        let root = NSTemporaryDirectory() + "cedric-handoff-test-\(UUID().uuidString)"
+        try fm.createDirectory(atPath: root + "/T", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: root + "/home/x", withIntermediateDirectories: true)
+        return (root + "/T", root + "/home")
+    }
+
+    func cleanup(_ d: (temp: String, home: String)) { try? fm.removeItem(atPath: (d.temp as NSString).deletingLastPathComponent) }
+
+    @Test func theScriptsOwnFileIsAccepted() throws {
+        let d = try dirs(); defer { cleanup(d) }
+        let p = d.temp + "/cedric-stdin.Ab12Cd"
+        try "piped".write(toFile: p, atomically: false, encoding: .utf8)
+        let u = CLIHandoff.accept(p, kind: .stdin, tempDirs: [d.temp])
+        #expect(u?.path == CLIHandoff.realpath(p))
+        let w = d.temp + "/cedric-wait.Zz99yy"
+        try "".write(toFile: w, atomically: false, encoding: .utf8)
+        #expect(CLIHandoff.accept(w, kind: .wait, tempDirs: [d.temp]) != nil)
+        // Each kind only its own prefix.
+        #expect(CLIHandoff.accept(w, kind: .stdin, tempDirs: [d.temp]) == nil)
+    }
+
+    @Test func dotDotOutOfTheTempFolderIsRefused() throws {
+        let d = try dirs(); defer { cleanup(d) }
+        let victim = d.home + "/x/cedric-stdin.victim"
+        try "precious".write(toFile: victim, atomically: false, encoding: .utf8)
+        #expect(CLIHandoff.accept(d.temp + "/../home/x/cedric-stdin.victim", kind: .stdin, tempDirs: [d.temp]) == nil)
+        // The attack as reported: a temp-looking prefix, then `..`.
+        #expect(CLIHandoff.accept("/private/../" + victim, kind: .stdin, tempDirs: [d.temp]) == nil)
+        #expect(CLIHandoff.accept(d.temp + "/../home/x/victim.txt", kind: .stdin, tempDirs: [d.temp]) == nil)
+        // `..` that stays inside is fine (it resolves to the temp folder).
+        try fm.createDirectory(atPath: d.temp + "/sub", withIntermediateDirectories: true)
+        try "ok".write(toFile: d.temp + "/cedric-stdin.abcdef", atomically: false, encoding: .utf8)
+        #expect(CLIHandoff.accept(d.temp + "/sub/../cedric-stdin.abcdef", kind: .stdin, tempDirs: [d.temp]) != nil)
+    }
+
+    @Test func symlinksAreRefused() throws {
+        let d = try dirs(); defer { cleanup(d) }
+        let victim = d.home + "/x/victim.txt"
+        try "precious".write(toFile: victim, atomically: false, encoding: .utf8)
+        // A correctly named symlink in the temp folder pointing outside.
+        try fm.createSymbolicLink(atPath: d.temp + "/cedric-stdin.link01", withDestinationPath: victim)
+        #expect(CLIHandoff.accept(d.temp + "/cedric-stdin.link01", kind: .stdin, tempDirs: [d.temp]) == nil)
+        // A symlinked folder inside the temp folder that leads outside.
+        try fm.createSymbolicLink(atPath: d.temp + "/out", withDestinationPath: d.home + "/x")
+        try "precious".write(toFile: d.home + "/x/cedric-stdin.abcdef", atomically: false, encoding: .utf8)
+        #expect(CLIHandoff.accept(d.temp + "/out/cedric-stdin.abcdef", kind: .stdin, tempDirs: [d.temp]) == nil)
+        // A hard link to a file elsewhere.
+        try fm.linkItem(atPath: victim, toPath: d.temp + "/cedric-stdin.hard01")
+        #expect(CLIHandoff.accept(d.temp + "/cedric-stdin.hard01", kind: .stdin, tempDirs: [d.temp]) == nil)
+        #expect(fm.fileExists(atPath: victim))
+    }
+
+    @Test func wrongNamesAreRefused() throws {
+        let d = try dirs(); defer { cleanup(d) }
+        for name in ["victim.txt", "cedric-stdin.", "cedric-stdin.abc", "cedric-stdin.ab cd ef", "cedric-stdin.abc-def", "xcedric-stdin.abcdef"] {
+            let p = d.temp + "/" + name
+            try "x".write(toFile: p, atomically: false, encoding: .utf8)
+            #expect(CLIHandoff.accept(p, kind: .stdin, tempDirs: [d.temp]) == nil, "\(name)")
+        }
+        #expect(CLIHandoff.accept("cedric-stdin.abcdef", kind: .stdin, tempDirs: [d.temp]) == nil, "relative path")
+        #expect(CLIHandoff.accept(d.temp + "/cedric-stdin.gone00", kind: .stdin, tempDirs: [d.temp]) == nil, "missing file")
+    }
+
+    @Test func otherOwnersAndFoldersAreRefused() throws {
+        let d = try dirs(); defer { cleanup(d) }
+        let p = d.temp + "/cedric-stdin.abcdef"
+        try "x".write(toFile: p, atomically: false, encoding: .utf8)
+        #expect(CLIHandoff.accept(p, kind: .stdin, tempDirs: [d.temp], uid: getuid() &+ 1) == nil, "owned by someone else")
+        try fm.createDirectory(atPath: d.temp + "/cedric-stdin.dir000", withIntermediateDirectories: true)
+        #expect(CLIHandoff.accept(d.temp + "/cedric-stdin.dir000", kind: .stdin, tempDirs: [d.temp]) == nil, "a folder")
+        // Right name, wrong folder (a shared one).
+        #expect(CLIHandoff.accept(p, kind: .stdin, tempDirs: [d.home]) == nil)
+    }
+
+    @Test func theRealHandOffReadsThenDeletes() throws {
+        let d = try dirs(); defer { cleanup(d) }
+        let p = d.temp + "/cedric-stdin.Q1w2E3"
+        try "from stdin\n".write(toFile: p, atomically: false, encoding: .utf8)
+        let h = try #require(CLIHandoff.inspect(p, kind: .stdin, tempDirs: [d.temp], read: true))
+        #expect(h.data == Data("from stdin\n".utf8))
+        #expect(CLIHandoff.remove(h))
+        #expect(!fm.fileExists(atPath: p))
+    }
+
+    @Test func aFileSwappedAfterTheCheckIsNotDeleted() throws {
+        let d = try dirs(); defer { cleanup(d) }
+        let p = d.temp + "/cedric-wait.Swap00"
+        try "".write(toFile: p, atomically: false, encoding: .utf8)
+        let h = try #require(CLIHandoff.inspect(p, kind: .wait, tempDirs: [d.temp]))
+        // Replaced by a link to a victim file (the TOCTOU case).
+        let victim = d.home + "/x/victim.txt"
+        try "precious".write(toFile: victim, atomically: false, encoding: .utf8)
+        try fm.removeItem(atPath: p)
+        try fm.createSymbolicLink(atPath: p, withDestinationPath: victim)
+        #expect(!CLIHandoff.remove(h))
+        #expect(fm.fileExists(atPath: p) && fm.fileExists(atPath: victim))
+        // Or by another regular file: a different inode, also left alone.
+        try fm.removeItem(atPath: p)
+        try "other".write(toFile: p, atomically: false, encoding: .utf8)
+        #expect(!CLIHandoff.remove(h) && fm.fileExists(atPath: p))
+    }
+
+    @Test func rootOwnedSystemFilesAreRefused() {
+        // Read-only evidence: /etc/hosts is root's; never modified here.
+        #expect(CLIHandoff.inspect("/etc/hosts", kind: .stdin, tempDirs: ["/etc"]) == nil)
+        #expect(CLIHandoff.inspect("/private/etc/../etc/hosts", kind: .stdin) == nil)
+    }
+
+    @Test func tokenIsPrivateRandomAndCompared() throws {
+        let d = try dirs(); defer { cleanup(d) }
+        let u = URL(fileURLWithPath: d.home + "/Cedric/cli-token")
+        let t = try #require(CLIToken.ensure(at: u))
+        #expect(t.count == 32)
+        #expect(CLIToken.ensure(at: u) == t, "made once, then read")
+        let mode = (try fm.attributesOfItem(atPath: u.path)[.posixPermissions] as? NSNumber)?.intValue
+        #expect(mode == 0o600)
+        #expect(CLIToken.matches(t, t))
+        #expect(!CLIToken.matches(nil, t) && !CLIToken.matches("", t) && !CLIToken.matches("x" + t.dropFirst(), t))
+        #expect(!CLIToken.matches(t, nil))
+        // A token file others can read isn't trusted.
+        try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: u.path)
+        #expect(CLIToken.read(u) == nil)
+    }
+}

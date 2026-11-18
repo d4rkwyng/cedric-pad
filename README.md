@@ -437,7 +437,13 @@ git log | cedric -              # stdin into a new untitled tab
 git config --global core.editor "cedric -w"   # -w / --wait: return when the tab closes
 ```
 
-It talks to the app through a `cedric://open?path=…&line=…&col=…` URL.
+It talks to the app through a `cedric://open?path=…&line=…&col=…` URL. Any
+app or web page can send such a URL, so each one the script sends carries a
+secret token (`~/Library/Application Support/Cedric/cli-token`, readable only
+by you). A link without it can't hand over stdin or `-w` files, and opening a
+file from it asks first. The app deletes only the script's own temp files
+(`cedric-stdin.*`, `cedric-wait.*` in your temp folder), checked after `..`
+and symlinks are resolved.
 With `-w` the script makes a `cedric-wait.*` marker file in the temp
 folder and passes it along; Cedric Pad deletes it when that file's tab closes
 (or when Cedric Pad quits), and the script returns.
