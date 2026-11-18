@@ -143,6 +143,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         textView.indentation = { [weak self] in self?.indentation ?? Settings.shared.defaultIndentation }
         textView.onShiftLines = { [weak self] right in self?.shiftLines(right: right) }
         textView.tabInsertsSpaces = { [weak self] in self?.tabKeyInsertsSpaces ?? false }
+        textView.onEdit = { [weak self] e, name in self?.apply(e, actionName: name) }
+        textView.inFence = { [weak self] offset in
+            guard let self else { return false }
+            let index = self.lineIndex
+            guard index.length == self.textView.textStorage?.length else { return false }
+            return MarkdownLists.isInFence(self.textView.string as NSString, index: index, line: index.line(containing: offset))
+        }
         textView.onDropFiles = { urls in
             for u in urls { (NSApp.delegate as? AppDelegate)?.open(u) }
         }

@@ -118,6 +118,11 @@ final class EditorTextView: NSTextView {
     override func insertNewline(_ sender: Any?) {
         guard isEditable, !hasMarkedText(), let lineStartFor else { super.insertNewline(sender); return }
         let sel = selectedRange()
+        if let e = markdownEdit({ MarkdownLists.newline(in: $0, selection: sel, language: language,
+                                                        tabWidth: $1.width, useTabs: $1.usesTabs) }) {
+            applyEdit(e, String(localized: "Typing"))
+            return
+        }
         let r = AutoEdit.newline(in: string as NSString, lineStart: lineStartFor(sel.location), caret: sel.location,
                                  after: NSMaxRange(sel), language: language, unit: indentation?().unit)
         guard r.text != "\n" || r.caret != 1 else { super.insertNewline(sender); return }
@@ -140,6 +145,11 @@ final class EditorTextView: NSTextView {
         guard isEditable, !hasMarkedText(), let indentation, let lineStartFor else { super.insertTab(sender); return }
         let sel = selectedRange()
         let ns = string as NSString
+        // Markdown: Tab in a list item indents the item.
+        if let e = markdownEdit({ MarkdownLists.shiftItem(in: $0, selection: sel, right: true, useTabs: $1.usesTabs, tabWidth: $1.width) }) {
+            applyEdit(e, String(localized: "Indent"))
+            return
+        }
         if sel.length > 0, ns.rangeOfCharacter(from: .newlines, options: [], range: sel).location != NSNotFound {
             onShiftLines?(true)
             return
@@ -157,8 +167,33 @@ final class EditorTextView: NSTextView {
     /// Shift-Tab: outdents the selected lines (or the caret's line).
     override func insertBacktab(_ sender: Any?) {
         guard isEditable, !hasMarkedText(), let onShiftLines else { super.insertBacktab(sender); return }
+        let sel = selectedRange()
+        if let e = markdownEdit({ MarkdownLists.shiftItem(in: $0, selection: sel, right: false, useTabs: $1.usesTabs, tabWidth: $1.width) }) {
+            applyEdit(e, String(localized: "Outdent"))
+            return
+        }
         onShiftLines(false)
     }
+
+    // MARK: Markdown editing (MarkdownLists, MarkdownTable in CedricCore)
+
+    /// Applies an edit as one undo step (the window controller's `apply`).
+    var onEdit: ((TextEdit, String) -> Void)?
+    /// Whether the line holding an offset is inside a fenced code block.
+    var inFence: ((Int) -> Bool)?
+
+    /// `make`'s edit, in a Markdown tab, outside fenced code, with the
+    /// selection on one line; nil otherwise (the key does what it did).
+    func markdownEdit(_ make: (NSString, Indentation) -> TextEdit?) -> TextEdit? {
+        guard language == .markdown, onEdit != nil else { return nil }
+        let sel = selectedRange()
+        let ns = string as NSString
+        if sel.length > 0, ns.rangeOfCharacter(from: .newlines, options: [], range: sel).location != NSNotFound { return nil }
+        if language == .markdown, inFence?(sel.location) == true { return nil }
+        return make(ns, indentation?() ?? Indentation(usesTabs: false, width: 4))
+    }
+
+    func applyEdit(_ e: TextEdit, _ name: String) { onEdit?(e, name) }
 
     /// Typing an opener or quote pairs it, a closer steps over the one
     /// already there, and with a selection both go around it. Only for

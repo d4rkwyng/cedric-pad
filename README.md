@@ -38,6 +38,16 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   tab. Attach Preview docks it again; closing its window closes the
   preview. A detached preview and its window's frame are kept with the
   session (restored just after the window first shows).
+- **Markdown editing:**
+  - **Lists:** Return continues a `-`, `*`, `+`, `1.` or `1)` list (and
+    one in a `> ` block quote) with the same indent; the number goes up
+    and a task item `- [x]` continues as `- [ ]`. Return on an empty item
+    outdents it if it is nested, else ends the list. Tab and ⇧Tab in a
+    list item indent or outdent the item with its sub-items, by the
+    parent's content width (2 under `- `, 3 under `1. `). Ordered lists
+    renumber after Return, Tab and ⇧Tab (a list written `1. 1. 1.` stays
+    so; a nested list starts at 1). Each is one undo step; nothing
+    happens inside fenced code or while an input method is composing.
 - **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
   or `.psv` file is a read-only grid: the first line is the header, row
   numbers stay at the left, columns resize, and a click on a header sorts
