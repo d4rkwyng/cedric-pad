@@ -1074,9 +1074,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     // MARK: Preview
 
     /// The Certificate panel applies: a certificate file name, or PEM text
-    /// near the start, in a language without its own preview.
+    /// near the start, in a language without its own preview. Not for a
+    /// file held or shown as binary (a .crt that isn't DER or PEM).
     var showsCertificatePanel: Bool {
-        !doc.language.hasPreview && Certificates.isCertificateText(textView.string, fileName: doc.fileURL?.lastPathComponent)
+        binary == nil && !doc.language.hasPreview && Certificates.isCertificateText(textView.string, fileName: doc.fileURL?.lastPathComponent)
     }
 
     /// View › Show Preview applies: Markdown, HTML, CSV, or the Certificate panel.

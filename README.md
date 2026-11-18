@@ -357,7 +357,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     indenting YAML; tabs and spaces mixed (to whichever the file mostly
     uses; a Makefile keeps its tabs); zero-width and stray byte-order-mark
     characters; trailing spaces (never in a diff or patch, CSV, INI/.env
-    or a log, where the spaces are data; in Markdown, two before another
+    or a log, where the spaces are data, nor in a certificate, key or other
+    PEM text, nor inside a PowerShell here-string; in Markdown, two before another
     line of the paragraph are a line break and stay); "It looks like
     you're writing a to-do list" → Markdown checkboxes (one ⌘Z undoes the
     colouring too); a word typed twice ("the the", "the the the", also

@@ -74,7 +74,8 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
                  range: r.range, replacement: r.replacement)
         }
         tidyHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
-        if Self.mayTidyWhitespace(c), let r = trailing(text, lines: lines, markdown: c.language == "markdown") {
+        if Self.mayTidyWhitespace(c), let r = trailing(text, lines: lines, markdown: c.language == "markdown",
+                                                         keep: c.language == Language.powershell.rawValue ? Self.powerShellHereStrings(text) : []) {
             hint(Self.trailingID, .fix, String(localized: "\(r.count) lines end in spaces. Trim?"),
                  String(localized: "Removes spaces and tabs at the ends of lines."), range: r.range, replacement: r.replacement)
         }
@@ -237,10 +238,23 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
     /// context lines must match exactly), CSV/TSV (fields), INI/.env
     /// values (`KEY=value ` keeps its space), and logs or other data files
     /// that open as Plain Text (trimming them is noise, not help).
+    /// Certificates, keys and requests (PEM, by name, or PEM text in an
+    /// untitled or Plain Text tab) too: base64 and armour, not writing, and
+    /// a signed block's bytes must not change.
     static func isWhitespaceSignificant(_ c: OwlContext) -> Bool {
         if isPatch(c) || ["csv", "ini"].contains(c.language) { return true }
+        if c.language == Language.plain.rawValue, PEM.contains(c.text, limit: 64 * 1024) { return true }
         guard let name = c.fileName else { return false }
-        return ProseDetector.dataExtensions.contains((name as NSString).pathExtension.lowercased())
+        return ProseDetector.dataExtensions.contains((name as NSString).pathExtension.lowercased()) || SpellScope.isDataFile(name)
+    }
+
+    /// PowerShell here-strings' bodies (`@' … '@`, `@" … "@`, the closer at
+    /// the start of a line): string data, whose trailing spaces are kept.
+    static let powerShellHereString = try! NSRegularExpression(pattern: #"@(['"])[ \t\r]*\n([\s\S]*?)\r?\n\1@"#)
+
+    static func powerShellHereStrings(_ s: NSString) -> [NSRange] {
+        guard s.range(of: "@'").location != NSNotFound || s.range(of: "@\"").location != NSNotFound else { return [] }
+        return powerShellHereString.matches(in: s as String, range: NSRange(location: 0, length: s.length)).map { $0.range(at: 2) }
     }
 
     /// A diff or patch, by language or by name: every byte of it matters.
@@ -254,9 +268,12 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
 
     /// In Markdown, two or more trailing spaces before another line of the
     /// same paragraph are a hard line break, so those stay.
-    func trailing(_ s: NSString, lines: [NSRange], markdown: Bool = false) -> Rewrite? {
+    /// Lines starting inside a `keep` range (a PowerShell here-string's
+    /// body) are left as they are.
+    func trailing(_ s: NSString, lines: [NSRange], markdown: Bool = false, keep: [NSRange] = []) -> Rewrite? {
         let ends = Set(lines.map(\.location))
         let rw = Self.rewrite(s, lines) { r in
+            if !keep.isEmpty, keep.contains(where: { NSLocationInRange(r.location, $0) }) { return nil }
             var e = NSMaxRange(r)
             while e > r.location, s.character(at: e - 1) == 32 || s.character(at: e - 1) == 9 { e -= 1 }
             // A whitespace-only line is left alone (often an editor's auto-indent).
