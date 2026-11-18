@@ -57,6 +57,8 @@ public struct Session: Codable, Equatable, Sendable {
     public static let currentVersion = 1
     public var version = Session.currentVersion
     public var windows: [SessionWindow]
+    /// Unused since untitled names reuse the lowest free number (kept so
+    /// older session files still decode).
     public var untitledCounter: Int
 
     public init(windows: [SessionWindow], untitledCounter: Int = 0) {
@@ -139,5 +141,18 @@ public final class SessionStore: @unchecked Sendable {
                 try? fm.removeItem(at: f)
             }
         }
+    }
+}
+
+/// Untitled tab names, as TextEdit numbers them: the first is "Untitled",
+/// then the lowest free "Untitled N" (N ≥ 2) among the untitled tabs open
+/// now, so numbers are reused once their tabs close.
+public enum UntitledNames {
+    public static func next(open: [String], base: String = "Untitled") -> String {
+        let taken = Set(open)
+        if !taken.contains(base) { return base }
+        var n = 2
+        while taken.contains("\(base) \(n)") { n += 1 }
+        return "\(base) \(n)"
     }
 }

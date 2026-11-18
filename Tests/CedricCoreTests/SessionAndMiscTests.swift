@@ -157,3 +157,26 @@ func tempDir() -> URL {
         }
     }
 }
+
+@Suite struct UntitledNameTests {
+    @Test func firstIsPlainUntitled() {
+        #expect(UntitledNames.next(open: []) == "Untitled")
+    }
+
+    @Test func countsUpWhileOpen() {
+        #expect(UntitledNames.next(open: ["Untitled"]) == "Untitled 2")
+        #expect(UntitledNames.next(open: ["Untitled", "Untitled 2"]) == "Untitled 3")
+    }
+
+    @Test func reusesTheLowestFreeNumber() {
+        // Derek's case: earlier untitled tabs closed, the next one isn't "Untitled 3".
+        #expect(UntitledNames.next(open: ["Untitled 3"]) == "Untitled")
+        #expect(UntitledNames.next(open: ["Untitled", "Untitled 3"]) == "Untitled 2")
+        #expect(UntitledNames.next(open: ["Untitled", "Untitled 2", "Untitled 4"]) == "Untitled 3")
+    }
+
+    @Test func ignoresOtherNamesAndUsesTheBase() {
+        #expect(UntitledNames.next(open: ["notes.md", "Untitled 2"]) == "Untitled")
+        #expect(UntitledNames.next(open: ["Sans titre"], base: "Sans titre") == "Sans titre 2")
+    }
+}

@@ -137,6 +137,21 @@ enum RenderDump {
             window.close()
             TypingCheck.settle(0.05)
         }
+        // Untitled numbering: the lowest free number among open untitled tabs.
+        for t in app.tabs { t.doc.markSaved(); t.window?.close() }
+        TypingCheck.settle(0.05)
+        app.newTab(nil)
+        let first = app.tabs.last
+        app.newTab(nil)
+        let second = app.tabs.last
+        report(first?.doc.displayName == "Untitled" && second?.doc.displayName == "Untitled 2", "untitled/first-two",
+               "\(first?.doc.displayName ?? "-"), \(second?.doc.displayName ?? "-")")
+        first?.window?.close()
+        TypingCheck.settle(0.05)
+        app.newTab(nil)
+        report(app.tabs.last?.doc.displayName == "Untitled", "untitled/reuses-closed-number", app.tabs.last?.doc.displayName ?? "-")
+        app.newTab(nil)
+        report(app.tabs.last?.doc.displayName == "Untitled 3", "untitled/next-free", app.tabs.last?.doc.displayName ?? "-")
         print("rendercheck: done failures=\(failures)")
         fflush(stdout)
         exit(failures == 0 ? 0 : 1)
