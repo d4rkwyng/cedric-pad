@@ -21,6 +21,21 @@ public struct LineIndex: Sendable {
 
     public var lineCount: Int { starts.count }
 
+    /// The length of the longest line (newline included), O(lines).
+    public var longestLine: Int {
+        var best = 0
+        for i in 0..<starts.count {
+            let end = i + 1 < starts.count ? starts[i + 1] : length
+            best = max(best, end - starts[i])
+        }
+        return best
+    }
+
+    /// Line `i`'s length, newline included.
+    public func lineLength(_ i: Int) -> Int {
+        (i + 1 < starts.count ? starts[i + 1] : length) - starts[i]
+    }
+
     /// Calls `found` with the offset just after each "\n" in `range`.
     static func scanNewlines(_ text: NSString, in range: NSRange, _ found: (Int) -> Void) {
         let chunk = 65536

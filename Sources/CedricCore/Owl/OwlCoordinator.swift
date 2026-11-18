@@ -124,6 +124,18 @@ public final class OwlCoordinator {
     public func queryIfDue(_ window: OwlContextWindow, facts: OwlDocumentFacts,
                            current: () -> (length: Int, generation: Int)) async -> OwlHint? {
         guard isDue else { return nil }
+        return await query(window, facts: facts, source: source, current: current)
+    }
+
+    /// Asked for (the owl clicked in a large document): the rules only,
+    /// now, whatever the schedule; same filtering as a scheduled query.
+    public func queryNow(_ window: OwlContextWindow, facts: OwlDocumentFacts,
+                         current: () -> (length: Int, generation: Int)) async -> OwlHint? {
+        await query(window, facts: facts, source: .rules, current: current)
+    }
+
+    private func query(_ window: OwlContextWindow, facts: OwlDocumentFacts, source: OwlHintSource,
+                       current: () -> (length: Int, generation: Int)) async -> OwlHint? {
         lastQuery = clock()
         pending = false
         queryCount += 1

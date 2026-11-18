@@ -37,6 +37,9 @@ public struct LocalAISettings: Codable, Sendable, Equatable {
     public var pauseDelay: TimeInterval
     /// Hard cap on one request, cancelled sooner by a new edit.
     public var timeout: TimeInterval
+    /// A document must have been open and idle this long before the AI
+    /// looks at it (any engine). Not shown in the sheet; tests shorten it.
+    public var minIdle: TimeInterval
 
     public init(enabled: Bool = false,
                 backend: Backend = .builtIn,
@@ -44,7 +47,8 @@ public struct LocalAISettings: Codable, Sendable, Equatable {
                 model: String? = nil,
                 minInterval: TimeInterval = 90,
                 pauseDelay: TimeInterval = 5,
-                timeout: TimeInterval = 20) {
+                timeout: TimeInterval = 20,
+                minIdle: TimeInterval = 10) {
         self.enabled = enabled
         self.backend = backend
         self.baseURL = baseURL ?? backend.defaultBaseURL
@@ -52,6 +56,24 @@ public struct LocalAISettings: Codable, Sendable, Equatable {
         self.minInterval = minInterval
         self.pauseDelay = pauseDelay
         self.timeout = timeout
+        self.minIdle = minIdle
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, backend, baseURL, model, minInterval, pauseDelay, timeout, minIdle
+    }
+
+    /// Settings saved before `minIdle` existed still load (with the default).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decode(Bool.self, forKey: .enabled)
+        backend = try c.decode(Backend.self, forKey: .backend)
+        baseURL = try c.decode(URL.self, forKey: .baseURL)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        minInterval = try c.decode(TimeInterval.self, forKey: .minInterval)
+        pauseDelay = try c.decode(TimeInterval.self, forKey: .pauseDelay)
+        timeout = try c.decode(TimeInterval.self, forKey: .timeout)
+        minIdle = try c.decodeIfPresent(TimeInterval.self, forKey: .minIdle) ?? 10
     }
 
     public static let `default` = LocalAISettings()

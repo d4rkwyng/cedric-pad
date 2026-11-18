@@ -130,7 +130,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             window.center()
         }
+        PerfTrace.mark("tab_built")
         if show { window.makeKeyAndOrderFront(nil) }
+        PerfTrace.mark("order_front")
         scheduleSessionSave()
         return tab
     }
@@ -180,7 +182,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let doc = EditorDocument(fileURL: std, untitledName: std.lastPathComponent)
             doc.apply(d)
             doc.fileModified = mod
+            PerfTrace.mark("read_decode")
             doc.language = LanguageDetector.detect(fileName: std.lastPathComponent, content: d.text)
+            PerfTrace.mark("detect_language")
             let blank = tabs.count == 1 && tabs[0].doc.fileURL == nil && !tabs[0].doc.isDirty && tabs[0].text.isEmpty ? tabs[0] : nil
             let tab = makeTab(doc, text: d.text)
             blank?.window?.close()

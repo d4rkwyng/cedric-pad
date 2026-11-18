@@ -50,7 +50,15 @@ final class OwlController: NSObject, NSPopoverDelegate {
         super.init()
         overlay.controller = self
         overlay.addSubview(owl)
-        owl.onClick = { [weak self] in self?.showPopover() }
+        owl.onClick = { [weak self] in
+            // Large documents: the owl only looks when clicked; with
+            // nothing to say he shows his popover as usual.
+            if let tab = self?.tab, tab.owlIdleForSpeed {
+                OwlHub.shared.userAsked(in: tab) { [weak self] in self?.showPopover() }
+            } else {
+                self?.showPopover()
+            }
+        }
         let nc = NotificationCenter.default
         for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
                      NSApplication.didHideNotification, NSApplication.didUnhideNotification] {

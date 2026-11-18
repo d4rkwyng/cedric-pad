@@ -11,7 +11,7 @@ final class EditorTextView: NSTextView {
 
     static func make() -> EditorTextView {
         let layoutManager = NSTextLayoutManager()
-        let content = NSTextContentStorage()
+        let content = ChunkedContentStorage()
         content.addTextLayoutManager(layoutManager)
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
@@ -38,7 +38,7 @@ final class EditorTextView: NSTextView {
         return tv
     }
 
-    var contentStorage: NSTextContentStorage? { textLayoutManager?.textContentManager as? NSTextContentStorage }
+    var contentStorage: ChunkedContentStorage? { textLayoutManager?.textContentManager as? ChunkedContentStorage }
 
     // MARK: Range conversion
 
@@ -208,7 +208,11 @@ final class GutterView: NSView {
             let y = frame.minY + originY - scrollY
             if y > self.bounds.maxY { return false }
             if y + frame.height < 0 { return true }
-            let line = index.line(containing: tv.offset(of: frag.rangeInElement.location))
+            let offset = tv.offset(of: frag.rangeInElement.location)
+            let line = index.line(containing: offset)
+            // A long line in chunks (large mode) has several fragments:
+            // number only the first.
+            guard line < index.lineCount, index.starts[line] == offset else { return true }
             let s = NSAttributedString(string: String(line + 1), attributes: line == currentLine ? currentAttrs : attrs)
             let size = s.size()
             // Align with the first line's baseline.

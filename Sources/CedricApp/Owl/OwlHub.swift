@@ -78,7 +78,7 @@ final class OwlHub {
     }
 
     private func feedAI(_ tab: EditorWindowController) {
-        guard ai.isActive, !ai.isPaused, enabled, tab.owl != nil else { return }
+        guard ai.isActive, !ai.isPaused, enabled, tab.owl != nil, !tab.owlIdleForSpeed else { return }
         aiPending[tab.doc.id] = WeakTab(tab: tab)
         guard aiFeedTimer?.isValid != true else { return }
         let t = Timer(timeInterval: Self.aiFeedDelay, repeats: false) { _ in
@@ -93,7 +93,37 @@ final class OwlHub {
         aiFeedTimer = nil
         let pending = aiPending.values.compactMap(\.tab)
         aiPending = [:]
-        for tab in pending where tab.owl != nil { ai.contextChanged(tab.owlContextWindow().context) }
+        for tab in pending where tab.owl != nil && !tab.owlIdleForSpeed { ai.contextChanged(tab.owlContextWindow().context) }
+    }
+
+    /// A tab entered or left large mode: the AI forgets it (or may see it
+    /// again), and its pending rules query is dropped.
+    func largeModeChanged(_ tab: EditorWindowController) {
+        let idle = tab.owlIdleForSpeed
+        if idle { aiPending[tab.doc.id] = nil }
+        ai.setLargeDocument(tab.doc.id, idle)
+        tab.owl?.setThinking(false)
+    }
+
+    /// The owl was clicked: in large mode that's the only time the rules
+    /// look (at the visible window only, as always).
+    func userAsked(in tab: EditorWindowController, nothing: @escaping @MainActor () -> Void) {
+        guard enabled, let owl = tab.owl, owl.bubble == nil, !querying else { nothing(); return }
+        let window = tab.owlContextWindow()
+        let facts = tab.owlFacts(wholeDocument: window.isWholeDocument)
+        querying = true
+        Task { @MainActor in
+            let hint = await coordinator.queryNow(window, facts: facts) { [weak tab] in
+                (tab?.textView.textStorage?.length ?? -1, tab?.doc.changeCount ?? -1)
+            }
+            querying = false
+            if let hint, tab.owl === owl, owl.bubble == nil, !owl.popoverShown {
+                owl.present(hint, context: window.context)
+                onPresent?(tab, hint)
+            } else {
+                nothing()
+            }
+        }
     }
 
     /// Hints from the AI scheduler: same dedupe/snooze/range checks as the
@@ -157,6 +187,7 @@ final class OwlHub {
     private func fire() {
         queryTimer = nil
         guard enabled, let tab = activeTab, let owl = tab.owl, owl.canAnimate else { return } // resumes on activation
+        guard !tab.owlIdleForSpeed else { return } // large mode: only when clicked (userAsked)
         guard coordinator.isDue else { schedule(); return }
         guard owl.bubble == nil, !owl.popoverShown else { return } // one bubble at a time; the next edit asks again
         let window = tab.owlContextWindow()

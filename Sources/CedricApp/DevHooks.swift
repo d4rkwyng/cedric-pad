@@ -30,6 +30,7 @@ import WebKit
 ///   CEDRIC_PERF_OPEN=/big.json    time open + colour + jump to end + typing, print metrics, quit
 ///   CEDRIC_PERF_TYPE=200          keystrokes for the typing measurement (default 200)
 ///   CEDRIC_PERF_LANGUAGE=shell    force a language for the perf file
+///   CEDRIC_PERF_BIG=/long.txt     long-line / large-file measurement (LargeDocPerf.swift)
 ///   CEDRIC_OWL=1                  show the owl for this run (CEDRIC_OWL=0: hide it)
 ///   CEDRIC_OWL_PAUSE=3            seconds of no typing before the owl asks for hints
 ///   CEDRIC_OWL_INTERVAL=30        at most one hint query per this many seconds
@@ -124,6 +125,9 @@ enum DevHooks {
             Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { _ in MainActor.assumeIsolated { TypingCheck.run(app) } }
         }
         if let path = env["CEDRIC_PERF_OPEN"] { DispatchQueue.main.async { perfOpen(app, path) } }
+        if let path = env["CEDRIC_PERF_BIG"] {
+            Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { _ in MainActor.assumeIsolated { LargeDocPerf.run(app, path) } }
+        }
         if env["CEDRIC_OWL_ASSUME_VISIBLE"] == "1" {
             OwlController.assumeVisible = true
             for t in app.tabs { t.owl?.updateTimer() }

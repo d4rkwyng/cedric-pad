@@ -28,6 +28,7 @@ enum AIStore {
         if let v = env["CEDRIC_AI_PAUSE"].flatMap(Double.init) { s.pauseDelay = v }
         if let v = env["CEDRIC_AI_INTERVAL"].flatMap(Double.init) { s.minInterval = v }
         if let v = env["CEDRIC_AI_TIMEOUT"].flatMap(Double.init) { s.timeout = v }
+        if let v = env["CEDRIC_AI_MIN_IDLE"].flatMap(Double.init) { s.minIdle = v }
         return s
     }
 

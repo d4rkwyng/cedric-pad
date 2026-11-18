@@ -18,6 +18,8 @@ final class SyntaxColorizer {
     private var colors: [TokenKind: NSColor] = [:]
     private var foreground: NSColor = .textColor
     private var pending = false
+    /// Large mode: no colouring at all (the text keeps the theme's colour).
+    var paused = false
     /// Lines beyond the viewport to colour, above and below.
     static let margin = 80
 
@@ -39,13 +41,17 @@ final class SyntaxColorizer {
 
     func recolorAll() {
         guard let tv = textView, let storage = tv.textStorage else { return }
+        colored = IndexSet()
+        engine.invalidateAll()
+        // Paused: the text already has the theme colour (set with the text
+        // or by applyAppearance); restyling 636 K characters would cost a
+        // full relayout.
+        if paused { return }
         if storage.length > 0, !tv.hasMarkedText() {
             storage.beginEditing()
             storage.addAttribute(.foregroundColor, value: foreground, range: NSRange(location: 0, length: storage.length))
             storage.endEditing()
         }
-        colored = IndexSet()
-        engine.invalidateAll()
         colorViewport()
     }
 
@@ -78,7 +84,7 @@ final class SyntaxColorizer {
     /// number of lines coloured (for the perf hooks).
     @discardableResult
     func colorViewport() -> Int {
-        guard let tv = textView, let storage = tv.textStorage else { return 0 }
+        guard !paused, let tv = textView, let storage = tv.textStorage else { return 0 }
         // Never restyle under an input method's marked text: try again later.
         if tv.hasMarkedText() { scheduleLater(); return 0 }
         guard storage.editedMask.isEmpty else { scheduleViewport(); return 0 }

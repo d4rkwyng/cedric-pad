@@ -51,6 +51,8 @@ public final class LocalAIOwlBridge {
     private var applyToken = 0
     private var appActive = true
     private var paused = false
+    /// Documents in large mode, kept across scheduler rebuilds.
+    public private(set) var largeDocuments: Set<UUID> = []
 
     public init(registry: OwlProviderRegistry,
                 clock: any OwlClock = SystemClock(), power: any PowerSource = SystemPowerSource(),
@@ -93,7 +95,7 @@ public final class LocalAIOwlBridge {
         }
         let sched = OwlScheduler(
             provider: provider,
-            config: .init(pauseDelay: new.pauseDelay, minInterval: new.minInterval, timeout: new.timeout),
+            config: .init(pauseDelay: new.pauseDelay, minInterval: new.minInterval, timeout: new.timeout, minIdle: new.minIdle),
             clock: clock, power: power,
             onOutcome: { [weak self] id, outcome in
                 Task { @MainActor in
@@ -111,6 +113,8 @@ public final class LocalAIOwlBridge {
                 }
             })
         scheduler = sched
+        let large = largeDocuments
+        if !large.isEmpty { Task { for id in large { await sched.setLargeDocument(id, true) } } }
         providerName = provider.name
         engineTitle = Self.shortTitle(new.backend)
         registry.register(ScheduledAIEntry(name: provider.name), isAI: true)
@@ -178,7 +182,7 @@ public final class LocalAIOwlBridge {
 
     /// An edit (new generation) or a scroll (new visible text). No-op while off or paused.
     public func contextChanged(_ context: OwlContext) {
-        guard let s = scheduler, !paused else { return }
+        guard let s = scheduler, !paused, !largeDocuments.contains(context.documentID) else { return }
         Task { await s.contextChanged(context) }
     }
 
@@ -197,7 +201,16 @@ public final class LocalAIOwlBridge {
 
     public var isPaused: Bool { paused }
 
+    /// Large mode on or off for a document: while on, the scheduler never
+    /// sees it, so no engine is asked and no model is loaded for it.
+    public func setLargeDocument(_ id: UUID, _ large: Bool) {
+        if large { largeDocuments.insert(id) } else { largeDocuments.remove(id) }
+        guard let s = scheduler else { return }
+        Task { await s.setLargeDocument(id, large) }
+    }
+
     public func documentClosed(_ id: UUID) {
+        largeDocuments.remove(id)
         guard let s = scheduler else { return }
         Task { await s.documentClosed(id) }
     }

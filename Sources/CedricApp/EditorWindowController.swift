@@ -66,6 +66,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private(set) var owl: OwlController?
     /// View › Follow File (EditorTools.swift).
     var tail: FileTail?
+    /// Large mode (LargeDocumentMode.swift): why, and "Turn On Anyway".
+    var largeReason: LargeDocument.Reason?
+    var largeOverride = false
+    var spellCheckBeforePause = false
+    var isLargeDocument: Bool { largeReason != nil }
+    let largeBar = LargeDocumentBar()
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -78,13 +84,22 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         super.init(window: window)
         window.delegate = self
         buildViews()
+        PerfTrace.mark("build_views")
         colorizer = SyntaxColorizer(textView: textView, language: doc.language)
         colorizer.lineIndexProvider = { [unowned self] in self.lineIndex }
+        textView.contentStorage?.lineRange = { [unowned self] offset in
+            let index = self.lineIndex
+            guard index.length == self.textView.textStorage?.length else { return nil }
+            let line = index.line(containing: offset)
+            return NSRange(location: index.starts[line], length: index.lineLength(line))
+        }
         setText(text)
         applyAppearance()
+        PerfTrace.mark("apply_appearance")
         observe()
         updateTitle()
         setOwlVisible(Settings.shared.showOwl)
+        PerfTrace.mark("owl")
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -118,7 +133,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         findBar.onReplaceAll = { [weak self] in self?.replaceAll() }
         findBar.onClose = { [weak self] in self?.hideFindBar() }
 
-        let stack = NSStackView(views: [findBar, split, statusBar])
+        largeBar.isHidden = true
+        largeBar.onTurnOn = { [weak self] in self?.turnOnExtras() }
+        let stack = NSStackView(views: [largeBar, findBar, split, statusBar])
         stack.orientation = .vertical
         stack.spacing = 0
         stack.alignment = .width
@@ -165,19 +182,26 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Replaces the whole text (open, reload, restore): not a user edit.
     func setText(_ text: String) {
         loading = true
+        // Large mode first, so TextKit never lays out a huge line whole.
+        applyLargeMode(LargeDocument.reason(for: LineIndex(text as NSString)), newText: true)
+        PerfTrace.mark("large_check")
         let attrs = baseAttributes()
         let storage = textView.textStorage!
         storage.beginEditing()
         storage.setAttributedString(NSAttributedString(string: text, attributes: attrs))
         storage.endEditing()
+        PerfTrace.mark("set_text_storage")
         lineIndex = LineIndex(storage.string as NSString)
+        PerfTrace.mark("line_index")
         textView.typingAttributes = attrs
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         textView.undoManager?.removeAllActions()
         loading = false
         updateGutterWidth()
         colorizer.recolorAll()
+        PerfTrace.mark("recolor_all")
         updateStatus()
+        PerfTrace.mark("status")
     }
 
     var text: String { textView.string }
@@ -201,6 +225,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if loading { return }
         colorizer.textDidChange(firstLine: first, lineDelta: lineIndex.lineCount - oldLines, lineCount: lineIndex.lineCount)
         if lineIndex.lineCount != oldLines { updateGutterWidth() }
+        checkLargeAfterEdit(lines: first..<(first + max(1, lineIndex.lineCount - oldLines + 1)))
     }
 
     func textDidChange(_ notification: Notification) {
@@ -298,7 +323,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if previewVisible { renderPreview() }
     }
 
+    private(set) var wrapsLines = true
+
+    /// Perf experiments only (CEDRIC_PERF_WRAP).
+    func forceWrapForPerf(_ wrap: Bool) { applyWrap(wrap) }
+
     private func applyWrap(_ wrap: Bool) {
+        wrapsLines = wrap
         guard let container = textView.textContainer else { return }
         if wrap {
             scrollView.hasHorizontalScroller = false

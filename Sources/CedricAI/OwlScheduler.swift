@@ -3,7 +3,10 @@ import CedricCore
 
 /// "Only checks so often." Decides when a provider is asked, per document:
 ///
-/// - only after typing pauses for `pauseDelay` (5 s);
+/// - only after typing pauses for `pauseDelay` (5 s), and only once the
+///   document has been open and untouched for `minIdle` (10 s in the app);
+/// - never for a document marked large (`setLargeDocument`): its text
+///   isn't sent and, for the built-in engine, no model is loaded;
 /// - at most once per `minInterval` (90 s) per document;
 /// - never while the app is inactive, in Low Power Mode, or on battery
 ///   below `minimumBattery` (20 %);
@@ -18,10 +21,14 @@ public actor OwlScheduler {
         public var minInterval: TimeInterval
         public var timeout: TimeInterval
         public var minimumBattery: Int
+        /// The document must have been open, and untouched, at least this
+        /// long (whichever of this and `pauseDelay` is longer applies to edits).
+        public var minIdle: TimeInterval
 
         public init(pauseDelay: TimeInterval = 5, minInterval: TimeInterval = 90,
-                    timeout: TimeInterval = 20, minimumBattery: Int = 20) {
+                    timeout: TimeInterval = 20, minimumBattery: Int = 20, minIdle: TimeInterval = 0) {
             self.pauseDelay = pauseDelay
+            self.minIdle = minIdle
             self.minInterval = minInterval
             self.timeout = timeout
             self.minimumBattery = minimumBattery
@@ -37,6 +44,8 @@ public actor OwlScheduler {
         case alreadyAsked
         case busy
         case unknownDocument
+        /// Marked large (too big or with very long lines): never asked.
+        case largeDocument
     }
 
     public enum Outcome: Sendable, Equatable {
@@ -48,6 +57,7 @@ public actor OwlScheduler {
 
     struct Doc {
         var context: OwlContext
+        var opened: TimeInterval
         var lastEdit: TimeInterval
         var lastFire: TimeInterval?
         var askedGeneration: Int?
@@ -66,6 +76,8 @@ public actor OwlScheduler {
     let onStart: (@Sendable (OwlContext) -> Void)?
 
     var docs: [UUID: Doc] = [:]
+    /// Documents in large mode: ignored until unmarked.
+    public private(set) var largeDocuments: Set<UUID> = []
     public private(set) var appActive = true
     /// How many requests were started, for tests and the budget log.
     public private(set) var requestCount = 0
@@ -92,6 +104,7 @@ public actor OwlScheduler {
     public func contextChanged(_ context: OwlContext) {
         let now = clock.now
         let id = context.documentID
+        if largeDocuments.contains(id) { return }
         if var doc = docs[id] {
             let isEdit = context.editGeneration != doc.context.editGeneration
             doc.context = context
@@ -101,10 +114,24 @@ public actor OwlScheduler {
                 doc.inflight = nil
             }
             docs[id] = doc
-            if isEdit || doc.timer == nil { arm(id, after: isEdit ? config.pauseDelay : remainingWait(doc, now)) }
+            if isEdit || doc.timer == nil { arm(id, after: isEdit ? idleDelay : remainingWait(doc, now)) }
         } else {
-            docs[id] = Doc(context: context, lastEdit: now)
-            arm(id, after: config.pauseDelay)
+            docs[id] = Doc(context: context, opened: now, lastEdit: now)
+            arm(id, after: idleDelay)
+        }
+    }
+
+    /// Typing must pause this long.
+    private var idleDelay: TimeInterval { max(config.pauseDelay, config.minIdle) }
+
+    /// Large mode on: forget the document (cancelling anything in flight)
+    /// and ignore its contexts until it's unmarked.
+    public func setLargeDocument(_ id: UUID, _ large: Bool) {
+        if large {
+            documentClosed(id)
+            largeDocuments.insert(id)
+        } else {
+            largeDocuments.remove(id)
         }
     }
 
@@ -130,6 +157,7 @@ public actor OwlScheduler {
     }
 
     public func documentClosed(_ id: UUID) {
+        largeDocuments.remove(id)
         docs[id]?.timer?.cancel()
         docs[id]?.inflight?.cancel()
         docs[id] = nil
@@ -148,13 +176,16 @@ public actor OwlScheduler {
     /// The gate for `id` right now. Pure apart from reading the clock and
     /// the power source, so tests drive it with fakes.
     public func gate(for id: UUID) -> Gate {
+        if largeDocuments.contains(id) { return .largeDocument }
         guard let doc = docs[id] else { return .unknownDocument }
         let now = clock.now
         if !appActive { return .inactive }
         if doc.askedGeneration == doc.context.editGeneration { return .alreadyAsked }
         if doc.inflight != nil { return .busy }
         let sinceEdit = now - doc.lastEdit
-        if sinceEdit < config.pauseDelay { return .typing(remaining: config.pauseDelay - sinceEdit) }
+        if sinceEdit < idleDelay { return .typing(remaining: idleDelay - sinceEdit) }
+        let sinceOpen = now - doc.opened
+        if sinceOpen < config.minIdle { return .typing(remaining: config.minIdle - sinceOpen) }
         if let last = doc.lastFire, now - last < config.minInterval {
             return .throttled(remaining: config.minInterval - (now - last))
         }
@@ -163,7 +194,7 @@ public actor OwlScheduler {
     }
 
     private func remainingWait(_ doc: Doc, _ now: TimeInterval) -> TimeInterval {
-        var wait = max(0, config.pauseDelay - (now - doc.lastEdit))
+        var wait = max(0, idleDelay - (now - doc.lastEdit), config.minIdle - (now - doc.opened))
         if let last = doc.lastFire { wait = max(wait, config.minInterval - (now - last)) }
         return wait
     }
@@ -186,7 +217,7 @@ public actor OwlScheduler {
         case .fire: start(id)
         case .typing(let r), .throttled(let r): arm(id, after: r)
         case .power: arm(id, after: config.minInterval)   // re-check the battery later
-        case .inactive, .alreadyAsked, .busy, .unknownDocument: break
+        case .inactive, .alreadyAsked, .busy, .unknownDocument, .largeDocument: break
         }
         return g
     }
