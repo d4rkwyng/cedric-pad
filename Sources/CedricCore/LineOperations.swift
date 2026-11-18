@@ -46,7 +46,7 @@ extension Language {
         case .html, .markdown, .xml: return CommentSyntax(block: ("<!--", "-->"))
         case .sql: return CommentSyntax(line: "--")
         case .ini: return CommentSyntax(line: "#")
-        case .plain, .json, .diff: return nil
+        case .plain, .json, .diff, .csv: return nil
         }
     }
 }
