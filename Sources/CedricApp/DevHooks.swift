@@ -9,6 +9,8 @@ import WebKit
 ///   CEDRIC_NO_RESTORE=1           don't restore the saved session
 ///   CEDRIC_NO_SESSION_SAVE=1      don't write the session
 ///   CEDRIC_OPEN=a.md:b.swift      open these files at launch
+///   CEDRIC_RESTORE_DELAY=0.25     seconds after the first frame before the unselected restored tabs are built
+///   CEDRIC_LAUNCH_TRACE=1         print launch phase timings, type one key, quit (LaunchTrace.swift)
 ///   CEDRIC_THEME=dark             theme for this run (system/light/dark/tankard/dracula)
 ///   CEDRIC_PREVIEW=1              show the preview in the frontmost tab
 ///   CEDRIC_PREVIEW_JS=1           and allow JavaScript in it
@@ -76,7 +78,14 @@ enum DevHooks {
         return Double(tv.tv_sec) + Double(tv.tv_usec) / 1e6
     }
 
+    /// Variables that don't inspect or drive the tabs after launch.
+    static let launchOnly: Set<String> = ["CEDRIC_SESSION_DIR", "CEDRIC_NO_SESSION_SAVE", "CEDRIC_NO_RESTORE", "CEDRIC_OPEN",
+                                          "CEDRIC_THEME", "CEDRIC_LAUNCH_TRACE", "CEDRIC_RESTORE_DELAY"]
+
     static func afterLaunch(_ app: AppDelegate) {
+        // The hooks below expect every restored tab to exist now, not
+        // after the first frame (AppDelegate.restoreNextPending).
+        if env.keys.contains(where: { $0.hasPrefix("CEDRIC_") && !launchOnly.contains($0) }) { app.finishRestore() }
         if let s = env["CEDRIC_SNAPSHOT_SIZE"]?.split(separator: "x"), s.count == 2, let w = Double(s[0]), let h = Double(s[1]) {
             for t in app.tabs { t.window?.setContentSize(NSSize(width: w, height: h)) }
         }
@@ -103,7 +112,8 @@ enum DevHooks {
         }
         if env["CEDRIC_SESSION_DUMP"] == "1" {
             DispatchQueue.main.async {
-                for t in app.tabs {
+                // Windows in on-screen order, tabs in tab-bar order.
+                for t in app.tabGroups().joined() {
                     let body = t.text.replacingOccurrences(of: "\n", with: "\\n")
                     print("tab: name=\(t.doc.displayName) file=\(t.doc.fileURL?.path ?? "-") dirty=\(t.doc.isDirty) language=\(t.doc.language.rawValue) text=\(body.prefix(60))")
                 }
