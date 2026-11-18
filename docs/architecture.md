@@ -18,6 +18,10 @@ Each tab is an `NSWindow` grouped by native window tabbing
 documents on quit and autosaves untitled documents to its own locations,
 both of which fight the Notepad++ model (quit silently, restore everything).
 
+Untitled tabs are named as TextEdit names them (`UntitledNames.next`):
+"Untitled", then the lowest free "Untitled N" among the untitled tabs open
+now. (A counter that only grew gave "Untitled 3" with none open.)
+
 ## Session restore
 
 `SessionStore` keeps `session.json` (windows, tab order, selection, scroll
@@ -540,3 +544,44 @@ Delete in the sheet, with snapshots.
 screenshots (`CEDRIC_SNAPSHOT`, rendered with `cacheDisplay`, so it works
 with the screen locked), perf (`CEDRIC_PERF_OPEN`, `CEDRIC_LAUNCH_METRICS`),
 the session check, and the owl (`CEDRIC_OWL*`). None of them is saved.
+
+## Drawing on a real window, and checking it
+
+Since macOS 14, `NSView.clipsToBounds` is false by default and AppKit may
+pass `draw(_:)` a `dirtyRect` much larger than the view: the status bar
+(24 pt tall) was handed the whole window and filled all of it with the
+status-bar colour, over the split view. On a real screen that hid the
+gutter, the text and the owl (test build 2: a flat purple window in
+Tankard, only the status and tab bars drawn). So every custom view fills
+`dirtyRect.intersection(bounds)`, never `dirtyRect`, and the opaque bars and
+panels (`StatusBar`, `FindBar`, `GutterView`, `FindInFilesPanel`,
+`DiffView`) set `clipsToBounds = true`.
+
+None of our checks saw it: they rendered the text view, gutter and owl
+each on its own (`cacheDisplay` on the view) and pasted them on top of the
+window image, so the paint-over never showed. Now:
+
+- `CEDRIC_SNAPSHOT` renders the window whole (one `cacheDisplay` on the
+  frame view; only web views are pasted in, from `takeSnapshot`).
+- `Scripts/render-check.sh` (`CEDRIC_RENDER_CHECK`, `RenderDump.check`):
+  every theme at 900×670, the owl turned on through the same settings
+  notification the menu posts, text typed with key events; the whole window
+  is rendered from its CALayer tree (`layer.render(in:)`) and with
+  `cacheDisplay`, and the typed text, line numbers, owl and an empty patch
+  of editor background are checked in both. It fails on the status-bar bug.
+  Also checks untitled numbering.
+- `CEDRIC_LAYER_DUMP=/dir` (`RenderDump.run`): the view tree with frames,
+  hidden/alpha, layer state, z-order and overlap with the text, plus the
+  window rendered three ways (`cacheDisplay`, CALayer tree,
+  `CGWindowListCreateImage`; the last needs an unlocked screen).
+
+What this can't show: the window server's own compositing. With the screen
+locked `CGWindowListCreateImage` returns a blank image, so the layer-tree
+render is the closest stand-in; a real-screen look is still the last word.
+
+The owl: `OwlHub` is created at launch (it observes the owl setting; created
+lazily, the View menu's toggle did nothing on a fresh untitled-only launch),
+and a just-turned-on owl shows at full strength (`OwlController.appeared`),
+whatever the occlusion state or the caret, until the user types or moves
+the caret. Occlusion only ever gated the idle animation timers, not
+visibility.

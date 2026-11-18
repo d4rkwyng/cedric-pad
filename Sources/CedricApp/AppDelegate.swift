@@ -6,7 +6,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private(set) var tabs: [EditorWindowController] = []
     private let store = SessionStore(directory: SessionStore.defaultDirectory())
     private let env = ProcessInfo.processInfo.environment
-    private var untitledCounter = 0
     private var sessionTimer: Timer?
     private var appearanceObservation: NSKeyValueObservation?
     /// Files handed over before launch finished (Finder, `open`).
@@ -27,6 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { _, _ in
             Task { @MainActor in NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil) }
         }
+        // The owl hub listens for View › Show Cedric the Owl; it must exist
+        // before the first toggle (it was created lazily, so with the owl
+        // off and only untitled tabs the menu item did nothing).
+        _ = OwlHub.shared
         if env["CEDRIC_NO_RESTORE"] != "1" { restoreSession() }
         var toOpen = pendingOpen
         if let list = env["CEDRIC_OPEN"], !list.isEmpty {
@@ -102,8 +105,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: Tabs
 
     private func newDocument() -> EditorDocument {
-        untitledCounter += 1
-        return EditorDocument(untitledName: untitledCounter == 1 ? String(localized: "Untitled") : String(localized: "Untitled \(untitledCounter)"))
+        // The lowest free number among the untitled tabs open now (not a
+        // counter that only grows: that gave "Untitled 3" with none open).
+        let open = tabs.filter { $0.doc.fileURL == nil }.map(\.doc.untitledName)
+        let name = UntitledNames.next(open: open, base: String(localized: "Untitled"))
+        return EditorDocument(untitledName: name)
     }
 
     @discardableResult
@@ -260,7 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
         do {
-            try store.save(Session(windows: windows, untitledCounter: untitledCounter))
+            try store.save(Session(windows: windows))
             store.pruneBuffers(keeping: keep)
         } catch {
             FileHandle.standardError.write(Data("session: save failed: \(error)\n".utf8))
@@ -269,7 +275,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func restoreSession() {
         guard let session = store.load() else { return }
-        untitledCounter = session.untitledCounter
         for w in session.windows {
             var host: NSWindow?
             var selectedWindow: NSWindow?

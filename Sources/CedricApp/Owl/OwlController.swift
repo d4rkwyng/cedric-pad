@@ -147,7 +147,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
         lastTyping = Date()
         if owl.pose == .sleepy { owl.setPose(.idle) }
         updateTimer()
-        caretMoved()
+        caretMoved(byUser: true)
     }
 
     func noteSave() { owl.flap() }
@@ -159,8 +159,32 @@ final class OwlController: NSObject, NSPopoverDelegate {
 
     // MARK: Keeping out of the way
 
+    /// Just turned on: shown at full strength, whatever the window's
+    /// occlusion state or where the caret is, until the user next types
+    /// or moves the caret.
+    private(set) var holdVisible = true
+
+    /// Called when the owl is turned on (View › Show Cedric the Owl, or a
+    /// new tab with the owl on): lay it out and show it now.
+    func appeared() {
+        holdVisible = true
+        owlFaded = false
+        owl.isHidden = false
+        owl.alphaValue = 1
+        overlay.isHidden = false
+        overlay.alphaValue = 1
+        if owl.pose == .sleepy { owl.setPose(.idle) }
+        overlay.superview?.needsLayout = true
+        overlay.superview?.layoutSubtreeIfNeeded()
+        layoutViews()
+        owl.needsDisplay = true
+    }
+
     /// Fades the owl (and the bubble) while the caret is close to them.
-    func caretMoved() {
+    /// `byUser`: a selection change or typing (ends the just-turned-on hold).
+    func caretMoved(byUser: Bool = false) {
+        if byUser { holdVisible = false }
+        guard !holdVisible || bubble != nil else { return }
         guard let tv = tab?.textView, let window = tv.window else { return }
         let sel = tv.selectedRange()
         let screen = tv.firstRect(forCharacterRange: NSRange(location: sel.location + sel.length, length: 0), actualRange: nil)

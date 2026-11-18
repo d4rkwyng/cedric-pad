@@ -31,6 +31,7 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 420, height: 600))
+        clipsToBounds = true
         build()
     }
 
@@ -39,7 +40,9 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
     override var isOpaque: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.windowBackgroundColor.setFill()
-        dirtyRect.fill()
+        // Since macOS 14 views don't clip to their bounds and dirtyRect
+        // can be the whole window: fill only our own part.
+        dirtyRect.intersection(bounds).fill()
     }
 
     private func label(_ s: String) -> NSTextField {
