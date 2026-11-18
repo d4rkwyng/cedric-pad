@@ -855,6 +855,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gutter.textView = nil
         if textView.delegate === self { textView.delegate = nil }
         window?.delegate = nil
+        // A docked preview's WKWebView comes out first: swapping the content
+        // view with a web view inside traps in WebKit (see PreviewWindowController).
+        previewPane?.removeFromSuperview()
         window?.contentView = NSView()
     }
 
@@ -1091,8 +1094,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         previewTimer?.invalidate()
         if let pw = previewWindow {
             previewWindow = nil
-            pw.window?.contentView = NSView()
-            pw.closeQuietly()
+            pw.closeReleasingPane()
         }
         previewPane?.removeFromSuperview()
         previewPane = nil
@@ -1119,8 +1121,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     func attachPreview() {
         guard let pw = previewWindow, let pane = previewPane else { return }
         previewWindow = nil
-        pw.window?.contentView = NSView()
-        pw.closeQuietly()
+        pw.closeReleasingPane()
         dock(pane)
         window?.makeKeyAndOrderFront(nil)
         renderPreview()

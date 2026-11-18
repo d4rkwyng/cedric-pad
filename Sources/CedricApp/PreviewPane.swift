@@ -115,7 +115,16 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         w.isReleasedWhenClosed = false
         super.init(window: w)
         w.delegate = self
-        w.contentView = pane
+        // The window keeps its own content view for its whole life; the
+        // pane (and the preview's WKWebView in it) is a subview, taken out
+        // (never swapped out) at the end: replacing a content view with a
+        // WKWebView inside traps in WebKit's window-visibility observer
+        // (the same fix as MarkdownPDFExport).
+        if let content = w.contentView {
+            pane.frame = content.bounds
+            pane.autoresizingMask = [.width, .height]
+            content.addSubview(pane)
+        }
         pane.setDetached(true)
         if let frame { w.setFrame(from: frame) } else if let tw = tab.window {
             // Beside the editor window, on the same screen.
@@ -142,14 +151,25 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         window?.close()
     }
 
+    /// Attach, or the preview closed from its tab: takes the pane out of
+    /// the window (on the main thread; the content view itself is never
+    /// swapped), closes the window quietly, and keeps this controller (and
+    /// so the window) until the next turn of the run loop, after WebKit is
+    /// done with this one.
+    func closeReleasingPane() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        if pane.window === window { pane.removeFromSuperview() }
+        closeQuietly()
+        DispatchQueue.main.async { withExtendedLifetime(self) {} }
+    }
+
     /// Its tab closed: closes the window and cuts it loose (as the tab's own
     /// views are, EditorWindowController.detachViews): AppKit may keep the
     /// window a while longer, so nothing in it may call back in.
     func closeWithTab() {
-        closeQuietly()
+        closeReleasingPane()
         tab = nil
         window?.delegate = nil
-        window?.contentView = NSView()
     }
 
     func windowWillClose(_ notification: Notification) {

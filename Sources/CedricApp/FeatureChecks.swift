@@ -287,7 +287,56 @@ extension DevChecks {
                 a.doc.markSaved(); b.doc.markSaved()
                 a.window?.performClose(nil)
                 expect(w?.isVisible == false, "closing the tab closes its detached preview")
-                expect(w?.delegate == nil && !(w?.contentView is PreviewPane), "and cuts that window loose (no delegate, no pane)")
+                expect(w?.delegate == nil && !(w?.contentView is PreviewPane) && w?.contentView?.subviews.contains { $0 is PreviewPane } != true,
+                       "and cuts that window loose (no delegate, no pane)")
+            },
+            // 20 rounds of detach, attach, detach again, close the tab (the
+            // preview's WKWebView loaded each time): the windows are torn
+            // down without swapping a content view under the web view
+            // (tools-check fails on any new crash report).
+            { next in
+                var k = 0, ok = 0
+                @MainActor func round() {
+                    guard k < 20 else {
+                        expect(ok == 20, "20 rounds of detach / attach / close tab with the preview loaded", "\(ok) of 20")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { next() }
+                        return
+                    }
+                    k += 1
+                    let n = k
+                    guard let t = app.open(write("loop-\(n).md", "# Loop \(n)\n\nround \(n)\n")) else { next(); return }
+                    focus(t)
+                    key("p", [.command, .option])
+                    t.detachPreview()
+                    let deadline = Date().addingTimeInterval(4)
+                    @MainActor func loaded() {
+                        let web = (t.previewPane?.renderer as? PreviewController)?.webView
+                        web?.evaluateJavaScript("document.body ? document.body.innerText : ''") { r, _ in
+                            MainActor.assumeIsolated {
+                                if (r as? String)?.contains("round \(n)") == true || Date() > deadline { cycle() }
+                                else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { MainActor.assumeIsolated { loaded() } } }
+                            }
+                        }
+                        if web == nil { cycle() }
+                    }
+                    @MainActor func cycle() {
+                        let w = t.previewWindow?.window
+                        t.attachPreview()
+                        let attached = t.previewPane?.superview === t.split && t.previewWindow == nil && w?.isVisible == false
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                t.detachPreview()
+                                let w2 = t.previewWindow?.window
+                                t.doc.markSaved()
+                                t.window?.performClose(nil)
+                                if attached, w2?.isVisible == false, w2?.delegate == nil, !app.tabs.contains(where: { $0 === t }) { ok += 1 }
+                                DispatchQueue.main.async { MainActor.assumeIsolated { round() } }
+                            }
+                        }
+                    }
+                    loaded()
+                }
+                round()
             },
         ])
     }
