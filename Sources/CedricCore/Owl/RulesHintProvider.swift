@@ -56,16 +56,21 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
                  String(localized: "Pretty-prints it with two-space indents; key order is kept."), range: all, replacement: pretty)
         }
         let lines = Self.lines(text)
-        if let r = mixedIndent(text, lines: lines) {
-            hint(Self.mixedIndentID, .fix, String(localized: "Mixed tabs and spaces. Convert to spaces?"),
-                 String(localized: "\(r.tabs) lines indent with tabs and \(r.spaces) with spaces. Tabs become \(tabWidth) spaces."),
+        moreHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
+        if c.language != "yaml" || !out.contains(where: { $0.id == Self.yamlTabsID }), let r = mixedIndent(text, lines: lines, fileName: c.fileName) {
+            hint(Self.mixedIndentID, .fix,
+                 r.toTabs ? String(localized: "Mixed tabs and spaces. Convert to tabs?") : String(localized: "Mixed tabs and spaces. Convert to spaces?"),
+                 r.toTabs ? String(localized: "\(r.tabs) lines indent with tabs and \(r.spaces) with spaces. Every \(tabWidth) spaces become a tab.")
+                          : String(localized: "\(r.tabs) lines indent with tabs and \(r.spaces) with spaces. Tabs become \(tabWidth) spaces."),
                  range: r.range, replacement: r.replacement)
         }
+        tidyHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
         if c.language != "markdown", let r = trailing(text, lines: lines) {
             hint(Self.trailingID, .fix, String(localized: "\(r.count) lines end in spaces. Trim?"),
                  String(localized: "Removes spaces and tabs at the ends of lines."), range: r.range, replacement: r.replacement)
         }
-        if facts.lineEnding == .crlf {
+        fileHints(c, facts: facts, text: text) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
+        if facts.lineEnding == .crlf, !facts.mixedLineEndings {
             hint(Self.crlfID, .explain, String(localized: "Windows line endings (CRLF)."),
                  String(localized: "Cedric keeps CRLF when you save. Change it from the status bar."))
         }
@@ -99,7 +104,7 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
     struct Rewrite { var range: NSRange; var replacement: String; var count: Int }
 
     /// Rewrites the span from the first to the last changed line.
-    private static func rewrite(_ s: NSString, _ lines: [NSRange], _ change: (NSRange) -> String?) -> Rewrite? {
+    static func rewrite(_ s: NSString, _ lines: [NSRange], _ change: (NSRange) -> String?) -> Rewrite? {
         var first = -1, last = -1, count = 0
         var changed: [Int: String] = [:]
         for (i, r) in lines.enumerated() {
@@ -120,7 +125,15 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         return Rewrite(range: span, replacement: out, count: count)
     }
 
-    func mixedIndent(_ s: NSString, lines: [NSRange]) -> (range: NSRange, replacement: String, tabs: Int, spaces: Int)? {
+    /// Makefiles need tabs: never offered "Convert to spaces" there.
+    static func needsTabs(_ fileName: String?) -> Bool {
+        guard let n = fileName else { return false }
+        return n == "Makefile" || n == "makefile" || n == "GNUmakefile" || n.hasSuffix(".mk") || n.hasSuffix(".go") || n == "go.mod"
+    }
+
+    /// Lines indented with tabs and lines indented with spaces: converts the
+    /// minority to the majority (spaces on a tie, tabs in a Makefile).
+    func mixedIndent(_ s: NSString, lines: [NSRange], fileName: String? = nil) -> (range: NSRange, replacement: String, tabs: Int, spaces: Int, toTabs: Bool)? {
         var tabs = 0, spaces = 0
         for r in lines where r.length > 0 {
             let c = s.character(at: r.location)
@@ -128,17 +141,25 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         }
         guard tabs > 0, spaces > 0 else { return nil }
         let w = tabWidth
+        let toTabs = tabs > spaces || Self.needsTabs(fileName)
         guard let rw = Self.rewrite(s, lines, { r in
-            var i = r.location, col = 0, sawTab = false
+            var i = r.location, col = 0, sawTab = false, sawSpace = false
             while i < NSMaxRange(r) {
                 let c = s.character(at: i)
-                if c == 9 { sawTab = true; col += w - col % w } else if c == 32 { col += 1 } else { break }
+                if c == 9 { sawTab = true; col += w - col % w } else if c == 32 { sawSpace = true; col += 1 } else { break }
                 i += 1
             }
+            let rest = s.substring(with: NSRange(location: i, length: NSMaxRange(r) - i))
+            if toTabs {
+                // Only whole tab stops of spaces become tabs; a remainder (alignment) stays.
+                guard sawSpace, col >= w else { return nil }
+                let new = String(repeating: "\t", count: col / w) + String(repeating: " ", count: col % w)
+                return new == s.substring(with: NSRange(location: r.location, length: i - r.location)) ? nil : new + rest
+            }
             guard sawTab else { return nil }
-            return String(repeating: " ", count: col) + s.substring(with: NSRange(location: i, length: NSMaxRange(r) - i))
+            return String(repeating: " ", count: col) + rest
         }) else { return nil }
-        return (rw.range, rw.replacement, tabs, spaces)
+        return (rw.range, rw.replacement, tabs, spaces, toTabs)
     }
 
     func trailing(_ s: NSString, lines: [NSRange]) -> Rewrite? {

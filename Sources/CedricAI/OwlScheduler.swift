@@ -15,6 +15,10 @@ import CedricCore
 ///   as the document is edited again.
 ///
 /// Results for a generation that is no longer current are dropped.
+///
+/// With `Config.automatic` off (the default on Intel Macs) none of the
+/// above fires on its own: nothing is armed and only `checkNow` (the user
+/// asking) starts a request.
 public actor OwlScheduler {
     public struct Config: Sendable, Equatable {
         public var pauseDelay: TimeInterval
@@ -24,9 +28,13 @@ public actor OwlScheduler {
         /// The document must have been open, and untouched, at least this
         /// long (whichever of this and `pauseDelay` is longer applies to edits).
         public var minIdle: TimeInterval
+        /// False: no timers at all; only `checkNow` starts a request
+        /// (Intel's default, `LocalAISettings.automaticChecks`).
+        public var automatic: Bool
 
         public init(pauseDelay: TimeInterval = 5, minInterval: TimeInterval = 90,
-                    timeout: TimeInterval = 20, minimumBattery: Int = 20, minIdle: TimeInterval = 0) {
+                    timeout: TimeInterval = 20, minimumBattery: Int = 20, minIdle: TimeInterval = 0, automatic: Bool = true) {
+            self.automatic = automatic
             self.pauseDelay = pauseDelay
             self.minIdle = minIdle
             self.minInterval = minInterval
@@ -171,6 +179,28 @@ public actor OwlScheduler {
         for id in Array(docs.keys) { documentClosed(id) }
     }
 
+    /// Asked for (the user clicked "Ask AI Now"): starts a request for
+    /// `context` now, whatever the typing pause, the interval, the power
+    /// state or `minIdle` say. Still never for a large document, and an
+    /// edit still cancels it. False when it didn't start (large, or a
+    /// request for this generation is already running).
+    @discardableResult
+    public func checkNow(_ context: OwlContext) -> Bool {
+        let id = context.documentID
+        if largeDocuments.contains(id) { return false }
+        let now = clock.now
+        var doc = docs[id] ?? Doc(context: context, opened: now, lastEdit: now)
+        if doc.inflight != nil, doc.context.editGeneration == context.editGeneration { return false }
+        doc.inflight?.cancel()
+        doc.inflight = nil
+        doc.timer?.cancel()
+        doc.timer = nil
+        doc.context = context
+        docs[id] = doc
+        start(id)
+        return true
+    }
+
     // MARK: Decisions
 
     /// The gate for `id` right now. Pure apart from reading the clock and
@@ -201,6 +231,8 @@ public actor OwlScheduler {
 
     private func arm(_ id: UUID, after delay: TimeInterval) {
         docs[id]?.timer?.cancel()
+        docs[id]?.timer = nil
+        guard config.automatic else { return }   // asked for only
         let clock = self.clock
         docs[id]?.timer = Task { [weak self] in
             do { try await clock.sleep(seconds: delay) } catch { return }

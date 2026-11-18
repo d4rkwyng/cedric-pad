@@ -1,0 +1,532 @@
+import Foundation
+
+/// The second batch of non-AI rules (see `RulesHintProvider.check` for the
+/// order they are offered in). Each one is a pure function of the context
+/// text (≤ 8 KB) and the document facts, one or two linear passes, no
+/// allocation proportional to anything but the window.
+extension RulesHintProvider {
+    public static let conflictID = "rules.merge-conflict"
+    public static let secretID = "rules.secret"
+    public static let jsonInvalidID = "rules.json-invalid"
+    public static let bracketsID = "rules.brackets"
+    public static let smartQuotesID = "rules.smart-quotes-in-code"
+    public static let yamlTabsID = "rules.yaml-tabs"
+    public static let invisibleID = "rules.invisible-characters"
+    public static let todoListID = "rules.todo-list"
+    /// Followed by `.markdown`, `.html` or `.json`: one id per language.
+    public static let languageGuessPrefix = "rules.language-guess."
+    public static let duplicateWordID = "rules.duplicate-word"
+    public static let doubleSpaceID = "rules.double-space"
+    public static let finalNewlineID = "rules.final-newline"
+    public static let mixedEndingsID = "rules.mixed-line-endings"
+
+    /// The language a `language-guess` hint offers, from its id.
+    public static func guessedLanguage(_ hint: OwlHint) -> Language? {
+        guard hint.id.hasPrefix(languageGuessPrefix) else { return nil }
+        return Language(rawValue: String(hint.id.dropFirst(languageGuessPrefix.count)))
+    }
+
+    static let proseLanguages: Set<String> = ["plain", "markdown"]
+    static let codeLanguages: Set<String> = ["swift", "python", "javascript", "typescript", "json", "yaml", "css", "shell", "c", "ruby", "html"]
+
+    /// 1-based line of `offset` in `s`.
+    static func lineNumber(_ s: NSString, at offset: Int) -> Int {
+        var n = 1
+        for i in 0..<min(offset, s.length) where s.character(at: i) == 10 { n += 1 }
+        return n
+    }
+
+    /// "on line 12" for a whole document; "near here" for a window, whose
+    /// line numbers aren't the document's.
+    static func whereText(_ s: NSString, _ offset: Int, whole: Bool) -> String {
+        whole ? String(localized: "on line \(lineNumber(s, at: offset))") : String(localized: "near here")
+    }
+
+    // MARK: Merge conflict markers
+
+    /// The first `<<<<<<<` line followed (in order) by `=======` and
+    /// `>>>>>>>` lines: the range of the `<<<<<<<` line.
+    static func conflictMarker(_ s: NSString, lines: [NSRange]) -> NSRange? {
+        var start: NSRange?, sawMiddle = false
+        for r in lines {
+            let line = s.substring(with: r)
+            if line == "<<<<<<<" || line.hasPrefix("<<<<<<< ") { start = r; sawMiddle = false }
+            else if start != nil, line == "=======" { sawMiddle = true }
+            else if let st = start, sawMiddle, line == ">>>>>>>" || line.hasPrefix(">>>>>>> ") { return st }
+        }
+        return nil
+    }
+
+    // MARK: Secrets
+
+    /// Shapes that are almost never anything but a credential. Built in
+    /// pieces so this file doesn't look like one to a scanner.
+    static let secretPatterns: [(String, NSRegularExpression)] = {
+        let dash = String(repeating: "-", count: 5)
+        let raw: [(String, String)] = [
+            (String(localized: "a private key"), dash + "BEGIN ([A-Z]+ )?PRIVATE" + " KEY" + dash),
+            (String(localized: "an AWS access key"), "\\b(AK" + "IA|AS" + "IA)[0-9A-Z]{16}\\b"),
+            (String(localized: "a GitHub token"), "\\bgh[pousr]" + "_[A-Za-z0-9]{36,}\\b"),
+            (String(localized: "a GitHub token"), "\\bgithub" + "_pat_[A-Za-z0-9_]{60,}"),
+            (String(localized: "a Slack token"), "\\bxox[baprs]" + "-[0-9]{6,}-[0-9A-Za-z-]{10,}"),
+            (String(localized: "a Stripe live key"), "\\b[sr]k" + "_live_[0-9A-Za-z]{20,}"),
+            (String(localized: "an OpenAI or Anthropic API key"), "\\bsk-(ant-|proj-)?[A-Za-z0-9_-]{32,}"),
+        ]
+        return raw.compactMap { name, p in (try? NSRegularExpression(pattern: p)).map { (name, $0) } }
+    }()
+
+    static func secret(_ s: String) -> (kind: String, range: NSRange)? {
+        let all = NSRange(location: 0, length: (s as NSString).length)
+        var best: (String, NSRange)?
+        for (name, re) in secretPatterns {
+            if let m = re.firstMatch(in: s, range: all), best == nil || m.range.location < best!.1.location { best = (name, m.range) }
+        }
+        return best
+    }
+
+    // MARK: JSON that doesn't parse
+
+    /// Names and extensions whose "JSON" allows comments.
+    static func allowsComments(_ fileName: String?) -> Bool {
+        guard let n = fileName?.lowercased() else { return false }
+        return n.hasSuffix(".jsonc") || n.hasSuffix(".json5") || n.hasPrefix("tsconfig") || n.hasPrefix("jsconfig")
+            || n.hasPrefix(".eslintrc") || n.hasPrefix(".babelrc") || n == "settings.json" || n == "keybindings.json"
+            || n.hasSuffix(".code-workspace")
+    }
+
+    /// The error and its UTF-16 offset, or nil when it parses (or is empty).
+    static func jsonError(_ s: String) -> (message: String, offset: Int)? {
+        guard s.contains(where: { !$0.isWhitespace }) else { return nil }
+        let bytes = Array(s.utf8)
+        var p = JSONFormatter.Parser(bytes)
+        var out: [UInt8] = []
+        do {
+            p.skipSpace()
+            try p.value(&out, pretty: false, indent: [], depth: 0)
+            p.skipSpace()
+            if p.i < bytes.count { throw p.error(String(localized: "unexpected text after the value")) }
+            return nil
+        } catch TextToolError.invalidJSON(let msg) {
+            let utf8 = s.utf8
+            let idx = utf8.index(utf8.startIndex, offsetBy: min(p.i, bytes.count))
+            return (msg, s.utf16.distance(from: s.utf16.startIndex, to: idx.samePosition(in: s.utf16) ?? s.utf16.endIndex))
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: Brackets and curly quotes in code
+
+    struct CodeScan {
+        enum Problem: Equatable {
+            case unexpected(Character, at: Int)
+            case mismatched(Character, at: Int, opener: Character, openedAt: Int)
+            case unclosed(Character, at: Int)
+        }
+        var problem: Problem?
+        /// UTF-16 offsets of “ ” ‘ ’ used as quotes in code (not in strings or comments).
+        var curly: [Int] = []
+    }
+
+    /// A small lexer: skips strings, comments (and JS regex literals), and
+    /// tracks (), [] and {} in what's left. Swift `\( )` and JS `${ }`
+    /// interpolations are scanned as code. Stops at the first problem.
+    static func scanCode(_ s: NSString, language: String) -> CodeScan {
+        var scan = CodeScan()
+        let n = s.length
+        let swift = language == "swift", python = language == "python", css = language == "css"
+        let js = language == "javascript" || language == "typescript", c = language == "c"
+        let slashComments = swift || js || c
+        let blockComments = swift || js || c || css
+        let singleQuoteStrings = js || c || python || css
+        var stack: [(Character, Int)] = []
+        var i = 0
+        func ch(_ k: Int) -> unichar { k < n ? s.character(at: k) : 0 }
+
+        /// Skips a quoted string starting at `i` (on the quote); handles escapes,
+        /// Swift `#"…"#` raw strings, `"""` / `'''` blocks and interpolations.
+        func skipString() {
+            var hashes = 0
+            while ch(i) == 35 { hashes += 1; i += 1 }   // Swift raw: #"
+            let q = ch(i)
+            let triple = (swift || python) && ch(i + 1) == q && ch(i + 2) == q
+            i += triple ? 3 : 1
+            while i < n {
+                let k = ch(i)
+                if k == 92, hashes == 0 || (0..<hashes).allSatisfy({ ch(i + 1 + $0) == 35 }) {   // backslash
+                    let after = i + 1 + hashes
+                    if swift, ch(after) == 40 { i = after + 1; code(until: 41); continue }   // \( … )
+                    i = after + 1; continue
+                }
+                if js, q == 96, k == 36, ch(i + 1) == 123 { i += 2; code(until: 125); continue }  // ${ … }
+                if k == q {
+                    if triple { if ch(i + 1) == q && ch(i + 2) == q { i += 3; break } }
+                    else if (0..<hashes).allSatisfy({ ch(i + 1 + $0) == 35 }) { i += 1 + hashes; break }
+                }
+                if k == 10, !triple, q != 96 { break }   // unterminated: stop at the line end
+                i += 1
+            }
+        }
+
+        /// Code until the `closer` that balances the call (nil: the end).
+        /// Brackets inside an interpolation are tracked on their own stack.
+        func code(until closer: unichar?) {
+            var depth = 0
+            while i < n, scan.problem == nil {
+                let k = ch(i)
+                if let closer, k == closer, depth == 0 { i += 1; return }
+                switch k {
+                case 34: skipString(); continue
+                case 39 where singleQuoteStrings: skipString(); continue
+                case 96 where js: skipString(); continue
+                case 35 where swift && (ch(i + 1) == 34 || ch(i + 1) == 35): skipString(); continue
+                case 35 where python:
+                    while i < n, ch(i) != 10 { i += 1 }
+                    continue
+                case 47 where slashComments && ch(i + 1) == 47:
+                    while i < n, ch(i) != 10 { i += 1 }
+                    continue
+                case 47 where blockComments && ch(i + 1) == 42:
+                    var nest = 0
+                    i += 2
+                    while i < n {
+                        if ch(i) == 42, ch(i + 1) == 47 { i += 2; if nest == 0 { break }; nest -= 1; continue }
+                        if swift, ch(i) == 47, ch(i + 1) == 42 { nest += 1; i += 2; continue }
+                        i += 1
+                    }
+                    continue
+                case 47 where js && regexCanStart(at: i):
+                    i += 1
+                    var inClass = false
+                    while i < n, ch(i) != 10 {
+                        let r = ch(i)
+                        if r == 92 { i += 2; continue }
+                        if r == 91 { inClass = true } else if r == 93 { inClass = false } else if r == 47, !inClass { i += 1; break }
+                        i += 1
+                    }
+                    continue
+                case 0x201C, 0x2018:   // a curly quote opening a "string"
+                    let close: unichar = k == 0x201C ? 0x201D : 0x2019
+                    scan.curly.append(i)
+                    i += 1
+                    while i < n, ch(i) != 10, ch(i) != close { i += 1 }
+                    if ch(i) == close { scan.curly.append(i); i += 1 }
+                    continue
+                case 0x201D, 0x2019:
+                    scan.curly.append(i)
+                case 40, 91, 123:
+                    if closer != nil { depth += 1 }
+                    stack.append((Character(UnicodeScalar(k)!), i))
+                case 41, 93, 125:
+                    if closer != nil { depth -= 1 }
+                    let want: Character = k == 41 ? "(" : k == 93 ? "[" : "{"
+                    let got = Character(UnicodeScalar(k)!)
+                    guard let top = stack.popLast() else { scan.problem = .unexpected(got, at: i); return }
+                    if top.0 != want { scan.problem = .mismatched(got, at: i, opener: top.0, openedAt: top.1); return }
+                default: break
+                }
+                i += 1
+            }
+        }
+
+        /// A `/` starts a regex after an operator or an opening bracket, not after a value.
+        func regexCanStart(at k: Int) -> Bool {
+            var j = k - 1
+            while j >= 0, ch(j) == 32 || ch(j) == 9 { j -= 1 }
+            guard j >= 0, ch(j) != 10 else { return true }
+            if let u = UnicodeScalar(ch(j)), "(,=:[!&|?{};+-*%<>~^".unicodeScalars.contains(u) { return true }
+            // `return /x/`, `typeof /x/`
+            var w = j
+            while w >= 0, let u = UnicodeScalar(ch(w)), CharacterSet.letters.contains(u) { w -= 1 }
+            let word = s.substring(with: NSRange(location: w + 1, length: j - w))
+            return ["return", "typeof", "case", "in", "of", "yield", "await", "void", "delete"].contains(word)
+        }
+
+        code(until: nil)
+        if scan.problem == nil, let open = stack.last { scan.problem = .unclosed(open.0, at: open.1) }
+        return scan
+    }
+
+    // MARK: YAML tabs
+
+    func yamlTabs(_ s: NSString, lines: [NSRange]) -> Rewrite? {
+        Self.rewrite(s, lines) { r in
+            var i = r.location, out = "", sawTab = false
+            while i < NSMaxRange(r) {
+                let c = s.character(at: i)
+                if c == 9 { sawTab = true; out += "  " } else if c == 32 { out += " " } else { break }
+                i += 1
+            }
+            guard sawTab else { return nil }
+            return out + s.substring(with: NSRange(location: i, length: NSMaxRange(r) - i))
+        }
+    }
+
+    // MARK: Invisible characters
+
+    /// Zero-width spaces, word joiners and stray byte-order marks (and, in
+    /// code, non-breaking spaces): the range spanning them and the text
+    /// with them removed (a non-breaking space becomes a plain one).
+    static func invisibles(_ s: NSString, code: Bool) -> (range: NSRange, replacement: String, count: Int)? {
+        var first = -1, last = -1, count = 0
+        for i in 0..<s.length {
+            let c = s.character(at: i)
+            if c == 0xFEFF || (code && (c == 0x200B || c == 0x2060 || c == 0x00A0)) {
+                if first < 0 { first = i }
+                last = i
+                count += 1
+            }
+        }
+        guard first >= 0 else { return nil }
+        let r = NSRange(location: first, length: last - first + 1)
+        var out = String.UnicodeScalarView()
+        for u in s.substring(with: r).unicodeScalars {
+            if u.value == 0xFEFF || (code && (u.value == 0x200B || u.value == 0x2060)) { continue }
+            out.append(code && u.value == 0x00A0 ? " " : u)
+        }
+        return (r, String(out), count)
+    }
+
+    // MARK: To-do lists
+
+    static let todoWords = ["todo", "to do", "to-do", "tasks", "checklist", "shopping", "groceries"]
+    static let boxMarkers = ["[ ] ", "[] ", "[x] ", "[X] ", "☐ ", "☑ ", "☒ "]
+    static let bulletMarkers = ["- ", "* ", "• "]
+
+    /// The item's text and whether it's ticked, or nil if the line isn't an item.
+    static func todoItem(_ line: String) -> (text: String, done: Bool, boxed: Bool)? {
+        var t = Substring(line.drop { $0 == " " || $0 == "\t" })
+        var boxed = false, done = false
+        if t.hasPrefix("- [") || t.hasPrefix("* [") { return nil }   // already Markdown
+        for b in bulletMarkers where t.hasPrefix(b) { t = t.dropFirst(b.count); break }
+        for b in boxMarkers where t.hasPrefix(b) {
+            boxed = true
+            done = b.contains("x") || b.contains("X") || b.hasPrefix("☑") || b.hasPrefix("☒")
+            t = t.dropFirst(b.count)
+            break
+        }
+        guard boxed || t.count < Substring(line.drop { $0 == " " || $0 == "\t" }).count else { return nil }
+        let text = t.trimmingCharacters(in: .whitespaces)
+        return text.isEmpty ? nil : (text, done, boxed)
+    }
+
+    /// Three or more item lines in a row, with a to-do title above them or
+    /// checkbox markers on them: the rewrite to `- [ ] item`.
+    static func todoList(_ s: NSString, lines: [NSRange]) -> Rewrite? {
+        let texts = lines.map { s.substring(with: $0) }
+        guard let titleIndex = texts.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return nil }
+        let title = texts[titleIndex].lowercased()
+        let titled = title.count < 60 && todoWords.contains { title.contains($0) }
+        var run: [Int] = [], best: [Int] = []
+        for (i, t) in texts.enumerated() {
+            if todoItem(t) != nil { run.append(i) } else { if run.count > best.count { best = run }; run = [] }
+        }
+        if run.count > best.count { best = run }
+        guard best.count >= 3 else { return nil }
+        let boxed = best.filter { todoItem(texts[$0])!.boxed }.count
+        guard titled || boxed >= 2 else { return nil }
+        let items = Set(best.map { lines[$0].location })
+        let index = Dictionary(uniqueKeysWithValues: best.map { (lines[$0].location, $0) })
+        return rewrite(s, lines) { r in
+            guard items.contains(r.location), let i = index[r.location], let item = todoItem(texts[i]) else { return nil }
+            return (item.done ? "- [x] " : "- [ ] ") + item.text
+        }
+    }
+
+    // MARK: Prose
+
+    /// Doubled words that are often meant: "that that", "had had", "bye bye".
+    static let meantTwice: Set<String> = ["that", "had", "is", "do", "so", "no", "bye", "ha", "haha", "now", "very", "really",
+                                          "knock", "chop", "tut", "aye", "yeah", "yes", "well", "far", "many", "more", "again",
+                                          "blah", "there", "can", "boo", "choo", "ding", "dum", "hip", "la", "na", "oh", "ho",
+                                          "mm", "hmm", "uh", "um", "ah", "go", "wait", "please", "come", "out", "on", "and",
+                                          "round", "over", "bang", "tick", "tock", "hush", "night", "pom", "run", "too", "her", "him"]
+
+    static let doubledWord = try! NSRegularExpression(pattern: #"\b(\p{L}+)([ \t]+|[ \t]*\n[ \t]*)(\1)\b"#, options: [.caseInsensitive])
+
+    /// Doubled words outside Markdown code: the rewrite drops each second word.
+    static func duplicateWords(_ s: NSString, lines: [NSRange], markdown: Bool) -> (range: NSRange, replacement: String, count: Int, word: String)? {
+        let skip = markdown ? markdownCodeRanges(s, lines: lines) : []
+        var hits: [NSRange] = [], word = ""
+        Self.doubledWord.enumerateMatches(in: s as String, range: NSRange(location: 0, length: s.length)) { m, _, _ in
+            guard let m else { return }
+            let w = s.substring(with: m.range(at: 1))
+            // The second copy in lower case ("The the", "the the"; not
+            // "Duran Duran"), and across a line break only mid-prose (not
+            // a column of single words).
+            let second = s.substring(with: m.range(at: 3))
+            guard !meantTwice.contains(w.lowercased()), second == second.lowercased(), second == w.lowercased(),
+                  !skip.contains(where: { NSLocationInRange(m.range.location, $0) }) else { return }
+            if s.substring(with: m.range(at: 2)).contains("\n") {
+                let before = m.range.location - 1, after = NSMaxRange(m.range)
+                guard before >= 0, s.character(at: before) != 10, after < s.length, s.character(at: after) != 10 else { return }
+            }
+            if hits.isEmpty { word = s.substring(with: m.range) }
+            // Drop the separator and the second word.
+            hits.append(NSRange(location: NSMaxRange(m.range(at: 1)), length: NSMaxRange(m.range(at: 3)) - NSMaxRange(m.range(at: 1))))
+        }
+        guard let first = hits.first, let last = hits.last else { return nil }
+        let span = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+        var out = "", at = span.location
+        for h in hits {
+            out += s.substring(with: NSRange(location: at, length: h.location - at))
+            at = NSMaxRange(h)
+        }
+        out += s.substring(with: NSRange(location: at, length: NSMaxRange(span) - at))
+        return (span, out, hits.count, word.replacingOccurrences(of: "\n", with: " "))
+    }
+
+    /// Fenced blocks and indented code spans' lines in Markdown.
+    static func markdownCodeRanges(_ s: NSString, lines: [NSRange]) -> [NSRange] {
+        var out: [NSRange] = [], open: Int?
+        for r in lines {
+            let t = s.substring(with: r).trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("```") || t.hasPrefix("~~~") {
+                if let o = open { out.append(NSRange(location: o, length: NSMaxRange(r) - o)); open = nil } else { open = r.location }
+            } else if t.contains("`") {
+                out.append(r)
+            }
+        }
+        if let o = open { out.append(NSRange(location: o, length: s.length - o)) }
+        return out
+    }
+
+    static let sentenceGap = try! NSRegularExpression(pattern: #"(?<=\p{Ll}[.!?]) {1,2}(?=\p{Lu})"#)
+
+    /// Sentences that end ". X" and ".  X" in the same text: the rewrite
+    /// to one space. Nil unless both kinds appear at least twice.
+    static func doubleSpaces(_ s: NSString, lines: [NSRange], markdown: Bool) -> (range: NSRange, replacement: String, count: Int)? {
+        let skip = markdown ? markdownCodeRanges(s, lines: lines) : []
+        var doubles: [NSRange] = [], singles = 0
+        sentenceGap.enumerateMatches(in: s as String, range: NSRange(location: 0, length: s.length)) { m, _, _ in
+            guard let r = m?.range, !skip.contains(where: { NSLocationInRange(r.location, $0) }) else { return }
+            if r.length == 2 { doubles.append(r) } else { singles += 1 }
+        }
+        guard doubles.count >= 2, singles >= 2, let first = doubles.first, let last = doubles.last else { return nil }
+        let span = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+        var out = "", at = span.location
+        for d in doubles {
+            out += s.substring(with: NSRange(location: at, length: d.location - at)) + " "
+            at = NSMaxRange(d)
+        }
+        out += s.substring(with: NSRange(location: at, length: NSMaxRange(span) - at))
+        return (span, out, doubles.count)
+    }
+
+    // MARK: The checks, as hints
+
+    /// The second batch, in order, appended by `check`.
+    func moreHints(_ c: OwlContext, facts: OwlDocumentFacts, text: NSString, lines: [NSRange],
+                   hint: (String, OwlHint.Kind, String, String?, NSRange?, String?) -> Void) {
+        let lang = c.language
+        let whole = facts.isWholeDocument
+
+        if let r = Self.conflictMarker(text, lines: lines) {
+            hint(Self.conflictID, .warning, String(localized: "Merge conflict markers left \(Self.whereText(text, r.location, whole: whole))."),
+                 String(localized: "Git left <<<<<<<, ======= and >>>>>>> lines in the file. Keep the side you want and delete the markers."),
+                 r, nil)
+        }
+        if let found = Self.secret(c.text) {
+            hint(Self.secretID, .warning, String(localized: "That looks like a secret key. Careful where it goes."),
+                 String(localized: "This looks like \(found.kind) \(Self.whereText(text, found.range.location, whole: whole)). Don’t share, paste or commit this file with it in."),
+                 found.range, nil)
+        }
+        if lang == "json", whole, !Self.allowsComments(c.fileName),
+           !lines.contains(where: { let t = text.substring(with: $0).trimmingCharacters(in: .whitespaces); return t.hasPrefix("//") || t.hasPrefix("/*") }),
+           let err = Self.jsonError(c.text) {
+            let line = text.lineRange(for: NSRange(location: min(err.offset, max(0, text.length - 1)), length: 0))
+            let lineRange = NSRange(location: line.location, length: max(0, line.length - (text.substring(with: line).hasSuffix("\n") ? 1 : 0)))
+            hint(Self.jsonInvalidID, .warning, String(localized: "This JSON doesn’t parse (line \(Self.lineNumber(text, at: err.offset)))."),
+                 String(localized: "The parser stopped: \(err.message)."), lineRange, nil)
+        }
+        let scans = ["swift", "javascript", "typescript", "c", "css", "python"].contains(lang)
+        let scan = scans && whole ? Self.scanCode(text, language: lang) : nil
+        if let p = scan?.problem {
+            switch p {
+            case .unexpected(let ch, let at):
+                hint(Self.bracketsID, .warning, String(localized: "An extra “\(String(ch))” \(Self.whereText(text, at, whole: true))."),
+                     String(localized: "Nothing before it opens it."), NSRange(location: at, length: 1), nil)
+            case .mismatched(let ch, let at, let opener, let openedAt):
+                hint(Self.bracketsID, .warning, String(localized: "“\(String(opener))” closed by “\(String(ch))” \(Self.whereText(text, at, whole: true))."),
+                     String(localized: "The “\(String(opener))” opens \(Self.whereText(text, openedAt, whole: true)); a bracket is missing or extra in between."),
+                     NSRange(location: at, length: 1), nil)
+            case .unclosed(let ch, let at) where facts.unsavedSince == nil:
+                // Only for a saved file: while typing, an open bracket is normal.
+                hint(Self.bracketsID, .warning, String(localized: "“\(String(ch))” \(Self.whereText(text, at, whole: true)) is never closed."),
+                     nil, NSRange(location: at, length: 1), nil)
+            default: break
+            }
+        }
+        if let curly = scan?.curly, !curly.isEmpty {
+            let first = curly.first!, last = curly.last!
+            let span = NSRange(location: first, length: last - first + 1)
+            var out = text.substring(with: span) as NSString
+            for k in curly.reversed() {
+                let q = text.character(at: k)
+                out = out.replacingCharacters(in: NSRange(location: k - first, length: 1), with: q == 0x201C || q == 0x201D ? "\"" : "'") as NSString
+            }
+            hint(Self.smartQuotesID, .fix, String(localized: "Curly quotes in code won’t work. Straighten them?"),
+                 String(localized: "\(curly.count) “smart” quotes, probably pasted from a document or a chat. Straight quotes are what the code needs."),
+                 span, out as String)
+        }
+        if lang == "yaml", let r = yamlTabs(text, lines: lines) {
+            hint(Self.yamlTabsID, .fix, String(localized: "YAML can’t indent with tabs. Use spaces?"),
+                 String(localized: "Each tab at the start of \(r.count) lines becomes two spaces."), r.range, r.replacement)
+        }
+    }
+
+    /// Lower in the list: tidy-ups and offers.
+    func tidyHints(_ c: OwlContext, facts: OwlDocumentFacts, text: NSString, lines: [NSRange],
+                   hint: (String, OwlHint.Kind, String, String?, NSRange?, String?) -> Void) {
+        let lang = c.language
+        let isCode = Self.codeLanguages.contains(lang) && lang != "html"
+        if let r = Self.invisibles(text, code: isCode) {
+            hint(Self.invisibleID, .fix, String(localized: "Invisible characters in here. Remove them?"),
+                 isCode ? String(localized: "\(r.count) zero-width or non-breaking spaces, easy to paste and hard to see. They break code and searches.")
+                        : String(localized: "\(r.count) stray byte-order marks, easy to paste and hard to see."),
+                 r.range, r.replacement)
+        }
+        if lang == "plain", facts.isWholeDocument, let r = Self.todoList(text, lines: lines) {
+            hint(Self.todoListID, .fix, String(localized: "It looks like you’re writing a to-do list. Checkboxes?"),
+                 String(localized: "Turns \(r.count) lines into Markdown checkboxes (- [ ]) and colours the tab as Markdown."),
+                 r.range, r.replacement)
+        }
+        if lang == "plain", !facts.languageIsManual {
+            let guess = LanguageDetector.sniff(c.text)
+            if guess == .markdown || guess == .html || guess == .json {
+                hint(Self.languageGuessPrefix + guess.rawValue, .tip,
+                     String(localized: "This looks like \(guess.displayName). Colour it that way?"),
+                     String(localized: "Only changes the colouring in Cedric, not the file. The language menu in the status bar changes it back."),
+                     nil, nil)
+            }
+        }
+        if Self.proseLanguages.contains(lang), let r = Self.duplicateWords(text, lines: lines, markdown: lang == "markdown") {
+            hint(Self.duplicateWordID, .fix,
+                 r.count == 1 ? String(localized: "“\(String(r.word.prefix(24)))”? A word typed twice. Fix it?")
+                              : String(localized: "\(r.count) words typed twice. Fix them?"),
+                 String(localized: "Removes the second copy of each."), r.range, r.replacement)
+        }
+        if Self.proseLanguages.contains(lang), let r = Self.doubleSpaces(text, lines: lines, markdown: lang == "markdown") {
+            hint(Self.doubleSpaceID, .fix, String(localized: "Two spaces after some full stops. Make it one?"),
+                 String(localized: "\(r.count) sentences start after two spaces, the rest after one."), r.range, r.replacement)
+        }
+    }
+
+    /// Last: facts about the file as a whole.
+    func fileHints(_ c: OwlContext, facts: OwlDocumentFacts, text: NSString,
+                   hint: (String, OwlHint.Kind, String, String?, NSRange?, String?) -> Void) {
+        let lang = c.language
+        let isCode = Self.codeLanguages.contains(lang) && lang != "json" && lang != "html"
+        let n = text.length
+        // A saved code file whose last line has no newline, with the caret elsewhere.
+        if isCode, facts.isWholeDocument, c.fileName != nil, facts.unsavedSince == nil, n > 0, text.character(at: n - 1) != 10,
+           c.selection.map({ NSMaxRange($0) < n }) ?? true {
+            hint(Self.finalNewlineID, .tip, String(localized: "No newline at the end of the file. Add one?"),
+                 String(localized: "Git and many tools expect the last line to end with one."), NSRange(location: n, length: 0), "\n")
+        }
+        if facts.mixedLineEndings {
+            hint(Self.mixedEndingsID, .explain, String(localized: "This file mixes line endings."),
+                 String(localized: "Saving writes them all as \(facts.lineEnding.displayName). Change that from the status bar."), nil, nil)
+        }
+    }
+}

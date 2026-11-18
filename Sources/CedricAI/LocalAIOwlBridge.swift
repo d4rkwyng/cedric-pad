@@ -95,7 +95,8 @@ public final class LocalAIOwlBridge {
         }
         let sched = OwlScheduler(
             provider: provider,
-            config: .init(pauseDelay: new.pauseDelay, minInterval: new.minInterval, timeout: new.timeout, minIdle: new.minIdle),
+            config: .init(pauseDelay: new.pauseDelay, minInterval: new.minInterval, timeout: new.timeout, minIdle: new.minIdle,
+                          automatic: new.automaticChecks),
             clock: clock, power: power,
             onOutcome: { [weak self] id, outcome in
                 Task { @MainActor in
@@ -134,7 +135,9 @@ public final class LocalAIOwlBridge {
     public func statusLine(now: Date = Date()) -> String? {
         guard let engine = engineTitle, scheduler != nil else { return nil }
         if paused { return "\(engine) · paused" }
-        guard let last = lastCheck else { return "\(engine) · waiting for a pause in typing" }
+        guard let last = lastCheck else {
+            return isAutomatic ? "\(engine) · waiting for a pause in typing" : "\(engine) · checks only when you ask"
+        }
         return Self.statusLine(engine: engine, outcome: last.outcome, age: now.timeIntervalSince(last.date))
     }
 
@@ -180,10 +183,27 @@ public final class LocalAIOwlBridge {
 
     // MARK: Inputs from the editor and the app
 
-    /// An edit (new generation) or a scroll (new visible text). No-op while off or paused.
+    /// Automatic checks are on (`LocalAISettings.automaticChecks`): the
+    /// scheduler asks on its own. Off: only `checkNow` asks.
+    public var isAutomatic: Bool { settings.automaticChecks }
+
+    /// An edit (new generation) or a scroll (new visible text). No-op while
+    /// off, paused, or with automatic checks off (nothing is scheduled).
     public func contextChanged(_ context: OwlContext) {
-        guard let s = scheduler, !paused, !largeDocuments.contains(context.documentID) else { return }
+        guard let s = scheduler, !paused, isAutomatic, !largeDocuments.contains(context.documentID) else { return }
         Task { await s.contextChanged(context) }
+    }
+
+    /// The AI can be asked right now (on, not paused).
+    public var canCheckNow: Bool { scheduler != nil && !paused }
+
+    /// The user asked: one request for `context` now (never for a large
+    /// document). False when nothing was started.
+    @discardableResult
+    public func checkNow(_ context: OwlContext) -> Bool {
+        guard let s = scheduler, !paused, !largeDocuments.contains(context.documentID) else { return false }
+        Task { await s.checkNow(context) }
+        return true
     }
 
     public func setAppActive(_ active: Bool) {

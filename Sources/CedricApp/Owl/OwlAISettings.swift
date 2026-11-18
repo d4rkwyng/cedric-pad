@@ -14,6 +14,7 @@ import CedricAI
 ///   CEDRIC_AI_TIMEOUT=20      request cap, seconds
 ///   CEDRIC_AI_FAKE=1.5        use a fake provider that answers after this many seconds
 ///   CEDRIC_AI_DEFAULTS=suite  keep the settings in this UserDefaults suite
+///   CEDRIC_AI_AUTO=1 / 0      automatic checks on / off (default: on, off on Intel)
 @MainActor
 enum AIStore {
     static let env = ProcessInfo.processInfo.environment
@@ -29,6 +30,7 @@ enum AIStore {
         if let v = env["CEDRIC_AI_INTERVAL"].flatMap(Double.init) { s.minInterval = v }
         if let v = env["CEDRIC_AI_TIMEOUT"].flatMap(Double.init) { s.timeout = v }
         if let v = env["CEDRIC_AI_MIN_IDLE"].flatMap(Double.init) { s.minIdle = v }
+        if let v = env["CEDRIC_AI_AUTO"] { s.automaticChecks = v == "1" }
         return s
     }
 
@@ -84,6 +86,8 @@ final class AISettingsSheet: NSObject {
     let modelPopup = NSPopUpButton()
     let weakLabel = NSTextField(labelWithString: LocalAISettings.weakModelNote)
     let intervalPopup = NSPopUpButton()
+    let automaticBox = NSButton(checkboxWithTitle: String(localized: "Check automatically when I pause typing"), target: nil, action: nil)
+    let automaticNote = NSTextField(wrappingLabelWithString: String(localized: "Off by default on Intel Macs, so the editor stays fast. Click the owl and choose Ask AI Now to check."))
     let saveButton = NSButton(title: String(localized: "Save"), target: nil, action: nil)
     let cancelButton = NSButton(title: String(localized: "Cancel"), target: nil, action: nil)
 
@@ -121,7 +125,7 @@ final class AISettingsSheet: NSObject {
     }
 
     private func build() {
-        for (b, a) in [(enabledBox, #selector(changed)), (testButton, #selector(test)), (saveButton, #selector(save)), (cancelButton, #selector(cancel))] {
+        for (b, a) in [(enabledBox, #selector(changed)), (automaticBox, #selector(changed)), (testButton, #selector(test)), (saveButton, #selector(save)), (cancelButton, #selector(cancel))] {
             b.target = self; b.action = a
         }
         for p in [presetPopup, modelPopup, intervalPopup] { p.target = self; p.action = #selector(changed) }
@@ -146,7 +150,8 @@ final class AISettingsSheet: NSObject {
         let privacy = privacyLabel
         privacy.font = small
         privacy.textColor = .secondaryLabelColor
-        for l in [statusLabel, modelsLabel, weakLabel, noteLabel] { l.font = small }
+        for l in [statusLabel, modelsLabel, weakLabel, noteLabel, automaticNote] { l.font = small }
+        automaticNote.textColor = .secondaryLabelColor
         noteLabel.textColor = .systemOrange
         modelsView.onChange = { [weak self] in self?.refresh() }
         weakLabel.textColor = .systemOrange
@@ -168,6 +173,8 @@ final class AISettingsSheet: NSObject {
             [label(String(localized: "Model:")), modelPopup],
             [NSGridCell.emptyContentView, weakLabel],
             [label(String(localized: "Check at most every:")), intervalPopup],
+            [NSGridCell.emptyContentView, automaticBox],
+            [NSGridCell.emptyContentView, automaticNote],
         ])
         self.grid = grid
         grid.rowSpacing = 8
@@ -175,7 +182,7 @@ final class AISettingsSheet: NSObject {
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
         urlField.widthAnchor.constraint(equalToConstant: 380).isActive = true
-        for l in [privacy, modelsLabel, statusLabel, noteLabel] {
+        for l in [privacy, modelsLabel, statusLabel, noteLabel, automaticNote] {
             l.preferredMaxLayoutWidth = 380
             // Without a hard cap a wrapping label in a grid column takes its
             // one-line width and runs into the sheet's edge.
@@ -208,6 +215,7 @@ final class AISettingsSheet: NSObject {
         presetPopup.selectItem(at: LocalAISettings.Backend.allCases.firstIndex(of: settings.backend) ?? 0)
         urlField.stringValue = settings.baseURL.absoluteString
         intervalPopup.selectItem(at: intervals.firstIndex(of: settings.minInterval) ?? 0)
+        automaticBox.state = settings.automaticChecks ? .on : .off
         refresh()
     }
 
@@ -293,6 +301,9 @@ final class AISettingsSheet: NSObject {
             modelsLabel.isHidden = true
         }
         grid?.cell(for: modelsLabel)?.row?.isHidden = modelsLabel.isHidden
+        // The interval only matters for automatic checks; the note only where they're off by default.
+        intervalPopup.isEnabled = settings.automaticChecks
+        grid?.cell(for: automaticNote)?.row?.isHidden = LocalAISettings.defaultAutomaticChecks
         fit()
     }
 
@@ -322,6 +333,7 @@ final class AISettingsSheet: NSObject {
         }
         settings.model = modelPopup.selectedItem?.representedObject as? String
         settings.minInterval = intervals[max(0, intervalPopup.indexOfSelectedItem)]
+        settings.automaticChecks = automaticBox.state == .on
         return true
     }
 

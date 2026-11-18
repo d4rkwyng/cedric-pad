@@ -92,7 +92,8 @@ final class SlowProvider: OwlHintProvider, @unchecked Sendable {
         }
     }
 
-    static let fast = LocalAISettings(enabled: true, backend: .lmStudio, model: "test-qwen", minInterval: 0.1, pauseDelay: 0.05, timeout: 0.5, minIdle: 0)
+    static let fast = LocalAISettings(enabled: true, backend: .lmStudio, model: "test-qwen", minInterval: 0.1, pauseDelay: 0.05, timeout: 0.5, minIdle: 0,
+                                      automaticChecks: true)
 
     @Test func disabledRegistersNothingAndNeverAsks() async {
         let rig = Rig(provider: SlowProvider())
