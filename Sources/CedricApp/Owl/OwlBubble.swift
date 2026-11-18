@@ -20,6 +20,15 @@ final class OwlBubble: NSView {
     private var actions: [() -> Void] = []
     private var onClose: (() -> Void)?
     private let stack = NSStackView()
+    /// The tail is on the side towards the owl: top when the bubble is
+    /// below him, left when it extends to his right.
+    var tailOnTop = false { didSet { if oldValue != tailOnTop { updateInsets(); needsDisplay = true } } }
+    var tailAtLeft = false { didSet { if oldValue != tailAtLeft { needsDisplay = true } } }
+
+    private func updateInsets() {
+        stack.edgeInsets.top = 10 + (tailOnTop ? Self.tail : 0)
+        stack.edgeInsets.bottom = 10 + (tailOnTop ? 0 : Self.tail)
+    }
 
     init(hint: OwlHint, buttons specs: [Button], onClose: (() -> Void)?) {
         self.hint = hint
@@ -100,14 +109,18 @@ final class OwlBubble: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let body = NSRect(x: 0.5, y: Self.tail + 0.5, width: bounds.width - 1, height: bounds.height - Self.tail - 1)
+        let t = Self.tail
+        let body = NSRect(x: 0.5, y: (tailOnTop ? 0 : t) + 0.5, width: bounds.width - 1, height: bounds.height - t - 1)
         let path = NSBezierPath(roundedRect: body, xRadius: 10, yRadius: 10)
-        // The tail, bottom right, towards the owl.
-        let tx = body.maxX - 30
+        // The tail, towards the owl.
+        let tx = tailAtLeft ? body.minX + 30 : body.maxX - 30
+        let lean: CGFloat = tailAtLeft ? -1 : 1
+        let base = tailOnTop ? body.maxY - 1 : body.minY + 1
+        let tip = tailOnTop ? bounds.height - 0.5 : 0.5
         let tail = NSBezierPath()
-        tail.move(to: NSPoint(x: tx - 9, y: body.minY + 1))
-        tail.line(to: NSPoint(x: tx + 6, y: 0.5))
-        tail.line(to: NSPoint(x: tx + 4, y: body.minY + 1))
+        tail.move(to: NSPoint(x: tx - 9 * lean, y: base))
+        tail.line(to: NSPoint(x: tx + 6 * lean, y: tip))
+        tail.line(to: NSPoint(x: tx + 4 * lean, y: base))
         tail.close()
         path.append(tail)
         NSGraphicsContext.saveGraphicsState()

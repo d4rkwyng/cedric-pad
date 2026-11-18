@@ -133,16 +133,26 @@ final class OwlView: NSView {
         sequence = []
     }
 
+    /// The editor behind him is dark: a soft light rim around the sprite
+    /// (no backdrop disc), so the navy owl reads on dark themes.
+    var onDarkBackground = false { didSet { if oldValue != onDarkBackground { needsDisplay = true } } }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let current else { return }
-        // A soft light disc behind the navy owl on dark themes, so it reads.
-        if effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-            let d = bounds.width * 0.62
-            let r = NSRect(x: bounds.midX - d / 2, y: bounds.height * 0.02, width: d, height: d)
-            NSColor(white: 1, alpha: 0.13).setFill()
-            NSBezierPath(ovalIn: r).fill()
-        }
         NSGraphicsContext.saveGraphicsState()
+        // The rim follows the sprite's own outline: a tight light glow on
+        // dark editors, a faint drop shadow on light ones.
+        let rim = NSShadow()
+        if onDarkBackground {
+            rim.shadowBlurRadius = 2.5
+            rim.shadowOffset = .zero
+            rim.shadowColor = NSColor(white: 1, alpha: 0.75)
+        } else {
+            rim.shadowBlurRadius = 2
+            rim.shadowOffset = NSSize(width: 0, height: -1)
+            rim.shadowColor = NSColor(white: 0, alpha: 0.18)
+        }
+        rim.set()
         if pose == .talking {
             // The app's own bubble does the talking: hide the little "…"
             // bubble drawn in the top right of the talking art.
@@ -151,13 +161,55 @@ final class OwlView: NSView {
             clip.windingRule = .evenOdd
             clip.addClip()
         }
-        current.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1)
+        // Inset a little so the rim isn't cut off at the view's edge.
+        current.draw(in: bounds.insetBy(dx: 2, dy: 2), from: .zero, operation: .sourceOver, fraction: 1)
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    override func mouseDown(with event: NSEvent) {}
+    // MARK: Click and drag
+
+    /// A press that moves less than `OwlPlacement.dragThreshold` is a click.
+    var onDoubleClick: (() -> Void)?
+    var onDragBegan: (() -> Void)?
+    /// The pointer's movement since the press, in the superview's coordinates.
+    var onDragMoved: ((NSSize) -> Void)?
+    var onDragEnded: (() -> Void)?
+    private var pressPoint: NSPoint?
+    private(set) var isDragging = false
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: isDragging ? .closedHand : .openHand)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        pressPoint = superview?.convert(event.locationInWindow, from: nil)
+        isDragging = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = pressPoint, let sv = superview else { return }
+        let p = sv.convert(event.locationInWindow, from: nil)
+        if !isDragging {
+            guard OwlPlacement.isDrag(from: start, to: p) else { return }
+            isDragging = true
+            NSCursor.closedHand.push()
+            window?.invalidateCursorRects(for: self)
+            onDragBegan?()
+        }
+        onDragMoved?(NSSize(width: p.x - start.x, height: p.y - start.y))
+    }
+
     override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick?() }
+        defer { pressPoint = nil }
+        if isDragging {
+            isDragging = false
+            NSCursor.pop()
+            window?.invalidateCursorRects(for: self)
+            onDragEnded?()
+            return
+        }
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        if event.clickCount >= 2 { onDoubleClick?() } else { onClick?() }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

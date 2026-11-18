@@ -155,8 +155,8 @@ enum DevHooks {
         metric("read_decode_ms", (t1 - t0) * 1000)
         let doc = EditorDocument(fileURL: url, untitledName: url.lastPathComponent)
         doc.apply(d)
-        doc.language = env["CEDRIC_PERF_LANGUAGE"].flatMap(Language.init(rawValue:))
-            ?? LanguageDetector.detect(fileName: url.lastPathComponent, content: d.text)
+        doc.languageChoice = .forFile(named: url.lastPathComponent, content: d.text)
+        if let l = env["CEDRIC_PERF_LANGUAGE"].flatMap(Language.init(rawValue:)) { doc.languageChoice.choose(l) }
         let tab = app.makeTab(doc, text: d.text)
         let t2 = now()
         metric("load_text_ms", (t2 - t1) * 1000)
