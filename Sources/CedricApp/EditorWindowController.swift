@@ -251,6 +251,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// sniff only reads the start; a paste sniffs at once).
     private var lastEditLocation = 0
     private var lastEditLength = 0
+    /// Character edits seen by the storage, and how many textDidChange has
+    /// handled: NSTextView's undo and redo change the text without calling
+    /// textDidChange, so storageEdited catches up for them (else an undo
+    /// after a save left the tab marked saved, and its text unsaved).
+    private var storageEdits = 0
+    private var handledEdits = 0
     private var sniffTimer: Timer?
 
     /// Auto-detection for an untitled tab (see textDidChange).
@@ -278,6 +284,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
         if loading { return }
+        storageEdits += 1
+        let seen = storageEdits
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.handledEdits < seen, self.window != nil else { return }
+            self.textDidChange(Notification(name: NSText.didChangeNotification, object: self.textView))
+        }
         if let e = bookmarkEdit {
             editing.bookmarks.adjust(firstLine: e.first, removed: e.removed, inserted: lineIndex.lineCount - oldLines + e.removed,
                                      wholeLines: e.wholeLines)
@@ -289,6 +301,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     func textDidChange(_ notification: Notification) {
         guard !loading else { return }
+        handledEdits = storageEdits
         let wasDirty = doc.isDirty
         doc.noteChange()
         if wasDirty != doc.isDirty { updateTitle() }
