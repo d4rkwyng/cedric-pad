@@ -98,6 +98,7 @@ extension EditorWindowController {
     func turnOnExtras() {
         largeOverride = true
         applyLargeMode(largeReason, newText: false)
+        OwlHub.shared.largeModeChanged(self)
         colorizer.recolorAll()
         if owl != nil { OwlHub.shared.activity(in: self) }
     }

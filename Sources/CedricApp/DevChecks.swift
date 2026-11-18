@@ -8,7 +8,7 @@ import CedricCore
 /// responder chain), checks the result, writes PNG snapshots and exits 0
 /// (all passed) or 1. Scripts/tools-check.sh runs them all.
 ///
-///   CEDRIC_CHECK=texttool|findinfiles|compare|follow|recent
+///   CEDRIC_CHECK=texttool|findinfiles|compare|follow|recent|large
 ///   CEDRIC_CHECK_OUT=/dir      where snapshots go (default: the temp folder)
 @MainActor
 enum DevChecks {
@@ -208,6 +208,7 @@ enum DevChecks {
         case "compare": compare(app)
         case "follow": follow(app)
         case "recent": recent(app)
+        case "large": largeDocument(app)
         default: print("check: unknown check \(name)"); exit(2)
         }
     }
