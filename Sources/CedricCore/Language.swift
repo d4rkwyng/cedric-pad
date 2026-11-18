@@ -145,6 +145,11 @@ public enum LanguageDetector {
         guard let best = score.max(by: { $0.value < $1.value || ($0.value == $1.value && $0.key.rawValue > $1.key.rawValue) }), best.value >= 2 else {
             return .plain
         }
+        // "Date: …", "Status: …" lines in meeting notes score as YAML;
+        // when the rest reads as sentences it is prose, not data.
+        if best.key == .yaml, ProseDetector.signals(ProseMask.masked(head as NSString, language: .plain)).readsAsProse {
+            return .plain
+        }
         return best.key
     }
 }
