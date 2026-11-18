@@ -5,7 +5,7 @@ import CedricCore
 /// like the other DevChecks, with real key events (Return, Tab, ⇧Tab and
 /// the menus' key equivalents) and typed text.
 ///
-///   CEDRIC_CHECK=mdlists|mdformat|mdtable|mdpaste
+///   CEDRIC_CHECK=mdlists|mdformat|mdtable|mdpaste|langindent
 @MainActor
 extension DevChecks {
     static func markdownCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -14,6 +14,7 @@ extension DevChecks {
         case "mdformat": markdownFormat(app)
         case "mdtable": markdownTable(app)
         case "mdpaste": markdownPaste(app)
+        case "langindent": languageIndent(app)
         default: return false
         }
         return true
@@ -321,6 +322,58 @@ extension DevChecks {
                 if let savedClip { general.setString(savedClip, forType: .string) }
             },
             snapshot("mdpaste.png", window: tab.window),
+        ])
+    }
+
+    /// YAML and Python indentation, with no default saved in Settings
+    /// (the user's own values are put back after).
+    static func languageIndent(_ app: AppDelegate) {
+        let restore = keepDefaults(["tabWidth", "indentWithTabs"])
+        UserDefaults.standard.removeObject(forKey: "indentWithTabs")
+        UserDefaults.standard.removeObject(forKey: "tabWidth")
+        let yaml = app.open(write("conf.yaml", ""))!
+        let py = app.open(write("prog.py", ""))!
+        let txt = app.open(write("plain.txt", ""))!
+        sized(yaml)
+        run([
+            sync {
+                focus(txt)
+                key("\t")
+                expect(txt.text == "\t", "plain text with no default saved: Tab still types a tab", txt.text.debugDescription)
+                focus(yaml)
+                key("\t")
+                expect(yaml.text == "  ", "YAML: Tab types 2 spaces, not a tab", yaml.text.debugDescription)
+                yaml.textView.string = ""
+                type("items:")
+                key("\r")
+                type("- one")
+                key("\r")
+                expect(yaml.text == "items:\n  - one\n  - ", "YAML: Return continues a - item", yaml.text.debugDescription)
+            },
+            sync {
+                key("\r")
+                expect(yaml.text == "items:\n  - one\n  ", "Return on an empty - item ends the list", yaml.text.debugDescription)
+            },
+            sync {
+                focus(py)
+                type("def f(x):")
+                key("\r")
+                expect(py.text == "def f(x):\n    ", "Python: 4 spaces after :", py.text.debugDescription)
+                type("if x:")
+                key("\r")
+                type("return 1")
+                key("\r")
+                expect(py.text.hasSuffix("        return 1\n    "), "Return after return steps one level out", py.text.debugDescription)
+                key("\t")
+                expect(py.text.hasSuffix("return 1\n        "), "Python: Tab types 4 spaces", py.text.debugDescription)
+                type("else:")
+                expect(py.text.hasSuffix("        return 1\n    else:"), "typing else: lines it up with its if", py.text.debugDescription)
+            },
+            sync {
+                key("z", [.command])
+                expect(!py.text.hasSuffix("    else:"), "⌘Z undoes it", py.text.debugDescription)
+                restore()
+            },
         ])
     }
 }

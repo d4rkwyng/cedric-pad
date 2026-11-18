@@ -33,8 +33,9 @@ public enum AutoEdit {
 
     /// Return at `caret` (the selection `caret..<after` is replaced): a
     /// newline plus the line's indent, one step more after an opening
-    /// bracket (or a ":" in Python and YAML). Between a bracket pair the
-    /// closer goes on its own line. Returns the text and where the caret
+    /// bracket (or a ":" in Python and YAML), one step less after a Python
+    /// `return`, `pass`, `break`, `continue` or `raise`. Between a bracket
+    /// pair the closer goes on its own line. Returns the text and where the caret
     /// goes, as an offset into that text.
     public static func newline(in text: NSString, lineStart: Int, caret: Int, after: Int, language: Language,
                                unit preferred: String? = nil) -> (text: String, caret: Int) {
@@ -50,6 +51,12 @@ public enum AutoEdit {
         var opens = false
         if let last, language != .plain, language != .markdown {
             opens = openers[last] != nil || (last == 58 && (language == .python || language == .yaml)) // ":"
+        }
+        if !opens, language == .python, caret - lineStart <= 4096,
+           LanguageIndent.pythonEndsBlock(text.substring(with: NSRange(location: lineStart, length: caret - lineStart))) {
+            // After return, pass, break, continue or raise: one step out.
+            let out = LanguageIndent.dedent(indent, width: (preferred.map { ($0 as NSString).length }) ?? 4)
+            return ("\n" + out, 1 + (out as NSString).length)
         }
         guard opens, let last else { return ("\n" + indent, 1 + (indent as NSString).length) }
         let unit = indentUnit(lineIndent: indent, language: language, preferred: preferred)

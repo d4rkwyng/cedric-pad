@@ -122,7 +122,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   one tab (kept with the session) and converts the whole file between
   them. Where spaces were chosen (the file's own, the tab's, or a default
   saved in Settings), Tab inserts spaces to the next tab stop; otherwise
-  it types a tab character, as before.
+  it types a tab character, as before. **YAML always indents with
+  spaces** (2, or the file's own width; the YAML spec forbids tabs), and
+  **Python with 4 spaces** unless the file uses tabs or tabs are the
+  default saved in Settings.
 - **Bookmarks** (Edit › Bookmarks, as in Notepad++): Toggle Bookmark (⌘F2,
   or click a line number), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
   Bookmark All Matches (⌥⌘F2: every line matching the find bar's search,
@@ -137,7 +140,12 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   as one undo step; bookmarks on the lines that stay follow them.
 - **Auto-indent and pairing:** Return keeps the line's indent, one step
   more after `{` `[` `(` (and `:` in Python and YAML); Return between a
-  pair puts the closer on its own line. In code, brackets and quotes close
+  pair puts the closer on its own line. In Python, Return after
+  `return`, `pass`, `break`, `continue` or `raise` steps one level out,
+  and typing the `:` of `else`, `elif`, `except` or `finally` lines the
+  clause up with its `if`, `try`, `for` or `while`. In YAML, Return
+  continues a `- ` item (an empty one ends the list), and after
+  `- key: value` lines up under the key. In code, brackets and quotes close
   themselves (no `'` in Swift or JSON), typing the closer steps over it
   (a quote only over one that pairing typed), Backspace between a pair
   deletes both, and typing one with a selection wraps it (Edit ›

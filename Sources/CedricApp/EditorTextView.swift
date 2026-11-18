@@ -118,6 +118,12 @@ final class EditorTextView: NSTextView {
     override func insertNewline(_ sender: Any?) {
         guard isEditable, !hasMarkedText(), let lineStartFor else { super.insertNewline(sender); return }
         let sel = selectedRange()
+        // YAML: "- " items carry on (MarkdownLists handles both).
+        if language == .yaml, onEdit != nil,
+           let e = MarkdownLists.newline(in: string as NSString, selection: sel, language: .yaml) {
+            applyEdit(e, String(localized: "Typing"))
+            return
+        }
         if let e = markdownEdit({ d, _ in MarkdownTable.newline(in: d, selection: sel) }) {
             applyEdit(e, String(localized: "Add Table Row"))
             return
@@ -211,6 +217,8 @@ final class EditorTextView: NSTextView {
     /// already there, and with a selection both go around it. Only for
     /// single typed characters (not paste, not input methods).
     override func insertText(_ string: Any, replacementRange: NSRange) {
+        if language == .python, isEditable, !hasMarkedText(), replacementRange.location == NSNotFound,
+           (string as? String) == ":", realignPythonClause() { return }
         guard pairing, isEditable, !hasMarkedText(), replacementRange.location == NSNotFound,
               let s = (string as? String) ?? (string as? NSAttributedString)?.string, s.utf16.count == 1,
               let c = s.utf16.first else {
@@ -235,6 +243,29 @@ final class EditorTextView: NSTextView {
         case nil:
             super.insertText(string, replacementRange: replacementRange)
         }
+    }
+
+    /// Python: ":" typed after `else`, `elif …`, `except …` or `finally`
+    /// lines the clause up with its `if`/`try`/… (one undo step with the
+    /// ":"). False when there's nothing to move.
+    private func realignPythonClause() -> Bool {
+        let sel = selectedRange()
+        guard sel.length == 0, let lineStartFor else { return false }
+        let ns = self.string as NSString
+        let start = lineStartFor(sel.location)
+        guard sel.location - start <= 512 else { return false }
+        let head = ns.substring(with: NSRange(location: start, length: sel.location - start))
+        var above: [String] = []
+        var p = start
+        while p > 0, above.count < 300 {
+            let r = ns.lineRange(for: NSRange(location: p - 1, length: 0))
+            above.append(r.length > 4096 ? "x" : ns.substring(with: r).trimmingCharacters(in: .newlines))
+            p = r.location
+        }
+        guard let indent = LanguageIndent.pythonClauseIndent(head: head, above: above, tabWidth: indentation?().width ?? 4) else { return false }
+        let body = head.drop { $0 == " " || $0 == "\t" }
+        super.insertText(indent + body + ":", replacementRange: NSRange(location: start, length: sel.location - start))
+        return true
     }
 
     /// Where closers that pairing typed are (a few, newest last): a quote
