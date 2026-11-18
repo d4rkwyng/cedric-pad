@@ -205,5 +205,21 @@ sleep 4
 if kill -0 $pid 2>/dev/null; then echo "session-check: OK   with the setting off, closing the last window doesn't quit"; quit_app $pid
 else echo "session-check: FAIL with the setting off, the app quit" >&2; fail=1; fi
 
+# 8c. Viewer tabs count as document windows: with only an image tab and an
+#     Office (Quick Look) tab open, closing them one by one quits too.
+export CEDRIC_SESSION_DIR="$W/session8c"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==' | base64 -D > "$W/pic.png"
+printf 'viewer quit\n' > "$W/memo.txt" && textutil -convert docx -output "$W/memo.docx" "$W/memo.txt" >/dev/null 2>&1
+env -u CEDRIC_TEST_TYPE CEDRIC_OPEN="$W/pic.png:$W/memo.docx" CEDRIC_TEST_CLOSE_ALL=1 CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1 \
+    "$BIN" -ApplePersistenceIgnoreState YES -quitWhenLastWindowCloses YES >/dev/null 2>&1 &
+pid=$!
+quit=0
+for _ in $(seq 1 16); do kill -0 $pid 2>/dev/null || { quit=1; break; }; sleep 0.5; done
+if [ $quit = 1 ]; then echo "session-check: OK   closing the last viewer tabs (image, Office) quit"
+else echo "session-check: FAIL closing the last viewer tabs (image, Office) didn't quit" >&2; kill -9 $pid; fail=1; fi
+dump >/dev/null
+grep -q "^viewer: file=.*pic.png" "$W/dump.txt" && echo "session-check: OK   the last viewer tab stays in the session (as Quit)" \
+    || { echo "session-check: FAIL the image tab wasn't kept in the session" >&2; fail=1; }
+
 [ $fail = 0 ] && echo "session-check: all OK"
 exit $fail

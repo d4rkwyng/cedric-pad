@@ -1106,3 +1106,64 @@ controller answers (as nothing, disabled) the few that don't check
   draws with Core Graphics, then relaunches to check the session;
   `render-check.sh` renders a PDF tab in every theme (white page, themed
   chrome).
+
+## Image tabs and Office (Quick Look) tabs
+
+Built the way PDF tabs are (above): each is its own `NSWindowController`
+in the editor's tab group, kept in `AppDelegate.imageTabs` /
+`officeTabs` beside `pdfTabs`. `ViewerTab` (ViewerTabs.swift) is what all
+three share: `id`, `fileURL`, `sessionTab`, `reloadIfChangedOnDisk`.
+`viewerTabs` / `currentViewerTab` replace the PDF-only lookups wherever
+the app asks "which windows are ours", "is a viewer in front" (then
+`currentTab` is nil and the editor's commands are off), the session,
+`cedric -w` and Reopen Closed Tab.
+
+- **Which files:** `DocumentKind.detect(url:)` (CedricCore, tested) reads
+  32 bytes: `%PDF-`, then `ImageFormat.detect` (PNG, JPEG, GIF, TIFF,
+  WebP, ICNS, PSD, JPEG 2000, the HEIF family by its `ftyp` brand, ICO/CUR
+  and BMP with their header fields checked so text starting "BM" stays
+  text), then `OfficeFormat.detect` (an OLE2 compound file; a zip named
+  .docx/.xlsx/.pptx/.pages/.numbers/.key; an Office name with no header,
+  so a damaged one reaches the viewer). A zip with no telling name is
+  `.office` if its central directory lists `[Content_Types].xml` plus
+  word/ xl/ or ppt/, or `Index/Document.iwa`. Package directories
+  (.pages, .rtfd) go by name. `.key` needs the zip header (PEM keys are
+  text); `{\rtf` in a `.doc` is text; SVG is always text.
+- **Image tab** (ImageTab.swift): an `NSScrollView` with magnification
+  (the zoom; pinch for free), a `CenteringClipView`, and an `ImageCanvas`
+  the size of the image in points that draws only its dirty rect: an
+  8-point checkerboard (light or dark to match the theme) and the image,
+  `interpolationQuality` none from 2 screen pixels per image pixel. The
+  file is read and decoded in `ImageFileInfo.load` on a global queue with
+  `CGImageSourceCreateThumbnailAtIndex` (with its EXIF transform, cached
+  immediately), at `ImageZoom.displayMaxPixelSize`: the whole image up to
+  40 MP, else ~32 MP, never over 8192 px a side. Only the header is read
+  on the main thread (`openImage`, to refuse a damaged file with an
+  alert). Animations (GIF, APNG, WebP with more than one frame) play with
+  `CGAnimateImageAtURLWithBlock`; a generation counter stops a superseded
+  run. Copy puts the file's own bytes on the pasteboard under its UTI and
+  promises TIFF and PNG through `ImagePasteProvider`, made only if pasted.
+  Print uses an `NSImageView` sized to the page's imageable area.
+  `ImageTabState` (scale or nil for fit, centre as fractions) is the
+  session state. Deferred loading as for PDFs (`loadIfShown`).
+- **Office tab** (OfficeTab.swift): Quick Look's `QLPreviewView`, found
+  with `NSClassFromString` after `dlopen` of QuickLookUI on first use, so
+  neither Quartz nor QuickLookUI is linked or loaded at launch; it works
+  under a Command Line Tools-only SwiftPM build. Open as Text uses
+  `NSAttributedString(url:options:)` (`.officeOpenXML`, `.docFormat` for
+  OLE2, `.rtfd`) on a global queue. For an .xlsx it is Open Sheet as CSV:
+  `ZipArchive` (CedricCore, central directory + `compression_decode_buffer`
+  raw DEFLATE, entries over 512 MB refused) and `XLSXSheet` (XMLParser:
+  workbook → first sheet's relationship → sheet XML; shared, inline and
+  formula strings, booleans, errors, numbers as stored, formulas' cached
+  values; gaps kept; rows padded to the widest). The CSV opens as an
+  untitled tab detected as CSV.
+- **Open in <app>** (File menu, all three viewer kinds): the file's
+  default app other than Cedric (`NSWorkspace.urlForApplication`), named
+  in the item's title.
+- `Scripts/image-check.sh` drives both in the running app with files it
+  makes (ImageIO, NSAttributedString, `/usr/bin/zip`), measures typing in
+  a text tab while a 12000×12000 PNG decodes (a background thread asks the
+  main queue for a key every 20 ms and records each wait, with App Nap
+  held off), then relaunches to check the session.
+

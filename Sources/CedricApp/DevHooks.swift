@@ -161,7 +161,7 @@ enum DevHooks {
         if env["CEDRIC_TEST_CLOSE_ALL"] == "1" {
             // One at a time, a run-loop turn apart, as a user's ⌘W presses.
             func closeNext() {
-                let docs = app.tabs.compactMap(\.window) + app.pdfTabs.compactMap(\.window)
+                let docs = app.tabs.compactMap(\.window) + app.viewerTabs.compactMap(\.window)
                 guard let w = docs.first else { return }
                 w.performClose(nil)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { closeNext() }
@@ -178,6 +178,7 @@ enum DevHooks {
                     let body = t.text.replacingOccurrences(of: "\n", with: "\\n")
                     print("tab: name=\(t.doc.displayName) file=\(t.doc.fileURL?.path ?? "-") dirty=\(t.doc.isDirty) language=\(t.doc.language.rawValue) text=\(body.prefix(60))")
                 }
+                for v in app.viewerTabs { print("viewer: file=\(v.fileURL.path)") }
                 for c in app.closedTabs {
                     let body = (c.hasBuffer ? app.store.readBuffer(c.id) ?? "<missing buffer>" : "-").replacingOccurrences(of: "\n", with: "\\n")
                     print("closed: name=\(c.untitledName ?? "-") file=\(c.path ?? "-") unsaved=\(c.hasBuffer) text=\(body.prefix(60))")

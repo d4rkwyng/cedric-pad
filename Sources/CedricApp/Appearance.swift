@@ -82,7 +82,7 @@ final class Settings {
     }
 
     /// "Quit when the last window closes": closing the last document
-    /// window (text or PDF tab) quits, as Quit does (every tab kept for
+    /// window (text, PDF, image or Office tab) quits, as Quit does (every tab kept for
     /// next launch). On by default.
     var quitWhenLastWindowCloses: Bool {
         // bool(forKey:): a `-quitWhenLastWindowCloses NO` argument is a string.
