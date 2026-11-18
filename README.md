@@ -44,6 +44,12 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   language's own comment marker: `//`, `#`, `/* */` or `<!-- -->`). Each
   works on every line the selection touches and is one undo step. ⌘X with
   nothing selected cuts the whole line.
+- **Bookmarks** (Edit › Bookmarks, as in Notepad++): Toggle Bookmark (⌘F2,
+  or click a line number), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
+  Bookmark All Matches (⌥⌘F2: every line matching the find bar's search,
+  or the selection or word under the caret), Clear Bookmarks (⇧⌘F2).
+  Bookmarks stay on their lines as you edit, move with Move Line, and are
+  kept with the session.
 - **Go to line** (⌘L, `42` or `42:7`), line numbers, current-line highlight,
   show invisibles (⌥⌘I), wrap lines (⌥Z).
 - **Encodings and line endings:** UTF-8 (with or without BOM), UTF-16 LE/BE

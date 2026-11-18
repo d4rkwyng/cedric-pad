@@ -14,6 +14,8 @@ final class EditingState {
     var markNeedle: Occurrences.Needle?
     var markCount: Int?
     var markCountTimer: Timer?
+    /// Bookmarked lines; follow edits (EditorWindowController.storageEdited).
+    var bookmarks = Bookmarks()
 
     func stop() {
         highlightTimer?.invalidate()
@@ -153,7 +155,18 @@ extension EditorWindowController {
         case .toggleComment: edit = LineOperations.toggleComment(sel, in: ns, syntax: doc.language.commentSyntax)
         }
         guard let edit else { NSSound.beep(); return }
+        // A moved line takes its bookmark along.
+        let before = editing.bookmarks
+        let block = LineOperations.lineBlock(sel, in: ns)
+        let firstLine = lineIndex.line(containing: block.location)
+        let lastLine = block.length == 0 ? firstLine : lineIndex.line(containing: NSMaxRange(block) - 1)
         apply(edit, actionName: command.actionName)
+        if command == .moveUp || command == .moveDown, !before.isEmpty {
+            var moved = before
+            moved.moveLines(firstLine..<(lastLine + 1), by: command == .moveUp ? -1 : 1)
+            editing.bookmarks = moved
+            gutter.needsDisplay = true
+        }
     }
 
     /// One `TextEdit` as one undoable change, inserted in the theme's text
@@ -194,6 +207,53 @@ extension EditorWindowController {
     }
 }
 
+// MARK: - Bookmarks
+
+extension EditorWindowController {
+    var caretLine: Int { lineIndex.line(containing: textView.selectedRange().location) }
+
+    func toggleBookmark(line: Int? = nil) {
+        editing.bookmarks.toggle(line ?? caretLine)
+        bookmarksChanged()
+    }
+
+    func goToBookmark(next: Bool) {
+        let b = editing.bookmarks
+        guard let line = next ? b.next(after: caretLine) : b.previous(before: caretLine) else { NSSound.beep(); return }
+        goToLine(line + 1)
+    }
+
+    func clearBookmarks() {
+        editing.bookmarks.removeAll()
+        bookmarksChanged()
+    }
+
+    /// Bookmarks every line with a match: the find bar's search when it is
+    /// open and has one, else the selection or the word under the caret.
+    /// Returns how many lines were bookmarked.
+    @discardableResult
+    func bookmarkAllMatches() -> Int {
+        let ns = textView.string as NSString
+        var ranges: [NSRange] = []
+        if !findBar.isHidden, !findBar.findField.stringValue.isEmpty,
+           let re = try? FindEngine.regex(findBar.findField.stringValue, findBar.options) {
+            ranges = FindEngine.matches(re, in: ns).map(\.range)
+        } else if let needle = Occurrences.needle(selection: textView.selectedRange(), in: ns) {
+            ranges = Occurrences.findAll(needle, in: ns)
+        }
+        guard !ranges.isEmpty else { NSSound.beep(); return 0 }
+        let lines = Set(ranges.map { lineIndex.line(containing: $0.location) })
+        editing.bookmarks.insert(contentsOf: lines)
+        bookmarksChanged()
+        return lines.count
+    }
+
+    private func bookmarksChanged() {
+        gutter.needsDisplay = true
+        onChange?(self) // saved with the session
+    }
+}
+
 // MARK: - Menu actions
 
 extension AppDelegate {
@@ -205,6 +265,11 @@ extension AppDelegate {
     @objc func moveLineDownMenu(_ sender: Any?) { currentTab?.perform(.moveDown) }
     @objc func deleteLineMenu(_ sender: Any?) { currentTab?.perform(.delete) }
     @objc func toggleCommentMenu(_ sender: Any?) { currentTab?.perform(.toggleComment) }
+    @objc func toggleBookmarkMenu(_ sender: Any?) { currentTab?.toggleBookmark() }
+    @objc func nextBookmarkMenu(_ sender: Any?) { currentTab?.goToBookmark(next: true) }
+    @objc func previousBookmarkMenu(_ sender: Any?) { currentTab?.goToBookmark(next: false) }
+    @objc func bookmarkAllMatchesMenu(_ sender: Any?) { currentTab?.bookmarkAllMatches() }
+    @objc func clearBookmarksMenu(_ sender: Any?) { currentTab?.clearBookmarks() }
 
     /// Validation for the editing extras; nil: not one of ours.
     func validateEditingItem(_ item: NSMenuItem) -> Bool? {
@@ -215,6 +280,9 @@ extension AppDelegate {
         case #selector(duplicateLineMenu(_:)), #selector(moveLineUpMenu(_:)), #selector(moveLineDownMenu(_:)),
              #selector(deleteLineMenu(_:)):
             return tab?.textView.isEditable == true
+        case #selector(toggleBookmarkMenu(_:)), #selector(bookmarkAllMatchesMenu(_:)): return tab != nil
+        case #selector(nextBookmarkMenu(_:)), #selector(previousBookmarkMenu(_:)), #selector(clearBookmarksMenu(_:)):
+            return tab?.editing.bookmarks.isEmpty == false
         case #selector(toggleCommentMenu(_:)):
             return tab?.textView.isEditable == true && tab?.doc.language.commentSyntax != nil
         case #selector(toggleHighlightOccurrences(_:)):

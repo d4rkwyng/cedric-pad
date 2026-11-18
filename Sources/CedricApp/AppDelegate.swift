@@ -268,7 +268,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                               hasBuffer: needsBuffer, encoding: d.encoding, lineEnding: d.lineEnding,
                                               language: d.languageIsManual ? d.language : nil,
                                               selectionLocation: sel.location, selectionLength: sel.length,
-                                              topLine: t.topLine, fileModified: d.fileModified))
+                                              topLine: t.topLine, fileModified: d.fileModified,
+                                              bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines))
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
             }
             if !sessionTabs.isEmpty {
@@ -330,6 +331,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     host = tab.window
                     if let f = w.frame { tab.window?.setFrame(from: f) }
                     tab.window?.orderFront(nil)
+                }
+                if let marks = st.bookmarks {
+                    tab.editing.bookmarks = Bookmarks(marks)
+                    tab.editing.bookmarks.clamp(lineCount: tab.lineIndex.lineCount)
                 }
                 if i == w.selectedTab { selectedWindow = tab.window }
                 let top = st.topLine

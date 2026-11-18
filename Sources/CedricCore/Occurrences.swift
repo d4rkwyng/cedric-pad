@@ -82,6 +82,12 @@ public enum Occurrences {
         scan(needle, in: text, from: 0, to: text.length, limit: limit).count
     }
 
+    /// Every occurrence in the whole text, up to `limit` (Bookmark All
+    /// Matches: user-initiated, like Find's match count).
+    public static func findAll(_ needle: Needle, in text: NSString, limit: Int = 100_000) -> [NSRange] {
+        scan(needle, in: text, from: 0, to: text.length, limit: limit)
+    }
+
     private static func scan(_ needle: Needle, in text: NSString, from start: Int, to end: Int, limit: Int) -> [NSRange] {
         let len = (needle.text as NSString).length
         guard len > 0, end - start >= len else { return [] }

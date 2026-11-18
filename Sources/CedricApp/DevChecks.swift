@@ -79,7 +79,9 @@ enum DevChecks {
                              windowNumber: w?.windowNumber ?? 0, context: nil, characters: ch, charactersIgnoringModifiers: ch.lowercased(),
                              isARepeat: false, keyCode: code)
         }
-        if mods.isEmpty {
+        // A function key (F2…) with no modifiers is a menu key equivalent too.
+        let functionKey = ch.utf16.first.map { $0 >= 0xF700 && $0 <= 0xF8FF } ?? false
+        if mods.isEmpty && !functionKey {
             guard let w, let down = event(.keyDown) else { return false }
             // Return in a sheet or alert: its default button.
             if ch == "\r", w.performKeyEquivalent(with: down) { return true }
@@ -597,6 +599,7 @@ enum DevChecks {
             case NSUpArrowFunctionKey?: s += "↑"
             case NSDownArrowFunctionKey?: s += "↓"
             case 32?: s += "␣"
+            case NSF2FunctionKey?: s += "F2"
             default: s += i.keyEquivalent.uppercased()
             }
             return s

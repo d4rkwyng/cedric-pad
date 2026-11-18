@@ -21,10 +21,13 @@ public struct SessionTab: Codable, Equatable, Sendable {
     /// file changed on disk since, the buffer still wins (it is the
     /// user's unsaved work) but the tab says so.
     public var fileModified: Date?
+    /// Bookmarked lines (0-based); nil in sessions saved before bookmarks.
+    public var bookmarks: [Int]?
 
     public init(id: UUID = UUID(), path: String? = nil, untitledName: String? = nil, hasBuffer: Bool = false,
                 encoding: TextEncoding = .utf8, lineEnding: LineEnding = .lf, language: Language? = nil,
-                selectionLocation: Int = 0, selectionLength: Int = 0, topLine: Int = 0, fileModified: Date? = nil) {
+                selectionLocation: Int = 0, selectionLength: Int = 0, topLine: Int = 0, fileModified: Date? = nil,
+                bookmarks: [Int]? = nil) {
         self.id = id
         self.path = path
         self.untitledName = untitledName
@@ -36,6 +39,7 @@ public struct SessionTab: Codable, Equatable, Sendable {
         self.selectionLength = selectionLength
         self.topLine = topLine
         self.fileModified = fileModified
+        self.bookmarks = bookmarks
     }
 }
 

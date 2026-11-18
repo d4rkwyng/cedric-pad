@@ -56,6 +56,9 @@ func textToolItems() -> [NSMenuItem] {
     }
 }
 
+/// F2, as a key equivalent (bookmarks, as in Notepad++: F2 / ⇧F2 / ⌘F2).
+let f2 = String(UnicodeScalar(UInt16(NSF2FunctionKey))!)
+
 @MainActor
 func buildMainMenu() -> NSMenu {
     let main = NSMenu()
@@ -115,6 +118,13 @@ func buildMainMenu() -> NSMenu {
                  String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .command]),
             item(String(localized: "Delete Line"), #selector(AppDelegate.deleteLineMenu(_:)), "k", [.command, .shift]),
             item(String(localized: "Toggle Comment"), #selector(AppDelegate.toggleCommentMenu(_:)), "/"),
+        ]),
+        submenu(String(localized: "Bookmarks"), [
+            item(String(localized: "Toggle Bookmark"), #selector(AppDelegate.toggleBookmarkMenu(_:)), f2, [.command]),
+            item(String(localized: "Next Bookmark"), #selector(AppDelegate.nextBookmarkMenu(_:)), f2, []),
+            item(String(localized: "Previous Bookmark"), #selector(AppDelegate.previousBookmarkMenu(_:)), f2, [.shift]),
+            item(String(localized: "Bookmark All Matches"), #selector(AppDelegate.bookmarkAllMatchesMenu(_:)), f2, [.command, .option]),
+            item(String(localized: "Clear Bookmarks"), #selector(AppDelegate.clearBookmarksMenu(_:)), f2, [.command, .shift]),
         ]),
         submenu(String(localized: "Text Tools"), textToolItems()),
         submenu(String(localized: "Spelling and Grammar"), [

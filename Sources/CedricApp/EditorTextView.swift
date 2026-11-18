@@ -243,8 +243,25 @@ final class GutterView: NSView {
     weak var textView: EditorTextView?
     var lineIndex: () -> LineIndex = { LineIndex() }
     var palette: EditorPalette = EditorPalettes.light { didSet { needsDisplay = true } }
+    /// Bookmarked lines, drawn as a marker left of the number; a click on
+    /// a line number toggles its bookmark.
+    var bookmarks: () -> Bookmarks = { Bookmarks() }
+    var onClickLine: ((Int) -> Void)?
 
     override var isFlipped: Bool { true }
+
+    /// The line whose number is drawn at `y` (view coordinates).
+    func line(atY y: CGFloat) -> Int? {
+        guard let tv = textView, let tlm = tv.textLayoutManager, let scroll = tv.enclosingScrollView else { return nil }
+        let point = CGPoint(x: 0, y: y + scroll.contentView.bounds.minY - tv.textContainerOrigin.y)
+        guard let frag = tlm.textLayoutFragment(for: point) else { return nil }
+        return lineIndex().line(containing: tv.offset(of: frag.rangeInElement.location))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        if let line = line(atY: p.y) { onClickLine?(line) } else { super.mouseDown(with: event) }
+    }
 
     /// Wide enough for the largest line number.
     func requiredWidth(lines: Int, font: NSFont) -> CGFloat {
@@ -272,6 +289,8 @@ final class GutterView: NSView {
         let scrollY = scroll.contentView.bounds.minY
         let originY = tv.textContainerOrigin.y
         let textFont = tv.font ?? Settings.shared.font
+        let marks = bookmarks()
+        let markColor = NSColor(hex: palette.caret)
         tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { frag in
             let frame = frag.layoutFragmentFrame
             let y = frame.minY + originY - scrollY
@@ -287,6 +306,12 @@ final class GutterView: NSView {
             // Align with the first line's baseline.
             let baselineY = y + (frag.textLineFragments.first?.typographicBounds.minY ?? 0) + textFont.ascender - font.ascender
             s.draw(at: CGPoint(x: self.bounds.width - size.width - 8, y: baselineY))
+            if marks.contains(line) {
+                // A bookmark: a rounded tab at the gutter's left edge, as tall as the line.
+                let h = max(6, min(frame.height, textFont.boundingRectForFont.height))
+                markColor.setFill()
+                NSBezierPath(roundedRect: NSRect(x: 2, y: y + 1, width: 5, height: h - 2), xRadius: 2, yRadius: 2).fill()
+            }
             return true
         }
         // The last empty line after a trailing newline has no fragment in

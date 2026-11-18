@@ -40,6 +40,7 @@ import Testing
         #expect(Occurrences.find(.init("ID", wholeWord: false), in: t, range: all).isEmpty)
         #expect(Occurrences.find(.init("(id)", wholeWord: false), in: t, range: all) == [NSRange(location: 17, length: 4)])
         #expect(Occurrences.count(.init("id", wholeWord: true), in: t) == 3)
+        #expect(Occurrences.findAll(.init("id", wholeWord: true), in: t) == whole)
     }
 
     @Test func boundedToTheRangeAndLimit() {

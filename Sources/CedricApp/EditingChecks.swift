@@ -13,6 +13,7 @@ extension DevChecks {
         switch name {
         case "highlight": highlight(app)
         case "lineops": lineOps(app)
+        case "bookmarks": bookmarks(app)
         default: return false
         }
         return true
@@ -206,6 +207,101 @@ extension DevChecks {
                 json.textView.setSelectedRange(NSRange(location: 1, length: 0))
                 key("/", [.command])
                 expect(json.text == "{\"a\": 1}\n", "⌘/ does nothing in JSON (no comments)", json.text)
+            },
+        ])
+    }
+
+    // MARK: Bookmarks
+
+    static let f2Key = String(UnicodeScalar(UInt16(NSF2FunctionKey))!)
+
+    static func bookmarks(_ app: AppDelegate) {
+        let lines = (1...12).map { $0 == 4 || $0 == 9 ? "todo \($0)" : "line \($0)" }
+        let tab = app.open(write("marks.txt", lines.joined(separator: "\n") + "\n"))!
+        sized(tab)
+        func caretTo(line: Int) { tab.textView.setSelectedRange(NSRange(location: tab.lineIndex.starts[line] + 1, length: 0)) }
+        var marks: [Int] { tab.editing.bookmarks.lines }
+        run([
+            sync {
+                focus(tab)
+                caretTo(line: 1)
+                key(f2Key, [.command])
+                caretTo(line: 5)
+                key(f2Key, [.command])
+                expect(marks == [1, 5], "⌘F2 bookmarks the caret's line", "\(marks)")
+                tab.gutter.display()
+            },
+            sync {
+                // The marker is drawn in the gutter, in the theme's caret colour.
+                let g = tab.gutter
+                let y = TypingCheck.glyphRects(tab.textView, NSRange(location: tab.lineIndex.starts[1], length: 1)).first.map {
+                    g.convert(NSPoint(x: 0, y: $0.midY), from: tab.textView).y } ?? -1
+                let rep = DevHooks.render(g, NSRect(x: 0, y: max(0, y - 2), width: 10, height: 4))
+                let c = rep?.colorAt(x: 8, y: 4)
+                expect(distance(c, tab.palette.caret) < 0.3, "a bookmark marker is drawn in the gutter",
+                       "\(String(describing: c)) at y=\(y)")
+                let none = DevHooks.render(g, NSRect(x: 0, y: max(0, y + 3 * 16 - 2), width: 10, height: 4))?.colorAt(x: 8, y: 4)
+                expect(distance(none, tab.palette.gutterBackground) < 0.05, "no marker on a line without one", "\(String(describing: none))")
+            },
+            snapshot("bookmarks.png"),
+            sync {
+                caretTo(line: 0)
+                key(f2Key)
+                expect(tab.caretLine == 1, "F2 goes to the next bookmark", "line \(tab.caretLine)")
+                key(f2Key)
+                expect(tab.caretLine == 5, "F2 again: the one after", "line \(tab.caretLine)")
+                key(f2Key)
+                expect(tab.caretLine == 1, "F2 wraps to the first", "line \(tab.caretLine)")
+                key(f2Key, [.shift])
+                expect(tab.caretLine == 5, "⇧F2 goes back (wrapping)", "line \(tab.caretLine)")
+            },
+            sync {
+                // A line typed above: the bookmarks stay on their text.
+                tab.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                key("\r")
+                expect(marks == [2, 6], "a new line above moves the bookmarks down with their lines", "\(marks)")
+                expect(tab.text.components(separatedBy: "\n")[2] == "line 2", "still on \"line 2\"")
+                key("z", [.command])
+            },
+            sync {
+                expect(marks == [1, 5] || marks == [2, 6], "undo keeps them on lines", "\(marks)")
+                // Delete a bookmarked line: its bookmark goes.
+                tab.editing.bookmarks = Bookmarks([1, 5])
+                caretTo(line: 1)
+                key("k", [.command, .shift])
+                expect(marks == [4], "deleting a bookmarked line drops its bookmark, the one below moves up", "\(marks)")
+                // Move a bookmarked line: the bookmark goes with it.
+                caretTo(line: 4)
+                key(down, [.control, .command])
+                expect(marks == [5], "⌃⌘↓ takes the bookmark along", "\(marks)")
+            },
+            sync {
+                // Bookmark All Matches on the word under the caret ("todo").
+                key(f2Key, [.command, .shift])
+                expect(marks.isEmpty, "⇧⌘F2 clears the bookmarks", "\(marks)")
+                let todo = (tab.text as NSString).range(of: "todo")
+                tab.textView.setSelectedRange(NSRange(location: todo.location + 1, length: 0))
+                key(f2Key, [.command, .option])
+                let want = tab.text.components(separatedBy: "\n").enumerated().filter { $0.element.hasPrefix("todo") }.map(\.offset)
+                expect(marks == want && want.count == 2, "⌥⌘F2 bookmarks every line with the word", "\(marks) want \(want)")
+                // With the find bar open: its search (a regex here).
+                tab.showFindBar(replace: false)
+                tab.findBar.regexBox.state = .on
+                tab.findBar.findField.stringValue = "line 1[01]"
+                key(f2Key, [.command, .option])
+                expect(marks.count == 4, "⌥⌘F2 with the find bar: every line matching its search too", "\(marks)")
+                tab.hideFindBar()
+            },
+            sync {
+                // A click on a line number toggles that line's bookmark.
+                key(f2Key, [.command, .shift])
+                let g = tab.gutter
+                let r = TypingCheck.glyphRects(tab.textView, NSRange(location: tab.lineIndex.starts[2], length: 1)).first ?? .zero
+                let p = g.convert(NSPoint(x: 0, y: r.midY), from: tab.textView)
+                click(g, at: NSPoint(x: g.bounds.width - 10, y: p.y))
+                expect(marks == [2], "a click in the gutter toggles a bookmark", "\(marks)")
+                click(g, at: NSPoint(x: g.bounds.width - 10, y: p.y))
+                expect(marks.isEmpty, "and a second click removes it", "\(marks)")
             },
         ])
     }

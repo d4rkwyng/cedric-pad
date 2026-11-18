@@ -126,6 +126,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gutter.textView = textView
         gutter.clipsToBounds = true
         gutter.lineIndex = { [unowned self] in self.lineIndex }
+        gutter.bookmarks = { [unowned self] in self.editing.bookmarks }
+        gutter.onClickLine = { [unowned self] line in self.toggleBookmark(line: line) }
         container = EditorContainer(gutter: gutter, scrollView: scrollView)
 
         split.isVertical = true
@@ -200,6 +202,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         PerfTrace.mark("set_text_storage")
         lineIndex = LineIndex(storage.string as NSString)
         PerfTrace.mark("line_index")
+        editing.bookmarks.clamp(lineCount: lineIndex.lineCount)
         textView.typingAttributes = attrs
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         textView.undoManager?.removeAllActions()
@@ -244,8 +247,18 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let oldLines = lineIndex.lineCount
         lastEditLocation = edited.location
         lastEditLength = edited.length
+        // Bookmarks follow their lines (EditingFeatures.swift).
+        var bookmarkEdit: (first: Int, removed: Int, wholeLines: Bool)?
+        if !loading, !editing.bookmarks.isEmpty {
+            let a = lineIndex.line(containing: oldRange.location), b = lineIndex.line(containing: NSMaxRange(oldRange))
+            bookmarkEdit = (a, b - a, lineIndex.starts[a] == oldRange.location && lineIndex.starts[b] == NSMaxRange(oldRange))
+        }
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
         if loading { return }
+        if let e = bookmarkEdit {
+            editing.bookmarks.adjust(firstLine: e.first, removed: e.removed, inserted: lineIndex.lineCount - oldLines + e.removed,
+                                     wholeLines: e.wholeLines)
+        }
         colorizer.textDidChange(firstLine: first, lineDelta: lineIndex.lineCount - oldLines, lineCount: lineIndex.lineCount)
         if lineIndex.lineCount != oldLines { updateGutterWidth() }
         checkLargeAfterEdit(lines: first..<(first + max(1, lineIndex.lineCount - oldLines + 1)))
