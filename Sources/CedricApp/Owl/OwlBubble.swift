@@ -42,7 +42,7 @@ final class OwlBubble: NSView {
         let title = NSTextField(wrappingLabelWithString: hint.title)
         title.font = .systemFont(ofSize: 12, weight: .semibold)
         title.textColor = .labelColor
-        title.preferredMaxLayoutWidth = Self.maxWidth - 24 - (onClose == nil ? 0 : 16)
+        title.preferredMaxLayoutWidth = Self.maxWidth - 12 - (onClose == nil ? 12 : 34)
         var rows: [NSView] = [title]
         // Where it came from, quietly: "AI suggestion · Apple Intelligence".
         // The owl's own rules need no label.
@@ -61,8 +61,11 @@ final class OwlBubble: NSView {
             detail.preferredMaxLayoutWidth = Self.maxWidth - 24
             rows.append(detail)
         }
-        let row = NSStackView()
+        // Buttons in one row, or more when they wouldn't fit the bubble's width.
+        let room = Self.maxWidth - 12 - (onClose == nil ? 12 : 28)
+        var row = NSStackView()
         row.spacing = 6
+        var used: CGFloat = 0
         for (i, s) in specs.enumerated() {
             let b = OwlButton(title: s.title, target: self, action: #selector(pressed(_:)))
             b.tag = i
@@ -70,6 +73,14 @@ final class OwlBubble: NSView {
             b.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             b.bezelStyle = .rounded
             if s.isDefault { b.keyEquivalent = "\r"; b.bezelColor = .controlAccentColor }
+            let w = b.fittingSize.width
+            if !row.arrangedSubviews.isEmpty, used + 6 + w > room {
+                rows.append(row)
+                row = NSStackView()
+                row.spacing = 6
+                used = 0
+            }
+            used += (row.arrangedSubviews.isEmpty ? 0 : 6) + w
             row.addArrangedSubview(b)
             buttons.append(b)
             actions.append(s.action)

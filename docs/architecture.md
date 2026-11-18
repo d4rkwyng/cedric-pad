@@ -1060,6 +1060,100 @@ preview and HTML in both Cedric themes; spelling marks in a Swift file
 or the link), colours unchanged, in light and dark; the owl's "Fix 3
 typos?" applied and undone with one undo.
 
+## Grammar in prose
+
+`Grammar.swift` (app) and `Prose.swift` / `Grammar.swift` (CedricCore,
+pure, tested in `ProseTests` and `GrammarTests`).
+
+**Which documents.** `ProseDetector.isProse`: Plain Text or Markdown, not a
+data or log file by name (`.log`, `.csv`, `.conf`, …), and a sample (at
+most 8 KB, the owl's context window) that reads as sentences after
+`ProseMask` blanks what isn't prose (Markdown front matter, fenced and
+indented code, tables, inline code, link targets, tags, markup characters,
+URLs and email addresses; replaced by spaces, newlines kept, so offsets
+stay the document's). The signals: at least 8 words; ≥ 75% of tokens
+word-shaped (letters only, not camelCase or snake_case, no digits); ≥ 12%
+of the words are common function words (a built-in list for English,
+French, German, Spanish, Italian, Portuguese and Dutch; Foundation has no
+dictionary, and the real checker would be too slow for a per-pause
+decision); sentence punctuation with 3–60 words per sentence on average;
+symbols (`{}[]<>=;|\/_*&^%$#@~` and backticks) ≤ 4% of visible
+characters; ≤ 25% of lines `looksLikeCode` (statement ends, comments,
+keywords with code punctuation, calls, timestamps or log levels first,
+`key = value`, `key: value` with a code-like key or data value, 3+
+separated short fields). Short bullet lists don't count; bullets of whole
+sentences do. The corpus in `ProseTests` has 22 prose samples (emails,
+letters, notes, stories, Markdown with code and front matter, French,
+German, Spanish) and 23 that must not be (logs, syslog, Maven output,
+INI, YAML, shell, .env, Swift/Python/C/JS/SQL/HTML/JSON pasted into a
+.txt, a diff, a traceback, plain and bulleted shopping lists, CSV, TSV,
+a .log and a .csv by name, a one-line "Hello there.").
+
+**Checking.** `EditorGrammar` (one per tab, lazy) runs after typing pauses
+for 3 s, the owl's own pause (`textDidChange` → `schedule`, a one-shot
+timer; also after open, once the first frame is up, and on settings,
+language or large-mode changes). Scrolling never starts a pass. Never in a
+document over 1 M characters (`maxLength`: a pass starts on the main
+thread by copying the owl's window, which a multi-megabyte log must not
+pay for; perf-check's 6 MB log scrolled with a 72 ms worst step before
+this). After a "not prose" verdict the next pass waits until the length
+has changed by 200 characters or 20 s have passed. A pass copies the owl's context window (visible lines ±40, at
+most 8 KB), masks and measures it on a utility queue, and if it is prose
+hands the masked text to `NSSpellChecker.requestChecking` (asynchronous;
+types spelling + grammar, because on macOS 26 grammar alone returns
+nothing; spelling results are dropped). Language: the checker's own
+(per-text identification when the user has "Automatic by Language", else
+an orthography for their chosen language). Results map through
+`GrammarMap.issues` (NSGrammarRange is relative to the result's sentence
+range); issues whose text no longer matches, or touching blanked text,
+are dropped; a result for an edit generation that has moved is thrown
+away. Issues follow edits (`GrammarMap.shift`: ones an edit touches go).
+Never in large mode (`extrasPaused`), never for other languages, PDF tabs
+or read-only text. The underlines' `didSet` redraws only the visible rect,
+and only when the ranges changed: an unconditional `needsDisplay` on
+opening a large file doubled perf-check's open time for the long line.
+
+**Language sniffing.** A .txt (or untitled) file of meeting notes with
+"Date:", "Status:" lines scored as YAML, which turned off spelling and
+the owl's prose help (build 7 test pass, F-M3). `LanguageDetector.sniff`
+now returns Plain Text when YAML wins but the text reads as prose.
+
+**Showing.** `EditorTextView.grammarRanges`: a green dotted line under the
+words (`EditorPalette.grammarMark`, lighter on dark themes; drawn in
+`drawBackground` like the occurrence marks, viewport segments only,
+clipped to the bounds). `menu(for:)` puts the checker's description,
+"Change to “…”" for up to five corrections and "Ignore Grammar" (this
+tab) at the top of the usual menu. With the owl on, `offerHint` picks the
+first issue in view after the caret (not a doubled word: the rules
+already offer those) and presents `GrammarMap.hint` ("Grammar: ‘a’ →
+‘an’?", the description as detail, the correction as the replacement, so
+Fix it is `applyPresented`, one undo step). `GrammarPopupPolicy` (one per
+app): no bubble within the owl's typing pause (3 s) of the last keystroke
+(a pass that finishes earlier asks again when the pause is over), and at most one per
+10 minutes, unless the user clicked the owl and chose "Grammar Hint" in
+his popover. Hint ids are `grammar.<words>→<fix>` (the coordinator's
+once-per-document and snooze apply; the close box snoozes); "Don't show
+again" saves `grammar` in the never list (all grammar hints); "Not in
+This File" is per tab (not kept with the session). The bubble now wraps
+its buttons onto a second row when they don't fit.
+
+**Fix Grammar…** (`GrammarStepController`, `GrammarStepper` in Core):
+checks the document (at most 200 K characters around the caret) once in
+the background, then steps through from the caret and round from the
+top in a `SpellStepPanel`: the words, the checker's note, its
+suggestions (first picked), Change (one undo step), Skip, Done, "N of M";
+Return / Tab or ⌘→ / Esc. Edits made meanwhile move what is to come.
+
+**Check:** `CEDRIC_CHECK=grammar` (tools-check). The system checker in
+this environment flags "a elephant" and doubled words but nothing in
+"Their going too the store tomorrow and we was late.", so after the
+real-checker part (typed email, underline, bubble, Fix it, ⌘Z/⇧⌘Z) the
+check swaps in `FakeGrammarChecker` (also `CEDRIC_GRAMMAR_FAKE=1`) for the
+right-click menu, rate limit, Grammar Hint, Not in This File and Fix
+Grammar…, and for the negatives: the same sentences in a Swift comment,
+a JSON string, a `.log` file and a .txt of log lines get no underline and
+no hint; large mode and the setting off check nothing.
+
 ## PDF tabs
 
 A PDF opens in a `PDFTabController` (PDFTab.swift), not an

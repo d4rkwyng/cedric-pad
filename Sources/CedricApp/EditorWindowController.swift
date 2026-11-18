@@ -91,6 +91,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private(set) lazy var spelling = EditorSpelling(tab: self)
     /// Fix Typos… while its panel is open (SpellStepPanel.swift).
     var spellStep: SpellStepController?
+    /// Grammar in prose (Grammar.swift), and Fix Grammar… while its panel is open.
+    private(set) lazy var grammar: EditorGrammar = {
+        let g = EditorGrammar(tab: self)
+        textView.grammar = g
+        return g
+    }()
+    var grammarStep: GrammarStepController?
     /// View › Follow File (EditorTools.swift).
     var tail: FileTail?
     /// Large mode (LargeDocumentMode.swift): why, and "Turn On Anyway".
@@ -339,6 +346,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         fences.invalidate(fromLine: first)
         if loading { return }
         spellStep?.textEdited(oldRange, newLength: edited.length)
+        if !textView.grammarRanges.isEmpty { grammar.textEdited(oldRange, newLength: edited.length) }
+        grammarStep?.textEdited(oldRange, newLength: edited.length)
         storageEdits += 1
         let seen = storageEdits
         // Only undo and redo: Follow File appends on purpose without a
@@ -394,6 +403,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             OwlHub.shared.activity(in: self)
             spelling.schedule()
         }
+        grammar.schedule()
         onChange?(self)
     }
 
@@ -479,6 +489,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         owl?.layoutViews()
         spelling.apply()
         gitState?.settingChanged()
+        // Grammar waits for the first frame (a pass is scheduled, never run, here).
+        AfterFirstFrame.run { [weak self] in self?.grammar.apply() }
     }
 
     private(set) var wrapsLines = true
@@ -573,6 +585,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if textView.isContinuousSpellCheckingEnabled { textView.isContinuousSpellCheckingEnabled = false }
         textView.markedMisspellings = []
         spelling.apply()
+        grammar.apply()
         updateStatus()
         previewLanguageChanged()
         if outlineVisible, l != .markdown { hideOutline() }
@@ -811,6 +824,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         editing.stop()
         spelling.stop()
         spellStep?.closeWithTab()
+        grammar.stop()
+        grammarStep?.closeWithTab()
         OwlHub.shared.closed(self)
         tail?.stop()
         tail = nil

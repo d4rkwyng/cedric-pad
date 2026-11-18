@@ -14,6 +14,7 @@ extension DevChecks {
         case "spellstep": spellStep(app)
         case "detachpreview": detachPreview(app)
         case "csvpreview": csvPreview(app)
+        case "grammar": grammarCheck(app)
         default: return markdownCheck(name, app)
         }
         return true

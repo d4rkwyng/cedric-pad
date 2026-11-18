@@ -373,6 +373,25 @@ final class OwlController: NSObject, NSPopoverDelegate {
         if hint.id == RulesHintProvider.letterID {
             return [.init(title: String(localized: "No thanks, I’m an owl"), isDefault: false) { [weak self] in self?.hideBubble() }]
         }
+        if GrammarMap.isGrammarHint(hint.id) {
+            // Grammar (Grammar.swift): Fix it (one undo step), the
+            // step-through, and off for this file or everywhere. The close
+            // box is "Not now".
+            var out: [OwlBubble.Button] = []
+            if hint.replacement != nil {
+                out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self] in _ = self?.applyPresented() })
+            }
+            out.append(.init(title: String(localized: "Fix Grammar…"), isDefault: hint.replacement == nil) { [weak self, weak tab] in
+                self?.hideBubble(); tab?.startGrammarStep()
+            })
+            out.append(.init(title: String(localized: "Not in This File"), isDefault: false) { [weak self, weak tab] in
+                tab?.grammar.hintsOffHere = true; self?.hideBubble()
+            })
+            out.append(.init(title: String(localized: "Don’t show again"), isDefault: false) { [weak self] in
+                hub.coordinator.neverShowAgain(GrammarMap.globalID); self?.hideBubble()
+            })
+            return out
+        }
         var out: [OwlBubble.Button] = []
         if hint.id == RulesHintProvider.jsonID, hint.replacement == nil {
             // A long one-line JSON file, only its start in view: Fix it
@@ -422,7 +441,11 @@ final class OwlController: NSObject, NSPopoverDelegate {
     private func showBubble(_ hint: OwlHint, buttons: [OwlBubble.Button]) {
         bubble?.removeFromSuperview()
         let onlyButton = hint.id == RulesHintProvider.letterID
-        let b = OwlBubble(hint: hint, buttons: buttons, onClose: onlyButton ? nil : { [weak self] in self?.hideBubble() })
+        let grammar = GrammarMap.isGrammarHint(hint.id)
+        let b = OwlBubble(hint: hint, buttons: buttons, onClose: onlyButton ? nil : { [weak self] in
+            if grammar { OwlHub.shared.coordinator.snooze(hint.id) }
+            self?.hideBubble()
+        })
         overlay.addSubview(b, positioned: .above, relativeTo: owl)
         bubble = b
         bubbleFaded = false
@@ -527,6 +550,13 @@ final class OwlController: NSObject, NSPopoverDelegate {
             ask.toolTip = String(localized: "Checks the text in view with the AI once, now.")
             stack.addArrangedSubview(ask)
         }
+        // Grammar found in view: the owl clicked shows it now, whatever the rate limit.
+        if let tab, tab.grammar.issuesInView > 0 {
+            let g = NSButton(title: String(localized: "Grammar Hint"), target: self, action: #selector(grammarHintNow))
+            g.controlSize = .small
+            g.toolTip = String(localized: "Shows a grammar suggestion for the text in view.")
+            stack.addArrangedSubview(g)
+        }
         let hide = NSButton(title: String(localized: "Hide Cedric"), target: self, action: #selector(hideOwl))
         hide.controlSize = .small
         let reset = NSButton(title: String(localized: "Reset Position"), target: self, action: #selector(resetFromPopover))
@@ -578,6 +608,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
         closePopover()   // at once: a fast answer must not find it still up
         guard let tab else { return }
         OwlHub.shared.askAI(in: tab)
+    }
+
+    @objc func grammarHintNow() {
+        closePopover()
+        hideBubble()
+        tab?.grammar.offerHint(userAsked: true)
     }
 
     @objc private func resetFromPopover() {

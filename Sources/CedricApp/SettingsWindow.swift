@@ -30,6 +30,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let autoClose = NSButton(checkboxWithTitle: String(localized: "Auto-close brackets and quotes"), target: nil, action: nil)
     let spelling = NSButton(checkboxWithTitle: String(localized: "Check spelling while typing"), target: nil, action: nil)
     let quitOnLastClose = NSButton(checkboxWithTitle: String(localized: "Quit when the last window closes"), target: nil, action: nil)
+    let grammar = NSButton(checkboxWithTitle: String(localized: "Check grammar in prose"), target: nil, action: nil)
     let indentKind = NSPopUpButton()
     let tabWidth = NSPopUpButton()
     private var observer: NSObjectProtocol?
@@ -96,7 +97,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let fontRow = NSStackView(views: [fontPopup, fontSize, fontStepper, NSTextField(labelWithString: "pt")])
         fontRow.spacing = 6
 
-        for b in [wrap, invisibles, lineNumbers, occurrences, gitChanges, autoClose, spelling, quitOnLastClose] { b.target = self; b.action = #selector(changed(_:)) }
+        for b in [wrap, invisibles, lineNumbers, occurrences, gitChanges, autoClose, spelling, grammar, quitOnLastClose] { b.target = self; b.action = #selector(changed(_:)) }
         indentKind.addItems(withTitles: [String(localized: "Spaces"), String(localized: "Tabs")])
         indentKind.target = self; indentKind.action = #selector(changed(_:))
         for wdt in Indentation.widths { tabWidth.addItem(withTitle: "\(wdt)"); tabWidth.lastItem?.tag = wdt }
@@ -118,6 +119,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             [NSGridCell.emptyContentView, gitChanges],
             [label(String(localized: "Editing:")), autoClose],
             [NSGridCell.emptyContentView, spelling],
+            [NSGridCell.emptyContentView, grammar],
             [label(String(localized: "Indent with:")), indentRow],
             [NSGridCell.emptyContentView, note],
             [label(String(localized: "App:")), quitOnLastClose],
@@ -156,6 +158,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         autoClose.state = s.autoCloseBrackets ? .on : .off
         spelling.state = s.checkSpellingWhileTyping ? .on : .off
         quitOnLastClose.state = s.quitWhenLastWindowCloses ? .on : .off
+        grammar.state = s.checkGrammar ? .on : .off
+        grammar.toolTip = String(localized: "Plain Text and Markdown that reads as sentences: emails, letters, notes. Never code, data or logs.")
         let ind = s.defaultIndentation
         indentKind.selectItem(at: ind.usesTabs ? 1 : 0)
         tabWidth.selectItem(withTag: ind.width)
@@ -180,6 +184,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         case autoClose: s.autoCloseBrackets = autoClose.state == .on
         case spelling: s.checkSpellingWhileTyping = spelling.state == .on
         case quitOnLastClose: s.quitWhenLastWindowCloses = quitOnLastClose.state == .on
+        case grammar: s.checkGrammar = grammar.state == .on
         case indentKind, tabWidth:
             s.defaultIndentation = Indentation(usesTabs: indentKind.indexOfSelectedItem == 1, width: tabWidth.selectedTag() > 0 ? tabWidth.selectedTag() : 4)
         default: break
