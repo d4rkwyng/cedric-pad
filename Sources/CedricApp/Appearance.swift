@@ -81,6 +81,15 @@ final class Settings {
         set { defaults.set(newValue, forKey: "highlightOccurrences"); changed() }
     }
 
+    /// "Quit when the last window closes": closing the last document
+    /// window (text or PDF tab) quits, as Quit does (every tab kept for
+    /// next launch). On by default.
+    var quitWhenLastWindowCloses: Bool {
+        // bool(forKey:): a `-quitWhenLastWindowCloses NO` argument is a string.
+        get { defaults.object(forKey: "quitWhenLastWindowCloses") == nil || defaults.bool(forKey: "quitWhenLastWindowCloses") }
+        set { defaults.set(newValue, forKey: "quitWhenLastWindowCloses") }
+    }
+
     /// Edit › Auto-Close Brackets and Quotes (code only, not prose). On by default.
     var autoCloseBrackets: Bool {
         get { defaults.object(forKey: "autoCloseBrackets") as? Bool ?? true }

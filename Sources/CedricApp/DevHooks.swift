@@ -28,6 +28,10 @@ import WebKit
 ///   CEDRIC_TEST_TYPE_UNTITLED=t   open a new untitled tab and type this
 ///   CEDRIC_TEST_DETACH_PREVIEW=x,y,w,h  detach the front tab's preview to this frame (session tests)
 ///   CEDRIC_TEST_CLOSE_LAST=1      then close the newest tab (as ⌘W does; session tests)
+///   CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1  let closing the last window quit (off under the other test hooks)
+///   CEDRIC_TEST_SHOW_SETTINGS=1   open the Settings window (session tests: it mustn't keep the app alive)
+///   CEDRIC_TEST_WAIT_MARKER=/tmp/cedric-wait.x  `cedric -w` on the front tab (session tests)
+///   CEDRIC_TEST_CLOSE_ALL=1       0.5 s in, close every tab one by one, as ⌘W does (session tests)
 ///   CEDRIC_TEST_REOPEN_CLOSED=1   then reopen the newest closed tab (as ⇧⌘T does)
 ///   CEDRIC_TEST_EARLY_CLOSE=1     close the selected tab 0.5 s in, before deferred tabs are built
 ///   CEDRIC_TEST_EARLY_REOPEN=1    reopen the newest closed tab 0.5 s in, likewise
@@ -90,6 +94,11 @@ enum DevHooks {
                                           "CEDRIC_THEME", "CEDRIC_LAUNCH_TRACE", "CEDRIC_RESTORE_DELAY",
                                           "CEDRIC_TEST_EARLY_CLOSE", "CEDRIC_TEST_EARLY_REOPEN"]
 
+    /// Closing the last window quits only in a plain run (the hooks open
+    /// and close tabs freely), or when a session test asks for it.
+    static let allowsQuitOnLastClose = env["CEDRIC_TEST_QUIT_ON_LAST_CLOSE"] == "1"
+        || !env.keys.contains { $0.hasPrefix("CEDRIC_") && !launchOnly.contains($0) }
+
     static func afterLaunch(_ app: AppDelegate) {
         // The hooks below expect every restored tab to exist now, not
         // after the first frame (AppDelegate.restoreNextPending).
@@ -147,6 +156,18 @@ enum DevHooks {
             tab.previewWindow?.window?.setFrame(NSRect(x: f[0], y: f[1], width: f[2], height: f[3]), display: true)
         }
         if env["CEDRIC_TEST_CLOSE_LAST"] == "1", let tab = app.tabs.last { tab.window?.performClose(nil) }
+        if env["CEDRIC_TEST_SHOW_SETTINGS"] == "1" { SettingsWindowController.show() }
+        if let marker = env["CEDRIC_TEST_WAIT_MARKER"], let tab = app.currentTab ?? app.tabs.last { app.addWaiter(marker, for: tab) }
+        if env["CEDRIC_TEST_CLOSE_ALL"] == "1" {
+            // One at a time, a run-loop turn apart, as a user's ⌘W presses.
+            func closeNext() {
+                let docs = app.tabs.compactMap(\.window) + app.pdfTabs.compactMap(\.window)
+                guard let w = docs.first else { return }
+                w.performClose(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { closeNext() }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { closeNext() }
+        }
         if env["CEDRIC_TEST_REOPEN_CLOSED"] == "1" { app.reopenClosedTab(nil) }
         if env["CEDRIC_SESSION_DUMP"] == "1" {
             // A detached preview is restored after the first frame: none may exist yet.

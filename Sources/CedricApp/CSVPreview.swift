@@ -92,8 +92,8 @@ final class CSVPreview: NSObject, PreviewRenderer, NSTableViewDataSource, NSTabl
         let cut = end < ns.length
         let sort = table.sortDescriptors.first
         Self.queue.async {
-            let delim = CSV.delimiter(for: snapshot, fileName: fileName)
-            var t = CSV.parse(snapshot, delimiter: delim, maxRows: Self.maxRows + 1)
+            let dialect = CSV.dialect(for: snapshot, fileName: fileName)
+            var t = CSV.parse(snapshot, dialect: dialect, maxRows: Self.maxRows + 1)
             if cut { t.truncated = true }
             let order = Self.order(t.rows, sort)
             DispatchQueue.main.async {
@@ -215,7 +215,7 @@ final class CSVPreview: NSObject, PreviewRenderer, NSTableViewDataSource, NSTabl
         guard row < order.count else { return }
         let start = data.rowStarts[order[row]]
         let text = currentText()
-        onSelectField?(min(text.length, CSV.fieldOffset(in: text, rowStart: start, column: column, delimiter: data.delimiter)))
+        onSelectField?(min(text.length, CSV.fieldOffset(in: text, rowStart: start, column: column, dialect: data.dialect)))
     }
 
     func sync(line: Int, fraction: Double, language: Language) {

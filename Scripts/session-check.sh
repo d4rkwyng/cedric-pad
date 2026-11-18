@@ -3,7 +3,8 @@
 # edits to a file and an untitled tab must survive both a crash (kill -9
 # after the autosave) and a normal quit; a tab closed with unsaved text
 # (hot close) must survive a crash and come back with Reopen Closed Tab; a
-# detached preview comes back in its window with its frame. Uses a throwaway session
+# detached preview comes back in its window with its frame; closing the
+# last window quits and keeps everything. Uses a throwaway session
 # directory and file; never touches the real session. Needs a GUI session
 # (works with the screen locked).
 #
@@ -170,6 +171,39 @@ print("%s %s" % (t[0].get("previewDetached"), " ".join(t[0].get("previewFrame","
 dump
 check "detached preview restored in its window, same frame, after the first frame" \
     "^preview: name=doc.md detached=true visible=true title=doc.md — Preview frame=140,120,520,410 before-first-frame=0"
+
+# 8. Closing the last window quits (Settings › "Quit when the last window
+#    closes", on by default), as Quit does: every tab one by one, as ⌘W,
+#    with a detached preview and the Settings window open (neither keeps
+#    the app alive), an unsaved untitled tab and a `cedric -w` waiter. The
+#    app must exit by itself, release the waiter, and the next launch
+#    bring the unsaved text back. With the setting off it stays running.
+export CEDRIC_SESSION_DIR="$W/session8"
+marker="${TMPDIR:-/tmp}/cedric-wait.sessioncheck$$"
+marker=$(python3 -c 'import os,sys; print(os.path.normpath(sys.argv[1]))' "$marker")
+: > "$marker"
+env -u CEDRIC_TEST_TYPE CEDRIC_OPEN="$W/doc.md" CEDRIC_TEST_DETACH_PREVIEW=140,120,520,410 CEDRIC_TEST_TYPE_UNTITLED="closed last, kept" \
+    CEDRIC_TEST_WAIT_MARKER="$marker" CEDRIC_TEST_SHOW_SETTINGS=1 CEDRIC_TEST_CLOSE_ALL=1 CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1 \
+    "$BIN" -ApplePersistenceIgnoreState YES -quitWhenLastWindowCloses YES >/dev/null 2>&1 &
+pid=$!
+quit=0
+for _ in $(seq 1 16); do kill -0 $pid 2>/dev/null || { quit=1; break; }; sleep 0.5; done
+if [ $quit = 1 ]; then echo "session-check: OK   closing the last window quit (detached preview and Settings open)"
+else echo "session-check: FAIL closing the last window didn't quit" >&2; kill -9 $pid; fail=1; fi
+[ -e "$marker" ] && { echo "session-check: FAIL the cedric -w waiter wasn't released" >&2; rm -f "$marker"; fail=1; } \
+    || echo "session-check: OK   the cedric -w waiter released"
+dump
+check "last window closed: the unsaved text comes back next launch" '^tab: name=Untitled.*dirty=true .*text=closed last, kept'
+grep -q "^closed: .*closed last, kept" "$W/dump.txt" && { echo "session-check: FAIL the last tab went to the closed list" >&2; fail=1; } \
+    || echo "session-check: OK   the last tab stays open (as Quit), not in the closed list"
+# The setting off: the app stays up with no windows.
+export CEDRIC_SESSION_DIR="$W/session8b"
+env -u CEDRIC_TEST_TYPE CEDRIC_TEST_TYPE_UNTITLED="x" CEDRIC_TEST_CLOSE_ALL=1 CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1 \
+    "$BIN" -ApplePersistenceIgnoreState YES -quitWhenLastWindowCloses NO >/dev/null 2>&1 &
+pid=$!
+sleep 4
+if kill -0 $pid 2>/dev/null; then echo "session-check: OK   with the setting off, closing the last window doesn't quit"; quit_app $pid
+else echo "session-check: FAIL with the setting off, the app quit" >&2; fail=1; fi
 
 [ $fail = 0 ] && echo "session-check: all OK"
 exit $fail

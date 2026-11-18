@@ -30,6 +30,7 @@ extension AppDelegate {
     /// is kept for Reopen Closed Tab).
     @objc func closeWindow(_ sender: Any?) {
         guard let w = currentTab?.window else { return }
+        if quitIfClosingLastWindow(w) { return }
         for win in w.tabbedWindows ?? [w] { win.performClose(nil) }
     }
 
