@@ -187,7 +187,8 @@ public struct ImageTabState: Codable, Equatable, Sendable {
     }
 }
 
-/// An Office / iWork (Quick Look) tab: nothing to keep but that it is one.
+/// An Office / iWork (Quick Look) tab, or a certificate tab: nothing to
+/// keep but that it is one.
 public struct OfficeTabState: Codable, Equatable, Sendable {
     public init() {}
 }

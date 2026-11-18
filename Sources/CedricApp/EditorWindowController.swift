@@ -1042,11 +1042,20 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     // MARK: Preview
 
+    /// The Certificate panel applies: a certificate file name, or PEM text
+    /// near the start, in a language without its own preview.
+    var showsCertificatePanel: Bool {
+        !doc.language.hasPreview && Certificates.isCertificateText(textView.string, fileName: doc.fileURL?.lastPathComponent)
+    }
+
+    /// View › Show Preview applies: Markdown, HTML, CSV, or the Certificate panel.
+    var previewApplies: Bool { doc.language.hasPreview || showsCertificatePanel }
+
     /// View › Show Preview (⌥⌘P): docked beside the text, or closed
     /// (detached too).
     func togglePreview() {
         if previewPane != nil { closePreview(); return }
-        guard doc.language.hasPreview else { NSSound.beep(); return }
+        guard previewApplies else { NSSound.beep(); return }
         dock(makePreviewPane())
         renderPreview()
         onChange?(self)
@@ -1054,6 +1063,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     private func makePreviewPane() -> PreviewPane {
         let pane = PreviewPane(renderer: makeRenderer(for: doc.language))
+        pane.titleLabel.stringValue = pane.renderer is CertificatePanel ? String(localized: "Certificate") : String(localized: "Preview")
         pane.detachButton.target = self
         pane.detachButton.action = #selector(toggleDetachPreviewAction(_:))
         pane.applyPalette(palette)
@@ -1062,6 +1072,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     private func makeRenderer(for language: Language) -> PreviewRenderer {
+        if !language.hasPreview {
+            let c = CertificatePanel()
+            c.isLarge = { [weak self] in self?.extrasPaused ?? false }
+            return c
+        }
         if language == .csv {
             let g = CSVPreview()
             g.isLarge = { [weak self] in self?.extrasPaused ?? false }
@@ -1106,7 +1121,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// was (session restore); `activate` false leaves the focus alone.
     func detachPreview(frame: String? = nil, activate: Bool = true) {
         guard !previewDetached else { return }
-        guard doc.language.hasPreview else { NSSound.beep(); return }
+        guard previewApplies else { NSSound.beep(); return }
         let pane = previewPane ?? makePreviewPane()
         pane.removeFromSuperview()
         let pw = PreviewWindowController(tab: self, pane: pane, frame: frame)
@@ -1143,8 +1158,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// The language changed: another renderer if this one doesn't draw it.
     private func previewLanguageChanged() {
         guard let pane = previewPane else { return }
-        if !doc.language.hasPreview { closePreview(); return }
-        if !pane.renderer.handles(doc.language) { pane.replaceRenderer(makeRenderer(for: doc.language)) }
+        if !previewApplies { closePreview(); return }
+        if !pane.renderer.handles(doc.language) {
+            pane.replaceRenderer(makeRenderer(for: doc.language))
+            pane.titleLabel.stringValue = pane.renderer is CertificatePanel ? String(localized: "Certificate") : String(localized: "Preview")
+        }
         renderPreview()
     }
 

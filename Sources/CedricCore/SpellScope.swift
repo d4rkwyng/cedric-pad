@@ -13,10 +13,10 @@ public enum SpellScope {
     public static func isData(_ l: Language) -> Bool { l == .json || l == .yaml || l == .ini || l == .xml || l == .csv || l == .registry }
 
     /// File names whose text is data even though it opens as Plain Text
-    /// (CSV and TSV tables).
+    /// (CSV and TSV tables; certificates, keys and requests in PEM).
     public static func isDataFile(_ fileName: String?) -> Bool {
         guard let ext = fileName.map({ ($0 as NSString).pathExtension.lowercased() }) else { return false }
-        return ["csv", "tsv", "tab", "psv"].contains(ext)
+        return ["csv", "tsv", "tab", "psv", "pem", "crt", "cer", "csr", "key", "p7b", "p7c"].contains(ext)
     }
 
     /// Whether spelling is checked at all for this document.

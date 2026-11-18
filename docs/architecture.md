@@ -1286,3 +1286,50 @@ the app asks "which windows are ours", "is a viewer in front" (then
   main queue for a key every 20 ms and records each wait, with App Nap
   held off), then relaunches to check the session.
 
+## Certificates
+
+`CedricCore/Certificates.swift` (tested in `CertificateTests` with
+certificates made by `/usr/bin/openssl` during the test: RSA with SANs,
+usages and EKUs, EC P-256 named and explicit-curve, a CA and a leaf it
+signed, a request, PKCS#7 in DER and PEM) and
+`CedricApp/CertificateTab.swift`.
+
+- **Reading.** `PEM.blocks` finds `-----BEGIN X-----` … `-----END X-----`
+  blocks (at most 500) with their UTF-16 ranges; a block whose label ends
+  in `PRIVATE KEY` is never base64-decoded. Certificates go through
+  `SecCertificateCreateWithData` and `SecCertificateCopyValues` (subject
+  and issuer by attribute OID, validity, SANs, basic constraints, key
+  usage bits, EKU OIDs, the signature and key algorithms), the serial from
+  `SecCertificateCopySerialNumberData`, the key size from
+  `SecCertificateCopyKey` (for an EC key with explicit curve parameters
+  Security returns no key: the point's length gives the curve), SHA-256 /
+  SHA-1 with CryptoKit. PKCS#7 bundles through `SecItemImport`
+  (`kSecFormatPKCS7`, no keychain). A request's subject, and EKU OIDs,
+  through a small DER reader (`DER`), since Security doesn't read
+  PKCS#10. Security and CryptoKit are system frameworks already loaded in
+  every AppKit process; nothing here runs before a certificate is shown.
+  CedricCore is otherwise Foundation only.
+- **PEM text** stays in the editor. `EditorWindowController.previewApplies`
+  is `language.hasPreview || showsCertificatePanel`
+  (`Certificates.isCertificateText`: a certificate file name, or `BEGIN `
+  in the first 64 K, only for languages without a preview of their own),
+  and the preview pane gets a `CertificatePanel` renderer (native
+  `CertificateDetailsView`, an attributed read-only NSTextView: no
+  WebKit). It parses on a utility queue on each debounced render (2 s in
+  large mode, then only the first megabyte), a generation counter
+  dropping stale results. `AppDelegate.open` shows it one run-loop turn
+  after a certificate text file opens (never during session restore,
+  never in large mode). Certificate, key and request file names are data
+  for spelling (no underlines in base64).
+- **DER files**: `DocumentKind.certificate` when the name is .der .cer
+  .crt .p7b .p7c and the file starts with an ASN.1 SEQUENCE (`0x30` and a
+  valid length byte); a PEM `.crt` stays text. `CertificateTabController`
+  is a `ViewerTab` like the Office tab (`certificateTabs`,
+  `SessionTab.certificate`, Reopen Closed Tab, deferred loading for
+  restored tabs); files over 4 MB are refused. View as PEM Text opens the
+  certificates as PEM in an untitled tab.
+- **The owl** (`RulesHintProvider.certificateExpiry`, warning
+  `rules.certificate-expiry`): the first whole certificate block in his
+  8 KB window that has expired or expires within 30 days
+  (`OwlDocumentFacts.now`, nil = now, lets tests pick the date).
+- **Check:** `CEDRIC_CHECK=cert` in `Scripts/tools-check.sh`.

@@ -19,6 +19,7 @@ extension RulesHintProvider {
     public static let doubleSpaceID = "rules.double-space"
     public static let finalNewlineID = "rules.final-newline"
     public static let mixedEndingsID = "rules.mixed-line-endings"
+    public static let certificateExpiryID = "rules.certificate-expiry"
 
     /// The language a `language-guess` hint offers, from its id.
     public static func guessedLanguage(_ hint: OwlHint) -> Language? {
@@ -104,6 +105,31 @@ extension RulesHintProvider {
             }
         }
         return best
+    }
+
+    // MARK: Certificates about to expire
+
+    /// The first certificate in the window that has expired or expires
+    /// within 30 days (only whole PEM blocks inside the window are read).
+    static func certificateExpiry(_ s: String, now: Date) -> (title: String, detail: String, range: NSRange)? {
+        guard s.contains(PEM.begin + "CERTIFICATE" + PEM.dashes) || s.contains(PEM.begin + "PKCS7" + PEM.dashes) else { return nil }
+        for (range, item) in Certificates.items(inText: s) {
+            guard let cert = item.certificate, cert.needsAttention(at: now), let end = cert.notAfter else { continue }
+            let name = cert.summary.isEmpty ? String(localized: "This certificate") : "“\(cert.summary)”"
+            let date = end.formatted(date: .abbreviated, time: .omitted)
+            switch cert.validity(at: now) {
+            case .expired(let d)?:
+                let ago = d == 0 ? String(localized: "today") : d == 1 ? String(localized: "yesterday") : String(localized: "\(d) days ago")
+                return (String(localized: "This certificate expired \(ago)."),
+                        String(localized: "\(name) was valid until \(date). Anything still using it will be refused."), range)
+            case .valid(let d)?:
+                let when = d == 0 ? String(localized: "today") : d == 1 ? String(localized: "tomorrow") : String(localized: "in \(d) days")
+                return (String(localized: "This certificate expires \(when)."),
+                        String(localized: "\(name) is valid until \(date). Time to renew it."), range)
+            default: continue
+            }
+        }
+        return nil
     }
 
     // MARK: JSON that doesn't parse
@@ -588,6 +614,9 @@ extension RulesHintProvider {
             hint(Self.secretID, .warning, String(localized: "That looks like a secret key. Careful where it goes."),
                  String(localized: "This looks like \(found.kind) \(Self.whereText(text, found.range.location, whole: whole)). Don’t share, paste or commit this file with it in."),
                  found.range, nil)
+        }
+        if let r = Self.certificateExpiry(c.text, now: facts.now ?? Date()) {
+            hint(Self.certificateExpiryID, .warning, r.title, r.detail, r.range, nil)
         }
         if lang == "json", whole, !Self.allowsComments(c.fileName),
            !lines.contains(where: { let t = text.substring(with: $0).trimmingCharacters(in: .whitespaces); return t.hasPrefix("//") || t.hasPrefix("/*") }),

@@ -14,6 +14,9 @@ public enum DocumentKind: String, Codable, Sendable {
     case pdf
     case image
     case office
+    /// A binary (DER) certificate or PKCS#7 bundle: a read-only certificate
+    /// tab. PEM text stays `.text` (the editor shows a Certificate panel).
+    case certificate
 
     /// The PDF header every PDF file starts with.
     public static let pdfMagic: [UInt8] = Array("%PDF-".utf8)
@@ -37,6 +40,7 @@ public enum DocumentKind: String, Codable, Sendable {
         if hasPDFHeader(bytes) { return .pdf }
         if ImageFormat.detect(bytes) != nil { return .image }
         if OfficeFormat.detect(prefix: bytes, fileName: fileName) != nil { return .office }
+        if Certificates.isDERFile(prefix: bytes, fileName: fileName) { return .certificate }
         if hasPDFExtension(fileName) { return .pdf }
         if ImageFormat.forExtension(fileName) != nil { return .image }
         return .text
