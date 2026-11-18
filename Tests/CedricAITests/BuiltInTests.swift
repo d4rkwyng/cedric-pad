@@ -128,9 +128,9 @@ func randomBlob(_ n: Int) -> Data {
     @Test func bundledCatalogIsValidAndPinned() throws {
         let url = try #require(ModelCatalog.bundledURL())
         let catalog = try ModelCatalog.decode(try Data(contentsOf: url))
-        #expect(catalog.models.count == 4)
+        #expect(catalog.models.count == 5)
         let d = try #require(catalog.defaultModel)
-        #expect(d.id == "qwen2.5-coder-3b-instruct-q4_k_m")
+        #expect(d.id == "qwen3-4b-instruct-2507-q4_k_m")
         #expect(d.sizeBytes <= 2_500_000_000)
         #expect(catalog.models.filter(\.isDefault).count == 1)
         for m in catalog.models {
@@ -139,7 +139,10 @@ func randomBlob(_ n: Int) -> Data {
             #expect(m.sha256.count == 64)
             #expect(m.quantization == "Q4_K_M")
             #expect(!m.license.isEmpty)
-            #expect(m.licenseURL.absoluteString.contains(m.revision))
+            // Pinned to a commit: the GGUF repo's own, or (when the quantiser's
+            // repo has no LICENSE file) the original model repo's.
+            #expect(m.licenseURL.absoluteString.contains(m.revision)
+                    || m.licenseURL.path.range(of: "/blob/[0-9a-f]{40}/LICENSE$", options: .regularExpression) != nil)
         }
         let ids = catalog.models.map(\.id)
         #expect(ids.contains("qwen2.5-coder-1.5b-instruct-q4_k_m"))
@@ -147,7 +150,29 @@ func randomBlob(_ n: Int) -> Data {
         #expect(catalog.model(id: "qwen3-4b-q4_k_m")?.promptModelName.contains("qwen3") == true)
         #expect(catalog.model(id: "qwen2.5-coder-7b-instruct-q4_k_m")?.needsMoreMemory(physicalMemory: 8 << 30) == true)
         #expect(catalog.model(id: "qwen2.5-coder-7b-instruct-q4_k_m")?.needsMoreMemory(physicalMemory: 16 << 30) == false)
-        #expect(d.shortDescription == "3.1B · Q4_K_M · 2.1 GB")
+        #expect(d.shortDescription == "4B · Q4_K_M · 2.5 GB")
+    }
+
+    /// The default is the Apache-2.0 Qwen3-4B-Instruct-2507, pinned to one
+    /// file; the old default (Qwen Research License) stays an optional,
+    /// labelled download so people who have it keep it.
+    @Test func defaultIsApacheQwen3Instruct() throws {
+        let catalog = try #require(ModelCatalog.bundled())
+        let d = try #require(catalog.defaultModel)
+        #expect(catalog.models.first == d)
+        #expect(d.license == "Apache-2.0")
+        #expect(d.licenseURL.absoluteString.hasPrefix("https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/"))
+        #expect(d.fileName == "Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
+        #expect(d.sizeBytes == 2_497_281_120)
+        #expect(d.sha256 == "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597")
+        #expect(d.revision == "a06e946bb6b655725eafa393f4a9745d460374c9")
+        #expect(d.minRAMGB == 8)
+        #expect(!d.needsMoreMemory(physicalMemory: 8 << 30))
+        let old = try #require(catalog.model(id: "qwen2.5-coder-3b-instruct-q4_k_m"))
+        #expect(!old.isDefault)
+        #expect(old.license.contains("non-commercial"))
+        #expect(old.summary.hasPrefix("Non-commercial licence"))
+        for m in catalog.models where m.license.lowercased().contains("non-commercial") { #expect(!m.isDefault) }
     }
 
     @Test func validationRejectsUnsafeEntries() throws {
@@ -324,6 +349,27 @@ func randomBlob(_ n: Int) -> Data {
         #expect(!FileManager.default.fileExists(atPath: ModelStore(directory: dir).partialURL(for: model).path))
     }
 
+    /// The real default entry (its pinned URL and SHA-256), served a body
+    /// of the right size but the wrong bytes: the hash check catches it,
+    /// nothing is installed and the partial is gone.
+    @Test func realDefaultShaIsVerified() async throws {
+        let catalog = try #require(ModelCatalog.bundled())
+        var model = try #require(catalog.defaultModel)
+        #expect(model.sha256 == "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597")
+        let body = randomBlob(64_000)
+        model.sizeBytes = Int64(body.count)   // the real 2.5 GB is not served in a test
+        BlobProtocol.serve(model.url.path, .init(data: body, delay: 0))
+        let dir = tempDir()
+        let dl = downloader(dir)
+        try await dl.start(model)
+        #expect(await dl.waitUntilSettled(model) == .failed(.checksumMismatch))
+        let store = ModelStore(directory: dir)
+        #expect(!store.isInstalled(model))
+        #expect(!FileManager.default.fileExists(atPath: store.fileURL(for: model).path))
+        #expect(!FileManager.default.fileExists(atPath: store.partialURL(for: model).path))
+        #expect(BlobProtocol.ranges(model.url.path) == [nil])
+    }
+
     @Test func httpErrorFails() async throws {
         let model = testModel(body: Data("x".utf8))
         BlobProtocol.serve(model.url.path, .init(data: Data(), status: 404))
@@ -458,6 +504,36 @@ final class FakeRuntime: BuiltInRuntime, @unchecked Sendable {
         #expect(req.grammar == HintGrammar.gbnf)
         // test(): loads and answers.
         #expect(await engine.test().error == nil)
+    }
+
+    /// Someone who downloaded the old default (Qwen2.5-Coder-3B) and left
+    /// the model on Automatic keeps using it after the default changes;
+    /// once the new default is downloaded too, Automatic picks it.
+    @Test func oldDefaultKeepsWorkingAfterTheSwitch() async throws {
+        let catalog = try #require(ModelCatalog.bundled())
+        let old = try #require(catalog.model(id: "qwen2.5-coder-3b-instruct-q4_k_m"))
+        let new = try #require(catalog.defaultModel)
+        let store = ModelStore(directory: tempDir())
+        try store.prepare()
+        func install(_ m: BuiltInModel) throws {
+            // A sparse file of the catalog size plus the marker: "installed".
+            let url = store.fileURL(for: m)
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            let h = try FileHandle(forWritingTo: url)
+            try h.truncate(atOffset: UInt64(m.sizeBytes))
+            try h.close()
+            try m.sha256.write(to: store.markerURL(for: m), atomically: true, encoding: .utf8)
+        }
+        try install(old)
+        let rt = FakeRuntime()
+        let engine = BuiltInEngine(catalog: catalog, store: store, host: BuiltInModelHost(runtime: rt, clock: FakeClock()))
+        #expect(try await engine.models().map(\.id) == [old.id])
+        #expect(engine.suggestedModel(in: try await engine.models())?.id == old.id)
+        #expect(await engine.makeProvider(model: nil)?.name == "local:\(old.id)")
+        #expect(await engine.makeProvider(model: old.id)?.name == "local:\(old.id)")
+        try install(new)
+        #expect(await engine.makeProvider(model: nil)?.name == "local:\(new.id)")
+        #expect(await engine.makeProvider(model: old.id)?.name == "local:\(old.id)")
     }
 
     @Test func qwen3GetsNoThink() async throws {

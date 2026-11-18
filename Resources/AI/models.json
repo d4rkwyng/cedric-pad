@@ -3,9 +3,26 @@
   "runtime": "llama.cpp b12360",
   "models": [
     {
+      "id": "qwen3-4b-instruct-2507-q4_k_m",
+      "name": "Qwen3 4B Instruct",
+      "summary": "Good hints and answers, about 3 GB of memory.",
+      "family": "qwen3-instruct-2507",
+      "parametersB": 4.0,
+      "quantization": "Q4_K_M",
+      "fileName": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "sizeBytes": 2497281120,
+      "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/a06e946bb6b655725eafa393f4a9745d460374c9/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "revision": "a06e946bb6b655725eafa393f4a9745d460374c9",
+      "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+      "license": "Apache-2.0",
+      "licenseURL": "https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/cdbee75f17c01a7cc42f958dc650907174af0554/LICENSE",
+      "minRAMGB": 8,
+      "isDefault": true
+    },
+    {
       "id": "qwen2.5-coder-3b-instruct-q4_k_m",
       "name": "Qwen2.5 Coder 3B",
-      "summary": "Good hints, about 2 GB of memory.",
+      "summary": "Non-commercial licence. Good code hints, about 2 GB of memory.",
       "family": "qwen2.5-coder",
       "parametersB": 3.1,
       "quantization": "Q4_K_M",
@@ -17,7 +34,7 @@
       "license": "Qwen Research License (non-commercial)",
       "licenseURL": "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/blob/f74adce6aa16316c625447af059dbebe4983757c/LICENSE",
       "minRAMGB": 8,
-      "isDefault": true
+      "isDefault": false
     },
     {
       "id": "qwen2.5-coder-1.5b-instruct-q4_k_m",

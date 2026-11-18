@@ -7,7 +7,8 @@ public struct BuiltInModel: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var name: String
     public var summary: String
-    /// "qwen2.5-coder", "qwen3": picks prompt quirks (Qwen3 gets /no_think).
+    /// "qwen2.5-coder", "qwen3", "qwen3-instruct-2507": picks prompt quirks
+    /// (anything containing "qwen3" gets /no_think; harmless for 2507 Instruct).
     public var family: String
     public var parametersB: Double
     public var quantization: String

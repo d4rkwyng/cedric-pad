@@ -11,6 +11,7 @@ spirit of Notepad++. Universal (Apple silicon and Intel), signed with Developer 
 
 ### Changed
 - **Renamed to Cedric Pad** (`Cedric Pad.app`). The owl assistant is still Cedric, and the command is still `cedric`. Test builds named Cedric.app keep their settings, open tabs and downloaded models: the bundle identifier (`net.mindtricks.cedric`), the `cedric://` scheme and `~/Library/Application Support/Cedric` are unchanged. Delete the old Cedric.app after installing.
+- **Built-in AI default is now Qwen3 4B Instruct (2507), Apache-2.0.** It replaces Qwen2.5 Coder 3B, whose Qwen Research License is non-commercial; that model stays an optional download labelled "Non-commercial licence", and anyone who already downloaded it keeps using it until the new default is downloaded.
 
 ### Added
 - **Tabs that come back.** Native window tabs. Quitting never asks to save: every tab, untitled ones and unsaved changes included, is restored on the next launch. Unsaved text is autosaved about 1.5 seconds after you stop typing, so a crash or power cut loses at most that. Closing a tab with unsaved changes still asks. Untitled tabs are numbered as TextEdit numbers them.

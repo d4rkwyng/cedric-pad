@@ -810,12 +810,23 @@ quantisation, file name, exact size, a Hugging Face URL pinned to a commit,
 that commit, the file's SHA-256, its licence and licence URL, and the
 memory it needs. Validation refuses anything not `https://huggingface.co`,
 not pinned to its revision, without a 64-hex SHA-256, or with a path in
-the file name. All four URLs and hashes were checked by downloading the
+the file name. All five URLs and hashes were checked by downloading the
 files and hashing them.
+
+The default moved from Qwen2.5-Coder-3B (Qwen Research License,
+non-commercial) to Qwen3-4B-Instruct-2507 (Apache-2.0) on 2026-11-18,
+after a side-by-side run of owl hints, explanations and grammar prompts.
+The 2507 instruct model has no thinking mode; its GGUF carries a ChatML
+template whose generation prompt is a plain `<|im_start|>assistant`, so
+llama.cpp's built-in template applies and no `<think>` block is produced
+(the hint parser still strips one if it appears). Someone who had
+downloaded the old default keeps it: on Automatic, `suggestedModel` picks
+the default only once it is downloaded, else the first downloaded model.
 
 | Model | File | Size | Licence |
 |---|---|---|---|
-| Qwen2.5 Coder 3B (default) | `qwen2.5-coder-3b-instruct-q4_k_m.gguf` | 2.10 GB | Qwen Research License (non-commercial) |
+| Qwen3 4B Instruct 2507 (default) | `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` (unsloth/Qwen3-4B-Instruct-2507-GGUF; Qwen publishes no GGUF of it) | 2.50 GB | Apache-2.0 |
+| Qwen2.5 Coder 3B (optional, the default until 2026-11-18) | `qwen2.5-coder-3b-instruct-q4_k_m.gguf` | 2.10 GB | Qwen Research License (non-commercial) |
 | Qwen2.5 Coder 1.5B (fast) | `qwen2.5-coder-1.5b-instruct-q4_k_m.gguf` | 1.12 GB | Apache-2.0 |
 | Qwen2.5 Coder 7B (≥ 16 GB RAM) | `qwen2.5-coder-7b-instruct-q4_k_m.gguf` | 4.68 GB | Apache-2.0 |
 | Qwen3 4B (general) | `Qwen3-4B-Q4_K_M.gguf` | 2.50 GB | Apache-2.0 |

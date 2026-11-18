@@ -490,6 +490,8 @@ BSD-2-Clause. See [LICENSE](LICENSE). The Dracula theme's colours are by
 The built-in AI engine uses [llama.cpp](https://github.com/ggml-org/llama.cpp)
 (MIT, © the ggml authors), bundled as `llama.framework`. Models are not
 bundled: the ones Cedric Pad offers to download are Qwen models by Alibaba
-Cloud, each under its own licence, shown before download (Qwen2.5-Coder
-1.5B and 7B and Qwen3 4B: Apache-2.0; Qwen2.5-Coder 3B: Qwen Research
-License, non-commercial).
+Cloud, each under its own licence, shown before download. The default,
+Qwen3 4B Instruct (2507, the Q4_K_M GGUF quantised by Unsloth), is
+Apache-2.0, as are Qwen2.5-Coder 1.5B and 7B and Qwen3 4B. Qwen2.5-Coder
+3B, the default before, stays an optional download labelled
+"Non-commercial licence" (Qwen Research License).

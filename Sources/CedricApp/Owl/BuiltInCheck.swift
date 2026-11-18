@@ -32,7 +32,7 @@ enum BuiltInCheck {
         NSApp.sendAction(sheet.presetPopup.action!, to: sheet.presetPopup.target, from: sheet.presetPopup)
         let view = sheet.modelsView
         AICheck.check(!view.isHiddenOrHasHiddenAncestor, "Built-in shows the model list")
-        AICheck.check(view.rows.count == (downloads.catalog?.models.count ?? -1) && view.rows.count == 4, "one row per catalog model (\(view.rows.count))")
+        AICheck.check(view.rows.count == (downloads.catalog?.models.count ?? -1) && view.rows.count == 5, "one row per catalog model (\(view.rows.count))")
         guard let row = view.row(model) else { AICheck.check(false, "row for \(model)"); AICheck.finish(); return }
         let m = row.model
         AICheck.check(downloads.state(m) == .notDownloaded && row.action.title == "Download", "\(m.name): Download")
