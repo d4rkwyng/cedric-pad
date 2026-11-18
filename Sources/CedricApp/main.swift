@@ -156,8 +156,10 @@ func buildMainMenu() -> NSMenu {
             item(String(localized: "Show Spelling and Grammar"), #selector(NSText.showGuessPanel(_:)), ":"),
             item(String(localized: "Check Document Now"), #selector(AppDelegate.checkDocumentNow(_:)), ";"),
             item(String(localized: "Fix Typos…"), #selector(AppDelegate.fixTyposMenu(_:)), ";", [.command, .option]),
+            item(String(localized: "Fix Grammar…"), #selector(AppDelegate.fixGrammarMenu(_:))),
             .separator(),
             item(String(localized: "Check Spelling While Typing"), #selector(AppDelegate.toggleSpellingWhileTyping(_:))),
+            item(String(localized: "Check Grammar in Prose"), #selector(AppDelegate.toggleGrammar(_:))),
         ]),
     ]))
 

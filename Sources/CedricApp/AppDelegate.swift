@@ -565,6 +565,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func toggleSpellingWhileTyping(_ sender: Any?) { Settings.shared.checkSpellingWhileTyping.toggle() }
     @objc func checkDocumentNow(_ sender: Any?) { currentTab?.spelling.selectNext() }
     @objc func fixTyposMenu(_ sender: Any?) { currentTab?.startSpellStep() }
+    @objc func fixGrammarMenu(_ sender: Any?) { currentTab?.startGrammarStep() }
+    @objc func toggleGrammar(_ sender: Any?) { Settings.shared.checkGrammar.toggle() }
     @objc func toggleOwl(_ sender: Any?) { Settings.shared.showOwl.toggle() }
     @objc func showAISettings(_ sender: Any?) { AISettingsSheet.show(on: currentTab?.window) }
     @objc func pickOwlHintSource(_ sender: NSMenuItem) {
@@ -597,6 +599,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(checkDocumentNow(_:)): return tab != nil
         // Not in data files (JSON, YAML, INI, XML, CSV/TSV): nothing there is checked.
         case #selector(fixTyposMenu(_:)): return tab?.spellingChecksThisDocument == true
+        // Plain Text and Markdown only, with grammar on, not in large mode.
+        case #selector(fixGrammarMenu(_:)): return tab?.grammar.mayCheck == true
+        case #selector(toggleGrammar(_:)): item.state = s.checkGrammar ? .on : .off
         case #selector(toggleOwl(_:)): item.state = s.showOwl ? .on : .off
         case #selector(pickOwlHintSource(_:)):
             // "Rules + AI" stays off until an AI provider registers.

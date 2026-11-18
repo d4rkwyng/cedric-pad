@@ -74,6 +74,14 @@ final class Settings {
         set { defaults.set(newValue, forKey: "checkSpellingWhileTyping"); changed() }
     }
 
+    /// Settings › "Check grammar in prose" (and Edit › Spelling and
+    /// Grammar › Check Grammar in Prose): on by default. Only Plain Text
+    /// and Markdown that reads as sentences is checked (Grammar.swift).
+    var checkGrammar: Bool {
+        get { defaults.object(forKey: "checkGrammarInProse") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "checkGrammarInProse"); changed() }
+    }
+
     /// View › Highlight Occurrences: other occurrences of the selection or
     /// the word under the caret are tinted on screen. On by default.
     var highlightOccurrences: Bool {

@@ -114,6 +114,31 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   the words spell check would mark: prose in Plain Text and Markdown,
   comments and strings in code, never URLs or paths. Big files are
   checked a chunk at a time, in large mode only as far as the next word.
+- **Grammar in prose** (Settings › "Check grammar in prose", on by
+  default; also Edit › Spelling and Grammar): macOS's own grammar checker
+  (local, nothing sent anywhere) looks at documents written for people,
+  never at code, data or logs. A document counts when it is Plain Text or
+  Markdown and the text in view reads as sentences (words, function words
+  like "the" and "and", sentence punctuation, few symbols, few lines that
+  look like code, config, a log or a CSV row; Markdown's code, front
+  matter, tables, inline code and URLs are left out). A short bullet list
+  such as a shopping list doesn't count; a list of whole sentences does.
+  After typing pauses the text in view (at most 8 KB) is checked in the
+  background, in the checker's language (yours, or detected if you have
+  "Automatic by Language"); findings get a green dotted underline, and a
+  right-click on one shows the checker's note and its suggestion (Change
+  to, Ignore Grammar). With the owl on he offers one at a time, e.g.
+  "Grammar: ‘a’ → ‘an’?", with **Fix it** (one undo step), **Fix
+  Grammar…** (step through them in a small panel: Change, Skip, Done, "2
+  of 5"), **Not in This File** and **Don't show again**; never while you
+  type (he waits for his usual 3-second pause), and at most one grammar
+  bubble every 10 minutes unless you click the owl and choose **Grammar
+  Hint**. Never in large mode or in files over 1 MB. Meeting notes with
+  "Date:" and "Status:" lines stay Plain Text instead of being taken for
+  YAML. The checker
+  catches only what macOS's catches ("a elephant", doubled words, some
+  agreement errors); it misses many others, such as "Their going too the
+  store".
 - **Print** (File › Print…, ⌘P; Page Setup…, ⇧⌘P): the text in the
   editor's font, dark on white (not the theme's colours), wrapped to the
   page, with the file name, date and page numbers; line numbers are an

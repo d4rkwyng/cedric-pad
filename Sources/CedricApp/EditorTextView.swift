@@ -12,6 +12,12 @@ final class EditorTextView: NSTextView {
     weak var spelling: EditorSpelling?
     /// Misspellings the checker has marked (in scope), for the checks.
     var markedMisspellings: [NSRange] = []
+    /// Grammar in prose (Grammar.swift): the issues' ranges, drawn as
+    /// green dotted underlines; their suggestions in the right-click menu.
+    weak var grammar: EditorGrammar?
+    var grammarRanges: [NSRange] = []
+    /// The last menu a right-click on a grammar underline built (checks).
+    var lastGrammarMenu: NSMenu?
     /// Drawn behind the text (EditingFeatures.swift): other occurrences of
     /// the selection or word, Mark All's marks, and the bracket pair at
     /// the caret. Only ranges in or near the visible text.
@@ -319,6 +325,7 @@ final class EditorTextView: NSTextView {
         }
 
         drawHighlights(in: rect, layoutManager: tlm)
+        drawGrammarMarks(in: rect, layoutManager: tlm)
         if showInvisibles { drawInvisibles(in: rect, layoutManager: tlm) }
     }
 
@@ -348,6 +355,28 @@ final class EditorTextView: NSTextView {
             caret.withAlphaComponent(0.7).setStroke()
             let p = NSBezierPath(rect: f.insetBy(dx: 0.5, dy: 0.5))
             p.lineWidth = 1
+            p.stroke()
+        }
+    }
+
+    /// Grammar issues: a green dotted line under the words (spelling's
+    /// marks are the system's red ones), clipped to the view.
+    private func drawGrammarMarks(in rect: NSRect, layoutManager tlm: NSTextLayoutManager) {
+        guard !grammarRanges.isEmpty else { return }
+        let clip = rect.intersection(bounds)
+        guard !clip.isEmpty else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: clip).addClip()
+        NSColor(hex: palette.grammarMark).setStroke()
+        forEachSegment(grammarRanges, clip: clip.insetBy(dx: 0, dy: -4), layoutManager: tlm) { f in
+            let y = f.maxY - 1.5
+            let p = NSBezierPath()
+            p.move(to: NSPoint(x: f.minX, y: y))
+            p.line(to: NSPoint(x: f.maxX, y: y))
+            p.lineWidth = 2
+            p.lineCapStyle = .round
+            p.setLineDash([0.01, 3.5], count: 2, phase: 0)
             p.stroke()
         }
     }
