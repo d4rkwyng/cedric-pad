@@ -92,6 +92,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Highlight-all, marks, bookmarks and the other editing extras
     /// (EditingFeatures.swift).
     let editing = EditingState()
+    /// Branch, change bars and GitHub links (GitIntegration.swift); made
+    /// after the first frame, for files only.
+    var gitState: GitTabState?
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -125,6 +128,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         updateTitle()
         setOwlVisible(Settings.shared.showOwl)
         PerfTrace.mark("owl")
+        AfterFirstFrame.run { [weak self] in self?.gitTabShown() }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -157,6 +161,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gutter.lineIndex = { [weak self] in self?.lineIndex ?? LineIndex() }
         gutter.bookmarks = { [weak self] in self?.editing.bookmarks ?? Bookmarks() }
         gutter.onClickLine = { [weak self] line in self?.toggleBookmark(line: line) }
+        gutter.gitChanges = { [weak self] in
+            guard let git = self?.gitState, git.showsGutter else { return nil }
+            return git.changes
+        }
         container = EditorContainer(gutter: gutter, scrollView: scrollView)
 
         split.isVertical = true
@@ -250,6 +258,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         PerfTrace.mark("recolor_all")
         updateStatus()
         PerfTrace.mark("status")
+        gitState?.scheduleRefresh()
     }
 
     var text: String { textView.string }
@@ -320,6 +329,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         colorizer.textDidChange(firstLine: first, lastLine: lineIndex.line(containing: NSMaxRange(edited)),
                                 lineDelta: lineIndex.lineCount - oldLines, lineCount: lineIndex.lineCount)
         if lineIndex.lineCount != oldLines { updateGutterWidth() }
+        gitState?.edited(firstLine: first, lineDelta: lineIndex.lineCount - oldLines)
         checkLargeAfterEdit(lines: first..<(first + max(1, lineIndex.lineCount - oldLines + 1)))
     }
 
@@ -438,6 +448,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if previewVisible { renderPreview() }
         owl?.layoutViews()
         spelling.apply()
+        gitState?.settingChanged()
     }
 
     private(set) var wrapsLines = true
@@ -480,6 +491,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     private func configureStatusBar() {
+        statusBar.gitButton.target = self
+        statusBar.gitButton.action = #selector(showGitMenu(_:))
         statusBar.languageButton.target = self
         statusBar.encodingButton.target = self
     }
@@ -633,6 +646,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         updateTitle()
         updateStatus()
         owl?.noteSave()
+        gitSaved()
         onChange?(self)
         return true
     }
@@ -769,6 +783,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         OwlHub.shared.closed(self)
         tail?.stop()
         tail = nil
+        gitState?.stop()
         onClose?(self)
         // Last: rememberClosed (onClose) still reads the selection and scroll place.
         detachViews()
@@ -789,6 +804,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         colorizer.lineIndexProvider = { LineIndex() }
         gutter.lineIndex = { LineIndex() }
         gutter.bookmarks = { Bookmarks() }
+        gutter.gitChanges = { nil }
         gutter.onClickLine = nil
         gutter.textView = nil
         if textView.delegate === self { textView.delegate = nil }
@@ -797,6 +813,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        gitTabShown()
         (NSApp.delegate as? AppDelegate)?.tabBecameKey(self)
     }
 

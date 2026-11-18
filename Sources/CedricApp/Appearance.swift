@@ -90,6 +90,13 @@ final class Settings {
         set { defaults.set(newValue, forKey: "quitWhenLastWindowCloses") }
     }
 
+    /// Settings › "Show git changes in the gutter": change bars against
+    /// the last commit for files in a git repository. On by default.
+    var showGitChanges: Bool {
+        get { defaults.object(forKey: "showGitChanges") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "showGitChanges"); changed() }
+    }
+
     /// Edit › Auto-Close Brackets and Quotes (code only, not prose). On by default.
     var autoCloseBrackets: Bool {
         get { defaults.object(forKey: "autoCloseBrackets") as? Bool ?? true }

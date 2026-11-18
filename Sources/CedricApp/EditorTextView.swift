@@ -419,8 +419,32 @@ final class GutterView: NSView {
     /// a line number toggles its bookmark.
     var bookmarks: () -> Bookmarks = { Bookmarks() }
     var onClickLine: ((Int) -> Void)?
+    /// Git change bars against HEAD (nil: none, or the setting is off).
+    var gitChanges: () -> GitLineChanges? = { nil }
 
     override var isFlipped: Bool { true }
+
+    /// The change bars' colours: GitHub's, a shade lighter on dark themes.
+    struct GitColors {
+        let added, modified, deleted: NSColor
+        init(_ p: EditorPalette) {
+            added = NSColor(hex: p.isDark ? 0x3FB950 : 0x2DA44E)
+            modified = NSColor(hex: p.isDark ? 0x58A6FF : 0x0969DA)
+            deleted = NSColor(hex: p.isDark ? 0xF85149 : 0xCF222E)
+        }
+    }
+
+    /// A deleted-lines mark: a small triangle on the boundary at `y`, at the gutter's right edge.
+    private func drawDeleted(atY y: CGFloat, _ color: NSColor) {
+        let x = bounds.width - 2
+        let p = NSBezierPath()
+        p.move(to: NSPoint(x: x - 5, y: y - 4))
+        p.line(to: NSPoint(x: x, y: y))
+        p.line(to: NSPoint(x: x - 5, y: y + 4))
+        p.close()
+        color.setFill()
+        p.fill()
+    }
 
     /// The line whose number is drawn at `y` (view coordinates).
     func line(atY y: CGFloat) -> Int? {
@@ -463,6 +487,14 @@ final class GutterView: NSView {
         let textFont = tv.font ?? Settings.shared.font
         let marks = bookmarks()
         let markColor = NSColor(hex: palette.caret)
+        let git = gitChanges()
+        let gitColors = GitColors(palette)
+        // The last line drawn and its bottom: a deletion at the very end
+        // is drawn below it (the empty last line may have no fragment).
+        var lastDrawn: (line: Int, bottom: CGFloat)?
+        NSGraphicsContext.saveGraphicsState()
+        bounds.clip()
+        defer { NSGraphicsContext.restoreGraphicsState() }
         tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { frag in
             let frame = frag.layoutFragmentFrame
             let y = frame.minY + originY - scrollY
@@ -484,7 +516,19 @@ final class GutterView: NSView {
                 markColor.setFill()
                 NSBezierPath(roundedRect: NSRect(x: 2, y: y + 1, width: 5, height: h - 2), xRadius: 2, yRadius: 2).fill()
             }
+            if let git {
+                // A change bar at the right edge, beside the text, as tall as the line (all its wrapped rows).
+                if let kind = git.lines[line] {
+                    (kind == .added ? gitColors.added : gitColors.modified).setFill()
+                    NSRect(x: self.bounds.width - 4, y: y, width: 3, height: frame.height).fill()
+                }
+                if git.deletedBefore.contains(line) { self.drawDeleted(atY: max(y, 4), gitColors.deleted) }
+                lastDrawn = (line, y + frame.height)
+            }
             return true
+        }
+        if let git, let last = lastDrawn, last.line + 1 >= index.lineCount - 1, git.deletedBefore.contains(last.line + 1) {
+            drawDeleted(atY: last.bottom, gitColors.deleted)
         }
         // The last empty line after a trailing newline has no fragment in
         // some TextKit versions; number it from the previous one.
