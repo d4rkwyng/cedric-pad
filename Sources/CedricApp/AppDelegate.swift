@@ -233,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let tab = tabs.first { $0.doc.fileURL?.standardizedFileURL == url.standardizedFileURL }
         // A PDF: `cedric file.pdf:3` opens it at page 3; -w waits for its tab.
         if tab == nil, let pdf = pdfTab(for: url) {
-            if let line { pdf.goToPage(line - 1) }
+            if let line { pdf.goToPage(OneBased.index(line, count: Int.max)) }
             if let marker = q["wait"] { addWaiter(marker, forID: pdf.id) }
         } else if tab == nil, let viewer = viewerTab(for: url), let marker = q["wait"] {
             // An image or Office tab: -w waits for it too.
@@ -323,9 +323,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// Opens a file in a new tab, or focuses the tab that has it. An empty,
     /// untouched untitled tab is replaced, as in Notepad++.
+    /// The last file refused as special (for checks).
+    static var lastSpecialRefusal: String?
+
+    func refuseSpecialFile(_ url: URL, _ kind: String) {
+        let text = String(localized: "“\(url.lastPathComponent)” is \(kind), not a regular file, so Cedric Pad won’t open it.")
+        Self.lastSpecialRefusal = text
+        if ProcessInfo.processInfo.environment["CEDRIC_CHECK"] != nil { print("check: note: \(text)"); return }
+        let a = NSAlert()
+        a.messageText = text
+        if let w = NSApp.keyWindow, w.attachedSheet == nil { a.beginSheetModal(for: w) } else { a.runModal() }
+    }
+
     @discardableResult
     func open(_ url: URL) -> EditorWindowController? {
         let std = url.standardizedFileURL
+        // A pipe, device or socket: refused before a byte is read (a FIFO
+        // would block forever, /dev/zero never ends).
+        if let kind = SpecialFile.kind(atPath: std.path) {
+            refuseSpecialFile(std, kind)
+            return nil
+        }
         restorePendingTab(for: std)
         // A PDF (by its first bytes, or its name) opens in a viewer tab.
         switch DocumentKind.detect(url: std) {

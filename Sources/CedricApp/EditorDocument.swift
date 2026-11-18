@@ -84,6 +84,10 @@ final class EditorDocument {
     /// Reads and decodes a file; returns the LF-normalised text.
     static func read(_ url: URL, encoding: TextEncoding? = nil) throws -> (DecodedText, Date?) {
         let data: Data
+        if let kind = SpecialFile.kind(atPath: url.path) {
+            throw LoadError.unreadable(url, NSError(domain: "Cedric", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                String(localized: "It is \(kind), not a regular file.")]))
+        }
         do {
             data = try Data(contentsOf: url, options: .mappedIfSafe)
         } catch {

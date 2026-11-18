@@ -963,9 +963,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     func goToLine(_ line: Int, column: Int = 1) {
-        let l = max(0, min(line - 1, lineIndex.lineCount - 1))
+        // Clamped before subtracting: Int.min from a link must not trap.
+        let l = OneBased.index(line, count: lineIndex.lineCount)
         let r = lineIndex.contentRange(ofLine: l)
-        let loc = r.location + max(0, min(column - 1, r.length))
+        let loc = r.location + OneBased.index(column, count: r.length + 1)
         textView.setSelectedRange(NSRange(location: loc, length: 0))
         reveal(NSRange(location: loc, length: 0))
     }

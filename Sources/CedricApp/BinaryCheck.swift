@@ -72,6 +72,28 @@ extension DevChecks {
                 // The Certificate panel would open a turn after the open.
                 expect(junk?.previewPane == nil, "and gets no Certificate panel")
             },
+            sync {
+                // Security audit L2: a named pipe and /dev/zero are refused
+                // before a byte is read (the check would hang otherwise).
+                let fifo = dir.appendingPathComponent("pipe.txt")
+                mkfifo(fifo.path, 0o600)
+                let count = app.tabs.count
+                let start = Date()
+                AppDelegate.lastSpecialRefusal = nil
+                expect(app.open(fifo) == nil && AppDelegate.lastSpecialRefusal?.contains("named pipe") == true,
+                       "a named pipe is refused", AppDelegate.lastSpecialRefusal ?? "-")
+                AppDelegate.lastSpecialRefusal = nil
+                expect(app.open(URL(fileURLWithPath: "/dev/zero")) == nil && AppDelegate.lastSpecialRefusal?.contains("device") == true,
+                       "/dev/zero is refused", AppDelegate.lastSpecialRefusal ?? "-")
+                expect(app.tabs.count == count && Date().timeIntervalSince(start) < 1, "no tab, no hang")
+                // Security audit M1(b): extreme line and column numbers clamp.
+                let t = app.open(utf16)!
+                t.goToLine(Int.min, column: Int.min)
+                expect(t.textView.selectedRange().location == 0, "line Int.min goes to the start")
+                t.goToLine(Int.max, column: Int.max)
+                expect(t.textView.selectedRange().location == (t.text as NSString).length, "line Int.max goes to the end",
+                       "\(t.textView.selectedRange().location)")
+            },
         ])
         return true
     }
