@@ -91,7 +91,8 @@ import Testing
                 #expect(d.text == text, "\(enc) \(le)")
                 #expect(d.lineEnding == le, "\(enc) \(le)")
                 // Latin-1 and UTF-8 look alike only when the text is ASCII; ü makes them differ.
-                #expect(d.encoding == enc, "\(enc) \(le)")
+                // Windows-1252 writes ü as Latin-1 does (0xFC): the same bytes read back as Latin-1.
+                #expect(d.encoding == (enc == .windows1252 ? .latin1 : enc), "\(enc) \(le)")
             }
         }
     }
@@ -144,5 +145,62 @@ import Testing
     @Test func invalidPattern() {
         #expect(throws: FindEngine.FindError.invalidPattern("(")) { try FindEngine.regex("(", FindOptions(regex: true)) }
         #expect(throws: FindEngine.FindError.emptyPattern) { try FindEngine.regex("", FindOptions()) }
+    }
+}
+
+@Suite struct EightBitEncodingTests {
+    @Test func windows1252SmartQuotesAndEuro() {
+        // “It’s 5 €” — 0x93 0x92 0x94 0x80 are Windows-1252 punctuation.
+        let bytes = Data([0x93, 0x49, 0x74, 0x92, 0x73, 0x20, 0x35, 0x20, 0x80, 0x94])
+        let d = TextCodec.decode(bytes)
+        #expect(d?.encoding == .windows1252)
+        #expect(d?.text == "“It’s 5 €”")
+    }
+
+    @Test func macRomanAccentsAndQuotes() {
+        // "café, don’t" in Mac Roman: é = 0x8E, ’ = 0xD5.
+        let bytes = Data("caf".utf8) + Data([0x8E]) + Data(", don".utf8) + Data([0xD5]) + Data("t".utf8)
+        let d = TextCodec.decode(bytes)
+        #expect(d?.encoding == .macRoman)
+        #expect(d?.text == "café, don’t")
+        // Mac Roman curly quotes only (no 0x80–0x9F byte): still Mac Roman, not "donÕt".
+        let quotes = Data("don".utf8) + Data([0xD5]) + Data("t say ".utf8) + Data([0xD2]) + Data("hi".utf8) + Data([0xD3])
+        #expect(TextCodec.decode(quotes)?.text == "don’t say “hi”")
+    }
+
+    @Test func latin1KeptWithoutC1Bytes() {
+        // Western text in 0xA0–0xFF only reads the same in Latin-1 and Windows-1252.
+        let bytes = Data("na".utf8) + Data([0xEF]) + Data("ve r".utf8) + Data([0xE9, 0x73, 0x75, 0x6D, 0xE9])
+        let d = TextCodec.decode(bytes)
+        #expect(d?.encoding == .latin1)
+        #expect(d?.text == "naïve résumé")
+    }
+
+    @Test func roundTripAndCanEncode() {
+        for enc in [TextEncoding.windows1252, .macRoman] {
+            let text = "naïve “quotes” – café\n"
+            let data = TextCodec.encode(text, encoding: enc, lineEnding: .crlf)
+            #expect(data != nil)
+            #expect(TextCodec.decode(data!, as: enc)?.text == text)
+            #expect(TextCodec.canEncode(text, as: enc))
+            #expect(!TextCodec.canEncode("snowman ☃", as: enc))
+            #expect(TextCodec.encode("☃", encoding: enc, lineEnding: .lf) == nil)
+        }
+        #expect(TextCodec.canEncode("€", as: .windows1252) && !TextCodec.canEncode("€", as: .latin1))
+    }
+
+    @Test func undecodableGuessFallsBackToLatin1() {
+        // 0x93 early says Windows-1252; 0x81 (undefined there) past the 64 KB sample.
+        var bytes = Data([0x93, 0x61, 0x94]) + Data(repeating: 0x61, count: 70_000)
+        bytes.append(0x81)
+        let d = TextCodec.decode(bytes)
+        #expect(d?.encoding == .latin1)
+        #expect(d?.text.count == 70_004)
+    }
+
+    @Test func sessionDecodesNewEncodings() throws {
+        let tab = SessionTab(path: "/x", encoding: .macRoman)
+        let back = try JSONDecoder().decode(SessionTab.self, from: JSONEncoder().encode(tab))
+        #expect(back.encoding == .macRoman)
     }
 }

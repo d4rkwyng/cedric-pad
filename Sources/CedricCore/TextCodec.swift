@@ -7,6 +7,8 @@ public enum TextEncoding: String, CaseIterable, Codable, Sendable {
     case utf16LE
     case utf16BE
     case latin1
+    case windows1252
+    case macRoman
 
     public var displayName: String {
         switch self {
@@ -15,6 +17,8 @@ public enum TextEncoding: String, CaseIterable, Codable, Sendable {
         case .utf16LE: return "UTF-16 LE"
         case .utf16BE: return "UTF-16 BE"
         case .latin1: return String(localized: "Latin-1 (ISO 8859-1)")
+        case .windows1252: return String(localized: "Windows-1252 (Western)")
+        case .macRoman: return String(localized: "Mac Roman")
         }
     }
 
@@ -23,7 +27,7 @@ public enum TextEncoding: String, CaseIterable, Codable, Sendable {
         case .utf8BOM: return [0xEF, 0xBB, 0xBF]
         case .utf16LE: return [0xFF, 0xFE]
         case .utf16BE: return [0xFE, 0xFF]
-        case .utf8, .latin1: return []
+        case .utf8, .latin1, .windows1252, .macRoman: return []
         }
     }
 
@@ -33,6 +37,8 @@ public enum TextEncoding: String, CaseIterable, Codable, Sendable {
         case .utf16LE: return .utf16LittleEndian
         case .utf16BE: return .utf16BigEndian
         case .latin1: return .isoLatin1
+        case .windows1252: return .windowsCP1252
+        case .macRoman: return .macOSRoman
         }
     }
 }
@@ -69,7 +75,8 @@ public struct DecodedText: Sendable {
 
 public enum TextCodec {
     /// Detects the encoding: a BOM, else valid UTF-8, else UTF-16 by its
-    /// pattern of zero bytes, else Latin-1 (which decodes any bytes).
+    /// pattern of zero bytes, else one of the 8-bit Western encodings
+    /// (`guessEightBit`).
     public static func detectEncoding(_ data: Data) -> TextEncoding {
         let head = [UInt8](data.prefix(4))
         if head.starts(with: [0xEF, 0xBB, 0xBF]) { return .utf8BOM }
@@ -77,7 +84,32 @@ public enum TextCodec {
         if head.starts(with: [0xFE, 0xFF]) { return .utf16BE }
         if let guess = guessUTF16(data) { return guess }
         if isValidUTF8(data) { return .utf8 }
-        return .latin1
+        return guessEightBit(data)
+    }
+
+    /// Not UTF-8: Windows-1252, Mac Roman or Latin-1, from the bytes over
+    /// 0x7F in the first 64 KB. Each candidate is scored on what those
+    /// bytes decode to: lowercase letters and common punctuation (curly
+    /// quotes, dashes, …, €) count for it; control characters, symbols
+    /// (√, ◊, ‡) and a capital letter straight after a lowercase one
+    /// ("donÕt", "cafÈ") count against. Ties go to Windows-1252, which
+    /// reads like Latin-1 for 0xA0–0xFF; Latin-1 is kept when no byte is
+    /// in 0x80–0x9F (where the two differ), as before.
+    static func guessEightBit(_ data: Data) -> TextEncoding {
+        var win = 0, mac = 0
+        var c1 = false
+        var prev: UInt8 = 0
+        for b in data.prefix(65536) {
+            if b >= 0x80 {
+                if b < 0xA0 { c1 = true }
+                let lowerBefore = prev >= 0x61 && prev <= 0x7A
+                win += EightBit.score(EightBit.windows[Int(b) - 0x80], lowerBefore: lowerBefore)
+                mac += EightBit.score(EightBit.mac[Int(b) - 0x80], lowerBefore: lowerBefore)
+            }
+            prev = b
+        }
+        if mac > win { return .macRoman }
+        return c1 ? .windows1252 : .latin1
     }
 
     /// Mostly-ASCII UTF-16 without a BOM: zero bytes in one parity.
@@ -133,10 +165,17 @@ public enum TextCodec {
     /// Decodes `data` (as `encoding`, or the detected one) and normalises
     /// its line endings. Nil if the bytes aren't valid in that encoding.
     public static func decode(_ data: Data, as encoding: TextEncoding? = nil) -> DecodedText? {
-        let enc = encoding ?? detectEncoding(data)
+        var enc = encoding ?? detectEncoding(data)
         var body = data
         if !enc.bom.isEmpty, data.starts(with: enc.bom) { body = data.dropFirst(enc.bom.count) }
-        guard let raw = String(data: body, encoding: enc.foundation) else { return nil }
+        var decoded = String(data: body, encoding: enc.foundation)
+        // A guessed 8-bit encoding that can't decode a byte past the sample
+        // (0x81 in Windows-1252): Latin-1 decodes any bytes.
+        if decoded == nil, encoding == nil, enc == .windows1252 || enc == .macRoman {
+            enc = .latin1
+            decoded = String(data: body, encoding: .isoLatin1)
+        }
+        guard let raw = decoded else { return nil }
         let (ending, mixed) = detectLineEnding(raw)
         return DecodedText(text: normalizeLineEndings(raw), encoding: enc, lineEnding: ending, mixedLineEndings: mixed)
     }
@@ -191,7 +230,32 @@ public enum TextCodec {
     public static func canEncode(_ text: String, as encoding: TextEncoding) -> Bool {
         switch encoding {
         case .latin1: return text.unicodeScalars.allSatisfy { $0.value < 256 }
+        case .windows1252, .macRoman: return text.canBeConverted(to: encoding.foundation)
         default: return true
         }
+    }
+}
+
+/// What bytes 0x80–0xFF decode to in the 8-bit encodings, for the guess.
+enum EightBit {
+    static let windows = table(.windowsCP1252)
+    static let mac = table(.macOSRoman)
+
+    static func table(_ enc: String.Encoding) -> [Unicode.Scalar?] {
+        (0x80...0xFF).map { b in String(data: Data([UInt8(b)]), encoding: enc)?.unicodeScalars.first }
+    }
+
+    static let rareCapitals = Set("ŠŒŽŸ".unicodeScalars)
+    static let punctuation = Set("‘’“”‚„–—…€•«»‹›¡¿°·©®™§¶\u{A0}".unicodeScalars)
+
+    static func score(_ s: Unicode.Scalar?, lowerBefore: Bool) -> Int {
+        guard let s else { return -3 }
+        let p = s.properties
+        if p.generalCategory == .control { return -3 }
+        if p.isLowercase { return 1 }
+        // Windows-1252's Š Œ Ž Ÿ are rare in real text: no evidence either way.
+        if p.isUppercase { return lowerBefore ? -2 : rareCapitals.contains(s) ? 0 : 1 }
+        if punctuation.contains(s) { return 1 }
+        return -1
     }
 }

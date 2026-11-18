@@ -89,8 +89,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   option in the print panel.
 - **Go to line** (⌘L, `42` or `42:7`), line numbers, current-line highlight,
   show invisibles (⌥⌘I), wrap lines (⌥Z).
-- **Encodings and line endings:** UTF-8 (with or without BOM), UTF-16 LE/BE
-  and Latin-1, and LF/CRLF/CR, detected on open and shown in the status bar,
+- **Encodings and line endings:** UTF-8 (with or without BOM), UTF-16 LE/BE,
+  Latin-1, Windows-1252 and Mac Roman, and LF/CRLF/CR, detected on open
+  (a file that isn't UTF-8 is read as whichever 8-bit Western encoding
+  makes sense of its accented letters and quotes) and shown in the status bar,
   with menus to convert (applied on save) or reopen with another encoding.
   Mixed line endings are shown as such and written as one kind on save.
 - **Files changed on disk** reload by themselves when the tab has no unsaved

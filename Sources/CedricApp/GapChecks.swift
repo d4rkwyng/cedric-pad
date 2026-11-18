@@ -5,7 +5,7 @@ import CedricCore
 /// like the other DevChecks: real key events where a key does it (Tab,
 /// ⇧Tab and the menus' key equivalents), menu items' actions otherwise.
 ///
-///   CEDRIC_CHECK=indent|print|macbasics|filterlines
+///   CEDRIC_CHECK=indent|print|macbasics|filterlines|encodings
 @MainActor
 extension DevChecks {
     static func gapCheck(_ name: String, _ app: AppDelegate) -> Bool {
@@ -14,6 +14,7 @@ extension DevChecks {
         case "print": printing(app)
         case "macbasics": macBasics(app)
         case "filterlines": filterLinesCheck(app)
+        case "encodings": encodings(app)
         default: return false
         }
         return true
@@ -448,6 +449,36 @@ extension DevChecks {
                 restore()
             },
             snapshot("filter-lines.png"),
+        ])
+    }
+
+    // MARK: Windows-1252 and Mac Roman
+
+    static func encodings(_ app: AppDelegate) {
+        let url = dir.appendingPathComponent("mac.txt")
+        // "café, don’t" in Mac Roman.
+        try? (Data("caf".utf8) + Data([0x8E]) + Data(", don".utf8) + Data([0xD5]) + Data("t\n".utf8)).write(to: url)
+        let tab = app.open(url)!
+        sized(tab)
+        run([
+            sync {
+                focus(tab)
+                expect(tab.text == "café, don’t\n", "a Mac Roman file opens as such", tab.text)
+                expect(tab.doc.encoding == .macRoman && tab.statusBar.encodingButton.title == "Mac Roman",
+                       "the status bar says Mac Roman", tab.statusBar.encodingButton.title)
+                choose(#selector(AppDelegate.pickEncodingMenu(_:)), TextEncoding.windows1252.rawValue)
+                expect(tab.doc.encoding == .windows1252 && tab.doc.isDirty, "Format › Encoding › Windows-1252 converts (on save)")
+                key("s", [.command])
+                let bytes = (try? Data(contentsOf: url)).map { [UInt8]($0) } ?? []
+                expect(bytes == [0x63, 0x61, 0x66, 0xE9, 0x2C, 0x20, 0x64, 0x6F, 0x6E, 0x92, 0x74, 0x0A], "saved as Windows-1252 bytes",
+                       bytes.map { String($0, radix: 16) }.joined(separator: " "))
+                // Reopen with Encoding › Mac Roman reads those bytes the Mac way (é → È).
+                tab.reopen(with: .macRoman)
+                expect(tab.text.hasPrefix("cafÈ"), "Reopen with Mac Roman decodes as Mac Roman", tab.text)
+                let menu = NSApp.mainMenu?.items.first { $0.submenu?.title == "Format" }?.submenu?.items.first { $0.title == "Encoding" }?.submenu
+                expect(menu?.items.map(\.title).contains("Mac Roman") == true && menu?.items.map(\.title).contains("Windows-1252 (Western)") == true,
+                       "both are in Format › Encoding")
+            },
         ])
     }
 }
