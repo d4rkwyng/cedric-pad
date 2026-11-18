@@ -5,12 +5,13 @@ import WebKit
 /// In-process checks of the Markdown preview and tools, run by
 /// Scripts/tools-check.sh like the other DevChecks.
 ///
-///   CEDRIC_CHECK=mdpreview
+///   CEDRIC_CHECK=mdpreview|outline
 @MainActor
 extension DevChecks {
     static func markdownCheck(_ name: String, _ app: AppDelegate) -> Bool {
         switch name {
         case "mdpreview": markdownPreview(app)
+        case "outline": outlineCheck(app)
         default: return false
         }
         return true
@@ -240,5 +241,103 @@ extension DevChecks {
         }
         // Let the first full render land.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { MainActor.assumeIsolated { round() } }
+    }
+
+    // MARK: Outline
+
+    static func waitForOutline(_ tab: EditorWindowController, after: @escaping () -> Int, _ name: String) -> (@escaping () -> Void) -> Void {
+        { next in
+            let start = after()
+            let deadline = Date().addingTimeInterval(5)
+            @MainActor func poll() {
+                if (tab.outline.sidebar?.builds ?? 0) > start { next() }
+                else if Date() > deadline { expect(false, name, "no rebuild"); next() }
+                else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { MainActor.assumeIsolated { poll() } } }
+            }
+            poll()
+        }
+    }
+
+    static func outlineCheck(_ app: AppDelegate) {
+        var text = "# Guide\n\nIntro.\n\n```sh\n# not a heading\n```\n\n"
+        for k in 1...30 { text += "## Section \(k)\n\nBody \(k).\n\n" }
+        text += "Setext Title\n---\n\nend\n"
+        let tab = app.open(write("guide.md", text))!
+        let code = app.open(write("code.swift", "// # nope\n"))!
+        sized(tab); sized(code)
+        var side: OutlineSidebar? { tab.outline.sidebar }
+        let ns = { tab.text as NSString }
+        func caretLine() -> Int { tab.lineIndex.line(containing: tab.textView.selectedRange().location) }
+        var builds = 0
+        run([
+            sync {
+                focus(code)
+                if let i = menuItem(action: #selector(AppDelegate.toggleOutlineMenu(_:))) {
+                    expect(!app.validateMenuItem(i), "View › Show Outline is off for a Swift file")
+                }
+                focus(tab)
+                if let i = menuItem(action: #selector(AppDelegate.toggleOutlineMenu(_:))) {
+                    expect(app.validateMenuItem(i) && i.state == .off, "and on for Markdown")
+                }
+                expect(tab.outline.sidebar == nil, "the outline isn't built until it is first shown")
+                key("o", [.control, .command])
+                expect(tab.outlineVisible, "⌃⌘O shows the outline")
+            },
+            waitForOutline(tab, after: { 0 }, "the outline is built"),
+            sync {
+                let titles = side?.headings.map(\.title) ?? []
+                expect(titles.count == 32 && titles.first == "Guide" && titles.last == "Setext Title", "it lists the # and setext headings",
+                       "\(titles.count) \(titles.prefix(3)) \(titles.suffix(1))")
+                expect(!titles.contains("not a heading"), "but not a # inside fenced code")
+                expect((side?.frame.width ?? 0) > 100 && (tab.scrollView.frame.minX) >= (side?.frame.maxX ?? 0), "it sits left of the text",
+                       "\(side?.frame ?? .zero) \(tab.scrollView.frame)")
+                let target = ns().range(of: "Body 10.")
+                tab.textView.setSelectedRange(NSRange(location: target.location, length: 0))
+                let sel = side?.selectedHeading?.title ?? "-"
+                expect(sel == "Section 10", "the heading the caret is under is selected", sel)
+            },
+            snapshot("outline.png"),
+            sync {
+                // A click on a row jumps there. (A real click when Cedric is the
+                // active app; when it isn't, NSTableView ignores the synthetic
+                // mouse-down, so the row is selected as the click would.)
+                guard let s = side, let row = s.rows.firstIndex(where: { s.headings[$0].title == "Section 25" }) else { return }
+                s.table.scrollRowToVisible(row)
+                let r = s.table.rect(ofRow: row)
+                clickDirect(s.table, at: NSPoint(x: r.midX, y: r.midY))
+                if s.table.selectedRow != row { s.table.selectRowIndexes([row], byExtendingSelection: false) }
+                let want = s.headings[s.rows[row]].line
+                expect(caretLine() == want, "clicking a heading puts the caret on it", "\(caretLine()) want \(want)")
+                expect(tab.topLine <= want && tab.topLine >= want - 30, "and scrolls it into view", "top \(tab.topLine)")
+                builds = s.builds
+                // Typing a new heading: the outline follows when typing pauses.
+                tab.textView.setSelectedRange(NSRange(location: ns().length, length: 0))
+                type("\r# Appendix")
+            },
+            waitForOutline(tab, after: { builds }, "typing rebuilds the outline"),
+            sync {
+                expect(side?.headings.last?.title == "Appendix", "with the new heading", side?.headings.last?.title ?? "-")
+                key("o", [.control, .command])
+                expect(!tab.outlineVisible, "⌃⌘O hides it again")
+                // Go to Heading: the outline with its filter focused.
+                key("j", [.command, .shift])
+                expect(tab.outlineVisible && tab.outline.transient, "⇧⌘J opens it for the jump")
+                expect(tab.window?.firstResponder === side?.field.currentEditor(), "with the filter focused")
+                type("tion 7")
+                expect(side?.rows.count == 1 && side?.selectedHeading?.title == "Section 7", "typing filters the headings",
+                       "\(side?.rows.count ?? -1) \(side?.selectedHeading?.title ?? "-")")
+                key("\r")
+                let want = side?.headings.first { $0.title == "Section 7" }?.line ?? -1
+                expect(caretLine() == want, "Return jumps to it", "\(caretLine()) want \(want)")
+                expect(!tab.outlineVisible && tab.window?.firstResponder === tab.textView, "and puts the outline away again, focus back in the text")
+                // Esc: back to the text, nowhere else.
+                key("j", [.command, .shift])
+                type("Sect")
+                let before = caretLine()
+                key("\u{1b}")
+                expect(!tab.outlineVisible && caretLine() == before && tab.window?.firstResponder === tab.textView, "Esc goes back to the text")
+                for t in [tab, code] { t.doc.markSaved() }
+            },
+        ])
     }
 }

@@ -556,6 +556,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     @objc func goToLine(_ sender: Any?) { currentTab?.goToLinePrompt(sender) }
     @objc func togglePreview(_ sender: Any?) { currentTab?.togglePreview() }
+    @objc func toggleOutlineMenu(_ sender: Any?) { currentTab?.toggleOutline() }
+    @objc func goToHeadingMenu(_ sender: Any?) { currentTab?.goToHeading() }
     @objc func toggleDetachPreview(_ sender: Any?) { currentTab?.toggleDetachPreviewAction(sender) }
     @objc func togglePreviewJavaScript(_ sender: Any?) { currentTab.map { $0.previewAllowsJavaScript.toggle() } }
     @objc func togglePreviewNetwork(_ sender: Any?) { currentTab.map { $0.previewAllowsNetwork.toggle() } }
@@ -605,6 +607,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item.state = (item.representedObject as? String) == effective.rawValue ? .on : .off
             return s.showOwl && (item.representedObject as? String == OwlHintSource.rules.rawValue || ai)
         case #selector(pickTheme(_:)): item.state = (item.representedObject as? String) == s.theme.rawValue ? .on : .off
+        case #selector(toggleOutlineMenu(_:)):
+            item.state = tab?.outlineVisible == true ? .on : .off
+            return tab?.doc.language == .markdown
+        case #selector(goToHeadingMenu(_:)): return tab?.doc.language == .markdown
         case #selector(togglePreview(_:)):
             item.state = tab?.previewVisible == true ? .on : .off
             return tab?.doc.language.hasPreview == true

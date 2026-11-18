@@ -52,6 +52,15 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   tab. Attach Preview docks it again; closing its window closes the
   preview. A detached preview and its window's frame are kept with the
   session (restored just after the window first shows).
+- **Markdown outline** (View › Show Outline, ⌃⌘O): the document's
+  headings (`#` and underlined ones, never a `#` inside fenced code or
+  frontmatter), indented by level, at the left of the text. Click one to
+  jump there; the heading the caret is under stays selected; the filter
+  field narrows the list. **Go to Heading…** (Edit menu, ⇧⌘J) opens it
+  with the filter focused: type, ↑/↓, Return to jump (Esc goes back), and
+  it puts itself away again. Built the first time it is shown and updated
+  in the background when typing pauses (in large mode only when opened,
+  up to 5,000 headings).
 - **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
   or `.psv` file is a read-only grid: the first line is the header, row
   numbers stay at the left, columns resize, and a click on a header sorts

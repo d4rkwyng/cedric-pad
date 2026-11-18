@@ -15,6 +15,15 @@ final class EditorContainer: NSView {
         }
     }
     var showsGutter = true { didSet { gutter.isHidden = !showsGutter; needsLayout = true } }
+    /// The outline at the left (nil while it is hidden).
+    var sidebar: NSView? {
+        didSet {
+            guard oldValue !== sidebar else { return }
+            oldValue?.removeFromSuperview()
+            if let sidebar { addSubview(sidebar) }
+            needsLayout = true
+        }
+    }
 
     init(gutter: GutterView, scrollView: NSScrollView) {
         self.gutter = gutter
@@ -28,9 +37,11 @@ final class EditorContainer: NSView {
 
     override func layout() {
         super.layout()
+        let side = sidebar == nil ? 0 : min(OutlineSidebar.width, max(0, bounds.width - 200))
+        sidebar?.frame = NSRect(x: 0, y: 0, width: side, height: bounds.height)
         let g = showsGutter ? gutterWidth : 0
-        gutter.frame = NSRect(x: 0, y: 0, width: g, height: bounds.height)
-        scrollView.frame = NSRect(x: g, y: 0, width: bounds.width - g, height: bounds.height)
+        gutter.frame = NSRect(x: side, y: 0, width: g, height: bounds.height)
+        scrollView.frame = NSRect(x: side + g, y: 0, width: bounds.width - g - side, height: bounds.height)
         if let overlay {
             // Over the text area, clear of the scrollers.
             scrollView.layoutSubtreeIfNeeded()
@@ -92,6 +103,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Highlight-all, marks, bookmarks and the other editing extras
     /// (EditingFeatures.swift).
     let editing = EditingState()
+    /// The Markdown outline sidebar (OutlineSidebar.swift).
+    let outline = OutlineState()
+    var editorContainer: EditorContainer { container }
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -351,6 +365,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         editingTextChanged()
         updateStatus()
         schedulePreview()
+        outlineTextChanged()
         if let owl {
             owl.noteTyping()
             OwlHub.shared.activity(in: self)
@@ -369,6 +384,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         owl?.caretMoved(byUser: true)
         scheduleHighlights()
         updateBracketMatch()
+        updateOutlineCurrent()
     }
 
     /// The line at the top when the user last scrolled: kept there when
@@ -436,6 +452,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         statusBar.zoom.stringValue = "\(Int((s.fontSize / Settings.defaultFontSize * 100).rounded()))%"
         textView.needsDisplay = true
         if previewVisible { renderPreview() }
+        outline.sidebar?.applyPalette(p)
         owl?.layoutViews()
         spelling.apply()
     }
@@ -532,6 +549,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         spelling.apply()
         updateStatus()
         previewLanguageChanged()
+        if outlineVisible, l != .markdown { hideOutline() }
         onChange?(self)
     }
 

@@ -124,6 +124,7 @@ func buildMainMenu() -> NSMenu {
         submenu(String(localized: "Find"), findItems),
         item(String(localized: "Find in Files…"), #selector(AppDelegate.findInFilesMenu(_:)), "f", [.command, .shift]),
         item(String(localized: "Go to Line…"), #selector(AppDelegate.goToLine(_:)), "l"),
+        item(String(localized: "Go to Heading…"), #selector(AppDelegate.goToHeadingMenu(_:)), "j", [.command, .shift]),
         .separator(),
         submenu(String(localized: "Line"), [
             item(String(localized: "Duplicate Line"), #selector(AppDelegate.duplicateLineMenu(_:)), "d", [.command, .shift]),
@@ -167,6 +168,7 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Detach Preview"), #selector(AppDelegate.toggleDetachPreview(_:)), "p", [.command, .option, .shift]),
         item(String(localized: "Allow JavaScript in Preview"), #selector(AppDelegate.togglePreviewJavaScript(_:))),
         item(String(localized: "Allow Network in Preview"), #selector(AppDelegate.togglePreviewNetwork(_:))),
+        item(String(localized: "Show Outline"), #selector(AppDelegate.toggleOutlineMenu(_:)), "o", [.control, .command]),
         .separator(),
         item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.option]),
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
