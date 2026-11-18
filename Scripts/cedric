@@ -33,7 +33,7 @@ tmpdir=${tmpdir%/}
 # The secret that tells the app a URL is from this script, not a web page:
 # a random token in a file only this user can read. Made here if the app
 # hasn't made it yet.
-token_file=${CEDRIC_CLI_TOKEN_FILE:-"$HOME/Library/Application Support/Cedric/cli-token"}
+token_file="$HOME/Library/Application Support/Cedric/cli-token"
 token() {
     if [ ! -s "$token_file" ]; then
         mkdir -p "$(dirname "$token_file")"

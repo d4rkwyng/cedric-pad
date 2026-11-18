@@ -143,4 +143,15 @@ import Testing
         try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: u.path)
         #expect(CLIToken.read(u) == nil)
     }
+
+    @Test func refusalsNeverCarryTheToken() {
+        let secret = String(repeating: "ab12", count: 8)
+        let url = "cedric://open?untitled=/tmp/x&token=\(secret)&wait=/tmp/y"
+        for msg in [CLIToken.refusal(url, secret: secret), CLIToken.refusal("bad path /tmp/\(secret)", secret: secret),
+                    CLIToken.refusal("cedric://open?path=/a&TOKEN%3D\(secret)"), CLIToken.refusal(url)] {
+            #expect(!msg.contains(secret), "\(msg)")
+            #expect(msg.hasPrefix("cedric://: refused ("))
+        }
+        #expect(CLIToken.redacted(url).contains("token=•••&wait=/tmp/y"))
+    }
 }

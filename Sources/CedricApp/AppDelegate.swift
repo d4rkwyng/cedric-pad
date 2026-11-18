@@ -190,19 +190,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func refuseURL(_ why: String) {
-        FileHandle.standardError.write(Data("cedric://: refused (\(why))\n".utf8))
+        FileHandle.standardError.write(Data((CLIToken.refusal(why, secret: CLIToken.ensure()) + "\n").utf8))
     }
 
     /// A tokenless `path=` (a link, not the cedric script): ask, one at a time; never with `wait=`.
     private func askToOpenFromLink(_ path: String, _ q: [String: String]) {
         guard !Self.askingAboutLink else { refuseURL("a link is already being asked about"); return }
-        if ProcessInfo.processInfo.environment["CEDRIC_URL_ASK_ANSWER"] == "no" { refuseURL("declined: \(path)"); return }
+        if Self.linkAnswerForChecks == false { refuseURL("declined: \(path)"); return }
         Self.askingAboutLink = true
         defer { Self.askingAboutLink = false }
         NSApp.activate(ignoringOtherApps: true)
         let a = NSAlert()
-        a.messageText = String(localized: "Open “\((path as NSString).lastPathComponent)” requested by a link?")
-        a.informativeText = String(localized: "Another app or a web page asked Cedric Pad to open \(path).")
+        // The full path, so a link to ~/.ssh/config reads as exactly that.
+        a.messageText = String(localized: "Open “\(path)” requested by a link?")
+        a.informativeText = String(localized: "Another app or a web page asked Cedric Pad to open this file. Open it only if you expected this.")
         a.addButton(withTitle: String(localized: "Open"))
         a.addButton(withTitle: String(localized: "Cancel"))
         guard a.runModal() == .alertFirstButtonReturn else { refuseURL("declined: \(path)"); return }
@@ -212,6 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private static var askingAboutLink = false
+    /// The checks' answer to the question (set in-process by DevChecks only; nil: ask).
+    static var linkAnswerForChecks: Bool?
 
     private func openFromURL(_ path: String, _ q: [String: String]) {
         let url = URL(fileURLWithPath: path)

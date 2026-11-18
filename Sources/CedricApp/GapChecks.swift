@@ -499,6 +499,8 @@ extension DevChecks {
 
     /// As the cedric script sends it: with the user's token (`token: false`: as a web page would, without).
     static func openURL(_ app: AppDelegate, _ url: String, token: Bool = true) {
+        // The checks' own token file, not the user's (set in-process; release builds ignore the env hook).
+        if CLIToken.overrideURL == nil { CLIToken.overrideURL = dir.appendingPathComponent("cli-token") }
         let url = token ? url + "&token=" + (CLIToken.ensure() ?? "") : url
         let e = NSAppleEventDescriptor(eventClass: AEEventClass(kInternetEventClass), eventID: AEEventID(kAEGetURL),
                                        targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
@@ -566,9 +568,9 @@ extension DevChecks {
                        && app.tabs.count == before, "a hard link to the victim is refused: nothing read, nothing deleted")
                 try? FileManager.default.removeItem(atPath: hard)
                 // A tokenless path= (a link): asked first; declined here (CEDRIC_URL_ASK_ANSWER=no), nothing opens.
-                setenv("CEDRIC_URL_ASK_ANSWER", "no", 1)
+                AppDelegate.linkAnswerForChecks = false
                 openURL(app, "cedric://open?path=" + enc(victim.path), token: false)
-                unsetenv("CEDRIC_URL_ASK_ANSWER")
+                AppDelegate.linkAnswerForChecks = nil
                 expect(!app.tabs.contains { $0.doc.fileURL?.lastPathComponent == "victim.txt" }, "a tokenless path= link opens nothing unless allowed")
                 // The real hand-off, as `cedric -` makes it: read, then deleted.
                 let tmp = NSTemporaryDirectory() + "cedric-stdin.ok\(getpid())"

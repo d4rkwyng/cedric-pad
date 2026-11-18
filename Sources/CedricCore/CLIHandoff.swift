@@ -87,8 +87,16 @@ public enum CLIHandoff {
 /// adds `token=` to every URL; a web page or another user can't know it.
 /// Whoever runs first (the script or the app) creates it.
 public enum CLIToken {
+    /// In-process override for the checks (set by DevChecks code, never
+    /// from outside the process).
+    nonisolated(unsafe) public static var overrideURL: URL?
+
     public static var defaultURL: URL {
+        if let overrideURL { return overrideURL }
+        #if DEBUG
+        // Debug builds only; a release build ignores it.
         if let p = ProcessInfo.processInfo.environment["CEDRIC_CLI_TOKEN_FILE"], !p.isEmpty { return URL(fileURLWithPath: p) }
+        #endif
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support")
         return base.appendingPathComponent("Cedric/cli-token")
@@ -128,5 +136,18 @@ public enum CLIToken {
         var diff: UInt8 = 0
         for (a, b) in zip(g, s) { diff |= a ^ b }
         return diff == 0
+    }
+
+    /// `text` with any token= value and the secret itself blanked, for
+    /// anything logged or shown.
+    public static func redacted(_ text: String, secret: String? = nil) -> String {
+        var t = text
+        if let secret, !secret.isEmpty { t = t.replacingOccurrences(of: secret, with: "•••") }
+        return t.replacingOccurrences(of: #"(?i)(token(=|%3D))[^&\s)]*"#, with: "$1•••", options: .regularExpression)
+    }
+
+    /// The line logged when a cedric:// URL is refused (never with the token).
+    public static func refusal(_ why: String, secret: String? = nil) -> String {
+        "cedric://: refused (" + redacted(why, secret: secret) + ")"
     }
 }
