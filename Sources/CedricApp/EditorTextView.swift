@@ -118,6 +118,10 @@ final class EditorTextView: NSTextView {
     override func insertNewline(_ sender: Any?) {
         guard isEditable, !hasMarkedText(), let lineStartFor else { super.insertNewline(sender); return }
         let sel = selectedRange()
+        if let e = markdownEdit({ d, _ in MarkdownTable.newline(in: d, selection: sel) }) {
+            applyEdit(e, String(localized: "Add Table Row"))
+            return
+        }
         if let e = markdownEdit({ MarkdownLists.newline(in: $0, selection: sel, language: language,
                                                         tabWidth: $1.width, useTabs: $1.usesTabs) }) {
             applyEdit(e, String(localized: "Typing"))
@@ -145,7 +149,11 @@ final class EditorTextView: NSTextView {
         guard isEditable, !hasMarkedText(), let indentation, let lineStartFor else { super.insertTab(sender); return }
         let sel = selectedRange()
         let ns = string as NSString
-        // Markdown: Tab in a list item indents the item.
+        // Markdown: Tab in a table goes to the next cell; in a list item it indents the item.
+        if let e = markdownEdit({ d, _ in MarkdownTable.tab(in: d, selection: sel, forward: true) }) {
+            applyEdit(e, String(localized: "Format Table"))
+            return
+        }
         if let e = markdownEdit({ MarkdownLists.shiftItem(in: $0, selection: sel, right: true, useTabs: $1.usesTabs, tabWidth: $1.width) }) {
             applyEdit(e, String(localized: "Indent"))
             return
@@ -168,6 +176,10 @@ final class EditorTextView: NSTextView {
     override func insertBacktab(_ sender: Any?) {
         guard isEditable, !hasMarkedText(), let onShiftLines else { super.insertBacktab(sender); return }
         let sel = selectedRange()
+        if let e = markdownEdit({ d, _ in MarkdownTable.tab(in: d, selection: sel, forward: false) }) {
+            applyEdit(e, String(localized: "Format Table"))
+            return
+        }
         if let e = markdownEdit({ MarkdownLists.shiftItem(in: $0, selection: sel, right: false, useTabs: $1.usesTabs, tabWidth: $1.width) }) {
             applyEdit(e, String(localized: "Outdent"))
             return

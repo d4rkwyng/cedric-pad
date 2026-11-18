@@ -60,6 +60,17 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     or unchecks `- [ ]` / `- [x]` on the caret's line or every selected
     line, adds a box to a list item without one, and turns a plain line
     into `- [ ] line`. One undo step.
+  - **Tables:** in a GFM table, Tab and ⇧Tab move to the next or
+    previous cell (selecting its text) and line up the whole table's
+    pipes; Tab past the last cell adds a row, and Tab after a lone
+    `| a | b |` header builds the `| --- |` row. Return in a row goes to
+    the same cell in the row below (adding one at the end); Return in an
+    empty last row ends the table. Format › Markdown › Format Table
+    lines it up without moving. Widths count East Asian wide characters
+    and emoji as two columns (the CJK fallback font isn't exactly twice
+    SF Mono's width, so on screen those rows can be a pixel or two off);
+    alignment colons are kept. Tables in fenced code, and tables over
+    2,000 lines, are left alone.
 - **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
   or `.psv` file is a read-only grid: the first line is the header, row
   numbers stay at the left, columns resize, and a click on a header sorts

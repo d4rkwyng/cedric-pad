@@ -23,6 +23,15 @@ extension EditorWindowController {
         apply(e, actionName: String(localized: "Toggle Checkbox"))
     }
 
+    /// Format › Markdown › Format Table: lines up the table at the caret
+    /// (not in fenced code).
+    func formatTable() {
+        let sel = textView.selectedRange()
+        guard markdownEditable, textView.inFence?(sel.location) != true,
+              let e = MarkdownTable.format(in: textView.string as NSString, selection: sel) else { NSSound.beep(); return }
+        apply(e, actionName: String(localized: "Format Table"))
+    }
+
     func markdownLink() {
         guard markdownEditable else { NSSound.beep(); return }
         let clip = NSPasteboard.general.string(forType: .string)
@@ -38,10 +47,12 @@ extension AppDelegate {
     @objc func markdownCodeMenu(_ sender: Any?) { currentTab?.toggleMarkdown(.code) }
     @objc func markdownLinkMenu(_ sender: Any?) { currentTab?.markdownLink() }
     @objc func toggleCheckboxMenu(_ sender: Any?) { currentTab?.toggleCheckboxes() }
+    @objc func formatTableMenu(_ sender: Any?) { currentTab?.formatTable() }
 
     static let markdownActions: Set<Selector> = [
         #selector(markdownBoldMenu(_:)), #selector(markdownItalicMenu(_:)), #selector(markdownStrikethroughMenu(_:)),
         #selector(markdownCodeMenu(_:)), #selector(markdownLinkMenu(_:)), #selector(toggleCheckboxMenu(_:)),
+        #selector(formatTableMenu(_:)),
     ]
 
     func validateMarkdownItem(_ item: NSMenuItem) -> Bool? {
@@ -62,5 +73,6 @@ func markdownMenu() -> NSMenuItem {
         item(String(localized: "Link"), #selector(AppDelegate.markdownLinkMenu(_:)), "k"),
         .separator(),
         item(String(localized: "Toggle Checkbox"), #selector(AppDelegate.toggleCheckboxMenu(_:)), "\r"),
+        item(String(localized: "Format Table"), #selector(AppDelegate.formatTableMenu(_:))),
     ])
 }

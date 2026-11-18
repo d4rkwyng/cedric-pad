@@ -5,13 +5,14 @@ import CedricCore
 /// like the other DevChecks, with real key events (Return, Tab, ⇧Tab and
 /// the menus' key equivalents) and typed text.
 ///
-///   CEDRIC_CHECK=mdlists|mdformat
+///   CEDRIC_CHECK=mdlists|mdformat|mdtable
 @MainActor
 extension DevChecks {
     static func markdownCheck(_ name: String, _ app: AppDelegate) -> Bool {
         switch name {
         case "mdlists": markdownLists(app)
         case "mdformat": markdownFormat(app)
+        case "mdtable": markdownTable(app)
         default: return false
         }
         return true
@@ -171,6 +172,51 @@ extension DevChecks {
                 if let savedClip { general.setString(savedClip, forType: .string) }
             },
             snapshot("mdformat.png"),
+        ])
+    }
+
+    static func markdownTable(_ app: AppDelegate) {
+        let tab = app.open(write("table.md", "Prices\n\n| Item | 価格 |"))!
+        let fenced = app.open(write("fenced.md", "```\n| a | b |\n|---|---|\n| c | d |"))!
+        sized(tab)
+        let tv = tab.textView
+        run([
+            sync {
+                focus(tab)
+                caretAtEnd(tab)
+                key("\t")
+                expect(tab.text == "Prices\n\n| Item | 価格 |\n| ---- | ---- |\n|      |      |", "Tab after a header builds the delimiter row and a row", tab.text)
+                type("tea")
+                key("\t")
+                type("五百円")
+            },
+            sync {
+                key("\r")
+                expect(tab.text == "Prices\n\n| Item | 価格   |\n| ---- | ------ |\n| tea  | 五百円 |\n|      |        |",
+                       "Return at the row end lines up the pipes (wide characters count 2) and adds a row", tab.text)
+            },
+            sync {
+                key("z", [.command])
+                expect(tab.text == "Prices\n\n| Item | 価格 |\n| ---- | ---- |\n| tea  | 五百円     |", "one ⌘Z undoes the row and the lining up", tab.text)
+                backtab()
+                expect(tv.selectedRange().length == 3 && (tab.text as NSString).substring(with: tv.selectedRange()) == "tea",
+                       "⇧Tab selects the previous cell's text", "\(tv.selectedRange())")
+            },
+            sync {
+                tv.setSelectedRange(NSRange(location: 10, length: 0))
+                _ = choose(#selector(AppDelegate.formatTableMenu(_:)))
+                expect(tab.text == "Prices\n\n| Item | 価格   |\n| ---- | ------ |\n| tea  | 五百円 |", "Format Table lines it up", tab.text)
+            },
+            snapshot("mdtable.png", window: tab.window),
+            sync {
+                // A table in fenced code is left alone.
+                focus(fenced)
+                fenced.textView.setSelectedRange(NSRange(location: 6, length: 0))
+                key("\t")
+                expect(fenced.text.hasPrefix("```\n| \ta | b |\n|---|"), "Tab in fenced code types a tab", fenced.text)
+                expect(!fenced.text.contains("| --- |"), "the table in the fence isn't reformatted", fenced.text)
+            },
+            snapshot("mdtable-fenced.png"),
         ])
     }
 }
