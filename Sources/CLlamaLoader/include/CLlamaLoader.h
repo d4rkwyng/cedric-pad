@@ -1,11 +1,10 @@
 // The built-in engine's llama.cpp calls, as function pointers resolved
 // with dlopen/dlsym the first time a model is loaded, instead of linking
 // llama.framework into the app: linked, dyld loads and binds it (with
-// Metal and Accelerate) on every launch, ~2-3 ms warm and several hundred
-// ms on the first launch of a new copy, for an engine that is off by
-// default. Each pointer has the exact type of the function in llama.h
-// (__typeof__ doesn't reference the symbol), so a changed signature fails
-// to compile here.
+// Metal and Accelerate) on every launch, ~2-3 ms warm, for an engine that
+// is off by default. Each pointer has the exact type of the function in
+// llama.h (__typeof__ doesn't reference the symbol), so a changed
+// signature fails to compile here.
 #pragma once
 #include <stddef.h>
 #include <llama/llama.h>
