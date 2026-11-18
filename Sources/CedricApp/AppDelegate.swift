@@ -367,6 +367,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// One saved window's tabs built so far, by their saved index.
     private final class RestoreGroup {
         var built: [(index: Int, window: NSWindow)] = []
+        /// The saved window's frame, for a window rebuilt after its built
+        /// tabs all closed.
+        var frame: String?
     }
 
     private var pendingRestore: [PendingTab] = []
@@ -385,6 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let order = w.tabs.indices.contains(w.selectedTab)
                 ? [w.selectedTab] + w.tabs.indices.filter { $0 != w.selectedTab } : Array(w.tabs.indices)
             let group = RestoreGroup()
+            group.frame = w.frame
             var host: NSWindow?
             var rest: [Int] = []
             for i in order {
@@ -467,6 +471,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let anchor = live.first?.window, let tg = anchor.tabGroup else {
             // All of them closed before this one was built: it gets its own window.
             if let tab = restoreTab(p.tab, into: nil), let w = tab.window {
+                // Where the saved window was, not a new default place.
+                if let f = p.group.frame { w.setFrame(from: f) }
                 p.group.built.append((p.index, w))
                 w.orderFront(nil)
             }

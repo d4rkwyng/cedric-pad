@@ -89,7 +89,9 @@ for i in range(6):
         tabs.append({"id": tid, "untitledName": "Untitled %d" % i, "hasBuffer": True, "encoding": "utf8", "lineEnding": "lf",
                      "selectionLocation": 0, "selectionLength": 0, "topLine": 0})
     if i in (1, 3, 4): tabs[-1]["bookmarks"] = [1]
-json.dump({"version": 1, "untitledCounter": 0, "windows": [{"tabs": tabs, "selectedTab": 3}]}, open(os.path.join(d, "session.json"), "w"))
+win = {"tabs": tabs, "selectedTab": 3}
+if os.environ.get("FRAME"): win["frame"] = os.environ["FRAME"]
+json.dump({"version": 1, "untitledCounter": 0, "windows": [win]}, open(os.path.join(d, "session.json"), "w"))
 PY
 }
 # "<windows> <selected> <tab names>" plus "[bookmarks]" after each bookmarked tab, then " | closed: ..." if any.
@@ -119,8 +121,14 @@ n=$(ls "$W/session3" | grep -c '\.txt$' || true)
 
 # 6. Close and Reopen Closed Tab while the other restored tabs are still
 #    waiting to be built: nothing may be lost, bookmarks included.
+#    The window has a saved frame (on this screen, as step 5 saved it):
+#    the deferred tabs, built after their only built tab closed, must
+#    come back in a window at that frame, not a new centred one.
+frame_of() { python3 -c 'import json,sys; w=json.load(open(sys.argv[1]))["windows"]; print(w[0].get("frame","-") if w else "-")' "$W/$1/session.json"; }
+screen=$(frame_of session3 | cut -d' ' -f5-)
+saved="61 300 700 420 $screen"
 export CEDRIC_SESSION_DIR="$W/session6"
-make_session session6
+FRAME="$saved" make_session session6
 env -u CEDRIC_TEST_TYPE CEDRIC_RESTORE_DELAY=30 CEDRIC_TEST_EARLY_CLOSE=1 "$BIN" -ApplePersistenceIgnoreState YES >/dev/null 2>&1 &
 pid=$!
 sleep 2
@@ -129,6 +137,9 @@ got=$(order session6 | cut -d' ' -f3-)
 want="t0.txt Untitled 1[1] t2.txt t4.txt[1] Untitled 5 | closed: Untitled 3[1](unsaved)"
 if [ "$got" = "$want" ]; then echo "session-check: OK   early close: deferred tabs and their bookmarks kept, the closed tab remembered"
 else echo "session-check: FAIL early close: got '$got', want '$want'" >&2; fail=1; fi
+gotframe=$(frame_of session6)
+if [ "$gotframe" = "$saved" ]; then echo "session-check: OK   early close: the deferred tabs' window kept its saved frame"
+else echo "session-check: FAIL early close: window frame '$gotframe', want '$saved'" >&2; fail=1; fi
 n=$(ls "$W/session6" | grep -c '\.txt$' || true)
 [ "$n" = 3 ] && echo "session-check: OK   early close: unsaved buffers kept (the closed tab's too)" || { echo "session-check: FAIL early close: $n buffers left, want 3" >&2; fail=1; }
 env -u CEDRIC_TEST_TYPE CEDRIC_RESTORE_DELAY=30 CEDRIC_TEST_EARLY_REOPEN=1 "$BIN" -ApplePersistenceIgnoreState YES >/dev/null 2>&1 &
