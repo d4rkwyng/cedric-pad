@@ -24,7 +24,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Syntax colouring** for Swift, Python, JavaScript, TypeScript, JSON, YAML,
   Markdown, HTML (with embedded `<script>` and `<style>`), XML (with CDATA;
   `.xml`, `.plist` and friends, no longer coloured as HTML), CSS, shell,
-  C/C++/Objective-C, Ruby, SQL, diff/patch, and INI/TOML/.env/.properties. Only the visible lines plus a margin are coloured, so
+  C/C++/Objective-C, Ruby, SQL, diff/patch, and INI/TOML/.env/.properties (CSV and TSV open as plain text with a grid preview). Only the visible lines plus a margin are coloured, so
   big files stay fast. The language comes from the file extension, a `#!` line,
   or, for pasted text in an untitled tab, from the content; the status bar
   menu overrides it.
@@ -38,6 +38,15 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   tab. Attach Preview docks it again; closing its window closes the
   preview. A detached preview and its window's frame are kept with the
   session (restored just after the window first shows).
+- **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
+  or `.psv` file is a read-only grid: the first line is the header, row
+  numbers stay at the left, columns resize, and a click on a header sorts
+  the grid (never the text). Clicking a cell puts the caret in that field.
+  Quoted fields with commas, quotes and line breaks are read as RFC 4180
+  says; the separator (comma, tab, semicolon or pipe) is detected from
+  the first lines, and `.tsv` means tab. It updates as you type, parses
+  off the main thread, and shows the first 50,000 rows of a longer file
+  (with a note). It detaches like the other previews.
 - **Themes:** System (light or dark with macOS), Light, Dark, Tankard (deep
   purple and amber) and Dracula, the same set as Tankard. Every theme's text
   colours meet WCAG AA contrast (4.5:1), checked by a test. SF Mono by

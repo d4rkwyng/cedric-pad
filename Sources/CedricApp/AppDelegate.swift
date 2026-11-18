@@ -548,10 +548,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return tab?.doc.language.hasPreview == true
         case #selector(togglePreviewJavaScript(_:)):
             item.state = tab?.previewAllowsJavaScript == true ? .on : .off
-            return tab?.previewVisible == true
+            return tab?.previewVisible == true && tab?.preview != nil
         case #selector(togglePreviewNetwork(_:)):
             item.state = tab?.previewAllowsNetwork == true ? .on : .off
-            return tab?.previewVisible == true
+            return tab?.previewVisible == true && tab?.preview != nil
         case #selector(pickLanguageMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.language.rawValue ? .on : .off
         case #selector(pickLineEndingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.lineEnding.rawValue ? .on : .off
         case #selector(pickEncodingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.encoding.rawValue ? .on : .off

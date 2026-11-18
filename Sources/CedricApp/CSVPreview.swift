@@ -1,0 +1,321 @@
+import AppKit
+import CedricCore
+
+/// The preview for CSV and TSV: a read-only grid. The first record is the
+/// header; row numbers stay at the left when scrolling sideways; columns
+/// resize; clicking a header sorts the grid (never the text); clicking a
+/// cell puts the editor's caret in that field.
+///
+/// The table is view-based and virtual (cells are made for the rows on
+/// screen only). Parsing (CSV in CedricCore) and sorting run on a
+/// background queue from a copy of the text taken on the main thread;
+/// a newer render drops an older result. At most `maxRows` records are
+/// shown (with a note), and in large mode only the first `largeMaxChars`
+/// characters are read.
+@MainActor
+final class CSVPreview: NSObject, PreviewRenderer, NSTableViewDataSource, NSTableViewDelegate {
+    static let maxRows = 50_000
+    static let maxChars = 16_000_000
+    static let largeMaxChars = 2_000_000
+    private static let queue = DispatchQueue(label: "cedric.csv-preview", qos: .userInitiated)
+
+    let container = CSVContainer()
+    let scroll = NSScrollView()
+    let table = GridTableView()
+    private(set) var ruler: RowNumberRuler!
+    let note = NSTextField(labelWithString: "")
+    /// What is shown: the parsed records and the data rows' order (indexes into `rows`).
+    private(set) var data = CSV.Table()
+    private(set) var order: [Int] = []
+    private var generation = 0
+    private var font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    private var textColor = NSColor.textColor
+    /// Set by the tab: large mode, the text now, and where a click goes.
+    var isLarge: () -> Bool = { false }
+    var currentText: () -> NSString = { "" }
+    var onSelectField: ((Int) -> Void)?
+    /// Renders applied (the checks wait for one).
+    private(set) var renders = 0
+
+    var view: NSView { container }
+
+    override init() {
+        super.init()
+        table.dataSource = self
+        table.delegate = self
+        table.columnAutoresizingStyle = .noColumnAutoresizing
+        table.allowsColumnReordering = false
+        table.allowsColumnResizing = true
+        table.allowsMultipleSelection = false
+        table.gridStyleMask = [.solidVerticalGridLineMask, .solidHorizontalGridLineMask]
+        table.intercellSpacing = NSSize(width: 1, height: 1)
+        table.style = .plain
+        table.rowHeight = 18
+        table.onClickCell = { [weak self] r, c in self?.selectField(row: r, column: c) }
+        scroll.documentView = table
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.borderType = .noBorder
+        ruler = RowNumberRuler(scrollView: scroll, table: table)
+        ruler.number = { [weak self] row in
+            guard let self, row < self.order.count else { return nil }
+            return self.order[row] // the record's index: its line in a file without quoted line breaks
+        }
+        scroll.verticalRulerView = ruler
+        scroll.hasVerticalRuler = true
+        scroll.rulersVisible = true
+        note.font = .systemFont(ofSize: 11)
+        note.textColor = .secondaryLabelColor
+        note.isHidden = true
+        container.scroll = scroll
+        container.note = note
+        container.addSubview(scroll)
+        container.addSubview(note)
+    }
+
+    func handles(_ language: Language) -> Bool { language == .csv }
+
+    func render(text: String, language: Language, palette: EditorPalette, baseURL: URL?, fileName: String?) {
+        applyPalette(palette)
+        generation += 1
+        let gen = generation
+        // An immutable copy (the storage keeps changing), cut at a line end.
+        let ns = text as NSString
+        let limit = isLarge() ? Self.largeMaxChars : Self.maxChars
+        var end = ns.length
+        if end > limit {
+            let nl = ns.range(of: "\n", options: .backwards, range: NSRange(location: 0, length: limit))
+            end = nl.location == NSNotFound ? limit : NSMaxRange(nl)
+        }
+        let snapshot = ns.substring(to: end) as NSString
+        let cut = end < ns.length
+        let sort = table.sortDescriptors.first
+        Self.queue.async {
+            let delim = CSV.delimiter(for: snapshot, fileName: fileName)
+            var t = CSV.parse(snapshot, delimiter: delim, maxRows: Self.maxRows + 1)
+            if cut { t.truncated = true }
+            let order = Self.order(t.rows, sort)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard gen == self.generation else { return }
+                    self.apply(t, order: order)
+                }
+            }
+        }
+    }
+
+    nonisolated private static func order(_ rows: [[String]], _ sort: NSSortDescriptor?) -> [Int] {
+        guard let sort, let key = sort.key, let col = Int(key.dropFirst()) else { return Array(rows.indices.dropFirst()) }
+        return CSV.sortedOrder(rows, column: col, ascending: sort.ascending)
+    }
+
+    private func apply(_ t: CSV.Table, order: [Int]) {
+        data = t
+        self.order = order
+        let header = t.rows.first ?? []
+        // Columns: kept (and their widths) while the count is the same.
+        if table.tableColumns.count != t.columnCount {
+            for c in table.tableColumns { table.removeTableColumn(c) }
+            for i in 0..<t.columnCount {
+                let c = NSTableColumn(identifier: .init("c\(i)"))
+                c.resizingMask = .userResizingMask
+                c.minWidth = 30
+                c.maxWidth = 2_000
+                c.width = width(column: i, rows: t.rows)
+                c.sortDescriptorPrototype = NSSortDescriptor(key: "c\(i)", ascending: true)
+                table.addTableColumn(c)
+            }
+        }
+        for (i, c) in table.tableColumns.enumerated() {
+            c.title = i < header.count && !header[i].isEmpty ? header[i] : String(localized: "Column \(i + 1)")
+            c.headerCell.font = .systemFont(ofSize: 11, weight: .semibold)
+        }
+        table.reloadData()
+        ruler.ruleThickness = max(28, CGFloat(String(t.rows.count).count) * 7.5 + 12)
+        ruler.needsDisplay = true
+        let shown = min(order.count, Self.maxRows)
+        if t.truncated || order.count > Self.maxRows {
+            note.stringValue = String(localized: "Showing the first \(shown.formatted()) rows. The preview is read-only.")
+            note.isHidden = false
+        } else {
+            note.isHidden = true
+        }
+        container.needsLayout = true
+        renders += 1
+    }
+
+    /// From the widest of the first 200 cells, in characters.
+    private func width(column i: Int, rows: [[String]]) -> CGFloat {
+        let charW = ("0" as NSString).size(withAttributes: [.font: font]).width
+        var longest = 4
+        for r in rows.prefix(200) where i < r.count { longest = max(longest, min(r[i].count, 48)) }
+        return min(360, max(48, CGFloat(longest) * charW + 14))
+    }
+
+    private func applyPalette(_ p: EditorPalette) {
+        let editor = Settings.shared.font
+        font = NSFont(name: editor.fontName, size: 12) ?? .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textColor = NSColor(hex: p.foreground)
+        table.backgroundColor = NSColor(hex: p.background)
+        table.gridColor = NSColor(hex: p.currentLine)
+        scroll.backgroundColor = NSColor(hex: p.background)
+        ruler.background = NSColor(hex: p.statusBar)
+        ruler.textColor = NSColor(hex: p.color(for: .comment))
+        container.appearance = NSAppearance(named: p.isDark ? .darkAqua : .aqua)
+    }
+
+    // MARK: Table
+
+    func numberOfRows(in tableView: NSTableView) -> Int { min(order.count, Self.maxRows) }
+
+    /// The text of a cell as shown (row in view order).
+    func cell(row: Int, column: Int) -> String {
+        guard row < order.count else { return "" }
+        let r = data.rows[order[row]]
+        return column < r.count ? r[column] : ""
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let col = tableColumn, let i = tableView.tableColumns.firstIndex(of: col) else { return nil }
+        let id = NSUserInterfaceItemIdentifier("cell")
+        let f = tableView.makeView(withIdentifier: id, owner: nil) as? NSTextField ?? {
+            let f = GridCell(labelWithString: "")
+            f.identifier = id
+            f.lineBreakMode = .byTruncatingTail
+            f.cell?.usesSingleLineMode = true
+            return f
+        }()
+        // Line breaks inside a field show as ⏎ on one line.
+        let s = cell(row: row, column: i)
+        f.stringValue = s.contains(where: \.isNewline) ? s.replacingOccurrences(of: "\r\n", with: "⏎").replacingOccurrences(of: "\n", with: "⏎") : s
+        f.font = font
+        f.textColor = textColor
+        f.toolTip = s.count > 40 ? s : nil
+        return f
+    }
+
+    func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+        let rows = data.rows, sort = tableView.sortDescriptors.first
+        generation += 1
+        let gen = generation, t = data
+        Self.queue.async {
+            let order = Self.order(rows, sort)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard gen == self.generation else { return }
+                    self.apply(t, order: order)
+                }
+            }
+        }
+    }
+
+    /// A click on a cell: the caret goes to that field in the text.
+    func selectField(row: Int, column: Int) {
+        guard row < order.count else { return }
+        let start = data.rowStarts[order[row]]
+        let text = currentText()
+        onSelectField?(min(text.length, CSV.fieldOffset(in: text, rowStart: start, column: column, delimiter: data.delimiter)))
+    }
+
+    func sync(line: Int, fraction: Double, language: Language) {
+        // Only in file order: a sorted grid stays where the user put it.
+        guard table.sortDescriptors.isEmpty, !data.rowLines.isEmpty else { return }
+        var lo = 1, hi = data.rowLines.count - 1, best = 1
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            if data.rowLines[mid] <= line { best = mid; lo = mid + 1 } else { hi = mid - 1 }
+        }
+        let row = max(0, best - 1)
+        guard row < table.numberOfRows else { return }
+        let y = table.rect(ofRow: row).minY
+        scroll.contentView.scroll(to: NSPoint(x: scroll.contentView.bounds.minX, y: max(0, y - (table.headerView?.frame.height ?? 0))))
+        scroll.reflectScrolledClipView(scroll.contentView)
+    }
+}
+
+/// The grid's table: a click on a cell counts even when its window
+/// wasn't in front (the detached preview), so it moves the caret at once.
+final class GridTableView: NSTableView {
+    /// A single click on a cell (row and column in view order).
+    var onClickCell: ((Int, Int) -> Void)?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        let r = row(at: p), c = column(at: p)
+        super.mouseDown(with: event)
+        if event.clickCount == 1, r >= 0, c >= 0 { onClickCell?(r, c) }
+    }
+}
+
+/// A cell's label: clicks go to the table.
+final class GridCell: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// The grid and, under it, the note.
+final class CSVContainer: NSView {
+    weak var scroll: NSScrollView?
+    weak var note: NSTextField?
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        let noteH: CGFloat = (note?.isHidden ?? true) ? 0 : 22
+        scroll?.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - noteH))
+        note?.frame = NSRect(x: 8, y: bounds.height - noteH + 3, width: max(0, bounds.width - 16), height: 16)
+    }
+}
+
+/// Row numbers at the left of the grid, fixed when it scrolls sideways.
+final class RowNumberRuler: NSRulerView {
+    weak var table: NSTableView?
+    /// The number shown for a row (in view order), 1-based is added here.
+    var number: ((Int) -> Int?)?
+    var background = NSColor.windowBackgroundColor
+    var textColor = NSColor.secondaryLabelColor
+
+    init(scrollView: NSScrollView, table: NSTableView) {
+        self.table = table
+        super.init(scrollView: scrollView, orientation: .verticalRuler)
+        clientView = table
+        ruleThickness = 36
+        reservedThicknessForMarkers = 0
+        reservedThicknessForAccessoryView = 0
+    }
+
+    required init(coder: NSCoder) { fatalError("not used") }
+
+    override var requiredThickness: CGFloat { ruleThickness }
+
+    override func draw(_ dirtyRect: NSRect) {
+        // macOS 14: dirtyRect can extend past the bounds. Never draw outside them.
+        let r = dirtyRect.intersection(bounds)
+        guard !r.isEmpty else { return }
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: bounds).setClip()
+        background.setFill()
+        r.fill()
+        drawHashMarksAndLabels(in: r)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    override func drawHashMarksAndLabels(in rect: NSRect) {
+        guard let table, let number else { return }
+        let visible = table.visibleRect
+        let rows = table.rows(in: visible)
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular),
+                                                    .foregroundColor: textColor]
+        guard rows.length > 0 else { return }
+        for row in rows.location..<NSMaxRange(rows) {
+            guard let n = number(row) else { continue }
+            let rr = convert(table.rect(ofRow: row), from: table)
+            guard rr.maxY >= rect.minY, rr.minY <= rect.maxY else { continue }
+            let s = "\(n)" as NSString
+            let size = s.size(withAttributes: attrs)
+            s.draw(at: NSPoint(x: bounds.width - size.width - 6, y: rr.minY + (rr.height - size.height) / 2), withAttributes: attrs)
+        }
+    }
+}

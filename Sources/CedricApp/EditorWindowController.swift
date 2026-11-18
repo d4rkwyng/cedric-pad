@@ -967,6 +967,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     private func makeRenderer(for language: Language) -> PreviewRenderer {
+        if language == .csv {
+            let g = CSVPreview()
+            g.isLarge = { [weak self] in self?.extrasPaused ?? false }
+            g.currentText = { [weak self] in (self?.textView.string ?? "") as NSString }
+            g.onSelectField = { [weak self] offset in
+                guard let self else { return }
+                self.window?.makeKeyAndOrderFront(nil)
+                self.window?.makeFirstResponder(self.textView)
+                self.textView.setSelectedRange(NSRange(location: offset, length: 0))
+                self.reveal(NSRange(location: offset, length: 0))
+            }
+            return g
+        }
         let p = PreviewController()
         p.onLoaded = { [weak self] in self?.syncPreviewScroll() }
         return p
