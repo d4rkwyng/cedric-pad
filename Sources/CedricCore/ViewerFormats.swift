@@ -78,6 +78,86 @@ public enum ImageFormat: String, CaseIterable, Sendable {
     }
 }
 
+/// Office and iWork documents, opened in a read-only Quick Look tab.
+public enum OfficeFormat: String, Sendable {
+    case word, spreadsheet, presentation, pages, numbers, keynote, rtfd
+
+    /// Plain text can be taken out of it (File › Open as Text).
+    public var hasText: Bool { self == .word || self == .rtfd }
+
+    static let ooxml: [String: OfficeFormat] = [
+        "docx": .word, "docm": .word, "dotx": .word, "xlsx": .spreadsheet, "xlsm": .spreadsheet,
+        "pptx": .presentation, "pptm": .presentation,
+    ]
+    static let ole: [String: OfficeFormat] = ["doc": .word, "dot": .word, "xls": .spreadsheet, "ppt": .presentation]
+    static let iwork: [String: OfficeFormat] = ["pages": .pages, "numbers": .numbers, "key": .keynote]
+
+    public static let zipMagic: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
+    /// An OLE2 compound file (.doc, .xls, .ppt).
+    public static let oleMagic: [UInt8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]
+
+    public static func isZip<D: Collection>(_ prefix: D) -> Bool where D.Element == UInt8 {
+        Array(prefix.prefix(4)) == zipMagic
+    }
+
+    static func ext(_ fileName: String) -> String { (fileName as NSString).pathExtension.lowercased() }
+
+    /// From the first bytes and the name: an OLE2 file is an Office
+    /// document (its kind from the name); a zip is one if its name says
+    /// so (`.docx`, `.pages`…); a `.docx` / `.doc` / `.xls`… that is
+    /// neither (damaged) still goes to the viewer. iWork names need the
+    /// zip header (a `.key` file is far more often a PEM key, which is
+    /// text); iWork packages and `.rtfd` are directories (`forDirectory`).
+    public static func detect<D: Collection>(prefix: D, fileName: String) -> OfficeFormat? where D.Element == UInt8 {
+        let e = ext(fileName)
+        let b = Array(prefix.prefix(8))
+        if b == oleMagic { return ole[e] ?? ooxml[e] ?? .word }
+        if isZip(b) { return ooxml[e] ?? iwork[e] }
+        // Text in an Office name (an RTF saved as .doc, say) stays text.
+        if b.starts(with: Array("{\\rtf".utf8)) { return nil }
+        return ooxml[e] ?? ole[e]
+    }
+
+    /// A package directory Quick Look shows: iWork, or RTFD.
+    public static func forDirectory(_ fileName: String) -> OfficeFormat? {
+        let e = ext(fileName)
+        return e == "rtfd" ? .rtfd : iwork[e]
+    }
+
+    /// A zip's kind from the names inside it (no telling extension):
+    /// OOXML has `[Content_Types].xml` and a word/, xl/ or ppt/ folder;
+    /// iWork has `Index/Document.iwa`.
+    public static func fromZipEntries(_ names: [String]) -> OfficeFormat? {
+        if names.contains("[Content_Types].xml") {
+            if names.contains(where: { $0.hasPrefix("word/") }) { return .word }
+            if names.contains(where: { $0.hasPrefix("xl/") }) { return .spreadsheet }
+            if names.contains(where: { $0.hasPrefix("ppt/") }) { return .presentation }
+        }
+        if names.contains("Index/Document.iwa") { return .pages }
+        return nil
+    }
+
+    /// From a file on disk: a package directory by its name, else
+    /// `detect(prefix:fileName:)`, else what a zip holds.
+    public static func detect(url: URL) -> OfficeFormat? {
+        var dir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &dir), dir.boolValue { return forDirectory(url.lastPathComponent) }
+        var prefix: [UInt8] = []
+        if let h = try? FileHandle(forReadingFrom: url) {
+            prefix = Array((try? h.read(upToCount: 8)) ?? Data())
+            try? h.close()
+        }
+        if let f = detect(prefix: prefix, fileName: url.lastPathComponent) {
+            // A zip named .docx that is really a spreadsheet: what's inside wins.
+            if isZip(prefix), ooxml[ext(url.lastPathComponent)] != nil,
+               let inside = (try? ZipArchive(url: url)).flatMap({ fromZipEntries($0.entries.map(\.name)) }) { return inside }
+            return f
+        }
+        if isZip(prefix), let a = try? ZipArchive(url: url) { return fromZipEntries(a.entries.map(\.name)) }
+        return nil
+    }
+}
+
 /// Where an image tab was: kept with the session so it comes back at the
 /// same zoom, scrolled to the same place.
 public struct ImageTabState: Codable, Equatable, Sendable {
@@ -105,6 +185,11 @@ public struct ImageTabState: Codable, Equatable, Sendable {
         centerX = try fraction(.centerX)
         centerY = try fraction(.centerY)
     }
+}
+
+/// An Office / iWork (Quick Look) tab: nothing to keep but that it is one.
+public struct OfficeTabState: Codable, Equatable, Sendable {
+    public init() {}
 }
 
 /// The image tab's zoom and display arithmetic.

@@ -180,6 +180,32 @@ cat > "$APP/Contents/Info.plist" <<PLIST
             </array>
         </dict>
         <dict>
+            <!-- Office and iWork documents open in a read-only Quick Look tab. Alternate. -->
+            <key>CFBundleTypeName</key>
+            <string>Office Document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>org.openxmlformats.wordprocessingml.document</string>
+                <string>org.openxmlformats.spreadsheetml.sheet</string>
+                <string>org.openxmlformats.presentationml.presentation</string>
+                <string>com.microsoft.word.doc</string>
+                <string>com.microsoft.excel.xls</string>
+                <string>com.microsoft.powerpoint.ppt</string>
+                <string>com.apple.iwork.pages.sffpages</string>
+                <string>com.apple.iwork.numbers.sffnumbers</string>
+                <string>com.apple.iwork.keynote.sffkey</string>
+                <string>com.apple.iwork.pages.pages</string>
+                <string>com.apple.iwork.numbers.numbers</string>
+                <string>com.apple.iwork.keynote.key</string>
+                <string>com.apple.rtfd</string>
+                <string>com.apple.flat-rtfd</string>
+            </array>
+        </dict>
+        <dict>
             <key>CFBundleTypeName</key>
             <string>Text</string>
             <key>CFBundleTypeRole</key>

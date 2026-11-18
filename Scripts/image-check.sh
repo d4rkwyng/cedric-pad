@@ -1,11 +1,14 @@
 #!/bin/bash
-# Image tabs, end to end, in the running app (ImageCheck.swift): makes
-# its own images (PNG with transparency, a JPEG turned by EXIF, an
-# animated GIF and a HEIC with ImageIO; a 12000×12000 PNG), opens them, and checks the status bar (pixel size, file size,
+# Image tabs and Office (Quick Look) tabs, end to end, in the running app
+# (ImageCheck.swift): makes its own files (PNG with transparency, a JPEG
+# turned by EXIF, an animated GIF and a HEIC with ImageIO; a 12000×12000
+# PNG; a .docx with NSAttributedString; an .xlsx zipped from hand-written
+# parts), opens them, and checks the status bar (pixel size, file size,
 # format, colour space, zoom), fit, zoom (⌘= ⌘- ⌘0 ⌘9), pan, the
 # checkerboard, menus that must be off, Copy, Open in <default app>,
 # Print, GIF play / pause, magic-byte detection, cedric -w, Reopen Closed
-# Tab, drops, a damaged file; that no file is written; and that typing in a text tab isn't
+# Tab, drops, a damaged file; Open as Text (.docx) and Open Sheet as CSV
+# (.xlsx); that no file is written; and that typing in a text tab isn't
 # held up while the 12000×12000 PNG decodes (measured). Then it saves the
 # session, relaunches, and checks the tabs come back at their zoom, the
 # unselected ones not loaded until shown. Throwaway session; works with

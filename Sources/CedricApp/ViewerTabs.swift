@@ -1,9 +1,9 @@
 import AppKit
 import CedricCore
 
-/// A read-only viewer tab (PDF, image): its own window in
+/// A read-only viewer tab (PDF, image, Office / iWork): its own window in
 /// the editor's tab group, never written. AppDelegate keeps each kind in
-/// its own list (`pdfTabs`, `imageTabs`); this is what they
+/// its own list (`pdfTabs`, `imageTabs`, `officeTabs`); this is what they
 /// share for the session, Reopen Closed Tab, `cedric -w` and "which tab is
 /// in front".
 @MainActor
@@ -19,7 +19,7 @@ extension PDFTabController: ViewerTab {}
 extension AppDelegate {
     /// Every viewer tab, of every kind.
     var viewerTabs: [any ViewerTab] {
-        pdfTabs.map { $0 as any ViewerTab } + imageTabs.map { $0 as any ViewerTab }
+        pdfTabs.map { $0 as any ViewerTab } + imageTabs.map { $0 as any ViewerTab } + officeTabs.map { $0 as any ViewerTab }
     }
 
     /// The viewer tab showing this file, if one is open.
@@ -89,27 +89,36 @@ extension AppDelegate {
         if let w = currentTab?.window ?? currentViewerTab?.window, w.isVisible { a.beginSheetModal(for: w) } else { a.runModal() }
     }
 
-    /// Reopen Closed Tab for an image tab.
+    /// Reopen Closed Tab / restore for an image or Office tab.
     func reopenClosedViewer(_ st: SessionTab) {
         guard let path = st.path else { return }
         let url = URL(fileURLWithPath: path)
         if let open = viewerTab(for: url) {
             open.window?.makeKeyAndOrderFront(nil)
         } else if FileManager.default.fileExists(atPath: path) {
-            makeImageTab(ImageTabController(fileURL: url, id: st.id, state: st.image ?? ImageTabState())).ensureLoaded()
+            if st.image != nil {
+                makeImageTab(ImageTabController(fileURL: url, id: st.id, state: st.image ?? ImageTabState())).ensureLoaded()
+            } else {
+                makeOfficeTab(OfficeTabController(fileURL: url, id: st.id)).ensureLoaded()
+            }
         } else {
             NSSound.beep()
         }
         saveSession()
     }
 
-    /// A saved image tab. The selected tab of a window (`place`
+    /// A saved image or Office tab. The selected tab of a window (`place`
     /// nil) loads now; the others when first shown.
     func restoreViewerTab(_ st: SessionTab, into place: (host: NSWindow, index: Int)?) -> NSWindowController? {
         guard let path = st.path, FileManager.default.fileExists(atPath: path) else { return nil }
         let url = URL(fileURLWithPath: path)
-        let tab = makeImageTab(ImageTabController(fileURL: url, id: st.id, state: st.image ?? ImageTabState()),
-                               in: place?.host, newWindow: place == nil, show: false, tabIndex: place?.index)
+        if st.image != nil {
+            let tab = makeImageTab(ImageTabController(fileURL: url, id: st.id, state: st.image ?? ImageTabState()),
+                                   in: place?.host, newWindow: place == nil, show: false, tabIndex: place?.index)
+            if place == nil { tab.ensureLoaded() }
+            return tab
+        }
+        let tab = makeOfficeTab(OfficeTabController(fileURL: url, id: st.id), in: place?.host, newWindow: place == nil, show: false, tabIndex: place?.index)
         if place == nil { tab.ensureLoaded() }
         return tab
     }

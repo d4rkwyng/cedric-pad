@@ -62,6 +62,182 @@ import Testing
     }
 }
 
+@Suite struct OfficeDetectionTests {
+    let zip: [UInt8] = [0x50, 0x4B, 0x03, 0x04, 20, 0, 0, 0]
+
+    @Test func officeByHeaderAndName() {
+        #expect(OfficeFormat.detect(prefix: zip, fileName: "report.docx") == .word)
+        #expect(OfficeFormat.detect(prefix: zip, fileName: "budget.xlsx") == .spreadsheet)
+        #expect(OfficeFormat.detect(prefix: zip, fileName: "deck.pptx") == .presentation)
+        #expect(OfficeFormat.detect(prefix: zip, fileName: "letter.pages") == .pages)
+        #expect(OfficeFormat.detect(prefix: zip, fileName: "talk.key") == .keynote)
+        #expect(OfficeFormat.detect(prefix: OfficeFormat.oleMagic, fileName: "old.doc") == .word)
+        #expect(OfficeFormat.detect(prefix: OfficeFormat.oleMagic, fileName: "old.xls") == .spreadsheet)
+        #expect(OfficeFormat.detect(prefix: OfficeFormat.oleMagic, fileName: "download") == .word)
+        #expect(DocumentKind.detect(prefix: OfficeFormat.oleMagic, fileName: "download") == .office)
+        #expect(DocumentKind.detect(prefix: zip, fileName: "report.docx") == .office)
+        // A damaged .docx goes to the viewer too.
+        #expect(DocumentKind.detect(prefix: Array("junk".utf8), fileName: "r.docx") == .office)
+    }
+
+    @Test func textStaysText() {
+        // A PEM key named .key is text; so is an RTF named .doc, and a plain zip.
+        #expect(DocumentKind.detect(prefix: Array("-----BEGIN PRIVATE KEY-----".utf8), fileName: "server.key") == .text)
+        #expect(DocumentKind.detect(prefix: Array("{\\rtf1\\ansi".utf8), fileName: "letter.doc") == .text)
+        #expect(DocumentKind.detect(prefix: zip, fileName: "archive.zip") == .text)
+        #expect(DocumentKind.detect(prefix: Array("plain".utf8), fileName: "notes.rtf") == .text)
+    }
+
+    @Test func zipContentsTellOOXMLApart() {
+        #expect(OfficeFormat.fromZipEntries(["[Content_Types].xml", "_rels/.rels", "word/document.xml"]) == .word)
+        #expect(OfficeFormat.fromZipEntries(["[Content_Types].xml", "xl/workbook.xml"]) == .spreadsheet)
+        #expect(OfficeFormat.fromZipEntries(["[Content_Types].xml", "ppt/presentation.xml"]) == .presentation)
+        #expect(OfficeFormat.fromZipEntries(["Index/Document.iwa", "Metadata/Properties.plist"]) == .pages)
+        #expect(OfficeFormat.fromZipEntries(["word/document.xml"]) == nil) // no content types
+        #expect(OfficeFormat.fromZipEntries(["src/main.swift"]) == nil)
+        #expect(OfficeFormat.forDirectory("Letter.pages") == .pages)
+        #expect(OfficeFormat.forDirectory("Notes.rtfd") == .rtfd)
+        #expect(OfficeFormat.forDirectory("Folder") == nil)
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let pkg = dir.appendingPathComponent("Letter.pages"), folder = dir.appendingPathComponent("src")
+        try? FileManager.default.createDirectory(at: pkg, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        #expect(DocumentKind.detect(url: pkg) == .office && OfficeFormat.detect(url: pkg) == .pages)
+        #expect(DocumentKind.detect(url: folder) == .text)
+        #expect(OfficeFormat.word.hasText && OfficeFormat.rtfd.hasText && !OfficeFormat.spreadsheet.hasText)
+    }
+
+    @Test func aZipWithNoExtensionIsReadInside() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let x = try XLSXFixture.make(in: dir, name: "download")
+        #expect(DocumentKind.detect(url: x) == .office)
+        #expect(OfficeFormat.detect(url: x) == .spreadsheet)
+        let plain = try XLSXFixture.zip(in: dir, name: "plain.zip", files: ["a.txt": "hello"])
+        #expect(DocumentKind.detect(url: plain) == .text)
+    }
+}
+
+/// A minimal .xlsx: hand-written parts, zipped with /usr/bin/zip.
+enum XLSXFixture {
+    static let sheet = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+    <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="inlineStr"><is><t>Note, "quoted"</t></is></c></row>
+    <row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>3.5</v></c><c r="C2" t="b"><v>1</v></c></row>
+    <row r="4"><c r="A4" t="str"><f>CONCAT("a","b")</f><v>ab</v></c><c r="B4"><f>SUM(B2:B3)</f><v>7</v></c><c r="D4"><f>NOW()</f></c></row>
+    <row r="5"><c r="A5" t="inlineStr"><is><r><t>rich </t></r><r><t>text</t></r></is></c><c r="B5" t="e"><v>#DIV/0!</v></c><c r="C5" t="s"><v>3</v></c></row>
+    </sheetData></worksheet>
+    """
+    static let shared = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4" uniqueCount="4">
+    <si><t>Name</t></si><si><t>Price</t></si><si><r><t>Owl</t></r><r><rPr><b/></rPr><t> &amp; Co</t></r></si><si><t xml:space="preserve">two
+    lines</t></si></sst>
+    """
+    static let workbook = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+    <sheets><sheet name="Prices" sheetId="1" r:id="rId1"/><sheet name="Other" sheetId="2" r:id="rId2"/></sheets></workbook>
+    """
+    static let rels = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/data.xml"/>
+    </Relationships>
+    """
+    static let types = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>
+    """
+    /// The CSV the sheet above makes.
+    static let expectedCSV = #"""
+    Name,Price,"Note, ""quoted"""
+    Owl & Co,3.5,TRUE
+    ,,
+    ab,7,
+    rich text,#DIV/0!,"two
+    lines"
+
+    """#
+
+    static func zip(in dir: URL, name: String, files: [String: String]) throws -> URL {
+        let src = dir.appendingPathComponent("src-\(name)")
+        for (path, text) in files {
+            let u = src.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: u, atomically: true, encoding: .utf8)
+        }
+        let out = dir.appendingPathComponent(name)
+        // zip adds ".zip" to a name without an extension: make it, then move it.
+        let made = dir.appendingPathComponent("made-\(UUID().uuidString).zip")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        p.currentDirectoryURL = src
+        // -X: no extra attributes; [Content_Types].xml first, as Office writes it.
+        p.arguments = ["-X", "-q", "-r", made.path] + files.keys.sorted { a, b in a.hasPrefix("[") != b.hasPrefix("[") ? a.hasPrefix("[") : a < b }
+        p.standardOutput = FileHandle.nullDevice
+        try p.run()
+        p.waitUntilExit()
+        try FileManager.default.moveItem(at: made, to: out)
+        return out
+    }
+
+    static func make(in dir: URL, name: String = "book.xlsx") throws -> URL {
+        try zip(in: dir, name: name, files: [
+            "[Content_Types].xml": types, "xl/workbook.xml": workbook, "xl/_rels/workbook.xml.rels": rels,
+            "xl/sharedStrings.xml": shared, "xl/worksheets/data.xml": sheet,
+            "xl/worksheets/sheet2.xml": "<worksheet><sheetData/></worksheet>",
+        ])
+    }
+}
+
+@Suite struct ZipAndXLSXTests {
+    @Test func zipReadsStoredAndDeflatedEntries() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let big = String(repeating: "hoot hoot owl\n", count: 2000)
+        let z = try XLSXFixture.zip(in: dir, name: "t.zip", files: ["a/big.txt": big, "tiny.txt": "x"])
+        let a = try ZipArchive(url: z)
+        #expect(Set(a.entries.map(\.name)).isSuperset(of: ["a/big.txt", "tiny.txt"]))
+        #expect(a.entry("a/big.txt")?.method == 8, "zip deflates the big one")
+        #expect(String(decoding: try a.contents(of: "a/big.txt"), as: UTF8.self) == big)
+        #expect(String(decoding: try a.contents(of: "tiny.txt"), as: UTF8.self) == "x")
+        #expect(throws: ZipArchive.ZipError.missing("nope")) { try a.contents(of: "nope") }
+        #expect(throws: ZipArchive.ZipError.notAZip) { try ZipArchive(data: Data("not a zip at all, no".utf8)) }
+        #expect(throws: ZipArchive.ZipError.notAZip) { try ZipArchive(data: Data()) }
+    }
+
+    @Test func firstSheetAsCSV() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let x = try XLSXFixture.make(in: dir)
+        let (name, csv) = try XLSXSheet.firstSheetCSV(url: x)
+        #expect(name == "Prices")
+        #expect(csv == XLSXFixture.expectedCSV, "\(csv)")
+    }
+
+    @Test func cellReferences() {
+        #expect(XLSXSheet.cellRef("A1")! == (0, 0))
+        #expect(XLSXSheet.cellRef("B12")! == (11, 1))
+        #expect(XLSXSheet.cellRef("AA3")! == (2, 26))
+        #expect(XLSXSheet.cellRef("$C$4")! == (3, 2))
+        #expect(XLSXSheet.cellRef("A0") == nil)
+        #expect(XLSXSheet.cellRef("12") == nil)
+        #expect(XLSXSheet.cellRef("A1B") == nil)
+        #expect(XLSXSheet.normalize("xl/worksheets/../worksheets/./s.xml") == "xl/worksheets/s.xml")
+    }
+
+    @Test func sheetsWithoutRefsOrSharedStrings() {
+        let xml = Data("<worksheet><sheetData><row><c><v>1</v></c><c t=\"s\"><v>9</v></c><c><v>3</v></c></row><row><c t=\"inlineStr\"><is><t>x</t></is></c></row></sheetData></worksheet>".utf8)
+        // A shared-string index past the table is an empty cell, not a crash.
+        #expect(XLSXSheet.csv(XLSXSheet.cells(xml, shared: [])) == "1,,3\nx,,\n")
+        #expect(XLSXSheet.csv([]) == "")
+    }
+}
+
 @Suite struct ImageZoomTests {
     @Test func fitNeverEnlarges() {
         #expect(ImageZoom.fitScale(imageWidth: 4000, imageHeight: 2000, viewWidth: 1000, viewHeight: 1000) == 0.25)
@@ -103,27 +279,28 @@ import Testing
 }
 
 @Suite struct ViewerSessionTests {
-    @Test func imageTabsRoundTrip() throws {
+    @Test func imageAndOfficeTabsRoundTrip() throws {
         let dir = tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = SessionStore(directory: dir)
         let img = SessionTab(path: "/tmp/photo.heic", image: ImageTabState(scale: 2, centerX: 0.25, centerY: 0.75))
         let fitted = SessionTab(path: "/tmp/icon.png", image: ImageTabState())
+        let doc = SessionTab(path: "/tmp/report.docx", office: OfficeTabState())
         let text = SessionTab(path: "/tmp/a.txt")
-        let s = Session(windows: [SessionWindow(tabs: [text, img, fitted], selectedTab: 1)], closedTabs: [img])
+        let s = Session(windows: [SessionWindow(tabs: [text, img, fitted, doc], selectedTab: 1)], closedTabs: [img])
         try store.save(s)
         let back = try #require(SessionStore(directory: dir).load())
         #expect(back == s)
         #expect(back.windows[0].tabs[1].image == ImageTabState(scale: 2, centerX: 0.25, centerY: 0.75))
         #expect(back.windows[0].tabs[2].image?.scale == nil)
-        #expect(back.windows[0].tabs[2].isViewer)
+        #expect(back.windows[0].tabs[3].office != nil && back.windows[0].tabs[3].isViewer)
         #expect(!back.windows[0].tabs[0].isViewer)
         #expect(back.closedTabs?.first?.image?.scale == 2)
     }
 
     @Test func textTabsWriteNoViewerKeys() throws {
         let json = String(decoding: try JSONEncoder().encode(SessionTab(path: "/tmp/a.txt")), as: UTF8.self)
-        #expect(!json.contains("\"image\""))
+        #expect(!json.contains("\"image\"") && !json.contains("\"office\""))
     }
 
     @Test func badImageStateDecodesSafely() throws {
@@ -134,6 +311,6 @@ import Testing
         // Older sessions (no image key) decode as before.
         let old = #"{"id":"\#(UUID().uuidString)","path":"/tmp/x.png","hasBuffer":false,"encoding":"utf8","lineEnding":"lf","selectionLocation":0,"selectionLength":0,"topLine":0}"#
         let t = try JSONDecoder().decode(SessionTab.self, from: Data(old.utf8))
-        #expect(t.image == nil && !t.isViewer)
+        #expect(t.image == nil && t.office == nil && !t.isViewer)
     }
 }

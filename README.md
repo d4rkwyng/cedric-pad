@@ -157,6 +157,15 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Cedric is an alternate image viewer (Preview stays the default) and
   never writes to an image; image tabs come back with the session at
   their zoom and place.
+- **Office and iWork documents open in a Quick Look tab** (read-only):
+  .docx .doc .xlsx .xls .pptx .ppt .pages .numbers .key .rtfd, shown by
+  Quick Look's own previewer. Told apart by their first bytes (a zip with
+  `[Content_Types].xml`, an OLE2 file) as well as the name. **File › Open
+  as Text** takes a Word document's text into a new untitled tab; for an
+  .xlsx the same item is **Open Sheet as CSV** (the first sheet, read
+  with Cedric's own zip and XML code: strings, numbers, booleans and
+  formulas' cached values; dates come out as their serial numbers). File ›
+  Open in <default app>. Registered as an alternate viewer.
 - **Drop a file on the text to open it** (in its own tab), rather than
   pasting its path; dropped text is inserted as before.
 - **Files changed on disk** reload by themselves when the tab has no unsaved
@@ -212,7 +221,7 @@ Scripts/session-check.sh            # end to end: unsaved tabs survive a kill -9
 Scripts/typing-check.sh             # real key events in every theme; typed glyphs' pixels must be visible
 Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no crash report
 Scripts/pdf-check.sh                # PDF tabs in the running app: find, copy, zoom, Open as Text, session
-Scripts/image-check.sh              # image tabs: zoom, copy, GIFs, session, a 12000² PNG vs typing
+Scripts/image-check.sh              # image and Office tabs: zoom, copy, GIFs, docx/xlsx text, session, a 12000² PNG vs typing
 Scripts/launch-speed-check.sh       # launch phase medians: empty, 8-tab session, 500 KB file
 swift Scripts/launch-time.swift dist/Cedric.app /System/Applications/TextEdit.app
 ```

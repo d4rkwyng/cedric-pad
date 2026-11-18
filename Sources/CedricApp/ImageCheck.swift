@@ -3,13 +3,16 @@ import CedricCore
 import ImageIO
 import UniformTypeIdentifiers
 
-/// In-process check of image tabs (Scripts/image-check.sh). Makes its own
-/// images with ImageIO (PNG with transparency, a JPEG turned by EXIF, an
-/// animated GIF, HEIC, a 12000×12000 PNG), then drives the app as the
+/// In-process check of image tabs and Office (Quick Look) tabs
+/// (Scripts/image-check.sh). Makes its own images with ImageIO (PNG with
+/// transparency, a JPEG turned by EXIF, an animated GIF, HEIC, a
+/// 12000×12000 PNG), a .docx with NSAttributedString and an .xlsx zipped
+/// from hand-written parts with /usr/bin/zip, then drives the app as the
 /// other DevChecks do.
 ///
 ///   CEDRIC_CHECK=image          everything below; ends by saving the
-///                               session (a PNG at 200%, a JPEG fitted)
+///                               session (a PNG at 200%, a JPEG fitted,
+///                               a .docx)
 ///   CEDRIC_CHECK=imagerestore   after a relaunch with that session
 ///   CEDRIC_IMAGE_DIR=/dir       where the files go (both runs use the same)
 @MainActor
@@ -49,6 +52,39 @@ extension DevChecks {
         return CGImageDestinationFinalize(dest)
     }
 
+    /// Zips hand-written parts with /usr/bin/zip (as the unit tests do).
+    nonisolated static func zipParts(_ out: URL, _ files: [String: String]) -> Bool {
+        let src = out.deletingLastPathComponent().appendingPathComponent("parts-\(out.lastPathComponent)")
+        try? FileManager.default.removeItem(at: src)
+        for (path, text) in files {
+            let u = src.appendingPathComponent(path)
+            try? FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? text.write(to: u, atomically: true, encoding: .utf8)
+        }
+        let made = out.deletingLastPathComponent().appendingPathComponent("made-\(getpid()).zip")
+        try? FileManager.default.removeItem(at: made)
+        try? FileManager.default.removeItem(at: out)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        p.currentDirectoryURL = src
+        p.arguments = ["-X", "-q", "-r", made.path] + files.keys.sorted { a, b in a.hasPrefix("[") != b.hasPrefix("[") ? a.hasPrefix("[") : a < b }
+        p.standardOutput = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        p.waitUntilExit()
+        try? FileManager.default.removeItem(at: src)
+        return (try? FileManager.default.moveItem(at: made, to: out)) != nil
+    }
+
+    static let xlsxParts: [String: String] = [
+        "[Content_Types].xml": #"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>"#,
+        "_rels/.rels": #"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#,
+        "xl/workbook.xml": #"<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Owls" sheetId="1" r:id="rId1"/></sheets></workbook>"#,
+        "xl/_rels/workbook.xml.rels": #"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>"#,
+        "xl/sharedStrings.xml": #"<?xml version="1.0" encoding="UTF-8"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="3" uniqueCount="3"><si><t>Owl</t></si><si><t>Hoots</t></si><si><t>Barn, white</t></si></sst>"#,
+        "xl/worksheets/sheet1.xml": #"<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>12.5</v></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>Snowy</t></is></c><c r="B3"><f>B2*2</f><v>25</v></c></row></sheetData></worksheet>"#,
+    ]
+    static let xlsxCSV = "Owl,Hoots\n\"Barn, white\",12.5\nSnowy,25\n"
+
     static func pixel(_ rep: NSBitmapImageRep, _ p: NSPoint) -> NSColor? {
         rep.colorAt(x: Int(p.x * CGFloat(rep.pixelsWide) / rep.size.width), y: Int(p.y * CGFloat(rep.pixelsHigh) / rep.size.height))?.usingColorSpace(.sRGB)
     }
@@ -64,6 +100,9 @@ extension DevChecks {
         let broken = d.appendingPathComponent("broken.png")
         let big = d.appendingPathComponent("huge.png")         // 12000×12000
         let notes = d.appendingPathComponent("notes.txt")
+        let docx = d.appendingPathComponent("report.docx")
+        let docNoExt = d.appendingPathComponent("download-doc")
+        let xlsx = d.appendingPathComponent("owls.xlsx")
         let made = makeImage(png, .png, width: 2400, height: 1600) { ctx, _ in
             ctx.setFillColor(CGColor(srgbRed: 0.9, green: 0.1, blue: 0.1, alpha: 1))
             ctx.fill(CGRect(x: 0, y: 0, width: 1200, height: 1600))
@@ -86,7 +125,11 @@ extension DevChecks {
         expect(heicMade, "made a HEIC with ImageIO")
         try? Data("not an image\n".utf8).write(to: broken)
         try? "plain notes\n".write(to: notes, atomically: true, encoding: .utf8)
-        let originals = [png, jpeg, gif, heic].map { ($0, try? Data(contentsOf: $0), modified($0)) }
+        let para = NSAttributedString(string: "Hello from the owl.\nSecond paragraph, with a comma.\n")
+        let docxData = try? para.data(from: NSRange(location: 0, length: para.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML])
+        expect((try? docxData?.write(to: docx)) != nil && (try? docxData?.write(to: docNoExt)) != nil, "made a .docx with NSAttributedString")
+        expect(zipParts(xlsx, xlsxParts), "made an .xlsx with /usr/bin/zip")
+        let originals = [png, jpeg, gif, heic, docx, xlsx].map { ($0, try? Data(contentsOf: $0), modified($0)) }
         // The 12000×12000 PNG takes a few seconds: made in the background meanwhile.
         nonisolated(unsafe) var bigMade: Bool?
         DispatchQueue.global(qos: .userInitiated).async {
@@ -109,8 +152,8 @@ extension DevChecks {
         run([
             sync {
                 expect(DocumentKind.detect(url: png) == .image && DocumentKind.detect(url: noExt) == .image && DocumentKind.detect(url: gif) == .image
-                       && DocumentKind.detect(url: notes) == .text,
-                       "images are told apart by their first bytes")
+                       && DocumentKind.detect(url: notes) == .text && DocumentKind.detect(url: docNoExt) == .office,
+                       "images and Office files are told apart by their first bytes")
                 let blank = app.tabs.first
                 let r = app.open(png)
                 tab = app.imageTab(for: png)
@@ -366,6 +409,71 @@ extension DevChecks {
                 pb.releaseGlobally()
                 app.tabs.first { $0.doc.fileURL?.standardizedFileURL == notes.standardizedFileURL }?.window?.close()
             },
+            // Office: a .docx in a Quick Look tab, Open as Text; an .xlsx, Open Sheet as CSV.
+            sync {
+                let r = app.open(docx)
+                let o = app.officeTab(for: docx)
+                expect(r == nil && o != nil, "a .docx opens in a Quick Look tab")
+                o?.window?.setContentSize(NSSize(width: 1200, height: 720))
+                expect(o?.preview.map { String(describing: Swift.type(of: $0)) }?.contains("QLPreviewView") == true,
+                       "with Quick Look's QLPreviewView (QuickLookUI loaded at run time)", o?.preview.map { "\(Swift.type(of: $0))" } ?? o?.message ?? "-")
+                expect(o?.statusBar.position.stringValue.hasPrefix("Word document · ") == true, "status: Word document and size",
+                       o?.statusBar.position.stringValue ?? "-")
+                expect(app.currentViewerTab === o && app.currentTab == nil, "it is the current tab; no text tab is")
+                for (title, k, m) in [("Save", "s", NSEvent.ModifierFlags.command), ("Find…", "f", .command), ("Go to Line…", "l", .command),
+                                      ("Undo", "z", .command), ("Paste", "v", .command), ("Zoom In", "=", .command), ("Find in Files…", "f", [.command, .shift])] {
+                    let it = menuItem(k, m)
+                    expect(it != nil && !(it.map(enabled) ?? true), "disabled on a Quick Look tab: \(title)", it?.title ?? "no item")
+                }
+                let oat = menuItem(action: #selector(PDFTabController.openAsText(_:)))
+                expect(oat.map(enabled) == true && oat?.title == "Open as Text", "Open as Text is on for a .docx", oat?.title ?? "-")
+                let ow = menuItem(action: #selector(ImageTabController.openInDefaultApp(_:)))
+                _ = ow.map(enabled)
+                print("check: note: the .docx's default app here: \(ow?.title ?? "-")")
+                var owl = 0
+                func walk(_ v: NSView) { if String(describing: Swift.type(of: v)).contains("Owl") { owl += 1 }; v.subviews.forEach(walk) }
+                o?.window?.contentView.map(walk)
+                expect(owl == 0, "no owl in a Quick Look tab")
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { next() } },
+            snapshot("office-docx.png"),
+            sync {
+                let o = app.officeTab(for: docx)
+                let oat = menuItem(action: #selector(PDFTabController.openAsText(_:)))
+                if let oat, let o { NSApp.sendAction(oat.action!, to: o, from: oat) }
+                expect(o?.extracting == true, "Open as Text reads it in the background")
+            },
+            until("Open as Text makes a tab with the document's text") { app.tabs.contains { $0.doc.displayName == "report (text)" } },
+            sync {
+                let t = app.tabs.first { $0.doc.displayName == "report (text)" }
+                let text = t?.text ?? ""
+                expect(text.contains("Hello from the owl.") && text.contains("Second paragraph, with a comma."), "with the .docx's text", String(text.prefix(80)))
+                expect(t?.doc.fileURL == nil && t?.doc.isDirty == true, "untitled and unsaved")
+                t?.doc.markSaved()
+                t?.window?.close()
+                app.open(docNoExt)
+                expect(app.officeTab(for: docNoExt) != nil, "a .docx with no extension opens in a Quick Look tab (zip contents)")
+                app.officeTab(for: docNoExt)?.window?.close()
+                app.open(xlsx)
+                let x = app.officeTab(for: xlsx)
+                expect(x?.format == .spreadsheet && x?.statusBar.position.stringValue.hasPrefix("Excel spreadsheet") == true, "an .xlsx in a Quick Look tab")
+                let oat = menuItem(action: #selector(PDFTabController.openAsText(_:)))
+                expect(oat.map(enabled) == true && oat?.title == "Open Sheet as CSV", "the item is Open Sheet as CSV for a spreadsheet", oat?.title ?? "-")
+                if let oat, let x { NSApp.sendAction(oat.action!, to: x, from: oat) }
+            },
+            until("Open Sheet as CSV makes a tab") { app.tabs.contains { $0.doc.displayName == "owls (Owls)" } },
+            sync {
+                let t = app.tabs.first { $0.doc.displayName == "owls (Owls)" }
+                expect(t?.text == xlsxCSV, "the first sheet as CSV (shared, inline, number, formula's cached value)", t?.text.debugDescription ?? "-")
+                expect(t?.doc.language.rawValue.lowercased().contains("csv") == true, "in a CSV tab", t?.doc.language.rawValue ?? "-")
+                t?.doc.markSaved()
+                t?.window?.close()
+                app.officeTab(for: xlsx)?.window?.close()
+                expect(app.closedTabs.last?.office != nil, "a closed Quick Look tab is remembered")
+                app.reopenClosedTab(nil)
+                expect(app.officeTab(for: xlsx) != nil, "and Reopen Closed Tab brings it back")
+                app.officeTab(for: xlsx)?.window?.close()
+            },
             // Never written.
             sync {
                 for (u, data, mod) in originals {
@@ -377,9 +485,10 @@ extension DevChecks {
             until("the 12000×12000 PNG is made", timeout: 120) { bigMade != nil },
             measureBigImage(app, big: big, made: { bigMade == true }),
             // Leave a session for imagerestore: owl.png at 200% (selected),
-            // turned.jpg fitted.
+            // turned.jpg fitted, report.docx.
             sync {
                 app.imageTab(for: big)?.window?.close()
+                app.open(docx)
                 tab?.window?.makeKeyAndOrderFront(nil)
                 tab?.setScale(2, center: NSPoint(x: 600, y: 400))
                 let st = tab?.sessionState
@@ -387,8 +496,9 @@ extension DevChecks {
                        "session state: zoom and place", "\(String(describing: st))")
                 app.saveSession()
                 let saved = app.store.load()?.allTabs ?? []
-                expect(saved.contains { $0.image?.scale == 2 } && saved.contains { $0.path == jpeg.path && $0.image != nil && $0.image?.scale == nil },
-                       "the session keeps the image tabs", "\(saved.map { "\($0.path ?? "-") \(String(describing: $0.image))" })")
+                expect(saved.contains { $0.image?.scale == 2 } && saved.contains { $0.path == jpeg.path && $0.image != nil && $0.image?.scale == nil }
+                       && saved.contains { $0.path == docx.path && $0.office != nil }, "the session keeps the image and Office tabs",
+                       "\(saved.map { "\($0.path ?? "-") \(String(describing: $0.image)) \(String(describing: $0.office))" })")
                 AppDelegate.openWithOverride = nil
             },
         ])
@@ -474,11 +584,11 @@ extension DevChecks {
     /// After a relaunch with the session `image` saved.
     static func imagesRestore(_ app: AppDelegate) {
         let d = imageDir
-        let png = d.appendingPathComponent("owl.png"), jpeg = d.appendingPathComponent("turned.jpg")
-        let p = app.imageTab(for: png), j = app.imageTab(for: jpeg)
-        expect(p != nil && j != nil, "the image tabs come back")
+        let png = d.appendingPathComponent("owl.png"), jpeg = d.appendingPathComponent("turned.jpg"), docx = d.appendingPathComponent("report.docx")
+        let p = app.imageTab(for: png), j = app.imageTab(for: jpeg), o = app.officeTab(for: docx)
+        expect(p != nil && j != nil && o != nil, "the image and Office tabs come back")
         expect(p?.isLoaded == true, "the selected image tab is loading")
-        expect(j?.isLoaded == false, "the other isn't loaded until shown (launch speed)")
+        expect(j?.isLoaded == false && o?.isLoaded == false, "the others aren't loaded until shown (launch speed)")
         run([
             until("the selected image is decoded") { p?.info != nil },
             sync {
@@ -493,6 +603,9 @@ extension DevChecks {
             until("the other image loads when shown") { j?.info != nil },
             sync {
                 expect(j?.fitted == true, "fitted, as it was saved")
+                o?.window?.makeKeyAndOrderFront(nil)
+                o?.ensureLoaded()
+                expect(o?.preview != nil, "the Quick Look tab shows its preview once shown")
             },
         ])
     }

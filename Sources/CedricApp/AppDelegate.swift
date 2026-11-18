@@ -6,8 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private(set) var tabs: [EditorWindowController] = []
     /// PDF viewer tabs (PDFTab.swift), in the same windows' tab groups.
     var pdfTabs: [PDFTabController] = []
-    /// Image tabs (ImageTab.swift), likewise. `viewerTabs` is both (ViewerTabs.swift).
+    /// Image tabs (ImageTab.swift) and Office / iWork Quick Look tabs
+    /// (OfficeTab.swift), likewise. `viewerTabs` is all three (ViewerTabs.swift).
     var imageTabs: [ImageTabController] = []
+    var officeTabs: [OfficeTabController] = []
     let store = SessionStore(directory: SessionStore.defaultDirectory())
     private let env = ProcessInfo.processInfo.environment
     private var sessionTimer: Timer?
@@ -114,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if let page = q["line"].flatMap(Int.init) { pdf.goToPage(page - 1) }
                 if let marker = q["wait"] { addWaiter(marker, forID: pdf.id) }
             } else if tab == nil, let viewer = viewerTab(for: url), let marker = q["wait"] {
-                // An image tab: -w waits for it too.
+                // An image or Office tab: -w waits for it too.
                 addWaiter(marker, forID: viewer.id)
             }
             if let line = q["line"].flatMap(Int.init) { tab?.goToLine(line, column: q["col"].flatMap(Int.init) ?? 1) }
@@ -198,7 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var currentTab: EditorWindowController? {
         // A detached preview's window: its tab (View › Attach Preview).
         if let key = NSApp.keyWindow, let t = tabs.first(where: { $0.previewWindow?.window === key }) { return t }
-        // A viewer tab (PDF, image) in front: no text tab is current (the editor's commands are off).
+        // A viewer tab (PDF, image, Office) in front: no text tab is current (the editor's commands are off).
         if currentViewerTab != nil { return nil }
         return tabs.first { $0.window === NSApp.keyWindow } ?? tabs.first { $0.window === NSApp.mainWindow }
             // Not active (launched from a script, screen locked): the
@@ -221,6 +223,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case .pdf: openPDF(std); return nil
         // An image (by its signature, or its name) in an image tab; SVG stays text.
         case .image: openImage(std); return nil
+        // Word, Excel, PowerPoint, Pages, Numbers, Keynote, RTFD: Quick Look.
+        case .office: openOffice(std); return nil
         case .text: break
         }
         if let existing = tabs.first(where: { $0.doc.fileURL?.standardizedFileURL == std }) {
@@ -451,7 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if st.pdf != nil || !st.hasBuffer && st.path.map(DocumentKind.hasPDFExtension) == true {
             return restorePDFTab(st, into: place)
         }
-        if st.image != nil { return restoreViewerTab(st, into: place) }
+        if st.image != nil || st.office != nil { return restoreViewerTab(st, into: place) }
         let doc = EditorDocument(id: st.id, fileURL: st.path.map { URL(fileURLWithPath: $0) },
                                  untitledName: st.untitledName ?? st.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Untitled"))
         doc.indentation = st.indentation

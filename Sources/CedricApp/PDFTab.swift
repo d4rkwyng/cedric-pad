@@ -757,10 +757,12 @@ extension AppDelegate {
     }
 
     /// Open as Text's result: a new untitled tab, unsaved (kept with the session).
-    func openExtractedText(_ text: String, named base: String) {
+    /// `asFileNamed`: detect the language as for a file of that name
+    /// (an Excel sheet's CSV: "sheet.csv").
+    func openExtractedText(_ text: String, named base: String, asFileNamed: String? = nil) {
         let open = tabs.filter { $0.doc.fileURL == nil }.map(\.doc.untitledName)
         let doc = EditorDocument(untitledName: UntitledNames.next(open: open, base: base))
-        doc.languageChoice = .untitled(content: text)
+        doc.languageChoice = asFileNamed.map { .forFile(named: $0, content: text) } ?? .untitled(content: text)
         let tab = makeTab(doc, text: text)
         doc.markDirtyFromSession()
         tab.updateTitle()

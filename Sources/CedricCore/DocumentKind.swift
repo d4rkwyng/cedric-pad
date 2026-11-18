@@ -1,16 +1,19 @@
 import Foundation
 
 /// What a file opens as: text in the editor, a PDF in a read-only viewer
-/// tab, or an image in a read-only image tab. Decided by the file's first
-/// bytes (`%PDF-`, the image formats' signatures), so a file without the
-/// usual extension still opens the right way; a file named `.pdf` /
-/// `.png`… that doesn't start that way goes to its viewer too, so it gets
-/// the viewer's clear "damaged" error instead of opening as binary garbage
-/// in the editor. SVG stays text (it has the HTML preview).
+/// tab, an image in a read-only image tab, or an Office / iWork document in
+/// a read-only Quick Look tab. Decided by the file's first bytes (`%PDF-`,
+/// the image formats' signatures, a zip's or OLE2 compound file's header),
+/// so a file without the usual extension still opens the right way; a file
+/// named `.pdf` / `.png` / `.docx`… that doesn't start that way goes to its
+/// viewer too, so it gets the viewer's clear "damaged" error instead of
+/// opening as binary garbage in the editor. SVG stays text (it has the
+/// HTML preview).
 public enum DocumentKind: String, Codable, Sendable {
     case text
     case pdf
     case image
+    case office
 
     /// The PDF header every PDF file starts with.
     public static let pdfMagic: [UInt8] = Array("%PDF-".utf8)
@@ -26,26 +29,40 @@ public enum DocumentKind: String, Codable, Sendable {
         (fileName as NSString).pathExtension.lowercased() == "pdf"
     }
 
-    /// The kind from a file's first bytes and its name.
+    /// The kind from a file's first bytes and its name. A zip without an
+    /// Office or iWork extension is `.text` here; `detect(url:)` looks
+    /// inside it.
     public static func detect<D: Collection>(prefix: D, fileName: String) -> DocumentKind where D.Element == UInt8 {
         let bytes = Array(prefix.prefix(prefixLength))
         if hasPDFHeader(bytes) { return .pdf }
         if ImageFormat.detect(bytes) != nil { return .image }
+        if OfficeFormat.detect(prefix: bytes, fileName: fileName) != nil { return .office }
         if hasPDFExtension(fileName) { return .pdf }
         if ImageFormat.forExtension(fileName) != nil { return .image }
         return .text
     }
 
-    /// Reads the first few bytes of the file (not the whole file). A file
+    /// Reads the first few bytes of the file (not the whole file); for a
+    /// zip with no telling extension, its central directory's names. A file
     /// that can't be read is `.text`, unless its name says otherwise (the
-    /// caller's own read reports why).
+    /// caller's own read reports why); a package directory (`.pages`,
+    /// `.rtfd`) goes by its name.
     public static func detect(url: URL) -> DocumentKind {
+        var dir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &dir), dir.boolValue {
+            return OfficeFormat.forDirectory(url.lastPathComponent) != nil ? .office : .text
+        }
         var prefix: [UInt8] = []
         if let h = try? FileHandle(forReadingFrom: url) {
             prefix = Array((try? h.read(upToCount: prefixLength)) ?? Data())
             try? h.close()
         }
-        return detect(prefix: prefix, fileName: url.lastPathComponent)
+        let kind = detect(prefix: prefix, fileName: url.lastPathComponent)
+        if kind == .text, OfficeFormat.isZip(prefix), let names = try? ZipArchive(url: url).entries.map(\.name),
+           OfficeFormat.fromZipEntries(names) != nil {
+            return .office
+        }
+        return kind
     }
 }
 
