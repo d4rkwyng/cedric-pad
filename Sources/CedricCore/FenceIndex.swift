@@ -40,6 +40,20 @@ public final class FenceIndex {
         return Self.next(0, line: line, text: text, index: index, buffer: &buffer) != 0
     }
 
+    /// The fence open at the start of line `line` (its opening run, such as
+    /// "```" or "~~~~"), nil when none: what a slice of the document that
+    /// starts there needs to know (the grammar checker's window).
+    public func openFence(_ text: NSString, index: LineIndex, line: Int) -> String? {
+        guard line > 0, line < index.lineCount, index.length == text.length else { return nil }
+        while states.count <= line {
+            let l = states.count - 1
+            states.append(Self.next(states[l], line: l, text: text, index: index, buffer: &buffer))
+        }
+        let open = states[line]
+        guard open != 0, let c = UnicodeScalar(open >> 16) else { return nil }
+        return String(repeating: Character(c), count: Int(open & 0xFFFF))
+    }
+
     /// The state after line `l`, given `state` at its start.
     static func next(_ state: UInt32, line l: Int, text: NSString, index: LineIndex, buffer: inout [unichar]) -> UInt32 {
         let r = index.contentRange(ofLine: l)

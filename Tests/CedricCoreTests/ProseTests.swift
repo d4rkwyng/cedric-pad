@@ -156,6 +156,43 @@ import Testing
         #expect(!ranges.contains { NSLocationInRange(code.location, $0) })
     }
 
+    @Test func markdownSliceStartingInFenceOrFrontMatter() {
+        // A slice of a long document that starts inside fenced code: the
+        // open fence is passed in, so the code is blanked up to its close.
+        let slice = "let the the = 1\nfoo()\n```\nThe the sentence after.\n" as NSString
+        let m = ProseMask.masked(slice, language: .markdown, openFence: "```")
+        #expect(!m.contains("let") && !m.contains("foo"))
+        #expect(m.contains("The the sentence after."))
+        // Without it the code would read as prose (what the fix is for).
+        #expect(ProseMask.masked(slice, language: .markdown).contains("let the the"))
+        // A longer fence isn't closed by a shorter run.
+        let four = "code\n```\nstill code\n````\nProse.\n" as NSString
+        let m4 = ProseMask.masked(four, language: .markdown, openFence: "````")
+        #expect(!m4.contains("still") && m4.contains("Prose."))
+        // Front matter: the slice's first units still in it are blanked.
+        let doc = "---\ntitle: the the\nlayout: post\n---\nBody text here.\n" as NSString
+        let end = ProseMask.frontMatterEnd(doc)
+        #expect(end == doc.range(of: "Body").location)
+        let start = doc.range(of: "layout").location
+        let part = doc.substring(from: start) as NSString
+        let mp = ProseMask.masked(part, language: .markdown, blankPrefix: end! - start)
+        #expect(!mp.contains("layout") && !mp.contains("---") && mp.contains("Body text here."))
+        #expect(ProseMask.frontMatterEnd("No front matter\n---\n" as NSString) == nil)
+        #expect(ProseMask.frontMatterEnd("---\nnever closed\n" as NSString) == nil)
+    }
+
+    @Test func fenceIndexOpenFenceAtLineStart() {
+        let text = "intro\n````swift\nlet a = 1\n```\nstill\n````\nafter\n~~~\nx\n" as NSString
+        let index = LineIndex(text)
+        let f = FenceIndex()
+        #expect(f.openFence(text, index: index, line: 0) == nil)
+        #expect(f.openFence(text, index: index, line: 1) == nil) // the opener itself
+        #expect(f.openFence(text, index: index, line: 2) == "````")
+        #expect(f.openFence(text, index: index, line: 4) == "````") // ``` doesn't close ````
+        #expect(f.openFence(text, index: index, line: 6) == nil)
+        #expect(f.openFence(text, index: index, line: 8) == "~~~")
+    }
+
     @Test func plainTextMasksURLsOnly() {
         let s = "See www.example.com or mail me@example.com about it.\n" as NSString
         let m = ProseMask.masked(s, language: .plain)

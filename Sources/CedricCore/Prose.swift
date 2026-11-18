@@ -227,11 +227,33 @@ public enum ProseDetector {
 /// emphasis). In Plain Text only URLs and email addresses are blanked.
 /// The grammar checker sees this text, so it never reads code.
 public enum ProseMask {
-    public static func masked(_ text: NSString, language: Language) -> String {
+    /// `openFence` and `blankPrefix` are for a slice of a Markdown document
+    /// that doesn't start at its top: the fence open where the slice starts
+    /// (FenceIndex.openFence), and how many of its first units are still
+    /// front matter (`frontMatterEnd` minus the slice's start). Without
+    /// them, a slice starting inside fenced code would be read as prose.
+    public static func masked(_ text: NSString, language: Language, openFence: String? = nil, blankPrefix: Int = 0) -> String {
         var units = [unichar](repeating: 0, count: text.length)
         text.getCharacters(&units, range: NSRange(location: 0, length: text.length))
-        mask(&units, markdown: language == .markdown)
+        if language == .markdown, blankPrefix > 0 { blank(&units, 0, blankPrefix) }
+        mask(&units, markdown: language == .markdown, openFence: openFence, sliceStart: blankPrefix > 0 || openFence != nil)
         return String(utf16CodeUnits: units, count: units.count)
+    }
+
+    /// Where a Markdown document's front matter ends (the offset after its
+    /// closing `---` or `...` line), nil if it has none. Reads at most the
+    /// first 400 lines, as `masked` does.
+    public static func frontMatterEnd(_ text: NSString) -> Int? {
+        guard text.length >= 3, text.substring(to: 3) == "---" else { return nil }
+        var at = 0, n = 0
+        while at < text.length, n < 400 {
+            let r = text.lineRange(for: NSRange(location: at, length: 0))
+            let t = text.substring(with: r).trimmingCharacters(in: .whitespacesAndNewlines)
+            if n == 0 { if t != "---" { return nil } }
+            else if t == "---" || t == "..." { return NSMaxRange(r) }
+            at = NSMaxRange(r); n += 1
+        }
+        return nil
     }
 
     /// The ranges of `text` that are prose (what `masked` keeps), merged.
@@ -263,7 +285,7 @@ public enum ProseMask {
         }
     }
 
-    static func mask(_ u: inout [unichar], markdown: Bool) {
+    static func mask(_ u: inout [unichar], markdown: Bool, openFence: String? = nil, sliceStart: Bool = false) {
         // Lines.
         var lines: [Range<Int>] = []
         var s = 0
@@ -274,7 +296,7 @@ public enum ProseMask {
         if markdown {
             var li = 0
             // Front matter: "---" first line through the next "---" or "...".
-            if let first = lines.first, str(first).trimmingCharacters(in: .whitespaces) == "---" {
+            if !sliceStart, let first = lines.first, str(first).trimmingCharacters(in: .whitespaces) == "---" {
                 var j = 1
                 while j < lines.count, j < 400 {
                     let t = str(lines[j]).trimmingCharacters(in: .whitespaces)
@@ -286,7 +308,7 @@ public enum ProseMask {
                     li = j + 1
                 }
             }
-            var fence: String?
+            var fence: String? = openFence
             while li < lines.count {
                 let r = lines[li]
                 let line = str(r)

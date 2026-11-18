@@ -204,10 +204,11 @@ final class EditorGrammar {
         let start = ctx.textStart
         let checked = NSRange(location: start, length: (text as NSString).length)
         let tag = tab.textView.spellCheckerDocumentTag
+        let lead = Self.markdownLead(tab, start: start)
         running = true
         passes += 1
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let masked = ProseMask.masked(text as NSString, language: language)
+            let masked = ProseMask.masked(text as NSString, language: language, openFence: lead.fence, blankPrefix: lead.frontMatter)
             let sample = (masked as NSString).length > ProseDetector.sampleLimit
                 ? (masked as NSString).substring(to: ProseDetector.sampleLimit) : masked
             let prose = ProseDetector.signals(sample).readsAsProse
@@ -297,6 +298,19 @@ final class EditorGrammar {
     /// with every issue found.
     static let stepLimit = 200_000
 
+    /// For a slice of a Markdown document starting at `start` (> 0): the
+    /// fence open there (the tab's FenceIndex, cached) and how much of the
+    /// slice is still front matter, so fenced code and front matter are
+    /// never checked as prose when the slice starts inside them.
+    static func markdownLead(_ tab: EditorWindowController, start: Int) -> (fence: String?, frontMatter: Int) {
+        guard tab.doc.language == .markdown, start > 0 else { return (nil, 0) }
+        let ns = tab.textView.string as NSString
+        let fm = ProseMask.frontMatterEnd(ns).map { max(0, $0 - start) } ?? 0
+        let index = tab.lineIndex
+        guard index.length == ns.length, start <= ns.length else { return (nil, fm) }
+        return (tab.fences.openFence(ns, index: index, line: index.line(containing: start)), fm)
+    }
+
     func checkForStep(_ done: @escaping @MainActor ([GrammarIssue]) -> Void) {
         guard let tab, mayCheck else { done([]); return }
         let ns = tab.textView.string as NSString
@@ -311,8 +325,9 @@ final class EditorGrammar {
         let language = tab.doc.language
         let generation = tab.doc.changeCount
         let tag = tab.textView.spellCheckerDocumentTag
+        let lead = Self.markdownLead(tab, start: checked.location)
         DispatchQueue.global(qos: .userInitiated).async {
-            let masked = ProseMask.masked(text as NSString, language: language)
+            let masked = ProseMask.masked(text as NSString, language: language, openFence: lead.fence, blankPrefix: lead.frontMatter)
             let sample = (masked as NSString).length > ProseDetector.sampleLimit
                 ? (masked as NSString).substring(to: ProseDetector.sampleLimit) : masked
             let prose = ProseDetector.signals(sample).readsAsProse
