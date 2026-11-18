@@ -311,14 +311,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let key = NSApp.keyWindow, let t = tabs.first(where: { $0.previewWindow?.window === key }) { return t }
         // A viewer tab (PDF, image, Office) in front: no text tab is current (the editor's commands are off).
         if currentViewerTab != nil { return nil }
-        return tabs.first { $0.window === NSApp.keyWindow } ?? tabs.first { $0.window === NSApp.mainWindow }
-            // Not active (launched from a script, screen locked): the
-            // frontmost tab. The owl check (CEDRIC_OWL_ASSUME_VISIBLE) may
-            // run with no window ordered in; it falls back to the newest tab.
-            ?? (NSApp.keyWindow == nil && NSApp.mainWindow == nil || OwlController.assumeVisible
-                ? NSApp.orderedWindows.lazy.compactMap { w in self.tabs.first { $0.window === w } }.first
-                    ?? (OwlController.assumeVisible ? tabs.last : nil)
-                : nil)
+        if let t = tabs.first(where: { $0.window === NSApp.keyWindow }) { return t }
+        if let t = tabs.first(where: { $0.window === NSApp.mainWindow }) { return t }
+        // Not active (launched from a script, screen locked): the
+        // frontmost tab. The owl check (CEDRIC_OWL_ASSUME_VISIBLE) may
+        // run with no window ordered in; it falls back to the newest tab.
+        let assumeVisible = OwlController.assumeVisible
+        guard (NSApp.keyWindow == nil && NSApp.mainWindow == nil) || assumeVisible else { return nil }
+        for w in NSApp.orderedWindows {
+            if let t = tabs.first(where: { $0.window === w }) { return t }
+        }
+        return assumeVisible ? tabs.last : nil
     }
 
     /// Opens a file in a new tab, or focuses the tab that has it. An empty,

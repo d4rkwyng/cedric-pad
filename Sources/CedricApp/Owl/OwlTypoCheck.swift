@@ -52,7 +52,7 @@ enum OwlTypoCheck {
                 owl.hideBubble()
                 OwlHub.shared.activity(in: tab)
             }
-            if Date().timeIntervalSince(start) < pause + 5 { OwlCheck.after(0.2, poll); return }
+            if Date().timeIntervalSince(start) < pause + 5 { OwlCheck.after(0.2) { poll() }; return }
             check(!seen.contains(OwlController.typoFixID), "no typo offer in a log (\(seen))")
             check(!seen.contains(RulesHintProvider.trailingID), "and no Trim in a log")
             check(tab.text.contains("dur=0ms"), "the log is untouched")
@@ -77,10 +77,10 @@ enum OwlTypoCheck {
             if let h = owl.presentedHint?.hint { shownWhileTyping.append(h.id); owl.hideBubble() }
             guard !keys.isEmpty else { done(); return }
             let c = keys.removeFirst()
-            if c == "\u{0}" { OwlCheck.after(1.2, next); return }
+            if c == "\u{0}" { OwlCheck.after(1.2) { next() }; return }
             AICheck.type(window, String(c))
             lastKey = Date()
-            OwlCheck.after(0.14, next)
+            OwlCheck.after(0.14) { next() }
         }
         func done() {
             check(shownWhileTyping.isEmpty, "no bubble while typing, even in the 1.2 s pause (\(shownWhileTyping))")
@@ -95,6 +95,6 @@ enum OwlTypoCheck {
                 }
             }
         }
-        OwlCheck.after(0.3, next)
+        OwlCheck.after(0.3) { next() }
     }
 }

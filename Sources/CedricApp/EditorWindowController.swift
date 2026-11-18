@@ -603,12 +603,16 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     private func registerLanguageUndo(back old: LanguageChoice) {
         guard let um = textView.undoManager else { return }
+        // Undo runs on the main thread (AppKit's undo manager); the 6.1
+        // compiler sees registerUndo's handler as nonisolated and Sendable.
         um.registerUndo(withTarget: self) { [weak self] _ in
-            guard let self else { return }
-            let now = self.doc.languageChoice
-            self.doc.languageChoice = old
-            self.languageChanged()
-            self.registerLanguageUndo(back: now)
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = self.doc.languageChoice
+                self.doc.languageChoice = old
+                self.languageChanged()
+                self.registerLanguageUndo(back: now)
+            }
         }
     }
 

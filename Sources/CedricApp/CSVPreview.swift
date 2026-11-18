@@ -91,11 +91,12 @@ final class CSVPreview: NSObject, PreviewRenderer, NSTableViewDataSource, NSTabl
         let snapshot = ns.substring(to: end) as NSString
         let cut = end < ns.length
         let sort = table.sortDescriptors.first
+        let maxRows = Self.maxRows
         Self.queue.async {
             let dialect = CSV.dialect(for: snapshot, fileName: fileName)
             // An unclosed quote ends at its line in the grid (with a warning),
             // instead of swallowing every row after it.
-            var t = CSV.parse(snapshot, dialect: dialect, maxRows: Self.maxRows + 1, stopUnclosedQuoteAtLineEnd: true)
+            var t = CSV.parse(snapshot, dialect: dialect, maxRows: maxRows + 1, stopUnclosedQuoteAtLineEnd: true)
             if cut { t.truncated = true }
             let order = Self.order(t.rows, sort)
             DispatchQueue.main.async {

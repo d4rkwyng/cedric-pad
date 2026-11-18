@@ -134,7 +134,7 @@ extension DevChecks {
                 expect(tab?.window?.title == "owl manual.pdf" && tab?.window?.isDocumentEdited == false, "titled by its file, never edited")
                 // The owl stays out of PDF tabs.
                 var owlViews = 0
-                func walk(_ v: NSView) { if String(describing: Swift.type(of: v)).contains("Owl") { owlViews += 1 }; v.subviews.forEach(walk) }
+                @MainActor func walk(_ v: NSView) { if String(describing: Swift.type(of: v)).contains("Owl") { owlViews += 1 }; v.subviews.forEach(walk) }
                 tab?.window?.contentView.map(walk)
                 expect(owlViews == 0, "no owl in a PDF tab", "\(owlViews)")
             },
@@ -378,7 +378,7 @@ extension DevChecks {
                 let sheet = tab?.window?.attachedSheet
                 let text = (sheet?.contentView).map { v -> String in
                     var s = ""
-                    func walk(_ v: NSView) { if let f = v as? NSTextField { s += f.stringValue + " " }; v.subviews.forEach(walk) }
+                    @MainActor func walk(_ v: NSView) { if let f = v as? NSTextField { s += f.stringValue + " " }; v.subviews.forEach(walk) }
                     walk(v)
                     return s
                 } ?? ""

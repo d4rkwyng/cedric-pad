@@ -45,7 +45,7 @@ enum AICheck {
         func poll() {
             if cond() { then(true); return }
             if Date() > deadline { log("timed out waiting for \(what)"); then(false); return }
-            OwlCheck.after(0.1, poll)
+            OwlCheck.after(0.1) { poll() }
         }
         poll()
     }

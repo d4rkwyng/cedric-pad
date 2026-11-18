@@ -67,10 +67,10 @@ enum OwlChatCheck {
             if chat.running {
                 seen.insert(chat.streamedCount)
                 if Date() > deadline { check(false, "answer finished within \(Int(timeout)) s"); then(seen); return }
-                after(0.02, poll)
+                after(0.02) { poll() }
             } else { then(seen) }
         }
-        after(0.02, poll)
+        after(0.02) { poll() }
     }
 
     static func explain(_ tab: EditorWindowController, _ chat: OwlChatPanel, out: String) {

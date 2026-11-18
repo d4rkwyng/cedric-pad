@@ -1,6 +1,7 @@
 import AppKit
 import CedricCore
 import ImageIO
+import os
 import UniformTypeIdentifiers
 
 /// In-process check of image tabs and Office (Quick Look) tabs
@@ -177,7 +178,7 @@ extension DevChecks {
                 expect(tab?.window?.title == "owl.png" && tab?.window?.isDocumentEdited == false, "titled by its file, never edited")
                 expect(tab?.statusBar.languageButton.isHidden == true && tab?.statusBar.encodingButton.isHidden == true, "no language or encoding menus")
                 var owlViews = 0
-                func walk(_ v: NSView) { if String(describing: Swift.type(of: v)).contains("Owl") { owlViews += 1 }; v.subviews.forEach(walk) }
+                @MainActor func walk(_ v: NSView) { if String(describing: Swift.type(of: v)).contains("Owl") { owlViews += 1 }; v.subviews.forEach(walk) }
                 tab?.window?.contentView.map(walk)
                 expect(owlViews == 0, "no owl in an image tab", "\(owlViews)")
             },
@@ -359,7 +360,7 @@ extension DevChecks {
             { next in
                 let sheet = tab?.window?.attachedSheet
                 var text = ""
-                func walk(_ v: NSView) { if let f = v as? NSTextField { text += f.stringValue + " " }; v.subviews.forEach(walk) }
+                @MainActor func walk(_ v: NSView) { if let f = v as? NSTextField { text += f.stringValue + " " }; v.subviews.forEach(walk) }
                 sheet?.contentView.map(walk)
                 expect(text.contains("isn’t an image Cedric Pad can show"), "it says the file is damaged", text)
                 if let sheet { pressReturn(in: sheet) }
@@ -431,7 +432,7 @@ extension DevChecks {
                 _ = ow.map(enabled)
                 print("check: note: the .docx's default app here: \(ow?.title ?? "-")")
                 var owl = 0
-                func walk(_ v: NSView) { if String(describing: Swift.type(of: v)).contains("Owl") { owl += 1 }; v.subviews.forEach(walk) }
+                @MainActor func walk(_ v: NSView) { if String(describing: Swift.type(of: v)).contains("Owl") { owl += 1 }; v.subviews.forEach(walk) }
                 o?.window?.contentView.map(walk)
                 expect(owl == 0, "no owl in a Quick Look tab")
             },
@@ -524,20 +525,21 @@ extension DevChecks {
             typing.window?.makeKeyAndOrderFront(nil)
             typing.window?.makeFirstResponder(typing.textView)
             let word = Array("owls hoot at night ")
-            nonisolated(unsafe) var waits: [Double] = []
-            nonisolated(unsafe) var typed = 0
-            nonisolated(unsafe) var stop = false
-            nonisolated(unsafe) var loadedAt: Double?
+            // The keys' waits and counts live on the main thread; only the
+            // stop flag is read from the background thread, behind a lock.
+            let probe = TypingProbe()
+            let stop = OSAllocatedUnfairLock(initialState: false)
             let start = Date()
             nonisolated(unsafe) let goOn = next
-            @MainActor func finish() {
+            let finish = { @MainActor in
                 ProcessInfo.processInfo.endActivity(activity)
                 let decode = (bigTab?.info?.decodeSeconds ?? -1) * 1000
+                let waits = probe.waits, typed = probe.typed
                 let maxWait = waits.max() ?? -1
                 let sorted = waits.sorted()
                 let p95 = sorted.isEmpty ? -1 : sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
                 print(String(format: "check: note: 12000×12000 PNG: open() %.1f ms; decode %.0f ms in the background, done at %.0f ms; %d keys typed meanwhile: longest wait %.1f ms, p95 %.1f ms; loaded() %.1f ms on the main thread",
-                             openMs, decode, loadedAt ?? -1, typed, maxWait, p95, bigTab?.loadedMs ?? -1))
+                             openMs, decode, probe.loadedAt ?? -1, typed, maxWait, p95, bigTab?.loadedMs ?? -1))
                 expect(openMs < 250, "opening a 12000×12000 PNG returns at once (header only)", String(format: "%.1f ms", openMs))
                 expect(bigTab?.loading == false && bigTab?.info != nil, "it decodes (in the background)")
                 expect(maxWait < 100, "typing in another tab isn't held up while it decodes (no key waits 100 ms)", String(format: "longest %.1f ms", maxWait))
@@ -557,20 +559,20 @@ extension DevChecks {
             }
             Thread.detachNewThread {
                 // Until the image is in and 40 keys are typed (at most 30 s).
-                while !stop {
+                while !stop.withLock({ $0 }) {
                     let sent = Date()
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            guard !stop else { return }
-                            waits.append(Date().timeIntervalSince(sent) * 1000)
+                            guard !stop.withLock({ $0 }) else { return }
+                            probe.waits.append(Date().timeIntervalSince(sent) * 1000)
                             if let w = typing.window {
-                                let ch = word[typed % word.count]
+                                let ch = word[probe.typed % word.count]
                                 keyTo(w, String(ch), code: ch == " " ? 49 : 0)
-                                typed += 1
+                                probe.typed += 1
                             }
-                            if loadedAt == nil, bigTab?.loading == false { loadedAt = Date().timeIntervalSince(start) * 1000 }
-                            if loadedAt != nil && typed >= 40 || Date().timeIntervalSince(start) > 30 {
-                                stop = true
+                            if probe.loadedAt == nil, bigTab?.loading == false { probe.loadedAt = Date().timeIntervalSince(start) * 1000 }
+                            if probe.loadedAt != nil && probe.typed >= 40 || Date().timeIntervalSince(start) > 30 {
+                                stop.withLock { $0 = true }
                                 finish()
                             }
                         }
@@ -579,6 +581,13 @@ extension DevChecks {
                 }
             }
         }
+    }
+
+    /// The big-image timing's main-thread state (measureBigImage).
+    @MainActor final class TypingProbe {
+        var waits: [Double] = []
+        var typed = 0
+        var loadedAt: Double?
     }
 
     /// After a relaunch with the session `image` saved.

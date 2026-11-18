@@ -34,7 +34,7 @@ enum OwlRulesCheck {
                 OwlHub.shared.activity(in: tab)
             }
             if Date() > deadline { check(false, "the owl offered \(id) within \(Int(timeout)) s"); then(nil); return }
-            OwlCheck.after(0.2, poll)
+            OwlCheck.after(0.2) { poll() }
         }
         poll()
     }
