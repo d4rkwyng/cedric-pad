@@ -30,6 +30,7 @@ final class FindBar: NSView, NSSearchFieldDelegate {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        clipsToBounds = true
         findField.placeholderString = String(localized: "Find")
         findField.sendsSearchStringImmediately = true
         findField.delegate = self
@@ -90,7 +91,9 @@ final class FindBar: NSView, NSSearchFieldDelegate {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.windowBackgroundColor.setFill()
-        dirtyRect.fill()
+        // Since macOS 14 views don't clip to their bounds and dirtyRect
+        // can be the whole window: fill only our own part.
+        dirtyRect.intersection(bounds).fill()
         NSColor.separatorColor.setFill()
         NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
     }
@@ -129,6 +132,7 @@ final class StatusBar: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        clipsToBounds = true
         position.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         position.textColor = .secondaryLabelColor
         zoom.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -159,7 +163,9 @@ final class StatusBar: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         background.setFill()
-        dirtyRect.fill()
+        // Since macOS 14 views don't clip to their bounds and dirtyRect
+        // can be the whole window: fill only our own part.
+        dirtyRect.intersection(bounds).fill()
         NSColor.separatorColor.setFill()
         NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
     }

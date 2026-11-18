@@ -76,6 +76,7 @@ struct DiffColors {
 final class DiffHeader: NSView {
     init(left: String, right: String, palette: EditorPalette) {
         super.init(frame: NSRect(x: 0, y: 0, width: 600, height: 24))
+        clipsToBounds = true
         wantsLayer = true
         layer?.backgroundColor = NSColor(hex: palette.statusBar).cgColor
         let l = NSTextField(labelWithString: left), r = NSTextField(labelWithString: right)
@@ -117,6 +118,7 @@ final class DiffView: NSView {
         let digits = String(max(left.count, right.count, 1)).count
         numberWidth = CGFloat(max(3, digits)) * ("0" as NSString).size(withAttributes: [.font: font]).width + 16
         super.init(frame: .zero)
+        clipsToBounds = true
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -144,7 +146,9 @@ final class DiffView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         colors.background.setFill()
-        dirtyRect.fill()
+        // Since macOS 14 views don't clip to their bounds and dirtyRect
+        // can be the whole window: fill only our own part.
+        dirtyRect.intersection(bounds).fill()
         let half = floor(bounds.width / 2)
         let first = max(0, Int(dirtyRect.minY / lineHeight))
         let last = min(rows.count - 1, Int(dirtyRect.maxY / lineHeight))

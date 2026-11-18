@@ -190,7 +190,9 @@ final class GutterView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor(hex: palette.gutterBackground).setFill()
-        dirtyRect.fill()
+        // Since macOS 14 views don't clip to their bounds and dirtyRect
+        // can be the whole window: fill only our own part.
+        dirtyRect.intersection(bounds).fill()
         guard let tv = textView, let tlm = tv.textLayoutManager, let scroll = tv.enclosingScrollView,
               let start = tv.firstVisibleLocation else { return }
         let index = lineIndex()

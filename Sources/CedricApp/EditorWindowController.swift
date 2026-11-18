@@ -102,6 +102,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         gutter.textView = textView
+        gutter.clipsToBounds = true
         gutter.lineIndex = { [unowned self] in self.lineIndex }
         container = EditorContainer(gutter: gutter, scrollView: scrollView)
 

@@ -43,6 +43,8 @@ import WebKit
 ///                                 CEDRIC_AI_FAKE=1.5 (fake provider) or CEDRIC_AI_CHECK_MODEL=id (live)
 ///   CEDRIC_AI*                    run-only AI settings: see AIStore in Owl/OwlAISettings.swift
 ///   CEDRIC_DUMP_SHORTCUTS=1       print every menu shortcut, exit 1 on a clash
+///   CEDRIC_LAYER_DUMP=/out/dir    dump the view/layer tree and render it three ways (RenderDump.swift);
+///                                 CEDRIC_LAYER_DUMP_OWL=1 turns the owl on first via the menu action
 ///   CEDRIC_CHECK=name             in-process checks of the editor tools (DevChecks.swift;
 ///                                 Scripts/tools-check.sh runs them all)
 @MainActor
@@ -134,6 +136,9 @@ enum DevHooks {
         if let out = env["CEDRIC_SNAPSHOT"], !out.isEmpty { scheduleSnapshot(out) }
         if env["CEDRIC_DUMP_SHORTCUTS"] == "1" { exit(DevChecks.dumpShortcuts() ? 0 : 1) }
         if let check = env["CEDRIC_CHECK"] { DevChecks.start(check, app) }
+        if let out = env["CEDRIC_LAYER_DUMP"], !out.isEmpty {
+            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in MainActor.assumeIsolated { RenderDump.run(app, out: out) } }
+        }
     }
 
     // MARK: Perf
