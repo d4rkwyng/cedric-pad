@@ -129,11 +129,13 @@ final class EditorTextView: NSTextView {
 
     /// The document's indentation (tabs or spaces, width).
     var indentation: (() -> Indentation)?
+    /// Whether Tab types spaces (else a tab character).
+    var tabInsertsSpaces: (() -> Bool)?
     /// Indents (true) or outdents (false) the selected lines.
     var onShiftLines: ((Bool) -> Void)?
 
     /// Tab: with a selection over several lines, indents them; else a tab,
-    /// or with spaces indentation, spaces up to the next tab stop.
+    /// or where spaces were chosen, spaces up to the next tab stop.
     override func insertTab(_ sender: Any?) {
         guard isEditable, !hasMarkedText(), let indentation, let lineStartFor else { super.insertTab(sender); return }
         let sel = selectedRange()
@@ -143,7 +145,7 @@ final class EditorTextView: NSTextView {
             return
         }
         let ind = indentation()
-        guard !ind.usesTabs else { super.insertTab(sender); return }
+        guard !ind.usesTabs, tabInsertsSpaces?() ?? true else { super.insertTab(sender); return }
         // The caret's column, tabs counted to their stops (a bounded look back).
         let start = lineStartFor(sel.location)
         var col = 0

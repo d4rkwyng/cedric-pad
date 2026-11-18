@@ -162,6 +162,10 @@ extension DevChecks {
                 app.newTab(nil)
                 let t = app.tabs.last!
                 expect(t.indentation == Indentation(usesTabs: false, width: 3), "a new tab uses the default from Settings", "\(t.indentation)")
+                expect(t.tabKeyInsertsSpaces, "a saved spaces default: Tab types spaces")
+                UserDefaults.standard.removeObject(forKey: "indentWithTabs")
+                UserDefaults.standard.removeObject(forKey: "tabWidth")
+                expect(!t.tabKeyInsertsSpaces, "no default saved: Tab types a tab character, as before")
                 restore()
             },
         ])

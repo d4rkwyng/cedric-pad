@@ -130,6 +130,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         textView.onCutLine = { [unowned self] in self.cutLine() }
         textView.indentation = { [unowned self] in self.indentation }
         textView.onShiftLines = { [unowned self] right in self.shiftLines(right: right) }
+        textView.tabInsertsSpaces = { [unowned self] in self.tabKeyInsertsSpaces }
         textView.onDropFiles = { urls in
             for u in urls { (NSApp.delegate as? AppDelegate)?.open(u) }
         }

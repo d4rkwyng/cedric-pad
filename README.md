@@ -62,7 +62,9 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   2, 3, 4 or 8 spaces, read from its first lines), else the default in
   Settings; Format › Indentation picks spaces or tabs and the tab width for
   one tab (kept with the session) and converts the whole file between
-  them. With spaces, Tab inserts spaces to the next tab stop.
+  them. Where spaces were chosen (the file's own, the tab's, or a default
+  saved in Settings), Tab inserts spaces to the next tab stop; otherwise
+  it types a tab character, as before.
 - **Bookmarks** (Edit › Bookmarks, as in Notepad++): Toggle Bookmark (⌘F2,
   or click a line number), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
   Bookmark All Matches (⌥⌘F2: every line matching the find bar's search,

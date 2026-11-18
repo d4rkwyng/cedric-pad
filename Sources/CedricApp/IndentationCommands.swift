@@ -25,6 +25,17 @@ extension EditorWindowController {
         return def
     }
 
+    /// Whether the Tab key types spaces: only when spaces were chosen
+    /// (this tab's pick, the file's own indentation, or a default saved in
+    /// Settings). Untouched, Tab types a tab character, as it always has.
+    var tabKeyInsertsSpaces: Bool {
+        let ind = indentation
+        guard !ind.usesTabs else { return false }
+        if doc.indentation != nil { return true }
+        if case .some(.some) = doc.detectedIndentation { return true }
+        return UserDefaults.standard.object(forKey: "indentWithTabs") != nil
+    }
+
     /// How wide a tab is drawn: the tab's own choice, else the default
     /// (needs no detection, so building a tab never scans its text).
     var tabWidth: Int { doc.indentation?.width ?? Settings.shared.defaultIndentation.width }
