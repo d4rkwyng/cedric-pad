@@ -71,15 +71,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return true
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    /// AppKit asks once no window at all is left (Settings, About and the
+    /// like included). Closing the last document tab quits on its own
+    /// (`quitIfLastDocument`), whatever auxiliary windows are open; this
+    /// covers, say, Settings closed last after the setting was turned on.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        quitsOnLastClose && tabs.isEmpty && pdfTabs.isEmpty
+    }
 
     /// No "save changes?" on quit: every tab, saved or not, comes back next launch.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Closing the last window already saved (quitIfLastDocument).
+        if !terminating { prepareToQuit() }
+        return .terminateNow
+    }
+
+    /// The quit path: the session (unsaved buffers included) written and
+    /// waited for, `cedric -w` waiters released.
+    private func prepareToQuit() {
         saveSession()
         releaseAllWaiters()
         terminating = true
         sessionTimer?.invalidate()
-        return .terminateNow
+    }
+
+    /// Settings › "Quit when the last window closes", once launch is done
+    /// (an alert for a file that failed to open closes before any tab
+    /// exists) and not while restored tabs are still to be built. The
+    /// dev hooks drive tabs open and shut, so it is off under them unless
+    /// CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1.
+    var quitsOnLastClose: Bool {
+        launched && !terminating && pendingRestore.isEmpty && DevHooks.allowsQuitOnLastClose
+            && Settings.shared.quitWhenLastWindowCloses
+    }
+
+    /// The document tabs' windows other than `window` (text and PDF tabs;
+    /// detached previews, Settings, panels and the owl don't count).
+    private func otherDocumentWindows(than window: NSWindow?) -> Int {
+        (tabs.compactMap(\.window) + pdfTabs.compactMap(\.window)).filter { $0 !== window }.count
+    }
+
+    /// A document tab is closing (its views still intact): if it is the
+    /// last one, quit as Quit does: it stays in the session as an open tab,
+    /// unsaved text and all, and comes back next launch. True if quitting.
+    func quitIfLastDocument(closing window: NSWindow?) -> Bool {
+        guard quitsOnLastClose, otherDocumentWindows(than: window) == 0 else { return false }
+        prepareToQuit()
+        DispatchQueue.main.async { NSApp.terminate(nil) }
+        return true
+    }
+
+    /// File › Close Window on the only window left: Quit (every tab kept),
+    /// not one hot close per tab and then a quit. True if quitting.
+    func quitIfClosingLastWindow(_ window: NSWindow) -> Bool {
+        let members = window.tabbedWindows ?? [window]
+        let docs = tabs.compactMap(\.window) + pdfTabs.compactMap(\.window)
+        guard quitsOnLastClose, docs.allSatisfy({ d in members.contains { $0 === d } }) else { return false }
+        NSApp.terminate(nil)
+        return true
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -148,6 +197,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         tab.onClose = { [weak self] t in
             self?.releaseWaiters(for: t.doc.id)
             guard let self, !self.terminating else { return }
+            // The last document window: quit, the tab kept open in the session.
+            if self.quitIfLastDocument(closing: t.window) { return }
             self.tabs.removeAll { $0 === t }
             // Hot close: remembered for Reopen Closed Tab, unsaved text and all.
             self.rememberClosed(t)

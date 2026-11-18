@@ -257,6 +257,17 @@ its bounds), sorting by header on the same queue (view only), a click
 maps the view row back to the record's start and `CSV.fieldOffset` for the
 caret.
 
+**Closing the last window** (`AppDelegate.quitIfLastDocument`): a text or
+PDF tab's `onClose`, when no other document tab exists and no restored tab
+is still pending, runs the quit path (`prepareToQuit`: synchronous session
+save, waiters released) with the closing tab still listed, so it is saved
+as an open tab, then `NSApp.terminate` on the next turn. Other windows
+(detached previews, Settings, panels, the owl) don't count.
+`applicationShouldTerminateAfterLastWindowClosed` gives the same answer
+for AppKit's own case (e.g. Settings closed last). Off before launch has
+finished, under the dev hooks (unless `CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1`)
+and with the setting off. File › Close Window on the only window is Quit.
+
 ## Editor tools
 
 Notepad++'s everyday extras. The logic is in CedricCore (tested without a

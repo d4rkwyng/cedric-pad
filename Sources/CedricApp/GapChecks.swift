@@ -254,7 +254,8 @@ extension DevChecks {
 
     static func macBasics(_ app: AppDelegate) {
         let restore = keepDefaults(["fontName", "fontSize", EditorTheme.defaultsKey, "wrapLines", "showInvisibles", "showLineNumbers",
-                                    "highlightOccurrences", "autoCloseBrackets", "checkSpellingWhileTyping", "tabWidth", "indentWithTabs"])
+                                    "highlightOccurrences", "autoCloseBrackets", "checkSpellingWhileTyping", "tabWidth", "indentWithTabs",
+                                    "quitWhenLastWindowCloses"])
         let a = app.open(write("a.txt", "alpha\n"))!
         let b = app.open(write("b.txt", "beta\n"))!
         sized(a)
@@ -289,6 +290,12 @@ extension DevChecks {
                 let wrap = Settings.shared.wrapLines
                 s.wrap.performClick(nil)
                 expect(Settings.shared.wrapLines == !wrap, "Wrap lines checkbox toggles the setting")
+                UserDefaults.standard.removeObject(forKey: "quitWhenLastWindowCloses")
+                s.refresh()
+                expect(Settings.shared.quitWhenLastWindowCloses && s.quitOnLastClose.state == .on, "Quit when the last window closes: on by default")
+                s.quitOnLastClose.performClick(nil)
+                expect(!Settings.shared.quitWhenLastWindowCloses, "its checkbox turns it off")
+                expect(!app.quitsOnLastClose, "the checks themselves never quit on a last close")
                 let inv = Settings.shared.showInvisibles
                 key("i", [.command, .option])
                 expect(s.invisibles.state == (inv ? .off : .on), "the window follows View › Show Invisibles (⌥⌘I)")

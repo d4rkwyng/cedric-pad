@@ -18,6 +18,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   unsaved changes and all, even after a quit or a crash. The last 50
   closed tabs are remembered (tabs without unsaved text are forgotten
   first; a closed tab with unsaved text is never forgotten).
+  Closing the last document window (text or PDF tab) quits Cedric, as
+  Quit does: that tab, unsaved text and all, is open again next launch.
+  Detached previews, Settings and panels don't keep Cedric running.
+  Settings › "Quit when the last window closes" turns this off.
 - **Fast to open.** TextKit 2 lays out only what is on screen; a 10 MB JSON
   file opens and is coloured in under 0.1 s, a 50 MB log in about 0.2 s on an
   M-series Mac (see Performance below).
@@ -53,10 +57,11 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   default, or any installed fixed-pitch font; ⌘+ / ⌘− / ⌘0 zoom.
 - **Settings** (Cedric › Settings…, ⌘,): theme, font and size, wrap,
   invisibles, line numbers, highlight occurrences, auto-close brackets,
-  spelling while typing, and the default indentation, in one window (the
+  spelling while typing, the default indentation, and whether closing the
+  last window quits, in one window (the
   menu toggles still work and the window follows them).
 - **Mac file basics:** Save All (⌥⌘S), Revert to Saved (undoable with ⌘Z),
-  Close Window (⇧⌘W: every tab in the window, each hot-closed), and the
+  Close Window (⇧⌘W: every tab in the window, each hot-closed; on the last window, Quit), and the
   system Services in the app menu.
 - **Find and replace** in the current document, with regular expressions
   (ICU syntax, `$1` in replacements), match case and whole word; ⌘F, ⌥⌘F,
@@ -192,7 +197,7 @@ Tests (Swift Testing; the script adds the paths the Command Line Tools need):
 
 ```sh
 Scripts/test.sh                     # unit tests: tokenizers, Markdown, codecs, find, session store, themes
-Scripts/session-check.sh            # end to end: unsaved tabs survive a kill -9 and a normal quit
+Scripts/session-check.sh            # end to end: unsaved tabs survive a kill -9, a normal quit and a last-window close
 Scripts/typing-check.sh             # real key events in every theme; typed glyphs' pixels must be visible
 Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no crash report
 Scripts/pdf-check.sh                # PDF tabs in the running app: find, copy, zoom, Open as Text, session
