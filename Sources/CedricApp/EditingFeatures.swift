@@ -289,8 +289,14 @@ extension EditorWindowController {
             : editing.bookmarks.replacing(range, with: replacement, in: storage.string as NSString,
                                           firstLine: lineIndex.line(containing: range.location)))
         let um = textView.undoManager
+        let before = editing.bookmarks
         textView.breakUndoCoalescing()
         um?.beginUndoGrouping()
+        // Undo and redo put the bookmarks back as they were (the text's own
+        // undo only moves them by line counts, which drops a moved or
+        // deleted line's bookmark): one record before the text change and
+        // one after, so each sets them once the text is back.
+        if marks != nil { registerBookmarks(before, setNow: true) }
         var changed = false
         if textView.shouldChangeText(in: range, replacementString: replacement) {
             storage.beginEditing()
@@ -303,10 +309,32 @@ extension EditorWindowController {
             marks.clamp(lineCount: lineIndex.lineCount)
             editing.bookmarks = marks
             gutter.needsDisplay = true
+            registerBookmarks(marks, setNow: false)
         }
         um?.endUndoGrouping()
         if let actionName { um?.setActionName(actionName) }
         return changed
+    }
+
+    /// An undo record for bookmarks inside an undo group. Undoing a group
+    /// runs its records last first, and redoing it runs them in the
+    /// order they were made, so a record made before the text change
+    /// runs after the text's own undo, and one made after it runs after
+    /// the text's redo. `setNow`: this run sets `marks`; each run
+    /// registers the opposite, for the next undo or redo.
+    private func registerBookmarks(_ marks: Bookmarks, setNow: Bool) {
+        textView.undoManager?.registerUndo(withTarget: self) { tab in
+            MainActor.assumeIsolated {
+                if setNow {
+                    var m = marks
+                    m.clamp(lineCount: tab.lineIndex.lineCount)
+                    tab.editing.bookmarks = m
+                    tab.gutter.needsDisplay = true
+                    tab.onChange?(tab)
+                }
+                tab.registerBookmarks(marks, setNow: !setNow)
+            }
+        }
     }
 
     /// ⌘X with nothing selected: cuts the caret's line (with its newline).

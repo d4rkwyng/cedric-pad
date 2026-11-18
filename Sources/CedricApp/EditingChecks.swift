@@ -345,6 +345,36 @@ extension DevChecks {
                 expect(tab.text.hasPrefix("LET BAR"), "Text Tools › Uppercase on the whole text", tab.text)
                 expect(marks == [1, 6], "keeps the bookmarks", "\(marks)")
             },
+            // Undo and redo of line commands bring the bookmarks back too.
+            sync {
+                focus(tab)
+                tab.editing.bookmarks = Bookmarks([2])
+                tab.textView.setSelectedRange(NSRange(location: tab.lineIndex.starts[2] + 1, length: 0))
+                key(down, [.control, .command])
+                expect(marks == [3], "⌃⌘↓ takes the bookmark to line 3", "\(marks)")
+            },
+            sync {
+                key("z", [.command])
+                expect(marks == [2], "undo Move Line puts the bookmark back on line 2", "\(marks)")
+            },
+            sync {
+                key("z", [.command, .shift])
+                expect(marks == [3], "redo moves it again", "\(marks)")
+            },
+            sync {
+                tab.editing.bookmarks = Bookmarks([3, 5])
+                tab.textView.setSelectedRange(NSRange(location: tab.lineIndex.starts[3] + 1, length: 0))
+                key("k", [.command, .shift])
+                expect(marks == [4], "Delete Line drops its bookmark", "\(marks)")
+            },
+            sync {
+                key("z", [.command])
+                expect(marks == [3, 5], "undo Delete Line brings it back", "\(marks)")
+            },
+            sync {
+                key("z", [.command, .shift])
+                expect(marks == [4], "redo drops it again", "\(marks)")
+            },
         ]
     }
 
