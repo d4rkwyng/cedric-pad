@@ -36,6 +36,14 @@ final class BlobProtocol: URLProtocol, @unchecked Sendable {
         var status = 200
         /// Drop the connection after this many bytes of this response.
         var dropAfter: Int?
+        /// Before dropping, wait (up to 5 s) until this says the client has
+        /// taken the bytes sent so far. URLSession buffers what a protocol
+        /// hands it and delivers it to the task delegate later; an error
+        /// that arrives first discards the buffer, so the delegate never
+        /// sees those bytes (a busy machine made that the case in ~1 run in
+        /// 4). A real dropped connection comes after bytes the app has
+        /// already received, which is what the test is about.
+        var dropWhen: (@Sendable () -> Bool)?
     }
     private static let lock = NSLock()
     nonisolated(unsafe) private static var blobs: [String: Blob] = [:]
@@ -90,6 +98,10 @@ final class BlobProtocol: URLProtocol, @unchecked Sendable {
             while sent < body.count {
                 if stopped.value { return }
                 if let drop = blob.dropAfter, sent >= drop {
+                    if let ready = blob.dropWhen {
+                        let deadline = Date().addingTimeInterval(5)
+                        while !ready(), !stopped.value, Date() < deadline { Thread.sleep(forTimeInterval: 0.001) }
+                    }
                     client?.urlProtocol(me.value, didFailWithError: URLError(.networkConnectionLost))
                     return
                 }
@@ -247,9 +259,11 @@ func randomBlob(_ n: Int) -> Data {
     @Test func droppedConnectionKeepsPartialForResume() async throws {
         let body = randomBlob(100_000)
         let model = testModel(body: body)
-        BlobProtocol.serve(model.url.path, .init(data: body, delay: 0, dropAfter: 40_960))
         let dir = tempDir()
         let store = ModelStore(directory: dir)
+        // The connection drops once the downloader has written some of what arrived.
+        BlobProtocol.serve(model.url.path, .init(data: body, delay: 0, dropAfter: 40_960,
+                                                 dropWhen: { store.partialBytes(model) > 0 }))
         let dl = downloader(dir)
         try await dl.start(model)
         let s = await dl.waitUntilSettled(model)
