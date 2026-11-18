@@ -88,7 +88,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Word, line and character counts** in the status bar, of the
   selection when there is one (characters are Unicode scalars). Documents
   over a million characters show lines only, so typing never waits on a
-  count; over 50,000 they are counted when typing pauses.
+  count; over 50,000 they are counted when typing pauses, in the background.
 - **Print** (File › Print…, ⌘P; Page Setup…, ⇧⌘P): the text in the
   editor's font, dark on white (not the theme's colours), wrapped to the
   page, with the file name, date and page numbers; line numbers are an

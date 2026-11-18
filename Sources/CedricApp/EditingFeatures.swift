@@ -20,7 +20,12 @@ final class EditingState {
     /// Status-bar counts: debounced for big ranges; the whole document's
     /// are cached until the text changes (any storage edit drops them).
     var countsTimer: Timer?
-    var documentCounts: TextCounts??
+    var documentCounts: TextCounts?? { didSet { if documentCounts == nil { countsGeneration &+= 1 } } }
+    /// Moves on every text change (documentCounts dropped): a count made
+    /// off the main thread is shown only if this hasn't moved meanwhile.
+    var countsGeneration = 0
+    /// The newest background count asked for; older ones are dropped.
+    var countsRequest = 0
 
     func stop() {
         countsTimer?.invalidate()
@@ -186,36 +191,74 @@ extension EditorWindowController {
         editing.countsTimer = nil
         let sel = textView.selectedRange()
         let ns = textView.string as NSString
-        func plural(_ n: Int, _ one: String, _ many: String) -> String { n == 1 ? "1 \(one)" : "\(n.formatted()) \(many)" }
-        let words = String(localized: "word"), wordsP = String(localized: "words")
-        let line = String(localized: "line"), lines = String(localized: "lines")
-        let char = String(localized: "character"), chars = String(localized: "characters")
-        var s: String
         if sel.length > 0 {
+            if sel.length > Self.immediateCountLimit, sel.length <= TextStats.maxCounted {
+                countInBackground(ns, range: sel, selection: true)
+                return
+            }
             if let c = TextStats.count(ns, range: sel) {
-                s = [plural(c.words, words, wordsP), plural(c.lines, line, lines), plural(c.characters, char, chars)].joined(separator: " · ")
+                showCounts(c, selection: true)
             } else {
                 let a = lineIndex.line(containing: sel.location), b = lineIndex.line(containing: max(sel.location, NSMaxRange(sel) - 1))
-                s = plural(b - a + 1, line, lines)
+                showLinesOnly(b - a + 1, selection: true)
             }
-            s = String(localized: "Selected: \(s)")
-        } else {
-            let counts: TextCounts?
-            if let cached = editing.documentCounts {
-                counts = cached
-            } else {
-                counts = TextStats.count(ns, range: NSRange(location: 0, length: ns.length))
-                editing.documentCounts = .some(counts)
-            }
-            if let c = counts {
-                s = [plural(c.words, words, wordsP), plural(c.lines, line, lines), plural(c.characters, char, chars)].joined(separator: " · ")
-            } else {
-                // As TextStats counts: an empty last line (after a final newline) isn't one.
-                let n = lineIndex.lineCount - (lineIndex.lineCount > 1 && lineIndex.lineLength(lineIndex.lineCount - 1) == 0 ? 1 : 0)
-                s = plural(n, line, lines)
+            return
+        }
+        if let cached = editing.documentCounts {
+            if let c = cached { showCounts(c, selection: false) } else { showDocumentLines() }
+            return
+        }
+        if ns.length > Self.immediateCountLimit, ns.length <= TextStats.maxCounted {
+            countInBackground(ns, range: NSRange(location: 0, length: ns.length), selection: false)
+            return
+        }
+        let counts = TextStats.count(ns, range: NSRange(location: 0, length: ns.length))
+        editing.documentCounts = .some(counts)
+        if let c = counts { showCounts(c, selection: false) } else { showDocumentLines() }
+    }
+
+    /// Big ranges (50 K to 1 M units) are counted off the main thread, on
+    /// a copy of the text, and shown if neither the text nor the selection
+    /// changed meanwhile (else a newer count is on its way). The status bar
+    /// keeps its last counts until then.
+    private func countInBackground(_ ns: NSString, range: NSRange, selection: Bool) {
+        struct Snapshot: @unchecked Sendable { let text: NSString }   // an immutable copy
+        let snap = Snapshot(text: ns.substring(with: range) as NSString)
+        let generation = editing.countsGeneration
+        let sel = textView.selectedRange()
+        editing.countsRequest &+= 1
+        let request = editing.countsRequest
+        DispatchQueue.global(qos: .userInitiated).async {
+            let counts = TextStats.count(snap.text, range: NSRange(location: 0, length: snap.text.length))
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { [weak self] in
+                    guard let self, self.editing.countsRequest == request, self.editing.countsGeneration == generation,
+                          self.textView.selectedRange() == sel, let counts else { return }
+                    if !selection { self.editing.documentCounts = .some(counts) }
+                    self.showCounts(counts, selection: selection)
+                }
             }
         }
-        statusBar.counts.stringValue = s
+    }
+
+    private func plural(_ n: Int, _ one: String, _ many: String) -> String { n == 1 ? "1 \(one)" : "\(n.formatted()) \(many)" }
+
+    private func showCounts(_ c: TextCounts, selection: Bool) {
+        let s = [plural(c.words, String(localized: "word"), String(localized: "words")),
+                 plural(c.lines, String(localized: "line"), String(localized: "lines")),
+                 plural(c.characters, String(localized: "character"), String(localized: "characters"))].joined(separator: " · ")
+        statusBar.counts.stringValue = selection ? String(localized: "Selected: \(s)") : s
+    }
+
+    private func showLinesOnly(_ n: Int, selection: Bool) {
+        let s = plural(n, String(localized: "line"), String(localized: "lines"))
+        statusBar.counts.stringValue = selection ? String(localized: "Selected: \(s)") : s
+    }
+
+    private func showDocumentLines() {
+        // As TextStats counts: an empty last line (after a final newline) isn't one.
+        showLinesOnly(lineIndex.lineCount - (lineIndex.lineCount > 1 && lineIndex.lineLength(lineIndex.lineCount - 1) == 0 ? 1 : 0),
+                      selection: false)
     }
 }
 

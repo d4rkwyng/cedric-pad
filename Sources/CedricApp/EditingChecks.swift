@@ -838,6 +838,22 @@ extension DevChecks {
             sync {
                 let l = mid.statusBar.counts.stringValue
                 expect(l == "12,000 words · 6,000 lines · 72,001 characters", "a 72 K document is counted after a pause", l)
+            },
+            sync {
+                // The count itself runs off the main thread: the main thread only copies the text.
+                let half = String(repeating: "lorem ipsum dolor sit amet\n", count: 36_000)   // ~970 K
+                mid.setText(half)
+                mid.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                mid.editing.documentCounts = nil
+                let t0 = Date()
+                mid.updateCounts()
+                let ms = Date().timeIntervalSince(t0) * 1000
+                expect(ms < 15, "counting ~1 M characters doesn't hold up the main thread", String(format: "%.1f ms", ms))
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { next() } },
+            sync {
+                let l = mid.statusBar.counts.stringValue
+                expect(l == "180,000 words · 36,000 lines · 972,000 characters", "and the counts arrive", l)
                 focus(big)
                 big.textView.setSelectedRange(NSRange(location: 0, length: 0))
                 let t0 = Date()
