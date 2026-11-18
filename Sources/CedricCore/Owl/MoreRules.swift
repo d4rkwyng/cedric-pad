@@ -136,6 +136,23 @@ extension RulesHintProvider {
         }
     }
 
+    /// Where the parser stopped is a closing `}` or `]` (after spaces) and
+    /// the last thing before it is a comma: that comma's offset.
+    static func trailingComma(_ s: NSString, before offset: Int) -> Int? {
+        var i = min(offset, s.length)
+        while i < s.length, [32, 9, 10, 13].contains(s.character(at: i)) { i += 1 }
+        guard i < s.length, s.character(at: i) == 125 || s.character(at: i) == 93 else { return nil } // } ]
+        var j = i - 1
+        while j >= 0, [32, 9, 10, 13].contains(s.character(at: j)) { j -= 1 }
+        return j >= 0 && s.character(at: j) == 44 ? j : nil
+    }
+
+    static func nextNonSpace(_ s: NSString, after offset: Int) -> Int? {
+        var i = offset + 1
+        while i < s.length, [32, 9, 10, 13].contains(s.character(at: i)) { i += 1 }
+        return i < s.length ? i : nil
+    }
+
     // MARK: Brackets and curly quotes in code
 
     struct CodeScan {
@@ -564,10 +581,23 @@ extension RulesHintProvider {
         if lang == "json", whole, !Self.allowsComments(c.fileName),
            !lines.contains(where: { let t = text.substring(with: $0).trimmingCharacters(in: .whitespaces); return t.hasPrefix("//") || t.hasPrefix("/*") }),
            let err = Self.jsonError(c.text) {
-            let line = text.lineRange(for: NSRange(location: min(err.offset, max(0, text.length - 1)), length: 0))
-            let lineRange = NSRange(location: line.location, length: max(0, line.length - (text.substring(with: line).hasSuffix("\n") ? 1 : 0)))
-            hint(Self.jsonInvalidID, .warning, String(localized: "This JSON doesn’t parse (line \(Self.lineNumber(text, at: err.offset)))."),
-                 String(localized: "The parser stopped: \(err.message)."), lineRange, nil)
+            if let comma = Self.trailingComma(text, before: err.offset) {
+                // The usual mistake: a comma after the last item. Named
+                // where it is, not where the parser noticed (the next line).
+                let n = Self.lineNumber(text, at: comma)
+                let closer = Self.nextNonSpace(text, after: comma)
+                let atLineEnd = closer.map { Self.lineNumber(text, at: $0) > n } ?? true
+                let title = atLineEnd ? String(localized: "Extra comma at the end of line \(n).")
+                    : String(localized: "Extra comma before “\(text.substring(with: NSRange(location: closer!, length: 1)))” on line \(n).")
+                hint(Self.jsonInvalidID, .warning, title,
+                     String(localized: "JSON doesn’t allow a comma after the last item in a list or object. Delete it."),
+                     NSRange(location: comma, length: 1), nil)
+            } else {
+                let line = text.lineRange(for: NSRange(location: min(err.offset, max(0, text.length - 1)), length: 0))
+                let lineRange = NSRange(location: line.location, length: max(0, line.length - (text.substring(with: line).hasSuffix("\n") ? 1 : 0)))
+                hint(Self.jsonInvalidID, .warning, String(localized: "This JSON doesn’t parse (line \(Self.lineNumber(text, at: err.offset)))."),
+                     String(localized: "The parser stopped: \(err.message)."), lineRange, nil)
+            }
         }
         let scans = ["swift", "javascript", "typescript", "c", "css", "python"].contains(lang)
         let scan = scans && whole ? Self.scanCode(text, language: lang) : nil

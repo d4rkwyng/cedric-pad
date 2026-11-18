@@ -152,6 +152,22 @@ import Testing
         #expect(!RulesHintProvider.isLetter("Shopping\n\nDear me, what a list.\nmilk\neggs\n"))
     }
 
+    // MARK: F-M6 JSON trailing comma, in plain words
+
+    @Test func jsonTrailingCommaNamesItsLine() throws {
+        let text = "{\n  \"name\": \"cedric\",\n  \"scripts\": {\n    \"build\": \"swift build\"\n  },\n}\n"
+        let h = try #require(find(RulesHintProvider.jsonInvalidID, text, language: "json", fileName: "package.json"))
+        #expect(h.title == "Extra comma at the end of line 5.")
+        #expect((text as NSString).substring(with: h.range!) == ",")
+        #expect(h.detail?.contains("parser") == false)
+        let arr = "[\n  1,\n  2,\n]\n"
+        let a = try #require(find(RulesHintProvider.jsonInvalidID, arr, language: "json", fileName: "a.json"))
+        #expect(a.title == "Extra comma at the end of line 3.")
+        // Other errors still name the line they're on.
+        let other = "{\n  \"a\": 1\n  \"b\": 2\n}\n"
+        let o = try #require(find(RulesHintProvider.jsonInvalidID, other, language: "json", fileName: "a.json"))
+        #expect(o.title.contains("line 3"))
+    }
 
 
 

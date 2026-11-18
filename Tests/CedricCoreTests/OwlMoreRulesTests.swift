@@ -75,9 +75,14 @@ import Testing
     @Test func invalidJSONSaysWhere() throws {
         let text = "{\n  \"a\": 1,\n  \"b\": [1, 2,]\n}\n"
         let h = try #require(find(RulesHintProvider.jsonInvalidID, text, language: "json"))
-        #expect(h.title == "This JSON doesn’t parse (line 3).")
-        #expect(h.detail?.contains("line 3") == true)
-        #expect((text as NSString).substring(with: h.range!) == "  \"b\": [1, 2,]")
+        #expect(h.title == "Extra comma before “]” on line 3.")
+        #expect((text as NSString).substring(with: h.range!) == ",")
+        // Anything else: where the parser stopped.
+        let missing = "{\n  \"a\": 1,\n  \"b\": [1 2]\n}\n"
+        let m = try #require(find(RulesHintProvider.jsonInvalidID, missing, language: "json"))
+        #expect(m.title == "This JSON doesn’t parse (line 3).")
+        #expect(m.detail?.contains("line 3") == true)
+        #expect((missing as NSString).substring(with: m.range!) == "  \"b\": [1 2]")
         // Valid, empty, not JSON, a window, or a file whose JSON allows comments.
         #expect(find(RulesHintProvider.jsonInvalidID, "{\n  \"a\": [1, 2]\n}\n", language: "json") == nil)
         #expect(find(RulesHintProvider.jsonInvalidID, "  \n", language: "json") == nil)
