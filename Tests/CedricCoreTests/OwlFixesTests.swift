@@ -169,6 +169,28 @@ import Testing
         #expect(o.title.contains("line 3"))
     }
 
+    // MARK: F-M8 binary files
+
+    @Test func binaryDetection() {
+        let bytes = Data((0..<4).flatMap { _ in (0...255).map { UInt8($0) } })
+        #expect(TextCodec.looksBinary(bytes))
+        #expect(TextCodec.looksBinary(Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52])))
+        // Control characters without NULs (most of a sample).
+        #expect(TextCodec.looksBinary(Data((0..<400).map { UInt8([1, 2, 3, 4, 5, 6, 0x41, 0x7F][$0 % 8]) })))
+        // Text, in any encoding Cedric reads.
+        #expect(!TextCodec.looksBinary(Data("Hello, world\n\tindented\r\n".utf8)))
+        #expect(!TextCodec.looksBinary(Data()))
+        #expect(!TextCodec.looksBinary(Data([0xFF, 0xFE]) + "héllo wörld".data(using: .utf16LittleEndian)!))
+        #expect(!TextCodec.looksBinary(Data([0xFE, 0xFF]) + "héllo wörld".data(using: .utf16BigEndian)!))
+        #expect(!TextCodec.looksBinary("plain ascii text, no BOM, long enough to tell".data(using: .utf16BigEndian)!))
+        #expect(!TextCodec.looksBinary("plain ascii text, no BOM, long enough to tell".data(using: .utf16LittleEndian)!))
+        #expect(!TextCodec.looksBinary("Caf\u{E9} na\u{EF}ve".data(using: .isoLatin1)!))
+        #expect(!TextCodec.looksBinary("don’t – “quote”".data(using: .macOSRoman)!))
+        // A form feed or an escape now and then (ANSI colours in a log) is still text.
+        #expect(!TextCodec.looksBinary(Data(String(repeating: "\u{1B}[31mred\u{1B}[0m line\n\u{0C}", count: 30).utf8)))
+        // Only the first 8 KB are read.
+        #expect(!TextCodec.looksBinary(Data(String(repeating: "a", count: 9000).utf8) + Data([0, 0, 0])))
+    }
 
 
 }

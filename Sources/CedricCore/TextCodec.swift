@@ -71,6 +71,8 @@ public struct DecodedText: Sendable {
     public var lineEnding: LineEnding
     /// The file mixed line endings; saving writes them all as `lineEnding`.
     public var mixedLineEndings: Bool
+    /// The bytes look like a binary file (`TextCodec.looksBinary`).
+    public var looksBinary = false
 }
 
 public enum TextCodec {
@@ -85,6 +87,29 @@ public enum TextCodec {
         if let guess = guessUTF16(data) { return guess }
         if isValidUTF8(data) { return .utf8 }
         return guessEightBit(data)
+    }
+
+    /// How much of a file `looksBinary` reads.
+    public static let binarySample = 8_192
+
+    /// Whether `data` looks like a binary file rather than text: in its
+    /// first 8 KB, a NUL byte, or more than 10% control characters (other
+    /// than tab, line breaks, form feed, backspace and escape, which logs
+    /// and terminal output use). Text Cedric reads is never binary: a
+    /// UTF-8 or UTF-16 byte-order mark, or UTF-16 without one (its zero
+    /// bytes fall in one parity, `guessUTF16`).
+    public static func looksBinary(_ data: Data) -> Bool {
+        let sample = data.prefix(binarySample)
+        guard !sample.isEmpty else { return false }
+        let head = [UInt8](sample.prefix(3))
+        if head.starts(with: [0xEF, 0xBB, 0xBF]) || head.starts(with: [0xFF, 0xFE]) || head.starts(with: [0xFE, 0xFF]) { return false }
+        if guessUTF16(sample) != nil { return false }
+        var controls = 0
+        for b in sample {
+            if b == 0 { return true }
+            if (b < 0x20 && b != 9 && b != 10 && b != 13 && b != 12 && b != 8 && b != 0x1B) || b == 0x7F { controls += 1 }
+        }
+        return controls * 10 > sample.count
     }
 
     /// Not UTF-8: Windows-1252, Mac Roman or Latin-1, from the bytes over
@@ -177,7 +202,8 @@ public enum TextCodec {
         }
         guard let raw = decoded else { return nil }
         let (ending, mixed) = detectLineEnding(raw)
-        return DecodedText(text: normalizeLineEndings(raw), encoding: enc, lineEnding: ending, mixedLineEndings: mixed)
+        return DecodedText(text: normalizeLineEndings(raw), encoding: enc, lineEnding: ending, mixedLineEndings: mixed,
+                           looksBinary: looksBinary(data))
     }
 
     /// The most common line ending, and whether more than one kind occurs.
