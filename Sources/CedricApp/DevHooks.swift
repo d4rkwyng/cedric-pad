@@ -38,6 +38,10 @@ import WebKit
 ///   CEDRIC_OWL_LOG=1              print each hint shown
 ///   CEDRIC_OWL_ASSUME_VISIBLE=1   treat windows as visible and the app as active (screen locked)
 ///   CEDRIC_OWL_CHECK=/out/dir     run the owl's in-process check (OwlCheck.swift) and quit
+///   CEDRIC_OWL_SOURCE=rulesAndAI  the owl's hint source for this run, not saved
+///   CEDRIC_AI_CHECK=/out/dir      run the local-AI check (AICheck.swift) and quit; with
+///                                 CEDRIC_AI_FAKE=1.5 (fake provider) or CEDRIC_AI_CHECK_MODEL=id (live)
+///   CEDRIC_AI*                    run-only AI settings: see AIStore in Owl/OwlAISettings.swift
 @MainActor
 enum DevHooks {
     static let env = ProcessInfo.processInfo.environment
@@ -121,6 +125,9 @@ enum DevHooks {
             OwlHub.shared.onPresent = { _, h in print("owl: shown \(h.id): \(h.title)"); fflush(stdout) }
         }
         if let out = env["CEDRIC_OWL_CHECK"], !out.isEmpty { OwlCheck.run(app, out: out) }
+        if let out = env["CEDRIC_AI_CHECK"], !out.isEmpty {
+            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in MainActor.assumeIsolated { AICheck.run(app, out: out) } }
+        }
         if let out = env["CEDRIC_SNAPSHOT"], !out.isEmpty { scheduleSnapshot(out) }
     }
 

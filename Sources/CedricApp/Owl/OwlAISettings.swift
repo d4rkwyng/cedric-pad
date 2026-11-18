@@ -85,6 +85,9 @@ final class AISettingsSheet: NSObject {
     let cancelButton = NSButton(title: String(localized: "Cancel"), target: nil, action: nil)
 
     private var settings: LocalAISettings
+    private var grid: NSGridView?
+    /// The menu's intervals, plus the saved one if it isn't a menu value.
+    private lazy var intervals: [TimeInterval] = Array(Set(LocalAISettings.intervalChoices + [settings.minInterval])).sorted()
     private(set) var report: ConnectionReport?
     private(set) var testing = false
     /// Called when the sheet closes (saved or not), for the checks.
@@ -111,9 +114,10 @@ final class AISettingsSheet: NSObject {
         }
         for p in [presetPopup, modelPopup, intervalPopup] { p.target = self; p.action = #selector(changed) }
         presetPopup.addItems(withTitles: LocalAISettings.Backend.allCases.map(\.title))
-        intervalPopup.addItems(withTitles: LocalAISettings.intervalChoices.map {
-            $0 < 120 ? String(localized: "\(Int($0)) seconds") : String(localized: "\(Int($0) / 60) minutes")
-        })
+        for v in intervals {
+            intervalPopup.addItem(withTitle: v == 1 ? String(localized: "1 second")
+                                  : v < 120 ? String(localized: "\(Int(v)) seconds") : String(localized: "\(Int(v) / 60) minutes"))
+        }
         urlField.target = self
         urlField.action = #selector(changed)
         urlField.placeholderString = "http://studio.local:1234/v1"
@@ -140,13 +144,16 @@ final class AISettingsSheet: NSObject {
             [NSGridCell.emptyContentView, weakLabel],
             [label(String(localized: "Check at most every:")), intervalPopup],
         ])
+        self.grid = grid
         grid.rowSpacing = 8
         grid.columnSpacing = 8
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
-        urlField.widthAnchor.constraint(equalToConstant: 300).isActive = true
-        for l in [privacy, modelsLabel, statusLabel] { l.preferredMaxLayoutWidth = 300 }
-        let buttons = NSStackView(views: [cancelButton, saveButton])
+        urlField.widthAnchor.constraint(equalToConstant: 380).isActive = true
+        for l in [privacy, modelsLabel, statusLabel] { l.preferredMaxLayoutWidth = 380 }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let buttons = NSStackView(views: [spacer, cancelButton, saveButton])
         let stack = NSStackView(views: [grid, buttons])
         stack.orientation = .vertical
         stack.alignment = .trailing
@@ -161,6 +168,7 @@ final class AISettingsSheet: NSObject {
             stack.topAnchor.constraint(equalTo: content.topAnchor),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
+        buttons.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
         panel.contentView = content
     }
 
@@ -169,8 +177,7 @@ final class AISettingsSheet: NSObject {
         enabledBox.state = settings.enabled ? .on : .off
         presetPopup.selectItem(at: LocalAISettings.Backend.allCases.firstIndex(of: settings.backend) ?? 0)
         urlField.stringValue = settings.baseURL.absoluteString
-        let i = LocalAISettings.intervalChoices.firstIndex { $0 >= settings.minInterval } ?? 2
-        intervalPopup.selectItem(at: i)
+        intervalPopup.selectItem(at: intervals.firstIndex(of: settings.minInterval) ?? 0)
         refresh()
     }
 
@@ -211,7 +218,9 @@ final class AISettingsSheet: NSObject {
         } else {
             modelPopup.selectItem(at: 0)
         }
-        weakLabel.isHidden = !(effectiveModel.map(ModelPicker.isWeak) ?? false)
+        let weak = effectiveModel.map(ModelPicker.isWeak) ?? false
+        weakLabel.isHidden = !weak
+        grid?.cell(for: weakLabel)?.row?.isHidden = !weak
 
         if let r = report {
             let list = r.models.filter { !$0.isEmbedding }.map { m -> String in
@@ -224,6 +233,16 @@ final class AISettingsSheet: NSObject {
             modelsLabel.stringValue = ""
             modelsLabel.isHidden = true
         }
+        grid?.cell(for: modelsLabel)?.row?.isHidden = modelsLabel.isHidden
+        fit()
+    }
+
+    /// The panel takes the content's size (rows come and go).
+    private func fit() {
+        guard let content = panel.contentView else { return }
+        content.layoutSubtreeIfNeeded()
+        let size = content.fittingSize
+        if size.height > 0 { panel.setContentSize(NSSize(width: max(size.width, 480), height: size.height)) }
     }
 
     /// Controls → settings. False (with a message) if the address isn't local.
@@ -243,7 +262,7 @@ final class AISettingsSheet: NSObject {
             if url != settings.baseURL { settings.baseURL = url; report = nil }
         }
         settings.model = modelPopup.selectedItem?.representedObject as? String
-        settings.minInterval = LocalAISettings.intervalChoices[max(0, intervalPopup.indexOfSelectedItem)]
+        settings.minInterval = intervals[max(0, intervalPopup.indexOfSelectedItem)]
         return true
     }
 
