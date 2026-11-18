@@ -296,6 +296,20 @@ import Testing
         for _ in 0..<200 where events.all.count < count { try? await Task.sleep(nanoseconds: 20_000_000) }
     }
 
+    static func isReset(_ e: FileTail.Event) -> Bool { if case .reset = e { return true } else { return false } }
+
+    /// The text a viewer shows after these events.
+    static func shown(_ events: [FileTail.Event]) -> String? {
+        var text: String?
+        for e in events {
+            switch e {
+            case .reset(let t): text = t
+            case .appended(let t): text = (text ?? "") + t
+            }
+        }
+        return text
+    }
+
     func append(_ url: URL, _ s: String) throws {
         let fh = try FileHandle(forWritingTo: url)
         try fh.seekToEnd()
@@ -327,17 +341,26 @@ import Testing
         try fh.truncate(atOffset: 0)
         try fh.write(contentsOf: Data("fresh\n".utf8))
         try fh.close()
-        await waitFor(events, count: 3)
-        #expect(events.all.last == .reset("fresh\n"))
+        // Truncate and write are two steps: the tail may see them as one
+        // .reset("fresh\n"), or as .reset("") then .appended("fresh\n") when
+        // it looks in between. Either way: a reset first, then this text.
+        for _ in 0..<200 where Self.shown(Array(events.all.dropFirst(2))) != "fresh\n" {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let truncated = Array(events.all.dropFirst(2))
+        #expect(truncated.first.map(Self.isReset) == true)
+        #expect(truncated.dropFirst().allSatisfy { !Self.isReset($0) })
+        #expect(Self.shown(truncated) == "fresh\n")
 
         // Rotate: move away, create a new file at the path.
+        let seen = events.all.count
         try FileManager.default.moveItem(at: url, to: dir.appendingPathComponent("app.log.1"))
         try await Task.sleep(nanoseconds: 100_000_000)
         try "rotated\n".write(to: url, atomically: false, encoding: .utf8)
-        await waitFor(events, count: 4)
+        await waitFor(events, count: seen + 1)
         #expect(events.all.last == .reset("rotated\n"))
         try append(url, "after\n")
-        await waitFor(events, count: 5)
+        await waitFor(events, count: seen + 2)
         #expect(events.all.last == .appended("after\n"))
     }
 
