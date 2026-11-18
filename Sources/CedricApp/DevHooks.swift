@@ -38,6 +38,9 @@ import WebKit
 ///   CEDRIC_OWL_LOG=1              print each hint shown
 ///   CEDRIC_OWL_ASSUME_VISIBLE=1   treat windows as visible and the app as active (screen locked)
 ///   CEDRIC_OWL_CHECK=/out/dir     run the owl's in-process check (OwlCheck.swift) and quit
+///   CEDRIC_DUMP_SHORTCUTS=1       print every menu shortcut, exit 1 on a clash
+///   CEDRIC_CHECK=name             in-process checks of the editor tools (DevChecks.swift;
+///                                 Scripts/tools-check.sh runs them all)
 @MainActor
 enum DevHooks {
     static let env = ProcessInfo.processInfo.environment
@@ -122,6 +125,8 @@ enum DevHooks {
         }
         if let out = env["CEDRIC_OWL_CHECK"], !out.isEmpty { OwlCheck.run(app, out: out) }
         if let out = env["CEDRIC_SNAPSHOT"], !out.isEmpty { scheduleSnapshot(out) }
+        if env["CEDRIC_DUMP_SHORTCUTS"] == "1" { exit(DevChecks.dumpShortcuts() ? 0 : 1) }
+        if let check = env["CEDRIC_CHECK"] { DevChecks.start(check, app) }
     }
 
     // MARK: Perf
@@ -245,8 +250,12 @@ enum DevHooks {
                 }
                 return
             }
-            if v is GutterView || v is NSScroller || v is FindBar {
+            if v is GutterView || v is NSScroller || v is FindBar || v is FindInFilesPanel || v is DiffHeader {
                 if let r = render(v, v.bounds) { overlays.append((v.convert(v.bounds, to: root), r, 1)) }
+                return
+            } else if let dv = v as? DiffView {
+                let vis = dv.visibleRect
+                if let r = render(dv, vis) { overlays.append((dv.convert(vis, to: root), r, 1)) }
                 return
             } else if let tv = v as? EditorTextView {
                 let vis = tv.visibleRect

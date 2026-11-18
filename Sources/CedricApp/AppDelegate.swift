@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         for url in toOpen { open(url) }
         pendingOpen = []
         if tabs.isEmpty { newTab(nil) }
+        rebuildRecentMenu()
         launched = true
         DevHooks.afterLaunch(self)
     }
@@ -150,8 +151,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     var currentTab: EditorWindowController? {
         tabs.first { $0.window === NSApp.keyWindow } ?? tabs.first { $0.window === NSApp.mainWindow }
-            // The owl check on a locked screen has no key window.
-            ?? (OwlController.assumeVisible ? tabs.last : nil)
+            // Not active (launched from a script, screen locked): the
+            // frontmost tab. The owl check (CEDRIC_OWL_ASSUME_VISIBLE) may
+            // run with no window ordered in; it falls back to the newest tab.
+            ?? (NSApp.keyWindow == nil && NSApp.mainWindow == nil || OwlController.assumeVisible
+                ? NSApp.orderedWindows.lazy.compactMap { w in self.tabs.first { $0.window === w } }.first
+                    ?? (OwlController.assumeVisible ? tabs.last : nil)
+                : nil)
     }
 
     /// Opens a file in a new tab, or focuses the tab that has it. An empty,
@@ -173,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let tab = makeTab(doc, text: d.text)
             blank?.window?.close()
             OwlHub.shared.activity(in: tab)
-            NSDocumentController.shared.noteNewRecentDocumentURL(std)
+            noteRecent(std)
             return tab
         } catch {
             NSAlert(error: error).runModal()
@@ -182,8 +188,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func tabBecameKey(_ tab: EditorWindowController) {
-        // Keep `tabs` roughly in recency order is not needed; nothing to do yet.
+        // The Find in Files panel follows the selected tab.
+        if let p = findInFiles, p.isShown { tab.dockSidePanel(p) }
     }
+
+    /// Find in Files (one panel, docked in whichever tab is selected) and
+    /// open Compare windows (EditorTools.swift).
+    var findInFiles: FindInFilesPanel?
+    var compareWindows: [CompareWindowController] = []
 
     // MARK: Session
 
@@ -371,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)), #selector(showFind(_:)), #selector(showReplace(_:)),
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(goToLine(_:)), #selector(useSelectionForFind(_:)):
             return tab != nil
-        default: break
+        default: return validateToolItem(item)
         }
         return true
     }

@@ -52,7 +52,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private(set) var colorizer: SyntaxColorizer!
     let findBar = FindBar()
     let statusBar = StatusBar()
-    private let split = NSSplitView()
+    let split = NSSplitView()
     private var container: EditorContainer!
     private(set) var preview: PreviewController?
     var previewVisible: Bool { preview != nil && !(preview!.webView.isHidden) && split.subviews.count > 1 }
@@ -64,6 +64,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var onClose: ((EditorWindowController) -> Void)?
     /// Cedric the owl, while View › Show Cedric the Owl is on.
     private(set) var owl: OwlController?
+    /// View › Follow File (EditorTools.swift).
+    var tail: FileTail?
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -179,7 +181,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     var text: String { textView.string }
 
-    private func baseAttributes() -> [NSAttributedString.Key: Any] {
+    func baseAttributes() -> [NSAttributedString.Key: Any] {
         let font = Settings.shared.font
         let para = NSMutableParagraphStyle()
         let space = ("    " as NSString).size(withAttributes: [.font: font]).width
@@ -467,7 +469,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             let l = LanguageDetector.detect(fileName: url.lastPathComponent, content: textView.string)
             if l != doc.language { setLanguage(l, manual: false) }
         }
-        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        (NSApp.delegate as? AppDelegate)?.noteRecent(url)
         updateTitle()
         updateStatus()
         owl?.noteSave()
@@ -483,7 +485,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Reloads from disk if the file changed and the tab has no unsaved
     /// edits; with unsaved edits, flags it for the owl's "Reload?".
     func reloadIfChangedOnDisk() {
-        guard let url = doc.fileURL,
+        guard tail == nil, let url = doc.fileURL,
               let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
               let known = doc.fileModified, mod > known else { return }
         if doc.isDirty {
@@ -594,6 +596,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observers = []
         previewTimer?.invalidate()
         owl?.detach()
+        tail?.stop()
+        tail = nil
         onClose?(self)
     }
 

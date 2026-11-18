@@ -154,76 +154,17 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
     }
 }
 
-/// Re-indents JSON without reordering keys (JSONSerialization would sort
-/// them through NSDictionary).
-public enum JSONFormatter {
+/// The owl's "pretty-print this?" check, on the same validating formatter
+/// as Text Tools › JSON Pretty Print (TextTools.swift), so the owl's fix and
+/// the menu command always produce identical text.
+extension JSONFormatter {
     /// The pretty-printed text if `s` is a JSON object or array written on
-    /// one line; nil if it isn't JSON or already spans several lines.
+    /// one line; nil if it isn't valid JSON or already spans several lines.
     public static func prettyIfMinified(_ s: String) -> String? {
         let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = trimmed.first, first == "{" || first == "[", !trimmed.contains("\n"),
-              !hasTrailingComma(trimmed), // JSONSerialization lets these through
-              (try? JSONSerialization.jsonObject(with: Data(trimmed.utf8))) != nil else { return nil }
-        let pretty = format(trimmed)
+              let pretty = try? format(trimmed, pretty: true) else { return nil }
         guard pretty.contains("\n") else { return nil } // {} or []
         return pretty + (s.hasSuffix("\n") ? "\n" : "")
-    }
-
-    /// A comma right before a closing bracket, outside strings.
-    static func hasTrailingComma(_ s: String) -> Bool {
-        var inString = false, escaped = false, lastComma = false
-        for c in s.utf8 {
-            if inString {
-                if escaped { escaped = false } else if c == 92 { escaped = true } else if c == 34 { inString = false }
-                continue
-            }
-            switch c {
-            case 34: inString = true; lastComma = false
-            case 44: lastComma = true
-            case 125, 93: if lastComma { return true }
-            case 32, 9, 10, 13: break
-            default: lastComma = false
-            }
-        }
-        return false
-    }
-
-    /// Two-space indents, one member per line, "key": value.
-    public static func format(_ s: String, indent: String = "  ") -> String {
-        var out = ""
-        out.reserveCapacity(s.utf8.count * 2)
-        var depth = 0
-        var inString = false, escaped = false
-        let chars = Array(s)
-        var i = 0
-        func newline() { out.append("\n"); for _ in 0..<depth { out.append(indent) } }
-        while i < chars.count {
-            let c = chars[i]
-            if inString {
-                out.append(c)
-                if escaped { escaped = false } else if c == "\\" { escaped = true } else if c == "\"" { inString = false }
-                i += 1
-                continue
-            }
-            switch c {
-            case "\"": inString = true; out.append(c)
-            case "{", "[":
-                // Empty object or array stays on one line.
-                var j = i + 1
-                while j < chars.count, chars[j].isWhitespace { j += 1 }
-                if j < chars.count, chars[j] == (c == "{" ? "}" : "]") {
-                    out.append(c); out.append(chars[j]); i = j
-                } else {
-                    out.append(c); depth += 1; newline()
-                }
-            case "}", "]": depth = max(0, depth - 1); newline(); out.append(c)
-            case ",": out.append(c); newline()
-            case ":": out.append(": ")
-            case " ", "\t", "\n", "\r": break
-            default: out.append(c)
-            }
-            i += 1
-        }
-        return out
     }
 }

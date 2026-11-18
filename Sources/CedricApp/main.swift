@@ -22,6 +22,40 @@ func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
     return parent
 }
 
+/// Edit › Text Tools, with their key equivalents (⌃⌘ + a letter; ⇧ for
+/// the inverse). `CEDRIC_DUMP_SHORTCUTS=1` lists every shortcut and fails
+/// on a clash.
+let textToolShortcuts: [(TextTool?, String, NSEvent.ModifierFlags)] = [
+    (.sortAscending, "s", [.control, .command]),
+    (.sortDescending, "s", [.control, .command, .shift]),
+    (.sortNumeric, "s", [.control, .command, .option]),
+    (.removeDuplicateLines, "r", [.control, .command]),
+    (.reverseLines, "r", [.control, .command, .shift]),
+    (.joinLines, "j", [.control, .command]),
+    (.trimTrailingWhitespace, "w", [.control, .command]),
+    (nil, "", []),
+    (.uppercase, "u", [.control, .command]),
+    (.lowercase, "l", [.control, .command]),
+    (.titleCase, "t", [.control, .command]),
+    (nil, "", []),
+    (.jsonPrettyPrint, "j", [.control, .command, .option]),
+    (.jsonMinify, "j", [.control, .command, .option, .shift]),
+    (.xmlPrettyPrint, "x", [.control, .command, .option]),
+    (nil, "", []),
+    (.base64Encode, "b", [.control, .command]),
+    (.base64Decode, "b", [.control, .command, .shift]),
+    (.urlEncode, "e", [.control, .command]),
+    (.urlDecode, "e", [.control, .command, .shift]),
+]
+
+@MainActor
+func textToolItems() -> [NSMenuItem] {
+    textToolShortcuts.map { tool, key, mods in
+        guard let tool else { return .separator() }
+        return item(tool.displayName, #selector(AppDelegate.textToolMenu(_:)), key, mods, represented: tool.rawValue)
+    }
+}
+
 @MainActor
 func buildMainMenu() -> NSMenu {
     let main = NSMenu()
@@ -42,6 +76,8 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "New Tab"), #selector(AppDelegate.newTab(_:)), "t"),
         item(String(localized: "New Window"), #selector(AppDelegate.newWindow(_:)), "n", [.command, .shift]),
         item(String(localized: "Open…"), #selector(AppDelegate.openDocument(_:)), "o"),
+        // Filled by AppDelegate.rebuildRecentMenu from the system recent-documents list.
+        submenu(AppDelegate.recentMenuTitle, []),
         .separator(),
         item(String(localized: "Close Tab"), #selector(NSWindow.performClose(_:)), "w"),
         item(String(localized: "Save"), #selector(AppDelegate.saveDocument(_:)), "s"),
@@ -65,7 +101,10 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Select All"), #selector(NSText.selectAll(_:)), "a"),
         .separator(),
         submenu(String(localized: "Find"), findItems),
+        item(String(localized: "Find in Files…"), #selector(AppDelegate.findInFilesMenu(_:)), "f", [.command, .shift]),
         item(String(localized: "Go to Line…"), #selector(AppDelegate.goToLine(_:)), "l"),
+        .separator(),
+        submenu(String(localized: "Text Tools"), textToolItems()),
     ]))
 
     main.addItem(submenu(String(localized: "View"), [
@@ -82,6 +121,13 @@ func buildMainMenu() -> NSMenu {
             item($0 == .rules ? String(localized: "Rules") : String(localized: "Rules + AI"),
                  #selector(AppDelegate.pickOwlHintSource(_:)), represented: $0.rawValue)
         }),
+        .separator(),
+        item(String(localized: "Compare With…"), #selector(AppDelegate.compareWithMenu(_:)), "c", [.command, .option]),
+        item(String(localized: "Next Difference"), #selector(CompareWindowController.nextDifference(_:)),
+             String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.command, .option]),
+        item(String(localized: "Previous Difference"), #selector(CompareWindowController.previousDifference(_:)),
+             String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), [.command, .option]),
+        item(String(localized: "Follow File"), #selector(AppDelegate.followFileMenu(_:)), "t", [.command, .option]),
         .separator(),
         item(String(localized: "Zoom In"), #selector(AppDelegate.zoomIn(_:)), "="),
         item(String(localized: "Zoom Out"), #selector(AppDelegate.zoomOut(_:)), "-"),

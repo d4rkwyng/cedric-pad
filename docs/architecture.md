@@ -105,16 +105,86 @@ Scroll sync: Markdown blocks carry `data-line`; the app scrolls the preview to
 the last block at or above the editor's top line (in the app's own content
 world, so it works with page JavaScript off). HTML scrolls by fraction.
 
-## Where the v0 non-goals plug in
+## Editor tools
 
-- **Find in files:** `FindEngine` already works on any NSString; a results
-  panel would read files through `TextCodec.decode` off the main thread.
-- **Compare tabs:** a second editor in the split view (the preview slot),
-  fed by a line diff over two `LineIndex`es.
-- **Text tools** (sort, case, trim, base64): pure functions in CedricCore
-  applied through `shouldChangeText` so they undo.
-- **Tail mode:** `reloadIfChangedOnDisk` already exists; tail mode would
-  append only the new bytes and keep the caret at the end.
+Notepad++'s everyday extras. The logic is in CedricCore (tested without a
+window); the app side is `EditorTools.swift`, `FindInFilesPanel.swift` and
+`CompareView.swift`.
+
+| Feature | Menu | Shortcut |
+|---|---|---|
+| Open Recent | File › Open Recent (+ Clear Menu) | ⌥⌘1 … ⌥⌘9 |
+| Sort lines A→Z / Z→A / numerically | Edit › Text Tools | ⌃⌘S / ⌃⇧⌘S / ⌃⌥⌘S |
+| Remove duplicate lines / reverse lines | Edit › Text Tools | ⌃⌘R / ⌃⇧⌘R |
+| Join lines / trim trailing whitespace | Edit › Text Tools | ⌃⌘J / ⌃⌘W |
+| UPPER / lower / Title case | Edit › Text Tools | ⌃⌘U / ⌃⌘L / ⌃⌘T |
+| JSON pretty-print / minify, XML pretty-print | Edit › Text Tools | ⌃⌥⌘J / ⌃⌥⇧⌘J / ⌃⌥⌘X |
+| Base64 encode / decode, URL encode / decode | Edit › Text Tools | ⌃⌘B / ⌃⇧⌘B, ⌃⌘E / ⌃⇧⌘E |
+| Find in Files | Edit › Find in Files… | ⇧⌘F |
+| Compare two tabs | View › Compare With… (next/previous difference) | ⌥⌘C (⌥⌘↓ / ⌥⌘↑) |
+| Follow a log file | View › Follow File | ⌥⌘T |
+
+`CEDRIC_DUMP_SHORTCUTS=1` prints every key equivalent in the main menu and
+exits 1 on a clash with another item or with a system shortcut (Lock Screen
+⌃⌘Q, Look Up ⌃⌘D, Spotlight, screenshots…).
+
+- **Open Recent** reads and writes NSDocumentController's recent-documents
+  list (the system one, shared with the Dock menu) although Cedric doesn't
+  use NSDocument: `AppDelegate.noteRecent` records opens and saves and
+  rebuilds the submenu, so its key equivalents always match the list.
+  Clear Menu uses Cedric's own action, so NSDocumentController doesn't try
+  to manage (and reopen through NSDocument) the menu itself.
+- **Text tools** (`TextTools`, `JSONFormatter`): pure `String → String`
+  functions. They apply to the selection, or the whole document when
+  nothing is selected; line tools widen a partial selection to whole lines.
+  The change goes through `shouldChangeText`/`didChangeText` inside one
+  undo group named after the tool, so one ⌘Z undoes it. JSON is
+  re-printed by a small validating parser that keeps key order and number
+  spelling (JSONSerialization does neither) and reports the line and column
+  of an error; XML uses `XMLDocument`. Errors show as an alert sheet and
+  leave the text alone.
+- **Find in Files** (`FileSearch`): collects the files under the folder
+  (exclude globs match any path component, so `.git`, `node_modules`,
+  `build`, `dist` skip whole folders; include globs match the file name, or
+  the relative path if they contain `/`), sorts them, and searches each on
+  a background queue with the same regex builder as the find bar. Files
+  over 20 MB and binaries (a NUL in the first 8 KB, UTF-16 with a BOM
+  excepted, or undecodable) are skipped and counted. One result per
+  matching line, batched to the main queue at most every 50 ms or 200
+  results, capped at 10,000; Stop sets a flag checked per file and every
+  256 results. The panel is one view, docked in the split view of whichever
+  tab is selected; a click opens the file with the match selected.
+- **Compare** (`LineDiff`): Myers' O(ND) diff over lines (interned to
+  integers, common prefix and suffix trimmed first). It keeps each step's
+  diagonal array for the walk back, O(D²) memory, so past 4,000 differences
+  the middle is shown as one replaced block. A run of deletions followed by
+  insertions pairs up as changed rows. `DiffView` draws only the visible
+  rows: added, removed and changed lines are the theme's background mixed
+  with green, red and amber; the differing part of a changed line is
+  stronger. A snapshot of the two texts, read-only, in its own tab.
+- **Follow File** (`FileTail`): a DispatchSource on the file (write, extend,
+  delete, rename, revoke). Growth reads only the new bytes from the last
+  offset, holding back a character or CRLF cut in half; a smaller size or a
+  new inode (truncate, replace) re-reads the whole file; delete or rename
+  (rotation) polls every 250 ms until the path exists again and starts
+  over. The tab is read-only while following, stays clean, and appends
+  without `didChangeText` (the line index and colouring update from the
+  storage edit). It scrolls to the end only if it was at the end.
+
+Checks: unit tests in `EditorToolsTests.swift` (every transform, the diff
+against a brute-force LCS, the walker on a temp tree with excluded
+folders, a binary and a 21 MB file, tail on append, truncate, rotate and a
+split UTF-8 character). In-process: `Scripts/tools-check.sh` launches the
+app once per feature with `CEDRIC_CHECK=…` (`DevChecks.swift`), drives it
+with key and mouse NSEvents and writes snapshots. When Cedric can't become
+the active app (screen locked, launched from a script) there is no key
+window and AppKit won't route a synthetic key equivalent or a click on a
+table: the check then sends the matching menu item's action along the front
+window's responder chain, and selects the clicked row and sends the table's
+action, and says so in its output.
+
+## Where the remaining non-goals plug in
+
 - **Macros:** record the `NSTextView` insert/delete commands the window
   controller already routes.
 - **Local AI hints:** an `OwlHintProvider` registered with `isAI: true`
