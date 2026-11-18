@@ -151,6 +151,50 @@ enum OwlChatCheck {
         }
     }
 
-    /// Hook for later steps (animations, grammar).
-    static var extra: @MainActor (EditorWindowController, String) -> Void = { _, out in OwlCheck.finish(out) }
+    /// Hook for later steps.
+    static var extra: @MainActor (EditorWindowController, String) -> Void = { tab, out in animations(tab, out: out) }
+
+    /// The owl's animations, then the same under Reduce Motion.
+    static func animations(_ tab: EditorWindowController, out: String) {
+        guard let owl = tab.owl, let window = tab.window else { OwlCheck.finish(out); return }
+        let v = owl.owl
+        OwlView.reduceMotion = false
+        owl.reduceMotionChanged()
+        owl.chatPhase(.thinking)
+        check(v.isPlaying && v.inState, "thinking loops while the AI works")
+        owl.chatPhase(.searching)
+        check(v.isPlaying, "searching loops while a search tool runs")
+        owl.chatPhase(nil)
+        check(!v.isPlaying && v.pose == .idle, "back to idle when the answer is done")
+        owl.nod()
+        check(v.isPlaying, "a nod plays after an edit is applied")
+        // Typing stops a gesture at once.
+        window.makeFirstResponder(tab.textView)
+        OwlCheck.key(window, "y", code: 16, [])
+        check(!v.isPlaying, "typing stops the gesture (never animates while typing)")
+        let looks = owl.looks
+        after(1.1) {
+            owl.idleTickNow()
+            check(owl.looks == looks + 1 && v.isPlaying, "after typing stops he looks toward the caret")
+            v.stopSequence()
+            // Reduce Motion.
+            OwlView.reduceMotion = true
+            owl.reduceMotionChanged()
+            owl.chatPhase(.thinking)
+            check(!v.isPlaying && v.inState, "Reduce Motion: thinking is a still frame, no timer")
+            owl.chatPhase(.writing)
+            check(!v.isPlaying, "Reduce Motion: writing is a still frame")
+            owl.chatPhase(nil)
+            owl.nod()
+            v.flap()
+            v.wave()
+            check(!v.isPlaying, "Reduce Motion: no nod, flap or wave")
+            owl.idleTickNow()
+            check(!v.isPlaying, "Reduce Motion: an idle tick animates nothing")
+            OwlCheck.snapshot(window, "\(out)/anim-reduce-motion.png") {
+                OwlView.reduceMotion = OwlView.currentReduceMotion()
+                OwlCheck.finish(out)
+            }
+        }
+    }
 }

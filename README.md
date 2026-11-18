@@ -344,7 +344,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Cedric the owl** (View › Show Cedric the Owl, off by default): a small
   assistant in the corner that offers one hint at a time, with **Fix it**
   where a safe fix exists, **Show Me** where it points at something, **Not
-  now** and **Don't show again**. His rules need no AI and only ever look
+  now** and **Don't show again**. He blinks and glances now and then,
+  looks toward the caret when you stop typing (never moves while you
+  type), waves once per launch, points at the lines a hint is about, nods
+  when a fix is applied, thinks / searches / writes while the AI works,
+  and falls asleep after 5 minutes without typing (a click wakes him).
+  With Reduce Motion on (System Settings › Accessibility) he stays still:
+  no gestures, a single still frame for each state. His rules need no AI and only ever look
   at the text in view (at most 8 KB):
   - warnings: merge-conflict markers left in the file; something that looks
     like a secret (a private key, an AWS key, a GitHub, Slack, Stripe or
