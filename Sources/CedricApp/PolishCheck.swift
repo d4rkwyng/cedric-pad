@@ -257,6 +257,23 @@ enum PolishCheck {
             </body>
             </html>
             """, false),
+            ("deploy.ps1", #"""
+            <#
+            .SYNOPSIS
+                Deploys Cedric's notes.
+            #>
+            [CmdletBinding()]
+            param([Parameter(Mandatory)][string]$Path, [int]$Retries = 3)
+
+            function Publish-Notes {
+                $size = (Get-Item $Path).Length / 1KB
+                if ($size -gt 512 -and $env:CI) { Write-Warning "Big: $([math]::Round($size)) KB" }
+                $body = @"
+            Owl: $env:USERNAME
+            "@
+                Write-Host "Done in $Retries tries" -ForegroundColor Green # hoo
+            }
+            """#, false),
         ]
         for (theme, name) in [(EditorTheme.cedric, "cedric"), (.cedricNight, "cedric-night")] {
             TypingCheck.apply(TypingCheck.ThemeCase(name: name, theme: theme, system: nil))
@@ -267,7 +284,26 @@ enum PolishCheck {
                 w.setContentSize(NSSize(width: 1100, height: 640))
                 w.makeKeyAndOrderFront(nil)
                 if preview { tab.togglePreview() }
+                let ps = file.hasSuffix(".ps1")
+                if ps { tab.toggleOutline() }
                 TypingCheck.settle(preview ? 1.5 : 0.4)
+                if ps {
+                    // Coloured as PowerShell: a cmdlet, a variable in a string, a help keyword.
+                    let ns = tab.textView.string as NSString
+                    func color(_ word: String) -> UInt32? {
+                        let r = ns.range(of: word)
+                        guard r.location != NSNotFound, let c = tab.textView.textStorage?.attribute(.foregroundColor, at: r.location, effectiveRange: nil) as? NSColor,
+                              let rgb = c.usingColorSpace(.sRGB) else { return nil }
+                        return UInt32(rgb.redComponent * 255 + 0.5) << 16 | UInt32(rgb.greenComponent * 255 + 0.5) << 8 | UInt32(rgb.blueComponent * 255 + 0.5)
+                    }
+                    let p = tab.palette
+                    let want: [(String, TokenKind)] = [("Write-Host", .function), ("$Retries", .variable), (".SYNOPSIS", .keyword), ("-gt", .keyword), ("[string]", .type)]
+                    let wrong = want.filter { color($0.0) != p.color(for: $0.1) }.map(\.0)
+                    report(tab.doc.language == .powershell && wrong.isEmpty, "theme/\(name)/powershell-colours",
+                           "language=\(tab.doc.language) wrong=\(wrong)")
+                    let titles = tab.outline.sidebar?.headings.map(\.title) ?? []
+                    report(tab.outlineVisible && titles == ["Publish-Notes"], "theme/\(name)/powershell-outline", "titles=\(titles)")
+                }
                 let path = "\(out)/theme-\(name)-\((file as NSString).pathExtension).png"
                 var finished = false
                 DevHooks.write(window: w, to: path) { finished = true }
@@ -276,6 +312,7 @@ enum PolishCheck {
                 report(finished && FileManager.default.fileExists(atPath: path) && tab.palette.name == theme.palette(systemIsDark: false).name,
                        "theme/\(name)/\(file)", "palette=\(tab.palette.name) wrote=\(finished)")
                 if preview { tab.togglePreview() }
+                if ps { tab.hideOutline() }
                 tab.doc.markSaved()
                 w.close()
                 TypingCheck.settle(0.05)

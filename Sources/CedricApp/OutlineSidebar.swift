@@ -17,6 +17,10 @@ final class OutlineSidebar: NSView, NSTableViewDataSource, NSTableViewDelegate, 
     let scroll = NSScrollView()
     let note = NSTextField(labelWithString: String(localized: "No headings"))
     private(set) var headings: [MarkdownOutline.Heading] = []
+    /// A PowerShell outline: functions, not headings.
+    var listsFunctions = false {
+        didSet { field.placeholderString = listsFunctions ? String(localized: "Filter Functions") : String(localized: "Filter Headings") }
+    }
     /// Rows shown (indexes into `headings`) after the filter.
     private(set) var rows: [Int] = []
     private var settingSelection = false
@@ -101,7 +105,8 @@ final class OutlineSidebar: NSView, NSTableViewDataSource, NSTableViewDelegate, 
         rows = q.isEmpty ? Array(headings.indices)
             : headings.indices.filter { headings[$0].title.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
         note.isHidden = !rows.isEmpty
-        note.stringValue = headings.isEmpty ? String(localized: "No headings") : String(localized: "No matching headings")
+        note.stringValue = headings.isEmpty ? (listsFunctions ? String(localized: "No functions") : String(localized: "No headings"))
+                                            : String(localized: "No matching headings")
         needsLayout = true
         table.reloadData()
     }
@@ -206,7 +211,7 @@ final class OutlineState {
     private static let queue = DispatchQueue(label: "cedric.outline", qos: .userInitiated)
 
     /// Rebuilds the list from `text` off the main thread.
-    func rebuild(_ text: String, large: Bool, then: @escaping @MainActor () -> Void) {
+    func rebuild(_ text: String, language: Language, large: Bool, then: @escaping @MainActor () -> Void) {
         generation += 1
         let gen = generation
         ticket.set(gen)
@@ -214,7 +219,8 @@ final class OutlineState {
         let limit = large ? OutlineSidebar.largeLimit : .max
         Self.queue.async {
             guard ticket.value == gen else { return }
-            let h = MarkdownOutline.headings(in: text, limit: limit)
+            let h = language == .powershell ? PowerShellOutline.entries(in: text, limit: limit)
+                                            : MarkdownOutline.headings(in: text, limit: limit)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard gen == self.generation, let s = self.sidebar else { return }
@@ -232,7 +238,7 @@ extension EditorWindowController {
     /// View › Show Outline (⌃⌘O).
     func toggleOutline() {
         if outline.visible { hideOutline(); return }
-        guard doc.language == .markdown else { NSSound.beep(); return }
+        guard doc.language.hasOutline else { NSSound.beep(); return }
         showOutline()
         outline.transient = false
     }
@@ -253,7 +259,7 @@ extension EditorWindowController {
 
     /// Edit › Go to Heading… (⇧⌘J): the outline, with its filter focused.
     func goToHeading() {
-        guard doc.language == .markdown else { NSSound.beep(); return }
+        guard doc.language.hasOutline else { NSSound.beep(); return }
         if !outline.visible {
             showOutline()
             outline.transient = true
@@ -287,13 +293,14 @@ extension EditorWindowController {
 
     func refreshOutline() {
         guard outline.visible else { return }
-        outline.rebuild(textView.string, large: extrasPaused) { [weak self] in self?.updateOutlineCurrent() }
+        outline.sidebar?.listsFunctions = doc.language == .powershell
+        outline.rebuild(textView.string, language: doc.language, large: extrasPaused) { [weak self] in self?.updateOutlineCurrent() }
     }
 
     /// The text changed: rebuild when typing pauses (not in large mode).
     func outlineTextChanged() {
         guard outline.visible else { return }
-        if doc.language != .markdown { hideOutline(); return }
+        if !doc.language.hasOutline { hideOutline(); return }
         guard !extrasPaused else { return }
         outline.timer?.invalidate()
         outline.timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in

@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// (OfficeTab.swift), likewise. `viewerTabs` is all three (ViewerTabs.swift).
     var imageTabs: [ImageTabController] = []
     var officeTabs: [OfficeTabController] = []
+    var certificateTabs: [CertificateTabController] = []
     let store = SessionStore(directory: SessionStore.defaultDirectory())
     private let env = ProcessInfo.processInfo.environment
     private var sessionTimer: Timer?
@@ -278,6 +279,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case .image: openImage(std); return nil
         // Word, Excel, PowerPoint, Pages, Numbers, Keynote, RTFD: Quick Look.
         case .office: openOffice(std); return nil
+        // A binary (DER) certificate or PKCS#7 bundle: a read-only certificate tab.
+        case .certificate: openCertificate(std); return nil
         case .text: break
         }
         if let existing = tabs.first(where: { $0.doc.fileURL?.standardizedFileURL == std }) {
@@ -297,6 +300,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             blank?.window?.close()
             OwlHub.shared.activity(in: tab)
             noteRecent(std)
+            // A certificate file (or PEM text): the Certificate panel beside it, a turn later.
+            if Certificates.isCertificateText(d.text, fileName: std.lastPathComponent), !CertificatePanel.closedByUser {
+                DispatchQueue.main.async { [weak tab] in
+                    guard let tab, tab.previewPane == nil, !tab.extrasPaused, tab.showsCertificatePanel else { return }
+                    tab.togglePreview()
+                }
+            }
             return tab
         } catch {
             NSAlert(error: error).runModal()
@@ -508,7 +518,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if st.pdf != nil || !st.hasBuffer && st.path.map(DocumentKind.hasPDFExtension) == true {
             return restorePDFTab(st, into: place)
         }
-        if st.image != nil || st.office != nil { return restoreViewerTab(st, into: place) }
+        if st.image != nil || st.office != nil || st.certificate != nil { return restoreViewerTab(st, into: place) }
         let doc = EditorDocument(id: st.id, fileURL: st.path.map { URL(fileURLWithPath: $0) },
                                  untitledName: st.untitledName ?? st.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Untitled"))
         doc.indentation = st.indentation
@@ -683,16 +693,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(pickTheme(_:)): item.state = (item.representedObject as? String) == s.theme.rawValue ? .on : .off
         case #selector(toggleOutlineMenu(_:)):
             item.state = tab?.outlineVisible == true ? .on : .off
-            return tab?.doc.language == .markdown
-        case #selector(goToHeadingMenu(_:)), #selector(exportHTMLMenu(_:)), #selector(exportPDFMenu(_:)),
+            return tab?.doc.language.hasOutline == true
+        case #selector(goToHeadingMenu(_:)):
+            return tab?.doc.language.hasOutline == true
+        case #selector(exportHTMLMenu(_:)), #selector(exportPDFMenu(_:)),
              #selector(copyAsHTMLMenu(_:)), #selector(copyAsRichTextMenu(_:)):
             return tab?.doc.language == .markdown
         case #selector(togglePreview(_:)):
             item.state = tab?.previewVisible == true ? .on : .off
-            return tab?.doc.language.hasPreview == true
+            return tab?.previewApplies == true
         case #selector(toggleDetachPreview(_:)):
             item.title = tab?.previewDetached == true ? String(localized: "Attach Preview") : String(localized: "Detach Preview")
-            return tab?.doc.language.hasPreview == true
+            return tab?.previewApplies == true
         case #selector(togglePreviewJavaScript(_:)):
             item.state = tab?.previewAllowsJavaScript == true ? .on : .off
             return tab?.previewVisible == true && tab?.preview != nil

@@ -20,6 +20,7 @@ extension AppDelegate {
     /// Every viewer tab, of every kind.
     var viewerTabs: [any ViewerTab] {
         pdfTabs.map { $0 as any ViewerTab } + imageTabs.map { $0 as any ViewerTab } + officeTabs.map { $0 as any ViewerTab }
+            + certificateTabs.map { $0 as any ViewerTab }
     }
 
     /// The viewer tab showing this file, if one is open.
@@ -98,6 +99,8 @@ extension AppDelegate {
         } else if FileManager.default.fileExists(atPath: path) {
             if st.image != nil {
                 makeImageTab(ImageTabController(fileURL: url, id: st.id, state: st.image ?? ImageTabState())).ensureLoaded()
+            } else if st.certificate != nil {
+                makeCertificateTab(CertificateTabController(fileURL: url, id: st.id)).ensureLoaded()
             } else {
                 makeOfficeTab(OfficeTabController(fileURL: url, id: st.id)).ensureLoaded()
             }
@@ -115,6 +118,12 @@ extension AppDelegate {
         if st.image != nil {
             let tab = makeImageTab(ImageTabController(fileURL: url, id: st.id, state: st.image ?? ImageTabState()),
                                    in: place?.host, newWindow: place == nil, show: false, tabIndex: place?.index)
+            if place == nil { tab.ensureLoaded() }
+            return tab
+        }
+        if st.certificate != nil {
+            let tab = makeCertificateTab(CertificateTabController(fileURL: url, id: st.id), in: place?.host, newWindow: place == nil,
+                                         show: false, tabIndex: place?.index)
             if place == nil { tab.ensureLoaded() }
             return tab
         }

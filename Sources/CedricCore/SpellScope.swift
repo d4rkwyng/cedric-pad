@@ -8,15 +8,15 @@ import Foundation
 public enum SpellScope {
     public static func isProse(_ l: Language) -> Bool { l == .plain || l == .markdown }
 
-    /// Data, not writing: JSON, YAML, TOML/INI/.env, XML and CSV/TSV. Their values
+    /// Data, not writing: JSON, YAML, TOML/INI/.env, XML, CSV/TSV and .reg. Their values
     /// are names, ids and settings, so nothing in them is checked.
-    public static func isData(_ l: Language) -> Bool { l == .json || l == .yaml || l == .ini || l == .xml || l == .csv }
+    public static func isData(_ l: Language) -> Bool { l == .json || l == .yaml || l == .ini || l == .xml || l == .csv || l == .registry }
 
     /// File names whose text is data even though it opens as Plain Text
-    /// (CSV and TSV tables).
+    /// (CSV and TSV tables; certificates, keys and requests in PEM).
     public static func isDataFile(_ fileName: String?) -> Bool {
         guard let ext = fileName.map({ ($0 as NSString).pathExtension.lowercased() }) else { return false }
-        return ["csv", "tsv", "tab", "psv"].contains(ext)
+        return ["csv", "tsv", "tab", "psv", "pem", "crt", "cer", "csr", "key", "p7b", "p7c"].contains(ext)
     }
 
     /// Whether spelling is checked at all for this document.

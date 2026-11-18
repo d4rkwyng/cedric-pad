@@ -15,6 +15,7 @@ extension DevChecks {
         case "detachpreview": detachPreview(app)
         case "csvpreview": csvPreview(app)
         case "grammar": grammarCheck(app)
+        case "cert": certificateCheck(app)
         default: return markdownCheck(name, app)
         }
         return true

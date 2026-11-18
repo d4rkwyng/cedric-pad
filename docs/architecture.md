@@ -129,6 +129,31 @@ edit. `Scripts/typing-check.sh` checks typing in every theme.) Lines longer than
 A tree-sitter tokenizer could later implement the same protocol for one
 language where lexical colouring isn't enough.
 
+**PowerShell, batch, .reg** (`PowerShellTokenizer.swift`,
+`WindowsTokenizers.swift`). PowerShell has its own tokenizer, not a
+`CodeSpec`: an expandable string's `$( … )` is code that may hold another
+string with its own subexpression, so the string scanner calls back into
+the code scanner (stopping at the `)` that balances it), to any depth on
+one line. State carries `<# … #>`, a `'…'` or `"…"` string open at the
+line end, and here-strings (`@'` / `@"` ending a line; closed only by
+`'@` / `"@` at column 0). A subexpression left open at a line end inside
+a string isn't carried (the next line is string again). `#` is a comment
+only at a token start (`fix#1` is a word); `[` after a name, `)` or `}` is
+an index, otherwise a `[type]` or, when a `(` follows the name, an
+`[Attribute(…)]` whose arguments are code. Verb-Noun words are cmdlets
+when the verb is an approved one (`Get-Verb`) or the word follows
+`function`/`filter`. Sniffing (`PowerShellSignals`): `param(`,
+`function Verb-Noun`, `[CmdletBinding(`, `$PSVersionTable`, common
+cmdlets, `$x = ` and `-eq` score PowerShell, and a line that scores is
+not also counted as shell (its `$variables` would be). The owl's bracket
+check has a PowerShell lexer (`RulesHintProvider.scanPowerShell`):
+here-strings are skipped whole, `$( … )` inside strings is scanned as
+code, `${any name}` and backtick escapes are skipped, and typographic
+quotes are quotes (PowerShell accepts them), so they are never "curly
+quotes in code". The outline lists `function`/`filter`/`class`/`enum`
+lines outside block comments and here-strings (`PowerShellOutline`).
+Batch and .reg are stateless line tokenizers; .reg is data for spelling.
+
 ## Large documents (long lines, big files)
 
 Derek's report: opening a 636,293-character file that is one line (a game
@@ -1261,3 +1286,60 @@ the app asks "which windows are ours", "is a viewer in front" (then
   main queue for a key every 20 ms and records each wait, with App Nap
   held off), then relaunches to check the session.
 
+## Certificates
+
+`CedricCore/Certificates.swift` (tested in `CertificateTests` with
+certificates made by `/usr/bin/openssl` during the test: RSA with SANs,
+usages and EKUs, EC P-256 named and explicit-curve, a CA and a leaf it
+signed, a request, PKCS#7 in DER and PEM) and
+`CedricApp/CertificateTab.swift`.
+
+- **Reading.** `PEM.blocks` finds `-----BEGIN X-----` … `-----END X-----`
+  blocks (at most 500) with their UTF-16 ranges; a block whose label ends
+  in `PRIVATE KEY` is never base64-decoded. Certificates go through
+  `SecCertificateCreateWithData` and `SecCertificateCopyValues` (subject
+  and issuer by attribute OID, validity, SANs, basic constraints, key
+  usage bits, EKU OIDs, the signature and key algorithms), the serial from
+  `SecCertificateCopySerialNumberData`, the key size from
+  `SecCertificateCopyKey` (for an EC key with explicit curve parameters
+  Security returns no key: the point's length gives the curve), SHA-256 /
+  SHA-1 with CryptoKit. PKCS#7 bundles through `SecItemImport`
+  (`kSecFormatPKCS7`, no keychain). A request's subject, and EKU OIDs,
+  through a small DER reader (`DER`), since Security doesn't read
+  PKCS#10. Security and CryptoKit are system frameworks already loaded in
+  every AppKit process; nothing here runs before a certificate is shown.
+  CedricCore is otherwise Foundation only.
+- **PEM text** stays in the editor. `EditorWindowController.previewApplies`
+  is `language.hasPreview || showsCertificatePanel`
+  (`Certificates.isCertificateText`: a certificate file name, or `BEGIN `
+  in the first 64 K, only for languages without a preview of their own),
+  and the preview pane gets a `CertificatePanel` renderer (native
+  `CertificateDetailsView`, an attributed read-only NSTextView: no
+  WebKit). It parses on a utility queue on each debounced render (2 s in
+  large mode, then only the first megabyte), a generation counter
+  dropping stale results. `AppDelegate.open` shows it one run-loop turn
+  after a certificate text file opens (never during session restore,
+  never in large mode, never once the user closed it with ⌥⌘P:
+  `CertificatePanel.closedByUser`, UserDefaults `certificatePanelClosed`,
+  cleared when it is shown again). Copy links are `.link` attributes
+  (`cedric-copy://N`) handled by the details view's text delegate: each
+  field's value as shown, and per certificate its block exactly as it is
+  in the editor's text (the panel keeps each block's range from
+  `PEM.blocks`); the DER tab's blocks are `PEM.encode` (64 columns, LF). Certificate, key and request file names are data
+  for spelling (no underlines in base64).
+- **DER files**: `DocumentKind.certificate` when the name is .der .cer
+  .crt .p7b .p7c and the file starts with an ASN.1 SEQUENCE (`0x30` and a
+  valid length byte); a PEM `.crt` stays text. `CertificateTabController`
+  is a `ViewerTab` like the Office tab (`certificateTabs`,
+  `SessionTab.certificate`, Reopen Closed Tab, deferred loading for
+  restored tabs); files over 4 MB are refused. Copy as PEM (the default
+  button) puts every certificate's PEM on the clipboard; Open as PEM Text
+  opens it in an untitled tab.
+- **The owl** (`RulesHintProvider.certificateExpiry`, warning
+  `rules.certificate-expiry`): the first whole certificate block in his
+  8 KB window that has expired or expires within 30 days
+  (`OwlDocumentFacts.now`, nil = now, lets tests pick the date).
+- **Check:** `CEDRIC_CHECK=cert` in `Scripts/tools-check.sh`: ⌘A ⌘C, each
+  Copy link (clicked through `NSTextView.clicked(onLink:at:)`) and Copy as
+  PEM compared byte for byte with the files openssl wrote; the clipboard
+  and the remembered setting are saved first and put back.

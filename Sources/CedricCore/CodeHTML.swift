@@ -20,6 +20,8 @@ extension Language {
         "c++": .c, "objc": .c, "objective-c": .c, "objectivec": .c, "objc++": .c, "cuda": .c,
         "postgres": .sql, "postgresql": .sql, "sqlite": .sql, "plsql": .sql,
         "dotenv": .ini, "scss": .css, "less": .css, "xhtml": .html, "vue": .html,
+        "ps": .powershell, "pwsh": .powershell, "posh": .powershell, "bat": .batch, "batchfile": .batch, "cmd": .batch,
+        "reg": .registry,
         "md": .markdown, "text": .plain, "txt": .plain, "plaintext": .plain,
     ]
 

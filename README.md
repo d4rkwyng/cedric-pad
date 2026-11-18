@@ -28,7 +28,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Syntax colouring** for Swift, Python, JavaScript, TypeScript, JSON, YAML,
   Markdown, HTML (with embedded `<script>` and `<style>`), XML (with CDATA;
   `.xml`, `.plist` and friends, no longer coloured as HTML), CSS, shell,
-  C/C++/Objective-C, Ruby, SQL, diff/patch, and INI/TOML/.env/.properties (CSV and TSV open as plain text with a grid preview). Only the visible lines plus a margin are coloured, so
+  C/C++/Objective-C, Ruby, SQL, diff/patch, INI/TOML/.env/.properties,
+  PowerShell (`.ps1` `.psm1` `.psd1`: comments and comment-based help,
+  literal, expandable and here-strings with `$var` and nested `$( … )`
+  coloured inside, variables, Verb-Noun cmdlets, `-Parameters`, `-eq`-style
+  operators, `[types]` and `[Attributes()]`, `1KB` numbers), Windows batch
+  files (`.bat` `.cmd`: `REM`/`::`, labels, `%var%`, `!var!`, `%%i`) and
+  registry exports (`.reg`) (CSV and TSV open as plain text with a grid preview). Only the visible lines plus a margin are coloured, so
   big files stay fast. The language comes from the file extension, a `#!` line,
   or, for pasted text in an untitled tab, from the content; the status bar
   menu overrides it.
@@ -99,7 +105,8 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     the link out but leaves the copied file. Other dropped files still
     open in their own tabs, and in other languages a dropped image opens
     as before.
-- **Markdown outline** (View › Show Outline, ⌃⌘O): the document's
+- **Markdown outline** (View › Show Outline, ⌃⌘O; for a PowerShell
+  script it lists the functions, filters, classes and enums): the document's
   headings (`#` and underlined ones, never a `#` inside fenced code or
   frontmatter), indented by level, at the left of the text. Click one to
   jump there; the heading the caret is under stays selected; the filter
@@ -297,6 +304,27 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   with Cedric's own zip and XML code: strings, numbers, booleans and
   formulas' cached values; dates come out as their serial numbers). File ›
   Open in <default app>. Registered as an alternate viewer.
+- **Certificates.** A PEM file (`.pem` `.crt` `.cer` `.csr`, or any text
+  with a `-----BEGIN CERTIFICATE-----` block) opens in the editor with a
+  compact **Certificate** panel beside it. The text stays whole and
+  editable (⌘A ⌘C copies it exactly); the panel never replaces it, and
+  View › Show Preview (⌥⌘P) closes it, which is remembered for the next
+  certificate file until it is shown again. The panel lists each certificate in the file, in order, with an **Expired** /
+  **Expires in N days** badge and its subject, issuer, validity, other
+  names (SANs), whether it is a CA, key usage, what it is used for, public
+  key, signature algorithm, serial number and SHA-256 / SHA-1
+  fingerprints, in plain words, each with a **Copy** link, and **Copy
+  Certificate (PEM)** per certificate, which copies exactly that
+  certificate's BEGIN/END block from the text. It follows your edits. Private keys are
+  never read or shown ("Private key — not shown"; the owl's secret
+  warning still applies); a certificate request shows its subject; a
+  PKCS#7 bundle (`.p7b`, PEM or DER) lists its certificates. A binary
+  (DER) `.cer` `.crt` `.der` `.p7b` opens in a read-only certificate tab
+  with the same details; its main action is **Copy as PEM** (BEGIN/END
+  lines, 64 columns), and **Open as PEM Text** opens the PEM in a new
+  untitled tab. With the owl on, he
+  warns when a certificate in view has expired or expires within 30
+  days. Read with macOS's Security framework; nothing is sent anywhere.
 - **Drop a file on the text to open it** (in its own tab), rather than
   pasting its path; dropped text is inserted as before. (On a Markdown
   tab a dropped image is linked instead; see Markdown editing.)
