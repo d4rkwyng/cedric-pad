@@ -26,6 +26,7 @@ import WebKit
 ///   CEDRIC_SNAPSHOT_QUIT=1        quit after writing
 ///   CEDRIC_TEST_TYPE=text         type this at the end of the frontmost tab (session tests)
 ///   CEDRIC_TEST_TYPE_UNTITLED=t   open a new untitled tab and type this
+///   CEDRIC_TEST_DETACH_PREVIEW=x,y,w,h  detach the front tab's preview to this frame (session tests)
 ///   CEDRIC_TEST_CLOSE_LAST=1      then close the newest tab (as ⌘W does; session tests)
 ///   CEDRIC_TEST_REOPEN_CLOSED=1   then reopen the newest closed tab (as ⇧⌘T does)
 ///   CEDRIC_TEST_EARLY_CLOSE=1     close the selected tab 0.5 s in, before deferred tabs are built
@@ -126,10 +127,18 @@ enum DevHooks {
             app.newTab(nil)
             if let tab = app.tabs.last { tab.textView.insertText(t, replacementRange: NSRange(location: 0, length: 0)) }
         }
+        // Session check: detach the front tab's preview to this frame ("x,y,w,h").
+        if let f = env["CEDRIC_TEST_DETACH_PREVIEW"]?.split(separator: ",").compactMap({ Double($0) }), f.count == 4,
+           let tab = app.currentTab ?? app.tabs.last {
+            tab.detachPreview()
+            tab.previewWindow?.window?.setFrame(NSRect(x: f[0], y: f[1], width: f[2], height: f[3]), display: true)
+        }
         if env["CEDRIC_TEST_CLOSE_LAST"] == "1", let tab = app.tabs.last { tab.window?.performClose(nil) }
         if env["CEDRIC_TEST_REOPEN_CLOSED"] == "1" { app.reopenClosedTab(nil) }
         if env["CEDRIC_SESSION_DUMP"] == "1" {
-            DispatchQueue.main.async {
+            // A detached preview is restored after the first frame: none may exist yet.
+            let earlyPreviews = app.tabs.filter { $0.previewPane != nil }.count
+            AfterFirstFrame.run { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 // Windows in on-screen order, tabs in tab-bar order.
                 for t in app.tabGroups().joined() {
                     let body = t.text.replacingOccurrences(of: "\n", with: "\\n")
@@ -139,8 +148,14 @@ enum DevHooks {
                     let body = (c.hasBuffer ? app.store.readBuffer(c.id) ?? "<missing buffer>" : "-").replacingOccurrences(of: "\n", with: "\\n")
                     print("closed: name=\(c.untitledName ?? "-") file=\(c.path ?? "-") unsaved=\(c.hasBuffer) text=\(body.prefix(60))")
                 }
+                for t in app.tabs where t.previewPane != nil {
+                    let f = t.previewWindow?.window?.frame ?? .zero
+                    print("preview: name=\(t.doc.displayName) detached=\(t.previewDetached) visible=\(t.previewWindow?.window?.isVisible ?? false) "
+                          + "title=\(t.previewWindow?.window?.title ?? "-") frame=\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width)),\(Int(f.height)) "
+                          + "before-first-frame=\(earlyPreviews)")
+                }
                 exit(0)
-            }
+            } }
         }
         if env["CEDRIC_LAUNCH_METRICS"] == "1" {
             // The window has been ordered front; measure when it has drawn.

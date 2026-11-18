@@ -12,6 +12,7 @@ extension DevChecks {
     static func featureCheck(_ name: String, _ app: AppDelegate) -> Bool {
         switch name {
         case "spellstep": spellStep(app)
+        case "detachpreview": detachPreview(app)
         default: return false
         }
         return true
@@ -175,6 +176,101 @@ extension DevChecks {
                 expect(st?.progressLabel.stringValue.hasSuffix("+") == true, "progress says more may come", st?.progressLabel.stringValue ?? "-")
                 st?.done(nil)
                 for t in [md, swift, large] { t.doc.markSaved() }
+            },
+        ])
+    }
+
+    // MARK: Detached preview
+
+    /// Waits (up to 5 s) until the web preview's text contains `needle`.
+    static func waitForPreview(_ tab: EditorWindowController, contains needle: String, _ name: String) -> (@escaping () -> Void) -> Void {
+        { next in
+            let deadline = Date().addingTimeInterval(5)
+            @MainActor func poll() {
+                guard let web = tab.preview?.webView else { expect(false, name, "no web preview"); next(); return }
+                web.evaluateJavaScript("document.body ? document.body.innerText : ''") { result, _ in
+                    MainActor.assumeIsolated {
+                        let text = result as? String ?? ""
+                        if text.contains(needle) { expect(true, name); next() }
+                        else if Date() > deadline { expect(false, name, "preview text=\(text.prefix(120).debugDescription)"); next() }
+                        else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { MainActor.assumeIsolated { poll() } } }
+                    }
+                }
+            }
+            poll()
+        }
+    }
+
+    static func detachPreview(_ app: AppDelegate) {
+        let a = app.open(write("first.md", "# First\n\nhello\n"))!
+        let b = app.open(write("second.md", "# Second\n\nother document\n"))!
+        sized(a); sized(b)
+        let item = { menuItem(action: #selector(AppDelegate.toggleDetachPreview(_:))) }
+        var pw: NSWindow? { a.previewWindow?.window }
+        run([
+            sync {
+                focus(a)
+                key("p", [.command, .option])
+                expect(a.previewVisible && !a.previewDetached && a.previewPane?.superview === a.split, "⌥⌘P docks the preview beside the text")
+                expect(a.previewPane?.detachButton.title == "Detach", "its header has Detach", a.previewPane?.detachButton.title ?? "-")
+                if let i = item() { _ = app.validateMenuItem(i); expect(i.title == "Detach Preview", "View › Detach Preview", i.title) }
+            },
+            waitForPreview(a, contains: "hello", "the docked preview shows the document"),
+            sync {
+                guard let button = a.previewPane?.detachButton else { return }
+                press(button)
+                expect(a.previewDetached && pw?.isVisible == true, "Detach moves it into its own window")
+                expect(pw?.title == "first.md — Preview", "titled after its document", pw?.title ?? "-")
+                expect(a.split.subviews.count == 1, "the editor has the whole window")
+                expect(pw.map { $0.styleMask.contains(.resizable) } == true, "the window is resizable")
+                expect(a.previewPane?.detachButton.title == "Attach", "its header now has Attach", a.previewPane?.detachButton.title ?? "-")
+                if let i = item() { _ = app.validateMenuItem(i); expect(i.title == "Attach Preview", "the menu says Attach Preview", i.title) }
+                expect(app.currentTab === a, "the editor keeps the focus")
+                focus(a)
+                a.textView.setSelectedRange(NSRange(location: (a.text as NSString).length, length: 0))
+                type("live typing")
+            },
+            waitForPreview(a, contains: "live typing", "typing updates the detached preview"),
+            sync {
+                pw?.setFrame(NSRect(x: 160, y: 140, width: 480, height: 400), display: true)
+                expect(pw?.frame.size == NSSize(width: 480, height: 400), "it resizes", "\(pw?.frame ?? .zero)")
+                // Another tab in front: the detached preview stays with its own document.
+                focus(b)
+                b.textView.setSelectedRange(NSRange(location: (b.text as NSString).length, length: 0))
+                type("zzz")
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { next() } },
+            waitForPreview(a, contains: "live typing", "bound to its document while another tab is in front"),
+            sync {
+                expect(pw?.title == "first.md — Preview" && b.previewPane == nil, "the other tab has no preview of its own")
+            },
+            { next in
+                guard let w = pw else { next(); return }
+                snapshot("detached-preview.png", window: w)(next)
+            },
+            sync {
+                // ⇧⌥⌘P from the editor: docked again.
+                focus(a)
+                key("p", [.command, .option, .shift])
+                expect(!a.previewDetached && a.previewPane?.superview === a.split && a.previewVisible, "⇧⌥⌘P attaches it again")
+                expect(a.previewWindow == nil, "and its window is gone")
+            },
+            waitForPreview(a, contains: "live typing", "the re-docked preview is live"),
+            sync {
+                key("p", [.command, .option, .shift])
+                expect(a.previewDetached, "⇧⌥⌘P detaches it")
+                // Closing the window closes the preview.
+                pw?.performClose(nil)
+                expect(a.previewPane == nil && !a.previewVisible, "closing its window closes the preview")
+                key("p", [.command, .option, .shift])
+                expect(a.previewDetached && pw?.isVisible == true, "⇧⌥⌘P with no preview opens it detached")
+            },
+            snapshot("detached-preview-editor.png"),
+            sync {
+                let w = pw
+                a.doc.markSaved(); b.doc.markSaved()
+                a.window?.performClose(nil)
+                expect(w?.isVisible == false, "closing the tab closes its detached preview")
             },
         ])
     }
