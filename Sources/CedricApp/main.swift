@@ -203,6 +203,8 @@ func buildMainMenu() -> NSMenu {
     ]))
 
     main.addItem(submenu(String(localized: "Format"), [
+        markdownMenu(),
+        .separator(),
         submenu(String(localized: "Language"), Language.allCases.map {
             item($0.displayName, #selector(AppDelegate.pickLanguageMenu(_:)), represented: $0.rawValue)
         }),

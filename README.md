@@ -48,6 +48,14 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     renumber after Return, Tab and ⇧Tab (a list written `1. 1. 1.` stays
     so; a nested list starts at 1). Each is one undo step; nothing
     happens inside fenced code or while an input method is composing.
+  - **Format › Markdown:** Bold ⌘B, Italic ⌘I, Strikethrough ⇧⌘X,
+    Inline Code ⌃\` and Link ⌘K wrap the selection, or with no
+    selection put the pair in with the caret between. Each takes its
+    markers off when they are already there (around or inside the
+    selection, or around the caret's word), so ⌘I on `*word*` doesn't
+    stack another pair. ⌘K turns the selection into `[text](|)` with the
+    caret in the URL, or uses the URL on the clipboard; a selected URL
+    becomes `[](url)`; in a link it unlinks. Only in Markdown tabs.
 - **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
   or `.psv` file is a read-only grid: the first line is the header, row
   numbers stay at the left, columns resize, and a click on a header sorts
