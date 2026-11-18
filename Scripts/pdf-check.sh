@@ -7,7 +7,10 @@
 # and -w, Reopen Closed Tab, drops, an encrypted PDF's password sheet and a
 # damaged file. Then it saves the session, relaunches, and checks the PDF
 # tabs come back on their page and zoom, the unselected one not loaded
-# until shown. Throwaway session; works with the screen locked.
+# until shown. Last, the floating reader controls (pdfoverlay): every
+# control, ←/→ and Page Up/Down, the page field, fit page, view-only
+# rotation, the auto-hide and Reduce Motion. Throwaway session; works
+# with the screen locked.
 #
 #   Scripts/pdf-check.sh [--out DIR] [APP]     default "dist/Cedric Pad.app"
 set -euo pipefail
@@ -38,5 +41,7 @@ run() { # name, extra env...
 # First run: no restore, but the session is saved (for the second).
 run pdf CEDRIC_NO_RESTORE=1
 run pdfrestore CEDRIC_NO_SESSION_SAVE=1
-echo "pdf-check: $(cat "$OUT"/pdf.txt "$OUT"/pdfrestore.txt | grep -c 'check: PASS') passed, $(cat "$OUT"/pdf.txt "$OUT"/pdfrestore.txt | grep -c 'check: FAIL') failed; snapshots in $OUT"
+# The floating reader controls (PDFOverlay): its own throwaway session.
+run pdfoverlay CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1
+echo "pdf-check: $(cat "$OUT"/pdf.txt "$OUT"/pdfrestore.txt "$OUT"/pdfoverlay.txt | grep -c 'check: PASS') passed, $(cat "$OUT"/pdf.txt "$OUT"/pdfrestore.txt "$OUT"/pdfoverlay.txt | grep -c 'check: FAIL') failed; snapshots in $OUT"
 exit $fail

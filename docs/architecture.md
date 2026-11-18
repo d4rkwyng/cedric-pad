@@ -1240,6 +1240,25 @@ editor command that checks it is off without more code, and the PDF
 controller answers (as nothing, disabled) the few that don't check
 (Format menus, Show Preview, Find and Replace, Save, Find in Files).
 
+- **Reader controls** (`PDFOverlay.swift`): a capsule floating at the
+  bottom centre of the pages (a subview of `PDFPagesView`, laid out over
+  the `PDFView`, clear of the thumbnails sidebar), built with
+  `AfterFirstFrame` so nothing of it is on the launch path. Previous/next,
+  an editable page field (`PageNumberInput`), zoom, actual size, fit width
+  (`autoScales`), fit page (`PDFReader.fitPageScale`, rotation-aware),
+  thumbnails, find, rotate left/right and Open in Preview. Rotation sets
+  `PDFPage.rotation` on the in-memory document only; the tab has no save
+  path, so the file is never written (pdfoverlay compares its bytes).
+  ←/→ and Page Up/Down page (`CedricPDFView.onPageKey`); ←/→ still scroll
+  sideways when the page is wider than the view. Narrow windows drop the
+  lowest-priority groups (`PDFReader.visibleGroups`); page stepping always
+  stays. Auto-hide (`PDFReader.AutoHide`, 2 s): mouse moves (a tracking
+  area on `PDFPagesView`), scrolling (the clip view's bounds) and page
+  changes show it; hovering or editing the page field keep it; hidden it
+  returns nil from `hitTest`, so the page gets every click. Reduce Motion:
+  no fade, it just appears and disappears. Drawn with a plain layer in the
+  status bar's colour (rounded, `masksToBounds`), not a vibrancy material.
+
 - **Which files:** `DocumentKind.detect(url:)` (CedricCore, tested) reads
   the first 8 bytes: `%PDF-` at the start, or a `.pdf` name (so a damaged
   `.pdf` gets the viewer's "damaged" alert rather than binary text in the
