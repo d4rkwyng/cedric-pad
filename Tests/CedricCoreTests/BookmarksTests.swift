@@ -76,4 +76,53 @@ import Testing
         #expect(loaded.allTabs.count == 1)
         #expect(loaded.allTabs[0].bookmarks == nil)
     }
+
+    // MARK: Edits made in one go (Replace All, Toggle Comment, Text Tools)
+
+    /// The bookmarks after `edit` on `text`, as the editor applies it.
+    func after(_ marks: [Int], _ text: String, _ range: NSRange, _ replacement: String) -> [Int] {
+        let ns = text as NSString
+        let firstLine = ns.substring(to: range.location).filter { $0 == "\n" }.count
+        return Bookmarks(marks).replacing(range, with: replacement, in: ns, firstLine: firstLine).lines
+    }
+
+    @Test func replaceAllSpanKeepsTheLinesBetween() {
+        // Matches on lines 0 and 5: Replace All replaces one span, first match to last.
+        let text = "foo a\nb\nc\nd\ne\nf foo\ng\n"
+        let ns = text as NSString
+        let first = ns.range(of: "foo"), last = ns.range(of: "foo", options: .backwards)
+        let span = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+        let rep = ns.substring(with: span).replacingOccurrences(of: "foo", with: "bar")
+        #expect(after([1, 2, 3, 4, 6], text, span, rep) == [1, 2, 3, 4, 6])
+        // A replacement with a newline: lines between still keep theirs, lines below shift.
+        let rep2 = ns.substring(with: span).replacingOccurrences(of: "foo", with: "x\ny")
+        #expect(after([0, 2, 4, 5, 6], text, span, rep2) == [0, 3, 5, 6, 8])
+    }
+
+    @Test func toggleCommentKeepsEachLine() throws {
+        let text = "zero\none\ntwo\nthree\nfour\nfive\n"
+        let ns = text as NSString
+        let sel = NSRange(location: ns.range(of: "one").location, length: NSMaxRange(ns.range(of: "four")) - ns.range(of: "one").location)
+        let edit = try #require(LineOperations.toggleComment(sel, in: ns, syntax: CommentSyntax(line: "//")))
+        #expect(after([2, 4], text, edit.range, edit.replacement) == [2, 4])
+        #expect(after([0, 1, 4, 5], text, edit.range, edit.replacement) == [0, 1, 4, 5])
+    }
+
+    @Test func wholeDocumentToolsAndDeletes() {
+        // Text Tools on the whole document with the same number of lines (upper case): all kept.
+        let text = "a\nb\nc\nd"
+        #expect(after([1, 3], text, NSRange(location: 0, length: 7), "A\nB\nC\nD") == [1, 3])
+        // Remove duplicate lines: the surviving lines keep their bookmarks, a removed one's goes.
+        let dup = "x\ny\nx\nz\n"
+        #expect(after([1, 2, 3], dup, NSRange(location: 0, length: 8), "x\ny\nz\n") == [1, 2])
+        // Delete Line on bookmarked line 1: its bookmark goes, line 2's moves up.
+        let three = "one\ntwo\nthree\n"
+        #expect(after([1, 2], three, NSRange(location: 4, length: 4), "") == [1])
+        // A line inserted at the end of a text without a final newline.
+        #expect(after([0], "a", NSRange(location: 1, length: 0), "\nb") == [0])
+        // Text inserted at the empty last line pushes nothing above it.
+        #expect(after([0, 1], "a\n", NSRange(location: 2, length: 0), "b\n") == [0, 2])
+        // No bookmarks: nothing to do.
+        #expect(after([], text, NSRange(location: 0, length: 7), "") == [])
+    }
 }

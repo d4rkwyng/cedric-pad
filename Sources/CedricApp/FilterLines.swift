@@ -28,10 +28,7 @@ extension EditorWindowController {
 
     private func removeLines(_ r: (edit: TextEdit, removed: [Int]), actionName: String) {
         let marks = editing.bookmarks.lines.compactMap { LineFilter.renumber($0, removed: r.removed) }
-        apply(r.edit, actionName: actionName)
-        editing.bookmarks = Bookmarks(marks)
-        editing.bookmarks.clamp(lineCount: lineIndex.lineCount)
-        gutter.needsDisplay = true
+        apply(r.edit, actionName: actionName, bookmarks: Bookmarks(marks))
         onChange?(self)
     }
 

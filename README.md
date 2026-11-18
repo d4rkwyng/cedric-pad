@@ -69,8 +69,9 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   or click a line number), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
   Bookmark All Matches (⌥⌘F2: every line matching the find bar's search,
   or the selection or word under the caret), Clear Bookmarks (⇧⌘F2).
-  Bookmarks stay on their lines as you edit, move with Move Line, and are
-  kept with the session. Copy Bookmarked Lines and Delete Bookmarked Lines
+  Bookmarks stay on their lines as you edit (Replace All, Toggle Comment
+  and Text Tools included: a line whose text survives keeps its
+  bookmark), move with Move Line, and are kept with the session. Copy Bookmarked Lines and Delete Bookmarked Lines
   act on them all.
 - **Filter lines** (Edit › Line › Keep Lines Matching… / Delete Lines
   Matching…): plain text or a regular expression, with or without case,

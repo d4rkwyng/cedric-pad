@@ -914,7 +914,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     private func replaceAll() {
-        guard let re = currentRegex(), let storage = textView.textStorage else { return }
+        guard let re = currentRegex(), textView.textStorage != nil else { return }
         let ns = textView.string as NSString
         let found = FindEngine.matches(re, in: ns)
         guard !found.isEmpty else { NSSound.beep(); return }
@@ -926,10 +926,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         for (m, rep) in zip(found, reps).reversed() {
             newSpan.replaceCharacters(in: NSRange(location: m.range.location - span.location, length: m.range.length), with: rep)
         }
-        if textView.shouldChangeText(in: span, replacementString: newSpan as String) {
-            storage.replaceCharacters(in: span, with: NSAttributedString(string: newSpan as String, attributes: baseAttributes()))
-            textView.didChangeText()
-        }
+        replaceAsOneStep(span, with: newSpan as String, actionName: String(localized: "Replace All"))
         findBar.status.stringValue = String(localized: "Replaced \(found.count)")
     }
 

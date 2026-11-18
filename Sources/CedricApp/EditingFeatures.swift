@@ -253,39 +253,60 @@ extension EditorWindowController {
         }
         guard let edit else { NSSound.beep(); return }
         // A moved line takes its bookmark along.
-        let before = editing.bookmarks
-        let block = LineOperations.lineBlock(sel, in: ns)
-        let firstLine = lineIndex.line(containing: block.location)
-        let lastLine = block.length == 0 ? firstLine : lineIndex.line(containing: NSMaxRange(block) - 1)
-        apply(edit, actionName: command.actionName)
-        if command == .moveUp || command == .moveDown, !before.isEmpty {
-            var moved = before
-            moved.moveLines(firstLine..<(lastLine + 1), by: command == .moveUp ? -1 : 1)
-            editing.bookmarks = moved
-            gutter.needsDisplay = true
+        var moved: Bookmarks?
+        if command == .moveUp || command == .moveDown, !editing.bookmarks.isEmpty {
+            let block = LineOperations.lineBlock(sel, in: ns)
+            let firstLine = lineIndex.line(containing: block.location)
+            let lastLine = block.length == 0 ? firstLine : lineIndex.line(containing: NSMaxRange(block) - 1)
+            moved = editing.bookmarks
+            moved?.moveLines(firstLine..<(lastLine + 1), by: command == .moveUp ? -1 : 1)
         }
+        apply(edit, actionName: command.actionName, bookmarks: moved)
     }
 
     /// One `TextEdit` as one undoable change, inserted in the theme's text
     /// colour (the highlighter recolours it), then its selection.
-    func apply(_ edit: TextEdit, actionName: String) {
-        guard let storage = textView.textStorage else { return }
-        let um = textView.undoManager
-        textView.breakUndoCoalescing()
-        um?.beginUndoGrouping()
-        if textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) {
-            storage.beginEditing()
-            storage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.replacement, attributes: baseAttributes()))
-            storage.endEditing()
-            textView.didChangeText()
-        }
-        um?.endUndoGrouping()
-        um?.setActionName(actionName)
+    /// `bookmarks`: where they go (else they follow their lines' text).
+    func apply(_ edit: TextEdit, actionName: String, bookmarks: Bookmarks? = nil) {
+        replaceAsOneStep(edit.range, with: edit.replacement, actionName: actionName, bookmarks: bookmarks)
         let len = (textView.string as NSString).length
         let s = NSRange(location: min(edit.selection.location, len), length: min(edit.selection.length, len - min(edit.selection.location, len)))
         textView.setSelectedRange(s)
         textView.scrollRangeToVisible(s)
         colorizer.scheduleViewport()
+    }
+
+    /// Replaces `range` with `replacement` as one undo step (Line
+    /// commands, Replace All, Text Tools, filters), in the theme's text
+    /// colour. Bookmarks go to `bookmarks` if given, else stay with the
+    /// lines whose text survives the edit (Bookmarks.replacing): the
+    /// counts-only follow-up in storageEdited would merge every bookmark
+    /// in a multi-line replacement onto its first line.
+    @discardableResult
+    func replaceAsOneStep(_ range: NSRange, with replacement: String, actionName: String?, bookmarks: Bookmarks? = nil) -> Bool {
+        guard let storage = textView.textStorage else { return false }
+        let marks = bookmarks ?? (editing.bookmarks.isEmpty ? nil
+            : editing.bookmarks.replacing(range, with: replacement, in: storage.string as NSString,
+                                          firstLine: lineIndex.line(containing: range.location)))
+        let um = textView.undoManager
+        textView.breakUndoCoalescing()
+        um?.beginUndoGrouping()
+        var changed = false
+        if textView.shouldChangeText(in: range, replacementString: replacement) {
+            storage.beginEditing()
+            storage.replaceCharacters(in: range, with: NSAttributedString(string: replacement, attributes: baseAttributes()))
+            storage.endEditing()
+            textView.didChangeText()
+            changed = true
+        }
+        if changed, var marks {
+            marks.clamp(lineCount: lineIndex.lineCount)
+            editing.bookmarks = marks
+            gutter.needsDisplay = true
+        }
+        um?.endUndoGrouping()
+        if let actionName { um?.setActionName(actionName) }
+        return changed
     }
 
     /// ⌘X with nothing selected: cuts the caret's line (with its newline).

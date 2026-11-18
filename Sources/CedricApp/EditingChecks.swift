@@ -307,7 +307,45 @@ extension DevChecks {
                 click(g, at: NSPoint(x: g.bounds.width - 10, y: p.y))
                 expect(marks.isEmpty, "and a second click removes it", "\(marks)")
             },
-        ])
+        ] + bookmarksThroughBigEdits(app))
+    }
+
+    /// Edits made in one go keep the bookmarks on lines whose text
+    /// survives (they used to collapse onto the edit's first line).
+    static func bookmarksThroughBigEdits(_ app: AppDelegate) -> [(@escaping () -> Void) -> Void] {
+        var tab: EditorWindowController!
+        var marks: [Int] { tab.editing.bookmarks.lines }
+        let text = "let foo = 0\nlet a = 1\nlet b = 2\nlet c = 3\nlet d = 4\nlet e = foo\nlet f = 6\n"
+        return [
+            sync {
+                tab = app.open(write("marks.swift", text))!
+                sized(tab)
+                focus(tab)
+                tab.editing.bookmarks = Bookmarks([1, 2, 3, 4])
+                tab.showFindBar(replace: true)
+                tab.findBar.findField.stringValue = "foo"
+                tab.findBar.replaceField.stringValue = "bar"
+                tab.findBar.onReplaceAll?()
+                expect(tab.text == text.replacingOccurrences(of: "foo", with: "bar"), "Replace All with matches on lines 0 and 5", tab.text)
+                expect(marks == [1, 2, 3, 4], "keeps the bookmarks on lines 1–4", "\(marks)")
+                tab.hideFindBar()
+            },
+            sync {
+                focus(tab)
+                tab.editing.bookmarks = Bookmarks([2, 4])
+                tab.textView.setSelectedRange(NSRange(location: tab.lineIndex.starts[1], length: tab.lineIndex.starts[5] - 1 - tab.lineIndex.starts[1]))
+                key("/", [.command])
+                expect(tab.text.components(separatedBy: "\n")[1].hasPrefix("// "), "⌘/ comments lines 1–4", tab.text)
+                expect(marks == [2, 4], "Toggle Comment keeps bookmarks 2 and 4", "\(marks)")
+            },
+            sync {
+                tab.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                tab.editing.bookmarks = Bookmarks([1, 6])
+                tab.applyTextTool(.uppercase)
+                expect(tab.text.hasPrefix("LET BAR"), "Text Tools › Uppercase on the whole text", tab.text)
+                expect(marks == [1, 6], "keeps the bookmarks", "\(marks)")
+            },
+        ]
     }
 
     // MARK: Hot close, Reopen Closed Tab

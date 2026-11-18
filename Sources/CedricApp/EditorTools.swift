@@ -202,7 +202,7 @@ extension EditorWindowController {
     /// nothing is selected, as one undo step. Line tools widen a partial
     /// selection to whole lines.
     func applyTextTool(_ tool: TextTool) {
-        guard let storage = textView.textStorage, textView.isEditable else { NSSound.beep(); return }
+        guard textView.textStorage != nil, textView.isEditable else { NSSound.beep(); return }
         let ns = textView.string as NSString
         var range = textView.selectedRange()
         // `ns` bridges the live storage string: take the length now, before the edit.
@@ -225,17 +225,7 @@ extension EditorWindowController {
             return
         }
         guard output != input else { return }
-        let um = textView.undoManager
-        textView.breakUndoCoalescing()
-        um?.beginUndoGrouping()
-        if textView.shouldChangeText(in: range, replacementString: output) {
-            storage.beginEditing()
-            storage.replaceCharacters(in: range, with: NSAttributedString(string: output, attributes: baseAttributes()))
-            storage.endEditing()
-            textView.didChangeText()
-        }
-        um?.endUndoGrouping()
-        um?.setActionName(tool.displayName)
+        replaceAsOneStep(range, with: output, actionName: tool.displayName)
         let newRange = NSRange(location: range.location, length: (output as NSString).length)
         textView.setSelectedRange(wholeDocument ? NSRange(location: 0, length: 0) : newRange)
         colorizer.scheduleViewport()
