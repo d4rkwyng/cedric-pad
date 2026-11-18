@@ -30,6 +30,35 @@ enum OwlChatCheck {
         }
     }
 
+    /// CEDRIC_OWL_CHECK_CHAT_OFF=1, no CEDRIC_OWL_CHAT, a fresh defaults
+    /// domain: the "Owl chat (beta)" switch is off by default, so Ask Cedric
+    /// and Check Grammar with AI are disabled and ⌥⌘/ opens nothing.
+    static func runDefaultOff(_ tab: EditorWindowController, out: String) {
+        guard let window = tab.window, let app = NSApp.delegate as? AppDelegate else { OwlCheck.finish(out); return }
+        check(ProcessInfo.processInfo.environment["CEDRIC_OWL_CHAT"] == nil, "no CEDRIC_OWL_CHAT override")
+        check(UserDefaults.standard.object(forKey: "owlChat") == nil, "fresh defaults: owlChat was never set")
+        check(!Settings.shared.owlChat, "Owl chat (beta) is off by default")
+        check(!tab.canAskCedric, "the tab can't Ask Cedric")
+        func item(_ action: Selector, in menu: NSMenu?) -> NSMenuItem? {
+            for i in menu?.items ?? [] {
+                if i.action == action { return i }
+                if let found = item(action, in: i.submenu) { return found }
+            }
+            return nil
+        }
+        if let ask = item(#selector(AppDelegate.askCedricMenu(_:)), in: NSApp.mainMenu) {
+            check(!app.validateMenuItem(ask), "Edit › Ask Cedric… is disabled")
+        } else { check(false, "Edit › Ask Cedric… is in the menu") }
+        if let grammar = item(#selector(AppDelegate.checkGrammarWithAIMenu(_:)), in: NSApp.mainMenu) {
+            check(!app.validateMenuItem(grammar), "Check Grammar with AI is disabled")
+        } else { check(false, "Check Grammar with AI is in the menu") }
+        OwlCheck.key(window, "/", code: 44, [.command, .option])
+        after(0.4) {
+            check(tab.owlChat == nil, "⌥⌘/ opens no chat panel")
+            OwlCheck.finish(out)
+        }
+    }
+
     /// Waits until the panel is idle, sampling the streamed length.
     static func waitDone(_ chat: OwlChatPanel, timeout: Double = 15, samples: Set<Int> = [], _ then: @escaping @MainActor (Set<Int>) -> Void) {
         let deadline = Date().addingTimeInterval(timeout)
