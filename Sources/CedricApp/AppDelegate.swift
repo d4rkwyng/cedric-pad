@@ -213,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func scheduleSessionSave() {
         sessionTimer?.invalidate()
         sessionTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.saveSession() }
+            MainActor.assumeIsolated { self?.saveSession(sync: false) }
         }
     }
 
@@ -231,32 +231,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return groups
     }
 
-    func saveSession() {
+    /// Session writes, in order, off the main thread (a 636 KB unsaved
+    /// buffer is a few ms of disk work); quit waits for them.
+    private let sessionQueue = DispatchQueue(label: "cedric.session-save", qos: .utility)
+
+    /// Snapshots the tabs on the main thread, then writes the changed
+    /// buffers, the session and the prune on `sessionQueue`, in that order.
+    /// `sync`: wait for it (quit).
+    func saveSession(sync: Bool = true) {
         sessionTimer?.invalidate()
         guard env["CEDRIC_NO_SESSION_SAVE"] != "1" else { return }
         var windows: [SessionWindow] = []
         var keep = Set<UUID>()
+        var buffers: [(UUID, String)] = []
         for group in tabGroups() {
             var sessionTabs: [SessionTab] = []
             var selected = 0
             for (i, t) in group.enumerated() {
                 let d = t.doc
-                let needsBuffer = d.isDirty || d.fileURL == nil && !t.text.isEmpty
+                let isEmpty = (t.textView.textStorage?.length ?? 0) == 0
+                let needsBuffer = d.isDirty || d.fileURL == nil && !isEmpty
                 if needsBuffer {
                     keep.insert(d.id)
                     if d.sessionChangeCount != d.changeCount {
-                        do {
-                            try store.writeBuffer(d.id, text: t.text)
-                            d.sessionChangeCount = d.changeCount
-                        } catch {
-                            FileHandle.standardError.write(Data("session: buffer write failed: \(error)\n".utf8))
-                        }
+                        // One copy of the text (the storage keeps changing).
+                        buffers.append((d.id, t.text))
+                        d.sessionChangeCount = d.changeCount
                     }
                 } else {
                     d.sessionChangeCount = -1
                 }
                 // An untouched empty untitled tab isn't worth restoring.
-                if d.fileURL == nil && t.text.isEmpty { continue }
+                if d.fileURL == nil && isEmpty { continue }
                 let sel = t.textView.selectedRange()
                 sessionTabs.append(SessionTab(id: d.id, path: d.fileURL?.path, untitledName: d.fileURL == nil ? d.untitledName : nil,
                                               hasBuffer: needsBuffer, encoding: d.encoding, lineEnding: d.lineEnding,
@@ -269,12 +275,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 windows.append(SessionWindow(tabs: sessionTabs, selectedTab: selected, frame: group.first?.window?.frameDescriptor))
             }
         }
-        do {
-            try store.save(Session(windows: windows))
-            store.pruneBuffers(keeping: keep)
-        } catch {
-            FileHandle.standardError.write(Data("session: save failed: \(error)\n".utf8))
+        let session = Session(windows: windows)
+        let store = self.store
+        let toWrite = buffers, keeping = keep
+        let write: @Sendable () -> Void = {
+            for (id, text) in toWrite {
+                do { try store.writeBuffer(id, text: text) } catch {
+                    FileHandle.standardError.write(Data("session: buffer write failed: \(error)\n".utf8))
+                }
+            }
+            do {
+                try store.save(session)
+                store.pruneBuffers(keeping: keeping)
+            } catch {
+                FileHandle.standardError.write(Data("session: save failed: \(error)\n".utf8))
+            }
         }
+        if sync { sessionQueue.sync(execute: write) } else { sessionQueue.async(execute: write) }
     }
 
     private func restoreSession() {

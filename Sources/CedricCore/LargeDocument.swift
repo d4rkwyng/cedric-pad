@@ -43,4 +43,38 @@ public enum LargeDocument {
         for i in lines where i < index.lineCount && index.lineLength(i) > lineThreshold { return .longLine }
         return nil
     }
+
+    // MARK: Chunks
+
+    /// Where chunk `k` of `line` starts: `k × limit` from the line start,
+    /// moved back to the start of a composed character sequence (surrogate
+    /// pair, combining marks, CRLF) it would cut. Depends only on the text
+    /// there: O(1), and an edit only moves the chunks from the edit on.
+    public static func boundary(_ k: Int, of line: NSRange, in text: NSString, limit: Int) -> Int {
+        let nominal = line.location + k * limit
+        guard k > 0, nominal < NSMaxRange(line) else { return min(nominal, NSMaxRange(line)) }
+        let seq = text.rangeOfComposedCharacterSequence(at: nominal)
+        return seq.location < nominal && seq.location > nominal - limit ? seq.location : nominal
+    }
+
+    /// The chunks of `line` (newline included): the line itself if it fits.
+    public static func chunks(of line: NSRange, in text: NSString, limit: Int) -> [NSRange] {
+        guard line.length > limit else { return [line] }
+        let n = (line.length + limit - 1) / limit
+        return (0..<n).map { k in
+            let s = boundary(k, of: line, in: text, limit: limit), e = boundary(k + 1, of: line, in: text, limit: limit)
+            return NSRange(location: s, length: e - s)
+        }
+    }
+
+    /// The chunk of `line` holding `offset`.
+    public static func chunk(containing offset: Int, line: NSRange, in text: NSString, limit: Int) -> NSRange {
+        guard line.length > limit else { return line }
+        var k = max(0, offset - line.location) / limit
+        // A boundary moved back for a composed sequence: offset may sit
+        // just before chunk k's start.
+        if k > 0, boundary(k, of: line, in: text, limit: limit) > offset { k -= 1 }
+        let s = boundary(k, of: line, in: text, limit: limit)
+        return NSRange(location: s, length: boundary(k + 1, of: line, in: text, limit: limit) - s)
+    }
 }

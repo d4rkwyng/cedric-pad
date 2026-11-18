@@ -1,4 +1,5 @@
 import AppKit
+import CedricCore
 
 /// An `NSTextContentStorage` that, when `chunkLimit` is set, hands TextKit
 /// paragraphs longer than the limit as several consecutive text elements
@@ -44,39 +45,11 @@ final class ChunkedContentStorage: NSTextContentStorage {
                              changeInLength: delta, invalidatedRange: invalidatedCharRange)
     }
 
-    /// Where chunk `k` of the line `para` starts: `k × limit` from the line
-    /// start, moved back to the start of a composed character sequence it
-    /// would cut. Depends only on the text there, so it's O(1) and stable.
-    static func boundary(_ k: Int, of para: NSRange, in text: NSString, limit: Int) -> Int {
-        let nominal = para.location + k * limit
-        guard k > 0, nominal < NSMaxRange(para) else { return min(nominal, NSMaxRange(para)) }
-        let seq = text.rangeOfComposedCharacterSequence(at: nominal)
-        return seq.location < nominal && seq.location > nominal - limit ? seq.location : nominal
-    }
-
-    /// The chunk ranges of the line `para` (newline included).
-    static func chunks(of para: NSRange, in text: NSString, limit: Int) -> [NSRange] {
-        guard para.length > limit else { return [para] }
-        let n = (para.length + limit - 1) / limit
-        return (0..<n).map { k in
-            let s = boundary(k, of: para, in: text, limit: limit), e = boundary(k + 1, of: para, in: text, limit: limit)
-            return NSRange(location: s, length: e - s)
-        }
-    }
-
     /// The chunk holding `offset` (offset == length: the last chunk).
     func chunkRange(at offset: Int, in text: NSString, limit: Int) -> NSRange {
-        let len = text.length
-        let probe = min(offset, max(0, len - 1))
+        let probe = min(offset, max(0, text.length - 1))
         let para = lineRange?(probe).flatMap { NSLocationInRange(probe, $0) ? $0 : nil } ?? text.paragraphRange(for: NSRange(location: probe, length: 0))
-        guard para.length > limit else { return para }
-        var k = (probe - para.location) / limit
-        // A boundary moved back by a composed sequence: probe may sit just
-        // before chunk k's start.
-        if k > 0, Self.boundary(k, of: para, in: text, limit: limit) > probe { k -= 1 }
-        let s = Self.boundary(k, of: para, in: text, limit: limit)
-        let e = Self.boundary(k + 1, of: para, in: text, limit: limit)
-        return NSRange(location: s, length: e - s)
+        return LargeDocument.chunk(containing: probe, line: para, in: text, limit: limit)
     }
 
     private func element(for r: NSRange, in storage: NSTextStorage) -> NSTextParagraph? {

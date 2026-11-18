@@ -541,7 +541,7 @@ struct LiveAppleTests {
         let registry = OwlProviderRegistry()
         let bridge = LocalAIOwlBridge(registry: registry, makeProvider: { _ in FakeProvider() })
         #expect(bridge.statusLine() == nil)
-        var s = LocalAISettings(enabled: true, backend: .apple, pauseDelay: 0.05)
+        var s = LocalAISettings(enabled: true, backend: .apple, pauseDelay: 0.05, minIdle: 0)
         s.minInterval = 0.1
         await bridge.apply(s)
         #expect(bridge.statusLine() == "Apple Intelligence · waiting for a pause in typing")
