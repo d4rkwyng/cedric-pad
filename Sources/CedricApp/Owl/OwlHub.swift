@@ -78,7 +78,8 @@ final class OwlHub {
     }
 
     private func feedAI(_ tab: EditorWindowController) {
-        guard ai.isActive, !ai.isPaused, enabled, tab.owl != nil, !tab.owlIdleForSpeed else { return }
+        // Automatic checks off (Intel's default): nothing is fed, no context is built.
+        guard ai.isActive, ai.isAutomatic, !ai.isPaused, enabled, tab.owl != nil, !tab.owlIdleForSpeed else { return }
         aiPending[tab.doc.id] = WeakTab(tab: tab)
         guard aiFeedTimer?.isValid != true else { return }
         let t = Timer(timeInterval: Self.aiFeedDelay, repeats: false) { _ in
@@ -124,6 +125,17 @@ final class OwlHub {
                 nothing()
             }
         }
+    }
+
+    /// "Ask AI Now" in the owl's popover: one AI check of what's in view,
+    /// whatever the schedule (the only way the AI is asked when automatic
+    /// checks are off). Not in large mode.
+    var canAskAI: Bool { enabled && ai.canCheckNow }
+
+    @discardableResult
+    func askAI(in tab: EditorWindowController) -> Bool {
+        guard canAskAI, tab.owl != nil, !tab.owlIdleForSpeed else { return false }
+        return ai.checkNow(tab.owlContextWindow().context)
     }
 
     /// Hints from the AI scheduler: same dedupe/snooze/range checks as the

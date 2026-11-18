@@ -87,7 +87,7 @@ public enum LocalAIOwl {
                                      deliver: @escaping @Sendable (OwlContext, [OwlHint]) async -> Void) -> OwlScheduler {
         OwlScheduler(provider: provider,
                      config: .init(pauseDelay: settings.pauseDelay, minInterval: settings.minInterval,
-                                   timeout: settings.timeout),
+                                   timeout: settings.timeout, automatic: settings.automaticChecks),
                      onOutcome: onOutcome, onStart: onStart, deliver: deliver)
     }
 }

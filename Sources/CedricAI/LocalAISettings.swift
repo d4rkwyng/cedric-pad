@@ -40,6 +40,20 @@ public struct LocalAISettings: Codable, Sendable, Equatable {
     /// A document must have been open and idle this long before the AI
     /// looks at it (any engine). Not shown in the sheet; tests shorten it.
     public var minIdle: TimeInterval
+    /// Ask the model on its own after typing pauses. Off by default on
+    /// Intel Macs (`defaultAutomaticChecks`): there the editor comes first
+    /// and the model is asked only when the user clicks "Ask AI Now".
+    public var automaticChecks: Bool
+
+    /// True on Apple silicon; false on Intel, where a model on the CPU
+    /// would compete with typing.
+    public static var defaultAutomaticChecks: Bool {
+        #if arch(x86_64)
+        return false
+        #else
+        return true
+        #endif
+    }
 
     public init(enabled: Bool = false,
                 backend: Backend = .builtIn,
@@ -48,7 +62,8 @@ public struct LocalAISettings: Codable, Sendable, Equatable {
                 minInterval: TimeInterval = 90,
                 pauseDelay: TimeInterval = 5,
                 timeout: TimeInterval = 20,
-                minIdle: TimeInterval = 10) {
+                minIdle: TimeInterval = 10,
+                automaticChecks: Bool = LocalAISettings.defaultAutomaticChecks) {
         self.enabled = enabled
         self.backend = backend
         self.baseURL = baseURL ?? backend.defaultBaseURL
@@ -57,13 +72,15 @@ public struct LocalAISettings: Codable, Sendable, Equatable {
         self.pauseDelay = pauseDelay
         self.timeout = timeout
         self.minIdle = minIdle
+        self.automaticChecks = automaticChecks
     }
 
     enum CodingKeys: String, CodingKey {
-        case enabled, backend, baseURL, model, minInterval, pauseDelay, timeout, minIdle
+        case enabled, backend, baseURL, model, minInterval, pauseDelay, timeout, minIdle, automaticChecks
     }
 
-    /// Settings saved before `minIdle` existed still load (with the default).
+    /// Settings saved before `minIdle` or `automaticChecks` existed still
+    /// load (with this Mac's defaults).
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decode(Bool.self, forKey: .enabled)
@@ -74,6 +91,7 @@ public struct LocalAISettings: Codable, Sendable, Equatable {
         pauseDelay = try c.decode(TimeInterval.self, forKey: .pauseDelay)
         timeout = try c.decode(TimeInterval.self, forKey: .timeout)
         minIdle = try c.decodeIfPresent(TimeInterval.self, forKey: .minIdle) ?? 10
+        automaticChecks = try c.decodeIfPresent(Bool.self, forKey: .automaticChecks) ?? Self.defaultAutomaticChecks
     }
 
     public static let `default` = LocalAISettings()

@@ -501,6 +501,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
             quiet = NSButton(title: String(localized: "Quiet for 1 Hour"), target: self, action: #selector(quietHour))
         }
         quiet.controlSize = .small
+        if hub.canAskAI, let tab, !tab.owlIdleForSpeed {
+            let ask = NSButton(title: String(localized: "Ask AI Now"), target: self, action: #selector(askAINow))
+            ask.controlSize = .small
+            ask.toolTip = String(localized: "Checks the text in view with the AI once, now.")
+            stack.addArrangedSubview(ask)
+        }
         let hide = NSButton(title: String(localized: "Hide Cedric"), target: self, action: #selector(hideOwl))
         hide.controlSize = .small
         let reset = NSButton(title: String(localized: "Reset Position"), target: self, action: #selector(resetFromPopover))
@@ -536,6 +542,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
     @objc private func resume() {
         OwlHub.shared.endQuiet()
         popover?.close()
+    }
+
+    @objc func askAINow() {
+        popover?.close()
+        guard let tab else { return }
+        OwlHub.shared.askAI(in: tab)
     }
 
     @objc private func resetFromPopover() {
