@@ -43,6 +43,33 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Files changed on disk** reload by themselves when the tab has no unsaved
   changes.
 - **`cedric` command-line launcher** (below).
+- **Cedric the owl** (View › Show Cedric the Owl, off by default): a small
+  assistant in the corner that offers one hint at a time, with **Fix it**
+  where a safe fix exists, **Show Me** where it points at something, **Not
+  now** and **Don't show again**. His rules need no AI and only ever look
+  at the text in view (at most 8 KB):
+  - warnings: merge-conflict markers left in the file; something that looks
+    like a secret (a private key, an AWS key, a GitHub, Slack, Stripe or
+    OpenAI/Anthropic token); JSON that doesn't parse (with the line);
+    an unmatched or unclosed bracket in Swift, JavaScript, TypeScript, C,
+    CSS or Python (strings, comments and regexes skipped; "never closed"
+    only in a saved file); a file changed on disk under your edits;
+  - fixes: format one-line JSON; curly quotes pasted into code; tabs
+    indenting YAML; tabs and spaces mixed (to whichever the file mostly
+    uses; a Makefile keeps its tabs); zero-width and stray byte-order-mark
+    characters; trailing spaces; "It looks like you're writing a to-do
+    list" → Markdown checkboxes; a word typed twice ("the the"); two spaces
+    after some full stops but not others; no newline at the end of a saved
+    code file;
+  - offers and notes: plain text that is really Markdown, HTML or JSON
+    (colour it that way); unsaved for two hours (save a copy); CRLF or
+    mixed line endings; and, once ever, a letter.
+
+  Optional AI hints (View › Cedric AI Settings…, off by default) use a
+  local model only. On Intel Macs automatic AI checks are **off** by
+  default so typing stays fast: click the owl and choose **Ask AI Now**,
+  or turn on "Check automatically when I pause typing" in the settings.
+  In very large documents the owl only looks when clicked.
 
 ## Build and run
 

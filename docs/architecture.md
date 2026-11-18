@@ -331,6 +331,19 @@ offers hints in a speech bubble.
   letter. Would you like help?" with "No thanks, I'm an owl" as the only
   button. The document facts it needs come in `OwlDocumentFacts` through
   `OwlFactsAwareProvider`.
+  `MoreRules.swift` adds (in the order offered): merge-conflict markers,
+  secrets (warning, no fix), JSON that doesn't parse, brackets (a small
+  lexer skipping strings, comments, JS regexes and Swift/JS
+  interpolations; whole documents only, "never closed" only when saved),
+  curly quotes in code, YAML tabs, then mixed indentation (minority →
+  majority), invisible characters, to-do list → checkboxes, plain text
+  that sniffs as Markdown/HTML/JSON (`rules.language-guess.<lang>`, "Use
+  <Language>"), doubled words, inconsistent double spaces, trailing
+  spaces, a missing final newline (saved code files, caret elsewhere),
+  mixed line endings. A hint with a range and no replacement gets **Show
+  Me** (selects it, if the text is unchanged). `OwlMoreRulesTests` covers
+  each one firing and its near misses, and a timing bound on a full 8 KB
+  window.
 - `OwlProviderRegistry`: providers in order; `register(_:isAI:)`. View ›
   Owl Hint Source › Rules + AI is disabled until an AI provider registers.
 - `OwlCoordinator`: asks at most once per 30 s and only after 3 s without
@@ -408,6 +421,12 @@ implements the shared `OwlHintProvider` contract from `CedricCore/Owl`.
   on battery below 20 %. Each request is hard-capped at 20 s and is
   cancelled the moment the document is edited again or the app goes
   inactive; results for a stale generation are dropped.
+  *Intel:* `LocalAISettings.automaticChecks` defaults to off on x86_64
+  (on elsewhere). Off, the scheduler arms nothing and the hub feeds it no
+  contexts; the model is asked only by the owl popover's "Ask AI Now"
+  (`OwlScheduler.checkNow`, never for a large document), so nothing loads
+  a model or runs one until the user asks. The settings sheet has the
+  checkbox to turn automatic checks back on.
 - *Logs:* one `os_log` line per request (subsystem `net.mindtricks.cedric`,
   category `owl-ai`): model, generation, bytes sent, prompt/completion
   tokens, latency, hint count. No document text, file names or model output.

@@ -526,6 +526,16 @@ final class OwlController: NSObject, NSPopoverDelegate {
     }
 
     var popoverShown: Bool { popover?.isShown == true }
+    /// A button in the open popover (the checks).
+    func popoverButton(_ title: String) -> NSButton? {
+        func find(_ v: NSView?) -> NSButton? {
+            guard let v else { return nil }
+            if let b = v as? NSButton, b.title == title { return b }
+            for s in v.subviews { if let b = find(s) { return b } }
+            return nil
+        }
+        return find(popover?.contentViewController?.view)
+    }
     /// At once, no fade: he's being picked up, or reset.
     func closePopover() {
         popover?.animates = false
@@ -545,7 +555,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     }
 
     @objc func askAINow() {
-        popover?.close()
+        closePopover()   // at once: a fast answer must not find it still up
         guard let tab else { return }
         OwlHub.shared.askAI(in: tab)
     }
