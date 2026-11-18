@@ -102,13 +102,18 @@ enum PolishCheck {
         }
 
         // A hint: the bubble opens below him and to the right (where there's room).
-        let hint = OwlHint(id: "check.bubble", kind: .tip, title: "Bubble opens where there's room",
-                           detail: "Below and to the right when Cedric is top left.", source: "rules")
-        oc.present(hint, context: tab.owlContextWindow().context)
+        // An AI hint with a fix: "Fix it", and its source under the title.
+        let ctx = tab.owlContextWindow().context
+        let hint = OwlHint(id: "check.bubble", kind: .fix, title: "Capitalise “Hello owl”?",
+                           detail: "Below and to the right when Cedric is top left.",
+                           range: (ctx.text as NSString).range(of: "Hello owl"), replacement: "Hello Owl", source: "apple")
+        oc.present(hint, context: ctx)
         TypingCheck.settle(0.2)
         if let b = oc.bubble {
             report(b.frame.maxY <= owl.frame.maxY && b.frame.minX >= owl.frame.minX - 4 && b.tailOnTop && b.tailAtLeft,
                    "owl-drag/bubble-side-with-room", "bubble=\(b.frame) owl=\(owl.frame)")
+            report(b.buttons.first?.title == "Fix it" && b.sourceLabel?.stringValue == "AI suggestion · Apple Intelligence",
+                   "owl-bubble/fix-it-and-source", "buttons=\(b.buttons.map(\.title)) source=\(b.sourceLabel?.stringValue ?? "-")")
         } else {
             report(false, "owl-drag/bubble-side-with-room", "no bubble")
         }
@@ -195,5 +200,86 @@ enum PolishCheck {
         report(pt.statusBar.languageButton.title == "JSON (auto)", "language/paste-json-auto", "title=\(pt.statusBar.languageButton.title)")
         done(pt)
         paste.releaseGlobally()
+    }
+
+    // MARK: Cedric themes
+
+    /// Swift, Markdown with its preview, and HTML in the Cedric and Cedric
+    /// Night themes, written whole-window (web preview via takeSnapshot).
+    static func themeShowcase(_ app: AppDelegate, out: String, report: Report) {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cedric-showcase-\(getpid())")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let samples: [(String, String, Bool)] = [
+            ("owl.swift", """
+            import Foundation
+
+            /// Cedric polishes his monocle while you type.
+            @MainActor
+            struct Owl: Identifiable {
+                let id = UUID()
+                var name = "Cedric"
+                var hoots: Int = 3 // a polite number
+
+                func greet(_ who: String) -> String {
+                    guard !who.isEmpty else { return "Hoo?" }
+                    return "Good evening, \\(who). " + String(repeating: "hoo ", count: hoots)
+                }
+            }
+            """, false),
+            ("notes.md", """
+            # Cedric's notes
+
+            ## Today
+            - Polish the **monocle**
+            - Read *two* chapters of [the owl book](https://example.com)
+            1. Hoot
+            2. Sleep
+
+            > Wisdom is knowing when to stay in the corner.
+
+            ```swift
+            let owl = Owl()
+            ```
+            """, true),
+            ("index.html", """
+            <!doctype html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <title>Cedric</title>
+              <style>body { color: #27295a; background: #fbeee4; }</style>
+            </head>
+            <body>
+              <!-- the owl's page -->
+              <h1 class="title">Hello from Cedric</h1>
+              <p>Typing <em>quietly</em>, polishing <strong>loudly</strong>.</p>
+            </body>
+            </html>
+            """, false),
+        ]
+        for (theme, name) in [(EditorTheme.cedric, "cedric"), (.cedricNight, "cedric-night")] {
+            TypingCheck.apply(TypingCheck.ThemeCase(name: name, theme: theme, system: nil))
+            for (file, text, preview) in samples {
+                let url = dir.appendingPathComponent(file)
+                try? text.write(to: url, atomically: true, encoding: .utf8)
+                guard let tab = app.open(url), let w = tab.window else { report(false, "theme/\(name)/\(file)", "didn't open"); continue }
+                w.setContentSize(NSSize(width: 1100, height: 640))
+                w.makeKeyAndOrderFront(nil)
+                if preview { tab.togglePreview() }
+                TypingCheck.settle(preview ? 1.5 : 0.4)
+                let path = "\(out)/theme-\(name)-\((file as NSString).pathExtension).png"
+                var finished = false
+                DevHooks.write(window: w, to: path) { finished = true }
+                let deadline = Date().addingTimeInterval(8)
+                while !finished && Date() < deadline { TypingCheck.settle(0.05) }
+                report(finished && FileManager.default.fileExists(atPath: path) && tab.palette.name == theme.palette(systemIsDark: false).name,
+                       "theme/\(name)/\(file)", "palette=\(tab.palette.name) wrote=\(finished)")
+                if preview { tab.togglePreview() }
+                tab.doc.markSaved()
+                w.close()
+                TypingCheck.settle(0.05)
+            }
+        }
     }
 }

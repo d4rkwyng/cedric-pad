@@ -164,6 +164,8 @@ enum TypingCheck {
         ThemeCase(name: "dark", theme: .dark, system: nil),
         ThemeCase(name: "tankard", theme: .tankard, system: nil),
         ThemeCase(name: "dracula", theme: .dracula, system: nil),
+        ThemeCase(name: "cedric", theme: .cedric, system: nil),
+        ThemeCase(name: "cedric-night", theme: .cedricNight, system: nil),
     ]
 
     static func apply(_ c: ThemeCase) {

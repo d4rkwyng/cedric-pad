@@ -327,7 +327,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
         }
         var out: [OwlBubble.Button] = []
         if hint.replacement != nil {
-            out.append(.init(title: String(localized: "Apply"), isDefault: true) { [weak self] in self?.applyPresented() })
+            out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self] in self?.applyPresented() })
         } else if hint.id == RulesHintProvider.reloadID {
             out.append(.init(title: String(localized: "Reload"), isDefault: true) { [weak self, weak tab] in tab?.reloadFromDisk(); self?.hideBubble() })
         } else if hint.id == RulesHintProvider.saveCopyID {

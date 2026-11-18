@@ -204,7 +204,7 @@ enum AICheck {
             guard live == nil else { finish(); return }
             // Fake: Apply, and the next request hangs past the timeout.
             FakeAIProvider.delay.set(30)
-            guard let apply = owl.bubble?.buttons.first(where: { $0.title == String(localized: "Apply") }) else {
+            guard let apply = owl.bubble?.buttons.first(where: { $0.title == String(localized: "Fix it") }) else {
                 check(false, "bubble has Apply"); finish(); return
             }
             press(apply, "Apply") { owl.bubble == nil }

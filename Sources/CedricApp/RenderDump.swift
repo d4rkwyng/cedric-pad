@@ -140,6 +140,7 @@ enum RenderDump {
         // The owl dragged with mouse events; language detection with key events.
         PolishCheck.owl(app, out: out, report: report)
         PolishCheck.language(app, out: out, report: report)
+        PolishCheck.themeShowcase(app, out: out, report: report)
         // Untitled numbering: the lowest free number among open untitled tabs.
         for t in app.tabs { t.doc.markSaved(); t.window?.close() }
         TypingCheck.settle(0.05)

@@ -112,7 +112,8 @@ final class Settings {
         switch theme {
         case .system: return nil
         case .light: return NSAppearance(named: .aqua)
-        case .dark, .tankard, .dracula: return NSAppearance(named: .darkAqua)
+        case .dark, .tankard, .dracula, .cedricNight: return NSAppearance(named: .darkAqua)
+        case .cedric: return NSAppearance(named: .aqua)
         }
     }
 
