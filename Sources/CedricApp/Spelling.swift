@@ -42,15 +42,21 @@ final class EditorSpelling {
     func apply() {
         // Large mode: no checking passes over a huge line.
         guard let tab else { return }
-        let on = Settings.shared.checkSpellingWhileTyping && !tab.extrasPaused
+        let on = Settings.shared.checkSpellingWhileTyping && !tab.extrasPaused && checksThisDocument
         let tv = tab.textView
         tv.spelling = self
         if tv.isContinuousSpellCheckingEnabled != on { tv.isContinuousSpellCheckingEnabled = on }
     }
 
+    /// Not data (JSON, YAML, TOML/INI/.env, XML, CSV/TSV): no underlines, no typo hints there.
+    private var checksThisDocument: Bool {
+        guard let tab else { return false }
+        return SpellScope.checks(language: tab.doc.language, fileName: tab.doc.fileURL?.lastPathComponent)
+    }
+
     /// The text changed or the language did: the owl looks again shortly.
     func schedule(after delay: TimeInterval = 1.0) {
-        guard let tab, tab.owl != nil, !tab.extrasPaused, SpellScope.isProse(tab.doc.language), Settings.shared.checkSpellingWhileTyping else { return }
+        guard let tab, tab.owl != nil, !tab.extrasPaused, SpellScope.isProse(tab.doc.language), checksThisDocument, Settings.shared.checkSpellingWhileTyping else { return }
         timer?.invalidate()
         let t = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.offerTypoFix() }
@@ -66,7 +72,7 @@ final class EditorSpelling {
 
     /// Misspellings in scope within `range` (the visible lines by default).
     func misspellings(in range: NSRange? = nil) -> [NSRange] {
-        guard let tv = tab?.textView else { return [] }
+        guard checksThisDocument, let tv = tab?.textView else { return [] }
         let ns = tv.string as NSString
         guard ns.length > 0 else { return [] }
         let r = range ?? tv.visibleCharacterRange ?? NSRange(location: 0, length: min(ns.length, 20_000))
@@ -99,7 +105,7 @@ final class EditorSpelling {
 
     private func offerTypoFix() {
         timer = nil
-        guard let tab, let owl = tab.owl, SpellScope.isProse(tab.doc.language) else { return }
+        guard let tab, let owl = tab.owl, SpellScope.isProse(tab.doc.language), checksThisDocument else { return }
         owl.offerTypoFix(self, tab: tab)
     }
 

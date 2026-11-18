@@ -35,6 +35,22 @@ import Testing
         #expect(!covered("exmple", in: ns, scope))
     }
 
+    @Test func dataFilesAreNeverChecked() {
+        for (text, l) in [("{\"naem\": \"vlaue with wrods\"}\n", Language.json), ("naem: vlaue wrods\n", .yaml),
+                          ("[sectoin]\nnaem = \"vlaue wrods\"\n", .ini), ("<naem attr=\"vlaue\">wrods here</naem>\n", .xml)] {
+            let (_, t, all) = tokens(text, l)
+            #expect(SpellScope.ranges(language: l, tokens: t, in: all).isEmpty, "\(l)")
+            #expect(!SpellScope.checks(language: l, fileName: nil), "\(l)")
+        }
+        // CSV and TSV open as Plain Text but are tables of data.
+        #expect(!SpellScope.checks(language: .plain, fileName: "people.csv"))
+        #expect(!SpellScope.checks(language: .plain, fileName: "Export.TSV"))
+        #expect(SpellScope.checks(language: .plain, fileName: "notes.txt"))
+        #expect(SpellScope.checks(language: .plain, fileName: nil))
+        #expect(SpellScope.checks(language: .swift, fileName: "a.swift"))
+        #expect(SpellScope.checks(language: .markdown, fileName: "README.md"))
+    }
+
     @Test func plainTextIsAllProse() {
         let (_, t, all) = tokens("Just some wrods.\n", .plain)
         #expect(SpellScope.ranges(language: .plain, tokens: t, in: all) == [all])

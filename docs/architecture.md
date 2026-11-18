@@ -913,7 +913,10 @@ saved; also in Edit › Spelling and Grammar with Show Spelling and Grammar
 and Check Document Now). Every batch of results passes through
 `EditorTextView.handleTextCheckingResults`, which keeps only misspellings
 inside `SpellScope.ranges`: prose in Plain Text and Markdown (minus code,
-links and markup tokens), only comments and strings in code. The marks are
+links and markup tokens), only comments and strings in code, nothing in
+data (`SpellScope.checks`: JSON, YAML, TOML/INI/.env, XML, and CSV/TSV
+files; checking is off for those tabs, so no underlines and no typo
+hint). The marks are
 the text view's spelling state, a drawing attribute, so text colours are
 never touched; suggestions, Learn and Ignore are the standard context menu.
 Check Document Now walks our scope (the system's would stop on

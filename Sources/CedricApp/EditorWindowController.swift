@@ -513,9 +513,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let l = doc.language
         colorizer.setLanguage(l)
         textView.language = l
-        // What counts as a word changed (code vs prose): check again.
-        if textView.isContinuousSpellCheckingEnabled { textView.isContinuousSpellCheckingEnabled = false; textView.isContinuousSpellCheckingEnabled = true }
+        // What counts as a word changed (code vs prose): check again
+        // (or not at all: data such as JSON isn't checked).
+        if textView.isContinuousSpellCheckingEnabled { textView.isContinuousSpellCheckingEnabled = false }
         textView.markedMisspellings = []
+        spelling.apply()
         updateStatus()
         if previewVisible, !l.hasPreview { togglePreview() }
         onChange?(self)

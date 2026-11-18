@@ -8,6 +8,22 @@ import Foundation
 public enum SpellScope {
     public static func isProse(_ l: Language) -> Bool { l == .plain || l == .markdown }
 
+    /// Data, not writing: JSON, YAML, TOML/INI/.env and XML. Their values
+    /// are names, ids and settings, so nothing in them is checked.
+    public static func isData(_ l: Language) -> Bool { l == .json || l == .yaml || l == .ini || l == .xml }
+
+    /// File names whose text is data even though it opens as Plain Text
+    /// (CSV and TSV tables).
+    public static func isDataFile(_ fileName: String?) -> Bool {
+        guard let ext = fileName.map({ ($0 as NSString).pathExtension.lowercased() }) else { return false }
+        return ["csv", "tsv", "tab", "psv"].contains(ext)
+    }
+
+    /// Whether spelling is checked at all for this document.
+    public static func checks(language: Language, fileName: String?) -> Bool {
+        !isData(language) && !(language == .plain && isDataFile(fileName))
+    }
+
     /// Token kinds that are words in code.
     static let codeChecked: Set<TokenKind> = [.comment, .string]
     /// Token kinds that aren't words in prose (Markdown).
@@ -17,6 +33,7 @@ public enum SpellScope {
     /// the lines it covers (absolute offsets, sorted by start).
     public static func ranges(language: Language, tokens: [Token], in range: NSRange) -> [NSRange] {
         let end = NSMaxRange(range)
+        if isData(language) { return [] }
         if isProse(language) {
             // The whole range minus the skipped tokens.
             var out: [NSRange] = []

@@ -296,7 +296,8 @@ enum PolishCheck {
         let md = "# Notes\n\nThis is a sentense with a tpyo.\nSee `codde` and [the dcos](https://exmple.com).\n"
         for (i, c) in [TypingCheck.themes[2], TypingCheck.themes[3]].enumerated() {
             TypingCheck.apply(c)
-            for (file, text) in [("typos.swift", swift), ("typos.md", md)] {
+            let json = "{\"naem\": \"vlaue with wrods\", \"lsit\": [\"mispeled\"]}\n"
+            for (file, text) in [("typos.swift", swift), ("typos.md", md), ("data.json", json)] {
                 let url = dir.appendingPathComponent(file)
                 try? text.write(to: url, atomically: true, encoding: .utf8)
                 guard let tab = app.open(url), let w = tab.window else { report(false, "spelling/\(file)", "didn't open"); continue }
@@ -320,7 +321,7 @@ enum PolishCheck {
                 repeat {
                     TypingCheck.settle(0.1)
                     marked = tv.markedMisspellings.map { ns.substring(with: $0) }.sorted()
-                } while marked.count < 2 && Date() < until
+                } while marked.count < 2 && Date() < until && !file.hasSuffix("json")
                 TypingCheck.settle(0.2)
                 marked = tv.markedMisspellings.map { ns.substring(with: $0) }.sorted()
                 if i == 0 {
@@ -330,6 +331,10 @@ enum PolishCheck {
                         let idMarked = tv.markedMisspellings.contains { $0.location == first.location }
                         report(!idMarked && marked == ["mispeled", "mispeled"], "spelling/swift-comments-and-strings-only",
                                "marked=\(tv.markedMisspellings.map(\.location)) identifier at \(first.location)")
+                    } else if file.hasSuffix("json") {
+                        // Data: no checking at all (values are names and ids, not writing).
+                        report(marked.isEmpty && !tv.isContinuousSpellCheckingEnabled, "spelling/json-not-checked",
+                               "marked=\(marked) continuous=\(tv.isContinuousSpellCheckingEnabled)")
                     } else {
                         report(marked == ["sentense", "tpyo"], "spelling/markdown-prose-not-code-or-links", "marked=\(marked)")
                     }
