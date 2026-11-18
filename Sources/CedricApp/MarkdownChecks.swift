@@ -15,7 +15,7 @@ extension DevChecks {
         case "mdtable": markdownTable(app)
         case "mdpaste": markdownPaste(app)
         case "langindent": languageIndent(app)
-        default: return false
+        default: return markdownPreviewCheck(name, app)
         }
         return true
     }

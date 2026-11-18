@@ -22,6 +22,7 @@ public enum TokenKind: UInt8, CaseIterable, Sendable {
     case link          // Markdown links and URLs
     case code          // Markdown code spans and fences
     case punctuation   // Markdown list markers and quotes, YAML document markers
+    case embeddedCode  // the rest of a Markdown fenced block's code: text colour, never spell-checked as prose
 }
 
 /// One coloured span, in UTF-16 offsets relative to the start of its line.
@@ -55,6 +56,14 @@ public protocol Tokenizer: Sendable {
     var carriesState: Bool { get }
 
     func tokenize(_ line: UnsafeBufferPointer<UInt16>, state: inout UInt32, into tokens: inout [Token])
+
+    /// The state at the top of the file (Markdown: "line 0", where a
+    /// `---` opens YAML frontmatter). 0 for most languages.
+    var initialState: UInt32 { get }
+}
+
+extension Tokenizer {
+    public var initialState: UInt32 { 0 }
 }
 
 // MARK: - Scanning helpers shared by the tokenizers
@@ -188,7 +197,7 @@ public struct PlainTokenizer: Tokenizer {
 /// Tokenizes a String line by line, for tests and tools: returns each
 /// line's tokens. The app goes through `HighlightEngine` instead.
 public func tokenizeLines(_ text: String, with tokenizer: Tokenizer) -> [[Token]] {
-    var state: UInt32 = 0
+    var state = tokenizer.initialState
     var result: [[Token]] = []
     for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
         let units = Array(line.utf16)

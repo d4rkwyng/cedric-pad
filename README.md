@@ -34,8 +34,22 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   menu overrides it.
 - **Live preview** for Markdown and HTML, side by side (View › Show Preview,
   ⌥⌘P). JavaScript and network access in the preview are **off** by default
-  and can be turned on per tab (View menu). Scrolling the editor scrolls the
-  preview to roughly the same place. **Detach Preview** (View menu, ⇧⌥⌘P,
+  and can be turned on per tab (View menu). The Markdown preview doesn't
+  flicker or jump: it is rendered in the background (a 1 MB file costs the
+  main thread about a millisecond per update), and only the blocks that
+  changed are swapped into the page, so it keeps its place and its images.
+  Scrolling either side scrolls the other to the same source line (by
+  block, list item and quote). Relative images load from the document's
+  folder (and only from there), and a link to a relative `.md` (or other
+  text) file opens it in a Cedric tab. The renderer follows CommonMark's
+  emphasis rules (`**bold *mix***` nests properly) and knows reference
+  links, footnotes (`[^1]`), GitHub alerts (`> [!NOTE]`, `[!TIP]`,
+  `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), task lists (disabled
+  checkboxes) and YAML frontmatter, which shows as a small metadata table
+  (and is coloured as YAML in the editor). Fenced code blocks are
+  coloured by their language (```` ```swift ````, `py`, `js`, `bash`, …)
+  both in the editor and in the preview, by Cedric's own tokenizers and
+  the theme's colours (no JavaScript highlighter). **Detach Preview** (View menu, ⇧⌥⌘P,
   or Detach in the preview's header) moves it into its own resizable
   window, "notes.md — Preview", still updating as you type; it stays
   with its own document whichever tab is in front, and closes with that
@@ -85,6 +99,22 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
     the link out but leaves the copied file. Other dropped files still
     open in their own tabs, and in other languages a dropped image opens
     as before.
+- **Markdown outline** (View › Show Outline, ⌃⌘O): the document's
+  headings (`#` and underlined ones, never a `#` inside fenced code or
+  frontmatter), indented by level, at the left of the text. Click one to
+  jump there; the heading the caret is under stays selected; the filter
+  field narrows the list. **Go to Heading…** (Edit menu, ⇧⌘J) opens it
+  with the filter focused: type, ↑/↓, Return to jump (Esc goes back), and
+  it puts itself away again. Built the first time it is shown and updated
+  in the background when typing pauses (in large mode only when opened,
+  up to 5,000 headings).
+- **Markdown export and copy:** File › Export as HTML… writes a standalone
+  page (no script), and File › Export as PDF… a paginated PDF (cut between
+  blocks), both rendered as the preview renders them in a light,
+  theme-neutral style whatever the editor's theme. Edit › Copy as HTML puts
+  the rendered HTML of the selection (or the whole document) on the
+  clipboard as text; Copy as Rich Text puts it there as rich text (RTF and
+  HTML) for Mail, Notes or a word processor.
 - **CSV and TSV as a spreadsheet:** the preview (⌥⌘P) of a `.csv`, `.tsv`
   or `.psv` file is a read-only grid: the first line is the header, row
   numbers stay at the left, columns resize, and a click on a header sorts

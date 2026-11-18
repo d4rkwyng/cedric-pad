@@ -117,26 +117,81 @@ public struct YAMLTokenizer: Tokenizer {
     }
 }
 
-/// Markdown: headings, fenced code (state 1 inside a ``` fence, 2 inside a
-/// ~~~ fence), block quotes, list markers, code spans, emphasis, strong,
-/// links and autolinks.
+/// Markdown: headings, fenced code, block quotes, list markers, code
+/// spans, emphasis, strong, links and autolinks, and YAML frontmatter.
+/// State: the low 4 bits are the mode (0 text, 1 inside a ``` fence, 2
+/// inside a ~~~ fence, 3 inside frontmatter); bit 0x80 marks the top of
+/// the file (`initialState`), where a `---` line opens frontmatter. In a
+/// fence whose info string names a language (```` ```swift ````), bits
+/// 8–12 hold that language (+1) and bits 13+ its tokenizer's own state, so
+/// the code is coloured as that language, as HTMLTokenizer does for
+/// <script>.
 public struct MarkdownTokenizer: Tokenizer {
     public init() {}
     public var carriesState: Bool { true }
+    public var initialState: UInt32 { Self.topOfFile }
+    static let topOfFile: UInt32 = 0x80
     private static let backticks: [UInt16] = Array("```".utf16)
     private static let tildes: [UInt16] = Array("~~~".utf16)
+    private static let yaml = YAMLTokenizer()
+    private static let languages = Language.allCases
+    private static let innerMask: UInt32 = (1 << 19) - 1
+
+    /// Whether the line is `---` (or `...` with `orDots`), trailing spaces allowed.
+    private static func isMarker(_ b: UnsafeBufferPointer<UInt16>, orDots: Bool) -> Bool {
+        guard b.count >= 3, (b[0] == C.minus && b[1] == C.minus && b[2] == C.minus) || (orDots && b[0] == C.dot && b[1] == C.dot && b[2] == C.dot)
+        else { return false }
+        return b.skipSpaces(from: 3) == b.count
+    }
+
+    /// The fence's state: its mode, and the language its info string names.
+    private static func openFence(_ b: UnsafeBufferPointer<UInt16>, at i: Int, mode: UInt32) -> UInt32 {
+        var j = i
+        while j < b.count, b[j] == b[i] { j += 1 }
+        let info = String(decoding: b[j..<b.count], as: UTF16.self).trimmingCharacters(in: .whitespaces)
+        guard let lang = Language(fenceInfo: info), lang.colorsFencedCode, let k = languages.firstIndex(of: lang) else { return mode }
+        let tokenizer = Languages.tokenizer(for: lang)
+        return mode | UInt32(k + 1) << 8 | (tokenizer.initialState & innerMask) << 13
+    }
 
     public func tokenize(_ b: UnsafeBufferPointer<UInt16>, state: inout UInt32, into t: inout [Token]) {
         let n = b.count
-        let indent = b.skipSpaces(from: 0)
-        let fence = state == 1 ? Self.backticks : state == 2 ? Self.tildes : nil
-        if let fence {
-            t.add(0, n, .code)
-            if indent <= 3, b.has(fence, at: indent) { state = 0 }
+        if state & Self.topOfFile != 0 {
+            state &= ~Self.topOfFile
+            if Self.isMarker(b, orDots: false) { t.add(0, n, .punctuation); state = 3; return }
+        }
+        if state & 0xf == 3 {
+            if Self.isMarker(b, orDots: true) { t.add(0, n, .punctuation); state = 0; return }
+            var inner: UInt32 = 0
+            Self.yaml.tokenize(b, state: &inner, into: &t)
             return
         }
-        if indent <= 3, b.has(Self.backticks, at: indent) { t.add(0, n, .code); state = 1; return }
-        if indent <= 3, b.has(Self.tildes, at: indent) { t.add(0, n, .code); state = 2; return }
+        let indent = b.skipSpaces(from: 0)
+        let fence = state & 0xf == 1 ? Self.backticks : state & 0xf == 2 ? Self.tildes : nil
+        if let fence {
+            if indent <= 3, b.has(fence, at: indent), Self.onlyFence(b, from: indent) {
+                t.add(0, n, .code)
+                state = 0
+                return
+            }
+            let lang = Int((state >> 8) & 0x1f)
+            guard lang > 0, lang <= Self.languages.count else { t.add(0, n, .code); return }
+            var inner = state >> 13
+            var tokens: [Token] = []
+            Languages.tokenizer(for: Self.languages[lang - 1]).tokenize(b, state: &inner, into: &tokens)
+            // The gaps are code too (prose checks skip them), in the text colour.
+            var at = 0
+            for tok in tokens where tok.start >= at {
+                t.add(at, tok.start, .embeddedCode)
+                t.add(tok.start, tok.end, tok.kind)
+                at = tok.end
+            }
+            t.add(at, n, .embeddedCode)
+            state = (state & 0x1fff) | (inner & Self.innerMask) << 13
+            return
+        }
+        if indent <= 3, b.has(Self.backticks, at: indent) { t.add(0, n, .code); state = Self.openFence(b, at: indent, mode: 1); return }
+        if indent <= 3, b.has(Self.tildes, at: indent) { t.add(0, n, .code); state = Self.openFence(b, at: indent, mode: 2); return }
         if indent >= 4 && n > indent { t.add(0, n, .code); return }
 
         var i = indent
@@ -169,6 +224,13 @@ public struct MarkdownTokenizer: Tokenizer {
             }
         }
         inline(b, from: i, into: &t)
+    }
+
+    /// A closing fence: only fence characters, then spaces.
+    private static func onlyFence(_ b: UnsafeBufferPointer<UInt16>, from i: Int) -> Bool {
+        var j = i
+        while j < b.count, b[j] == b[i] { j += 1 }
+        return b.skipSpaces(from: j) == b.count
     }
 
     private func inline(_ b: UnsafeBufferPointer<UInt16>, from start: Int, into t: inout [Token]) {

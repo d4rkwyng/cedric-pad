@@ -30,7 +30,11 @@ fail=0
 echo "== shortcuts"
 env CEDRIC_DUMP_SHORTCUTS=1 "$BIN" -ApplePersistenceIgnoreState YES 2>/dev/null | tee "$OUT/shortcuts.txt" | grep -E "CONFLICT|shortcuts:" || fail=1
 grep -q "no conflicts" "$OUT/shortcuts.txt" || fail=1
-for c in recent texttool findinfiles compare follow large highlight lineops bookmarks closedtab closedraw jsonwhole colours autoedit counts indent print macbasics filterlines encodings cli dropfile spellstep detachpreview csvpreview git mdlists mdformat mdtable mdpaste langindent; do
+# New Cedric crash reports during the run fail it (CedricApp is the
+# unbundled binary, Cedric the app).
+crash_reports() { ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -E '^Cedric(App)?-.*\.ips$' | sort; }
+crash_reports > "$W/crashes-before.txt"
+for c in recent texttool findinfiles compare follow large highlight lineops bookmarks closedtab closedraw jsonwhole colours autoedit counts indent print macbasics filterlines encodings cli dropfile spellstep detachpreview csvpreview git mdlists mdformat mdtable mdpaste langindent mdpreview outline mdexport; do
     echo "== $c"
     if ! env CEDRIC_CHECK=$c CEDRIC_THEME=${CEDRIC_THEME:-dark} perl -e 'alarm 90; exec @ARGV' "$BIN" -ApplePersistenceIgnoreState YES 2>/dev/null \
         | grep -E "^check:" | tee "$OUT/$c.txt"; then fail=1; fi
@@ -50,5 +54,16 @@ echo "$cli" | grep -q "path=$W/src/x.c&line=12&col=5&wait=" || { echo "tools-che
 echo "$cli" | grep -q "path=$W/b.md&line=3&wait=" || { echo "tools-check: cli +line FAILED" >&2; fail=1; }
 echo "$cli" | grep -q "path=$W/c.py&line=9&wait=" || { echo "tools-check: cli file:line: FAILED" >&2; fail=1; }
 ls "${TMPDIR:-/tmp}"/cedric-wait.* >/dev/null 2>&1 && echo "note: cedric-wait markers present in TMPDIR (other runs?)"
+# (ReportCrash writes a moment after the process dies.)
+sleep 3
+crash_reports > "$W/crashes-after.txt"
+new=$(comm -13 "$W/crashes-before.txt" "$W/crashes-after.txt")
+if [ -n "$new" ]; then
+    echo "tools-check: new crash reports during the run (another run on this Mac may have made them):" >&2
+    echo "$new" | sed 's/^/  /' >&2
+    fail=1
+else
+    echo "== crash reports: none new"
+fi
 echo "snapshots and logs in $OUT"
 exit $fail

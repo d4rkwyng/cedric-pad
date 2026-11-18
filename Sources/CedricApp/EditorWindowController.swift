@@ -15,6 +15,15 @@ final class EditorContainer: NSView {
         }
     }
     var showsGutter = true { didSet { gutter.isHidden = !showsGutter; needsLayout = true } }
+    /// The outline at the left (nil while it is hidden).
+    var sidebar: NSView? {
+        didSet {
+            guard oldValue !== sidebar else { return }
+            oldValue?.removeFromSuperview()
+            if let sidebar { addSubview(sidebar) }
+            needsLayout = true
+        }
+    }
 
     init(gutter: GutterView, scrollView: NSScrollView) {
         self.gutter = gutter
@@ -28,9 +37,11 @@ final class EditorContainer: NSView {
 
     override func layout() {
         super.layout()
+        let side = sidebar == nil ? 0 : min(OutlineSidebar.width, max(0, bounds.width - 200))
+        sidebar?.frame = NSRect(x: 0, y: 0, width: side, height: bounds.height)
         let g = showsGutter ? gutterWidth : 0
-        gutter.frame = NSRect(x: 0, y: 0, width: g, height: bounds.height)
-        scrollView.frame = NSRect(x: g, y: 0, width: bounds.width - g, height: bounds.height)
+        gutter.frame = NSRect(x: side, y: 0, width: g, height: bounds.height)
+        scrollView.frame = NSRect(x: side + g, y: 0, width: bounds.width - g - side, height: bounds.height)
         if let overlay {
             // Over the text area, clear of the scrollers.
             scrollView.layoutSubtreeIfNeeded()
@@ -98,6 +109,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Which lines are in fenced code, for the Markdown editing keys
     /// (cached per line start; dropped from an edited line down).
     let fences = FenceIndex()
+    /// The Markdown outline sidebar (OutlineSidebar.swift).
+    let outline = OutlineState()
+    var editorContainer: EditorContainer { container }
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -374,6 +388,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         editingTextChanged()
         updateStatus()
         schedulePreview()
+        outlineTextChanged()
         if let owl {
             owl.noteTyping()
             OwlHub.shared.activity(in: self)
@@ -392,6 +407,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         owl?.caretMoved(byUser: true)
         scheduleHighlights()
         updateBracketMatch()
+        updateOutlineCurrent()
     }
 
     /// The line at the top when the user last scrolled: kept there when
@@ -459,6 +475,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         statusBar.zoom.stringValue = "\(Int((s.fontSize / Settings.defaultFontSize * 100).rounded()))%"
         textView.needsDisplay = true
         if previewVisible { renderPreview() }
+        outline.sidebar?.applyPalette(p)
         owl?.layoutViews()
         spelling.apply()
         gitState?.settingChanged()
@@ -558,6 +575,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         spelling.apply()
         updateStatus()
         previewLanguageChanged()
+        if outlineVisible, l != .markdown { hideOutline() }
         onChange?(self)
     }
 
@@ -1041,6 +1059,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         let p = PreviewController()
         p.onLoaded = { [weak self] in self?.syncPreviewScroll() }
+        p.onScrolledToLine = { [weak self] line in self?.previewScrolled(toLine: line) }
+        p.onOpenFile = { url in (NSApp.delegate as? AppDelegate)?.open(url) }
         return p
     }
 
@@ -1125,21 +1145,37 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private func schedulePreview() {
         guard previewVisible else { return }
         previewTimer?.invalidate()
-        previewTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+        // The render runs off the main thread; in large mode it waits for
+        // a longer pause, so a huge document isn't re-rendered per word.
+        previewTimer = Timer.scheduledTimer(withTimeInterval: extrasPaused ? 2 : 0.3, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.renderPreview() }
         }
     }
 
     func renderPreview() {
         guard let pane = previewPane else { return }
+        let start = DispatchTime.now()
         pane.applyPalette(palette)
         previewWindow?.updateTitle()
+        // `string` is a copy (the renderers work on it off the main thread).
         pane.renderer.render(text: textView.string, language: doc.language, palette: palette,
                              baseURL: doc.fileURL?.deletingLastPathComponent(), fileName: doc.fileURL?.lastPathComponent)
+        (pane.renderer as? PreviewController)?.noteMainThread(start)
+    }
+
+    /// The user scrolled the preview: the editor follows (Markdown), and
+    /// doesn't send its own scrolling back for a moment.
+    private var followingPreviewUntil = Date.distantPast
+
+    private func previewScrolled(toLine line: Double) {
+        guard previewVisible, doc.language == .markdown, lineIndex.lineCount > 0 else { return }
+        followingPreviewUntil = Date().addingTimeInterval(0.3)
+        let target = max(0, min(Int(line.rounded()), lineIndex.lineCount - 1))
+        if target != topLine { scrollToLine(target) }
     }
 
     private func syncPreviewScroll() {
-        guard let pane = previewPane, previewVisible else { return }
+        guard let pane = previewPane, previewVisible, Date() >= followingPreviewUntil else { return }
         let top = topLine
         let fraction = lineIndex.lineCount > 1 ? Double(top) / Double(lineIndex.lineCount - 1) : 0
         pane.renderer.sync(line: top, fraction: fraction, language: doc.language)

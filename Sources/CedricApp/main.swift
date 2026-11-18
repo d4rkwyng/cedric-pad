@@ -106,6 +106,9 @@ func buildMainMenu() -> NSMenu {
         .separator(),
         item(String(localized: "Page Setup…"), #selector(AppDelegate.pageSetup(_:)), "p", [.command, .shift]),
         item(String(localized: "Print…"), #selector(AppDelegate.printDocument(_:)), "p"),
+        .separator(),
+        item(String(localized: "Export as HTML…"), #selector(AppDelegate.exportHTMLMenu(_:))),
+        item(String(localized: "Export as PDF…"), #selector(AppDelegate.exportPDFMenu(_:))),
     ]))
 
     let findItems = [
@@ -124,12 +127,15 @@ func buildMainMenu() -> NSMenu {
         .separator(),
         item(String(localized: "Cut"), #selector(NSText.cut(_:)), "x"),
         item(String(localized: "Copy"), #selector(NSText.copy(_:)), "c"),
+        item(String(localized: "Copy as HTML"), #selector(AppDelegate.copyAsHTMLMenu(_:))),
+        item(String(localized: "Copy as Rich Text"), #selector(AppDelegate.copyAsRichTextMenu(_:))),
         item(String(localized: "Paste"), #selector(NSText.paste(_:)), "v"),
         item(String(localized: "Select All"), #selector(NSText.selectAll(_:)), "a"),
         .separator(),
         submenu(String(localized: "Find"), findItems),
         item(String(localized: "Find in Files…"), #selector(AppDelegate.findInFilesMenu(_:)), "f", [.command, .shift]),
         item(String(localized: "Go to Line…"), #selector(AppDelegate.goToLine(_:)), "l"),
+        item(String(localized: "Go to Heading…"), #selector(AppDelegate.goToHeadingMenu(_:)), "j", [.command, .shift]),
         .separator(),
         submenu(String(localized: "Line"), [
             item(String(localized: "Duplicate Line"), #selector(AppDelegate.duplicateLineMenu(_:)), "d", [.command, .shift]),
@@ -173,6 +179,7 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Detach Preview"), #selector(AppDelegate.toggleDetachPreview(_:)), "p", [.command, .option, .shift]),
         item(String(localized: "Allow JavaScript in Preview"), #selector(AppDelegate.togglePreviewJavaScript(_:))),
         item(String(localized: "Allow Network in Preview"), #selector(AppDelegate.togglePreviewNetwork(_:))),
+        item(String(localized: "Show Outline"), #selector(AppDelegate.toggleOutlineMenu(_:)), "o", [.control, .command]),
         .separator(),
         item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.option]),
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
