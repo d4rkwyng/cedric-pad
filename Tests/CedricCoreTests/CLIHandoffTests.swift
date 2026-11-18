@@ -60,6 +60,18 @@ import Testing
         #expect(fm.fileExists(atPath: victim))
     }
 
+    @Test func aHardLinkToAVictimIsRefused() throws {
+        let d = try dirs(); defer { cleanup(d) }
+        let victim = d.home + "/x/victim.txt"
+        try "precious".write(toFile: victim, atomically: false, encoding: .utf8)
+        let link = d.temp + "/cedric-stdin.HardL1"
+        try fm.linkItem(atPath: victim, toPath: link)
+        #expect((try fm.attributesOfItem(atPath: link)[.referenceCount] as? NSNumber)?.intValue == 2, "nlink 2")
+        #expect(CLIHandoff.inspect(link, kind: .stdin, tempDirs: [d.temp], read: true) == nil)
+        #expect(CLIHandoff.inspect(d.temp + "/cedric-wait.HardL1", kind: .wait, tempDirs: [d.temp]) == nil)
+        #expect((try? String(contentsOfFile: victim, encoding: .utf8)) == "precious")
+    }
+
     @Test func wrongNamesAreRefused() throws {
         let d = try dirs(); defer { cleanup(d) }
         for name in ["victim.txt", "cedric-stdin.", "cedric-stdin.abc", "cedric-stdin.ab cd ef", "cedric-stdin.abc-def", "xcedric-stdin.abcdef"] {

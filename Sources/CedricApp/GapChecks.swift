@@ -558,6 +558,13 @@ extension DevChecks {
                        "the malicious untitled= URLs leave the victim file alone")
                 expect(app.tabs.count == before, "and open nothing", "\(app.tabs.count - before)")
                 try? FileManager.default.removeItem(atPath: link)
+                // A hard link to it under a valid name (nlink 2), with the token.
+                let hard = NSTemporaryDirectory() + "cedric-stdin.hard\(getpid())"
+                try? FileManager.default.linkItem(atPath: victim.path, toPath: hard)
+                openURL(app, "cedric://open?untitled=" + enc(hard))
+                expect(FileManager.default.fileExists(atPath: hard) && (try? String(contentsOf: victim, encoding: .utf8)) == "precious\n"
+                       && app.tabs.count == before, "a hard link to the victim is refused: nothing read, nothing deleted")
+                try? FileManager.default.removeItem(atPath: hard)
                 // A tokenless path= (a link): asked first; declined here (CEDRIC_URL_ASK_ANSWER=no), nothing opens.
                 setenv("CEDRIC_URL_ASK_ANSWER", "no", 1)
                 openURL(app, "cedric://open?path=" + enc(victim.path), token: false)
