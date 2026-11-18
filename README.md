@@ -48,7 +48,12 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   the grid (never the text). Clicking a cell puts the caret in that field.
   Quoted fields with commas, quotes and line breaks are read as RFC 4180
   says; the separator (comma, tab, semicolon or pipe) is detected from
-  the first lines, and `.tsv` means tab. It updates as you type, parses
+  the first lines (quotes, blank lines and decimal commas such as
+  `1,5;2,3` taken into account), `.tsv` means tab, and an Excel `sep=;`
+  first line is honoured. Spaces after the separator (`name, age, city`,
+  `x, "a, b"`) are padding, not data, as Python's `skipinitialspace`
+  reads them; spaces inside quotes and in TSV are kept. Pipe tables
+  (`| a | b |`, with a `|---|` rule) show without their empty edge columns. It updates as you type, parses
   off the main thread, and shows the first 50,000 rows of a longer file
   (with a note). It detaches like the other previews.
 - **Themes:** System (light or dark with macOS), Light, Dark, Tankard (deep

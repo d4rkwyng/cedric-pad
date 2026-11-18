@@ -255,7 +255,15 @@ a generation counter dropping stale results. A view-based `NSTableView`
 (cells only for visible rows), row numbers in an `NSRulerView` (clipped to
 its bounds), sorting by header on the same queue (view only), a click
 maps the view row back to the record's start and `CSV.fieldOffset` for the
-caret.
+caret. `CSV.dialect` sniffs a `Dialect` from the first 50 lines (64 K):
+the delimiter (Excel `sep=X` line, then extension, then the candidate
+whose most common per-line count is most consistent, quotes opening only
+at a field start, blank lines ignored, all-decimal commas losing to a
+consistent semicolon), `skipInitialSpace` (60 % of in-line delimiters
+followed by a space; never tab), `trimTrailingSpace` (60 % preceded by
+one) and `edgeDelimiters` (every line a `| … |` pipe row). The parser and
+`fieldOffset` both follow it, so a click still lands in the right field.
+Table-driven samples in `CSVDialectTests`.
 
 **Closing the last window** (`AppDelegate.quitIfLastDocument`): a text or
 PDF tab's `onClose`, when no other document tab exists and no restored tab

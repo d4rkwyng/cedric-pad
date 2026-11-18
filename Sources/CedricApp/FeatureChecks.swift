@@ -319,7 +319,10 @@ extension DevChecks {
         let tsv = app.open(write("cols.tsv", "a\tb\n1,5\t2\n"))!
         let many = app.open(write("many.csv", "n,sq\n" + (1...60_000).map { "\($0),\($0 * $0)" }.joined(separator: "\n") + "\n"))!
         let wide = app.open(write("wide.csv", "id,blob\n1," + String(repeating: "x", count: 30_000) + "\n2,short\n"))!
-        for t in [tab, tsv, many, wide] { sized(t) }
+        // Comma then a space (the owner's build 7 report), quoted fields after the space.
+        let spacedText = "name, age, city\nAlice, 30, Paris\n\"Smith, J\", 41, \"Rome, IT\"\nBob, 25,  \" Oslo \"\n"
+        let spaced = app.open(write("spaced.csv", spacedText))!
+        for t in [tab, tsv, many, wide, spaced] { sized(t) }
         var g: CSVPreview? { tab.previewPane?.renderer as? CSVPreview }
         let ns = csv as NSString
         var before = 0
@@ -425,9 +428,29 @@ extension DevChecks {
             sync {
                 guard let w = wide.previewPane?.renderer as? CSVPreview else { return }
                 expect(w.table.numberOfRows == 2 && shown(w, 1, 1) == "short", "large mode: rows shown", "\(w.table.numberOfRows)")
-                for t in [tab, tsv, many, wide] { t.doc.markSaved() }
+                focus(spaced)
+                key("p", [.command, .option])
             },
-            snapshot("csv-grid-large.png"),
+            snapshot("csv-grid-large.png", window: wide.window),
+            waitForGrid(spaced, after: { 0 }, "comma-space: the grid renders"),
+            sync {
+                guard let g = spaced.previewPane?.renderer as? CSVPreview else { return }
+                let header = g.table.tableColumns.map(\.title)
+                expect(header == ["name", "age", "city"], "comma-space: header without leading spaces", "\(header)")
+                let cells = (0..<g.table.numberOfRows).map { r in (0..<3).map { shown(g, r, $0) } }
+                expect(cells == [["Alice", "30", "Paris"], ["Smith, J", "41", "Rome, IT"], ["Bob", "25", " Oslo "]],
+                       "comma-space: cells trimmed, quoted fields after the space whole, spaces inside quotes kept", "\(cells)")
+                expect(g.data.dialect.skipInitialSpace && g.data.delimiter == 44, "comma-space: sniffed as comma + space")
+                let rect = g.table.frameOfCell(atColumn: 2, row: 1)
+                clickDirect(g.table, at: NSPoint(x: rect.midX, y: rect.midY))
+            },
+            sync {
+                let want = (spacedText as NSString).range(of: "Rome, IT").location
+                expect(spaced.textView.selectedRange() == NSRange(location: want, length: 0),
+                       "comma-space: clicking a quoted cell puts the caret inside its quotes", "\(spaced.textView.selectedRange()) want \(want)")
+                for t in [tab, tsv, many, wide, spaced] { t.doc.markSaved() }
+            },
+            snapshot("csv-grid-spaced.png"),
         ])
     }
 }
