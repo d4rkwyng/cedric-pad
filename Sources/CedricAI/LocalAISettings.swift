@@ -9,8 +9,8 @@ import Foundation
 public struct LocalAISettings: Codable, Sendable, Equatable {
     /// Where the AI runs ("engine"), in the settings sheet's order.
     /// `custom` is another Mac on the network (raw value kept for saved
-    /// settings). `builtIn` is a placeholder until Cedric's own engine and
-    /// downloader land; `apple` is Apple Intelligence's on-device model.
+    /// settings). `builtIn` is Cedric's own engine (llama.cpp, models
+    /// downloaded in the app); `apple` is Apple Intelligence's on-device model.
     public enum Backend: String, Codable, Sendable, CaseIterable {
         case builtIn, lmStudio, ollama, custom, apple
 
@@ -39,7 +39,7 @@ public struct LocalAISettings: Codable, Sendable, Equatable {
     public var timeout: TimeInterval
 
     public init(enabled: Bool = false,
-                backend: Backend = .lmStudio,
+                backend: Backend = .builtIn,
                 baseURL: URL? = nil,
                 model: String? = nil,
                 minInterval: TimeInterval = 90,
@@ -58,10 +58,13 @@ public struct LocalAISettings: Codable, Sendable, Equatable {
 
     static let defaultsKey = "CedricLocalAISettings"
 
-    public static func load(from defaults: UserDefaults = .standard) -> LocalAISettings {
+    /// The saved settings; with nothing saved, the defaults with the best
+    /// engine this Mac has (`AIEngines.defaultBackend`). Still off.
+    public static func load(from defaults: UserDefaults = .standard,
+                            defaultBackend: @autoclosure () -> Backend = AIEngines.defaultBackend()) -> LocalAISettings {
         guard let data = defaults.data(forKey: defaultsKey),
               let s = try? JSONDecoder().decode(LocalAISettings.self, from: data) else {
-            return .default
+            return LocalAISettings(backend: defaultBackend())
         }
         return s
     }
@@ -109,11 +112,11 @@ extension LocalAISettings.Backend {
     /// The endpoint preset's name in the settings sheet.
     public var title: String {
         switch self {
-        case .builtIn: return "Built-in (coming soon)"
+        case .builtIn: return "Built-in (on this Mac)"
         case .lmStudio: return "LM Studio on this Mac"
         case .ollama: return "Ollama on this Mac"
         case .custom: return "Another Mac on your network (URL)"
-        case .apple: return "Apple Intelligence"
+        case .apple: return "Apple Intelligence (on this Mac, private)"
         }
     }
 }

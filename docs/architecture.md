@@ -328,23 +328,34 @@ more than half its words with what it replaces (small models sometimes
 `OwlContext.text`, not document offsets; hint ids are FNV hashes of source,
 title and snippet, so a snoozed hint stays snoozed when lines move.
 
-**Apple Foundation Models.** `AppleFoundationModelsProvider` uses the
-on-device `SystemLanguageModel` (macOS 26+, Apple silicon, Apple
-Intelligence on) behind `#if canImport(FoundationModels)` and a runtime
-availability check. The SDK's Private Cloud Compute model is deliberately
-not used. With CI's Swift 6.1 / macOS 15 SDK the module is absent and a
+**Apple Intelligence.** `AppleFoundationModelsProvider` runs the owl's
+prompts on the on-device `SystemLanguageModel` (macOS 26+, Apple silicon,
+Apple Intelligence on, model ready; `AppleFoundationModelsProvider.status`
+maps the framework's availability to a reason the sheet shows). The SDK's
+Private Cloud Compute model is deliberately never used. A fresh
+`LanguageModelSession` per request takes `OwlPrompts.system(for:)` as its
+instructions; the code is trimmed to 6 KB (the on-device context is small)
+and the answer is constrained by guided generation. `@Generable` needs the
+`FoundationModelsMacros` compiler plugin, which only Xcode ships, so the
+same shape is built at run time as a `DynamicGenerationSchema` (kind as an
+enum, ≤ 2 hints) and the JSON goes through `HintPrompt.parse`. Temperature
+0, at most 400 response tokens. Behind `#if canImport(FoundationModels) &&
+arch(arm64)`: with CI's Swift 6.1 / macOS 15 SDK, and on Intel, a
 placeholder that is never available compiles instead.
 
 **Engines.** "Where the AI runs" is an `AIEngine` (`CedricAI/AIEngine.swift`):
-availability (+ reason), `needsAddress`, `models()`, `test()`,
-`suggestedModel(in:)`, `makeProvider(model:)`. `AIEngines.engine(for:)`
-maps `LocalAISettings.backend` to one: **Built-in** (`BuiltInEngine`,
-listed but disabled: "coming soon", the in-app downloader is separate
-work), **LM Studio on this Mac**, **Ollama on this Mac**, **Another Mac on
-your network (URL)** (`ServerEngine`, local/LAN only), **Apple
-Intelligence** (`AppleIntelligenceEngine`, enabled only when the on-device
+availability (+ reason), `needsAddress`, an optional `note`, `models()`,
+`test()`, `suggestedModel(in:)`, `makeProvider(model:)`.
+`AIEngines.engine(for:)` maps `LocalAISettings.backend` to one: **Built-in
+(on this Mac)** (`BuiltInEngine`, see *Built-in AI* below), **LM Studio on
+this Mac**, **Ollama on this Mac**, **Another Mac on your network (URL)**
+(`ServerEngine`, local/LAN only), **Apple Intelligence (on this Mac,
+private)** (`AppleIntelligenceEngine`, enabled only when the on-device
 model is). The sheet and `LocalAIOwl.makeProvider` only talk to the
-protocol, so a new engine needs no UI work.
+protocol. With nothing saved yet, `LocalAISettings.load` starts on
+`AIEngines.defaultBackend()`: Apple Intelligence when available, else
+Built-in, else LM Studio. AI hints themselves stay off until the user
+turns them on.
 
 **Prompts.** All prompts live in `CedricAI/OwlPrompts.swift`: one
 `persona` (Cedric, the quiet owl with a monocle in the editor's corner)
@@ -416,6 +427,112 @@ ticks the box, Save → provider registered and Rules + AI selected; on line
 Apply, then a request that outlives the timeout returns the owl to idle.
 `Scripts/ai-check.sh --live MODEL` does the same against LM Studio (Test
 Connection, pick MODEL, save, type, wait for the model's bubble).
+
+## Built-in AI (CedricAI/BuiltIn)
+
+Cedric's own engine: a Qwen model downloaded inside the app and run
+in-process. No LM Studio, no server, no account.
+
+**Engine choice: llama.cpp.** Evaluated with real builds in a scratch
+package (2026-11-17, M4 Pro, Command Line Tools only, Swift 6.4.2):
+
+- *mlx-swift* (0.33.0 via mlx-swift-lm 3.33.0) does not build: SwiftPM
+  compiles MLX's `.metal` kernels with `metal`, which the Command Line
+  Tools don't have (`unable to spawn process 'metal'`), and there is no
+  fallback. Apple silicon only as well.
+- *llama.cpp* (MIT) ships a prebuilt XCFramework per release. Its macOS
+  slice is universal (arm64 + x86_64), links only system frameworks, has a
+  minimum OS of 13.3, and embeds ggml's Metal shaders as source that
+  compile at run time, so no `metal` compiler is needed. It builds with
+  `swift build` for arm64, x86_64 and `--arch arm64 --arch x86_64`.
+  Pinned in `Package.swift` as a `binaryTarget` (release `b12360`, the
+  zip's SHA-256 checked by SwiftPM). Cost: `llama.framework` adds 25 MB to
+  the universal app (26 MB binary); no extra compile time (prebuilt).
+- Measured with Qwen2.5-Coder-3B Q4_K_M on Metal: ~95 tok/s unconstrained,
+  ~39 tok/s with the hint grammar, ~400 tok/s prompt processing; 1.4–1.8 s
+  per owl hint end to end. CPU only (the Intel path, measured on Apple
+  silicon as a stand-in; Rosetta isn't installed here, so not on x86_64
+  itself): ~5 tok/s, about 35–50 s per hint.
+
+`LlamaRuntime` (`BuiltInRuntime`) loads a GGUF with every layer on Metal
+(Apple silicon) or on the CPU with one thread per physical core (Intel),
+a 4096-token context and the model's own chat template (ChatML fallback),
+and decodes greedily. Every llama.cpp call runs on one serial queue;
+cancellation (a new edit, the scheduler's 20 s cap) is checked per token.
+Loaded models are freed from an `atexit` handler: ggml's Metal device is a
+C++ static whose destructor aborts if a context still holds Metal buffers
+at exit, which would leave a crash report on every quit.
+Output is constrained by a GBNF grammar (`HintGrammar`) to the hint JSON
+(the four kinds, numeric confidence, ≤ 2 hints), then parsed by the same
+`HintPrompt.parse`. On Intel the engine's `note` says it is slow and
+suggests another Mac on the network.
+
+`BuiltInModelHost` keeps at most one model in memory: it loads on the
+first request, swaps when a different model is chosen, and unloads after
+5 minutes without a request (`idleTimeout`) to give the RAM back, never
+during a generation. The scheduler's gates (5 s pause, ≤ 1 per 90 s, app
+inactive, Low Power Mode, battery) apply unchanged: the built-in engine is
+just another `OwlHintProvider` (`BuiltInHintProvider`, source
+`local:<model id>`), prompted with the shared `OwlPrompts`.
+
+**Catalog.** `Resources/AI/models.json` (copied into
+`Contents/Resources/AI/` by `Scripts/bundle-app.sh`), decoded and
+validated by `ModelCatalog`: each entry has a name, parameters,
+quantisation, file name, exact size, a Hugging Face URL pinned to a commit,
+that commit, the file's SHA-256, its licence and licence URL, and the
+memory it needs. Validation refuses anything not `https://huggingface.co`,
+not pinned to its revision, without a 64-hex SHA-256, or with a path in
+the file name. All four URLs and hashes were checked by downloading the
+files and hashing them.
+
+| Model | File | Size | Licence |
+|---|---|---|---|
+| Qwen2.5 Coder 3B (default) | `qwen2.5-coder-3b-instruct-q4_k_m.gguf` | 2.10 GB | Qwen Research License (non-commercial) |
+| Qwen2.5 Coder 1.5B (fast) | `qwen2.5-coder-1.5b-instruct-q4_k_m.gguf` | 1.12 GB | Apache-2.0 |
+| Qwen2.5 Coder 7B (≥ 16 GB RAM) | `qwen2.5-coder-7b-instruct-q4_k_m.gguf` | 4.68 GB | Apache-2.0 |
+| Qwen3 4B (general) | `Qwen3-4B-Q4_K_M.gguf` | 2.50 GB | Apache-2.0 |
+
+**Downloads.** `ModelDownloader` (an actor) fetches one model with a plain
+HTTPS GET into `~/Library/Application Support/Cedric/Models/.partial/<file>.part`
+(`CEDRIC_MODELS_DIR` overrides the folder), hashing as bytes arrive. Pause
+or a dropped connection keeps the partial; resuming (even after a
+relaunch) re-hashes it and continues with an HTTP `Range` request (a
+server that ignores `Range` restarts cleanly). Before any request it
+checks free space (size still to fetch + 256 MB). A wrong size or SHA-256
+deletes the file and reports the error; a verified file is moved to
+`Models/<file>` next to a `<file>.verified` marker holding its hash
+(installed = right size + marker matches the catalog) and excluded from
+Time Machine. Delete removes the file, marker and partial.
+
+**Privacy.** The only network traffic is the model download itself, from
+huggingface.co (and the CDN it redirects to): an ephemeral URLSession, no
+cookies, no cache, no identifiers, User-Agent `Cedric`. Nothing is sent
+about the user or their code, and there is no telemetry. Inference is
+fully local; the owl's text never leaves the process.
+
+**Settings sheet.** With Built-in selected, a "Download:" row lists the
+catalog: name (the default marked recommended), size, licence, a memory
+warning where it applies, and per-model Download / Pause / Resume / Cancel
+/ Delete with a progress bar and status. The Model menu offers the
+downloaded models; Automatic picks the default if downloaded. Test
+Connection loads the model and times a first answer.
+
+**Tests.** `BuiltInTests.swift`: the bundled catalog (valid, pinned, one
+default) and its validation; the downloader against a URLProtocol fake
+that honours `Range` (progress, install, SHA mismatch → deleted + error,
+pause → partial kept → resume with the right `Range`, a server ignoring
+`Range`, a dropped connection, cancel, disk-full precheck with no request,
+non-Hugging Face URL refused, oversized response, HTTP errors); the host
+and engine with a fake runtime (load on demand, reuse, swap, idle unload
+on a fake clock, never during a generation, OwlPrompts + grammar + parser,
+Qwen3 `/no_think`, the scheduler's timeout cancelling a generation).
+`CEDRIC_BUILTIN_LIVE=1 swift test --filter LiveBuiltInTests` downloads the
+default model for real (optionally pausing and resuming with
+`CEDRIC_BUILTIN_PAUSE=1`) and runs the three owl snippets;
+`CEDRIC_APPLE_LIVE=1 swift test --filter LiveAppleTests` does the same on
+Apple Intelligence. `CEDRIC_BUILTIN_CHECK=/out CEDRIC_MODELS_DIR=/tmp/x`
+runs `BuiltInCheck` in the app: real clicks on Download, Pause, Resume and
+Delete in the sheet, with snapshots.
 
 ## Dev hooks
 

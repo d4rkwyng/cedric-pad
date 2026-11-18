@@ -10,7 +10,7 @@ import CedricCore
         let s = LocalAISettings.default
         #expect(s.enabled == false)
         #expect(s.minInterval == 90)
-        #expect(s.backend == .lmStudio)
+        #expect(s.backend == .builtIn)   // Cedric's own engine: no server needed
         #expect(s.baseURL.absoluteString == "http://localhost:1234/v1")
         #expect(s.isUsable == false)
         #expect(LocalAISettings.intervalChoices.contains(90))
@@ -28,8 +28,8 @@ import CedricCore
         #expect(s.baseURL.absoluteString == "http://studio.local:1234/v1")   // Custom keeps what's there
         s.selectBackend(.lmStudio)
         #expect(s.baseURL.absoluteString == "http://localhost:1234/v1")
-        #expect(LocalAISettings.Backend.allCases.map(\.title) == ["Built-in (coming soon)", "LM Studio on this Mac", "Ollama on this Mac",
-                                                                "Another Mac on your network (URL)", "Apple Intelligence"])
+        #expect(LocalAISettings.Backend.allCases.map(\.title) == ["Built-in (on this Mac)", "LM Studio on this Mac", "Ollama on this Mac",
+                                                                "Another Mac on your network (URL)", "Apple Intelligence (on this Mac, private)"])
     }
 
     @Test func customURLParsing() {
@@ -45,7 +45,7 @@ import CedricCore
         let suite = "cedric-tests-\(UUID().uuidString)"
         let d = try #require(UserDefaults(suiteName: suite))
         defer { d.removePersistentDomain(forName: suite) }
-        #expect(LocalAISettings.load(from: d) == .default)
+        #expect(LocalAISettings.load(from: d, defaultBackend: .builtIn) == .default)
         var s = LocalAISettings(enabled: true, backend: .ollama, model: "qwen2.5-coder:3b", minInterval: 120)
         s.save(to: d)
         #expect(LocalAISettings.load(from: d) == s)
@@ -92,7 +92,7 @@ final class SlowProvider: OwlHintProvider, @unchecked Sendable {
         }
     }
 
-    static let fast = LocalAISettings(enabled: true, model: "test-qwen", minInterval: 0.1, pauseDelay: 0.05, timeout: 0.5)
+    static let fast = LocalAISettings(enabled: true, backend: .lmStudio, model: "test-qwen", minInterval: 0.1, pauseDelay: 0.05, timeout: 0.5)
 
     @Test func disabledRegistersNothingAndNeverAsks() async {
         let rig = Rig(provider: SlowProvider())
@@ -200,7 +200,7 @@ final class SlowProvider: OwlHintProvider, @unchecked Sendable {
         let registry = OwlProviderRegistry()
         let session = server.session
         let bridge = LocalAIOwlBridge(registry: registry, makeProvider: { await LocalAIOwl.makeProvider(settings: $0, session: session) })
-        var s = LocalAISettings(enabled: true, baseURL: server.baseURL)
+        var s = LocalAISettings(enabled: true, backend: .custom, baseURL: server.baseURL)
         await bridge.apply(s)
         #expect(bridge.providerName == "local:qwen2.5-coder-3b-instruct")
         s.model = "qwen2.5-coder-1.5b-instruct-mlx"
@@ -214,8 +214,7 @@ final class SlowProvider: OwlHintProvider, @unchecked Sendable {
         var s = LocalAISettings(enabled: true)
         s.backend = .builtIn
         let built = AIEngines.engine(for: s)
-        #expect(!built.isAvailable && built.unavailableReason != nil && !built.needsAddress)
-        #expect(await LocalAIOwl.makeProvider(settings: s) == nil)
+        #expect(built.isAvailable && built.unavailableReason == nil && !built.needsAddress)
         s.backend = .apple
         let apple = AIEngines.engine(for: s)
         #expect(!apple.needsAddress)
@@ -228,10 +227,12 @@ final class SlowProvider: OwlHintProvider, @unchecked Sendable {
 
     @MainActor @Test func bridgeExplainsUnavailableEngine() async {
         let registry = OwlProviderRegistry()
-        let bridge = LocalAIOwlBridge(registry: registry)
+        let bridge = LocalAIOwlBridge(registry: registry, makeProvider: { _ in nil })
         await bridge.apply(LocalAISettings(enabled: true, backend: .builtIn))
         #expect(!registry.hasAIProvider)
-        #expect(bridge.lastProblem?.contains("Coming soon") == true)
+        #expect(bridge.lastProblem?.contains("No model downloaded") == true)
+        await bridge.apply(LocalAISettings(enabled: true, backend: .lmStudio))
+        #expect(bridge.lastProblem?.contains("start the server") == true)
     }
 
     @Test func everyEngineSharesTheOwlPrompts() {

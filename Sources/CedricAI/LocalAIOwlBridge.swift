@@ -80,7 +80,9 @@ public final class LocalAIOwlBridge {
         let provider = await makeProvider(new)
         guard token == applyToken else { return }
         guard let provider else {
-            lastProblem = "No model: pick one, or start the server and test the connection."
+            lastProblem = new.backend == .builtIn
+                ? "No model downloaded yet: download one in Cedric AI settings."
+                : "No model: pick one, or start the server and test the connection."
             onStateChange?(); return
         }
         let sched = OwlScheduler(

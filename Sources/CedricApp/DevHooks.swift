@@ -41,6 +41,8 @@ import WebKit
 ///   CEDRIC_OWL_SOURCE=rulesAndAI  the owl's hint source for this run, not saved
 ///   CEDRIC_AI_CHECK=/out/dir      run the local-AI check (AICheck.swift) and quit; with
 ///                                 CEDRIC_AI_FAKE=1.5 (fake provider) or CEDRIC_AI_CHECK_MODEL=id (live)
+///   CEDRIC_BUILTIN_CHECK=/out/dir the built-in engine's download rows (BuiltInCheck.swift); pair
+///                                 with CEDRIC_MODELS_DIR=<temp dir>
 ///   CEDRIC_AI*                    run-only AI settings: see AIStore in Owl/OwlAISettings.swift
 ///   CEDRIC_DUMP_SHORTCUTS=1       print every menu shortcut, exit 1 on a clash
 ///   CEDRIC_CHECK=name             in-process checks of the editor tools (DevChecks.swift;
@@ -130,6 +132,9 @@ enum DevHooks {
         if let out = env["CEDRIC_OWL_CHECK"], !out.isEmpty { OwlCheck.run(app, out: out) }
         if let out = env["CEDRIC_AI_CHECK"], !out.isEmpty {
             Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in MainActor.assumeIsolated { AICheck.run(app, out: out) } }
+        }
+        if let out = env["CEDRIC_BUILTIN_CHECK"], !out.isEmpty {
+            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in MainActor.assumeIsolated { BuiltInCheck.run(app, out: out) } }
         }
         if let out = env["CEDRIC_SNAPSHOT"], !out.isEmpty { scheduleSnapshot(out) }
         if env["CEDRIC_DUMP_SHORTCUTS"] == "1" { exit(DevChecks.dumpShortcuts() ? 0 : 1) }

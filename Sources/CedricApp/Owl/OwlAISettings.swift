@@ -6,6 +6,7 @@ import CedricAI
 /// checks use (none of them is saved):
 ///
 ///   CEDRIC_AI=1 / 0           enable / disable for this run
+///   CEDRIC_AI_BACKEND=builtIn engine (builtIn, lmStudio, ollama, custom, apple)
 ///   CEDRIC_AI_URL=…           endpoint (Custom)
 ///   CEDRIC_AI_MODEL=…         model id
 ///   CEDRIC_AI_PAUSE=5         typing pause before a check, seconds
@@ -21,6 +22,7 @@ enum AIStore {
     static func load() -> LocalAISettings {
         var s = LocalAISettings.load(from: defaults)
         if let v = env["CEDRIC_AI"] { s.enabled = v == "1" }
+        if let v = env["CEDRIC_AI_BACKEND"].flatMap(LocalAISettings.Backend.init(rawValue:)) { s.selectBackend(v) }
         if let v = env["CEDRIC_AI_URL"].flatMap(LocalAISettings.parseEndpoint) { s.backend = .custom; s.baseURL = v }
         if let v = env["CEDRIC_AI_MODEL"], !v.isEmpty { s.model = v }
         if let v = env["CEDRIC_AI_PAUSE"].flatMap(Double.init) { s.pauseDelay = v }
@@ -87,8 +89,14 @@ final class AISettingsSheet: NSObject {
     private var settings: LocalAISettings
     private var grid: NSGridView?
     let privacyLabel = NSTextField(wrappingLabelWithString: LocalAISettings.privacyNote)
+    /// Built-in only: the catalog with Download / Pause / Delete per model.
+    let modelsView = BuiltInModelsView()
+    /// The engine's caveat ("Slow on Intel Macs…"), hidden when it has none.
+    let noteLabel = NSTextField(wrappingLabelWithString: "")
     /// The selected engine (the sheet only talks to `AIEngine`).
-    var engine: any AIEngine { AIEngines.engine(for: settings) }
+    var engine: any AIEngine {
+        settings.backend == .builtIn ? BuiltInDownloads.shared.engine : AIEngines.engine(for: settings)
+    }
     /// The menu's intervals, plus the saved one if it isn't a menu value.
     private lazy var intervals: [TimeInterval] = Array(Set(LocalAISettings.intervalChoices + [settings.minInterval])).sorted()
     private(set) var report: ConnectionReport?
@@ -137,7 +145,9 @@ final class AISettingsSheet: NSObject {
         let privacy = privacyLabel
         privacy.font = small
         privacy.textColor = .secondaryLabelColor
-        for l in [statusLabel, modelsLabel, weakLabel] { l.font = small }
+        for l in [statusLabel, modelsLabel, weakLabel, noteLabel] { l.font = small }
+        noteLabel.textColor = .systemOrange
+        modelsView.onChange = { [weak self] in self?.refresh() }
         weakLabel.textColor = .systemOrange
         modelsLabel.textColor = .secondaryLabelColor
         saveButton.keyEquivalent = "\r"
@@ -150,6 +160,8 @@ final class AISettingsSheet: NSObject {
             [label(String(localized: "Where the AI runs:")), presetPopup],
             [label(String(localized: "Address:")), urlField],
             [NSGridCell.emptyContentView, privacy],
+            [NSGridCell.emptyContentView, noteLabel],
+            [label(String(localized: "Download:")), modelsView],
             [NSGridCell.emptyContentView, testRow],
             [NSGridCell.emptyContentView, modelsLabel],
             [label(String(localized: "Model:")), modelPopup],
@@ -162,7 +174,7 @@ final class AISettingsSheet: NSObject {
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
         urlField.widthAnchor.constraint(equalToConstant: 380).isActive = true
-        for l in [privacy, modelsLabel, statusLabel] { l.preferredMaxLayoutWidth = 380 }
+        for l in [privacy, modelsLabel, statusLabel, noteLabel] { l.preferredMaxLayoutWidth = 380 }
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let buttons = NSStackView(views: [spacer, cancelButton, saveButton])
@@ -196,7 +208,9 @@ final class AISettingsSheet: NSObject {
     /// The models the popup offers: the tested list (no embedding models),
     /// plus the saved model if the list doesn't have it.
     private var offered: [LocalModelInfo] {
-        var list = (report?.models ?? []).filter { !$0.isEmbedding }
+        // Built-in: the downloaded models, known without a test.
+        var list = settings.backend == .builtIn ? BuiltInDownloads.shared.engine.installedModels.map(\.info)
+            : (report?.models ?? []).filter { !$0.isEmbedding }
         if let m = settings.model, !list.contains(where: { $0.id == m }) { list.insert(LocalModelInfo(id: m), at: 0) }
         return list
     }
@@ -204,7 +218,12 @@ final class AISettingsSheet: NSObject {
     /// The model hints would use: the chosen one, or the suggestion.
     var effectiveModel: LocalModelInfo? {
         if let m = settings.model { return offered.first { $0.id == m } ?? LocalModelInfo(id: m) }
-        return report?.suggested
+        return suggested
+    }
+
+    /// The automatic choice: built-in knows it from the downloads.
+    private var suggested: LocalModelInfo? {
+        settings.backend == .builtIn ? BuiltInDownloads.shared.engine.suggestedModel(in: offered) : report?.suggested
     }
 
     private func refresh() {
@@ -217,9 +236,15 @@ final class AISettingsSheet: NSObject {
         urlField.textColor = custom ? .labelColor : .secondaryLabelColor
         if !custom { urlField.stringValue = settings.baseURL.absoluteString }
 
+        let builtIn = settings.backend == .builtIn
+        grid?.cell(for: modelsView)?.row?.isHidden = !builtIn
+        noteLabel.stringValue = engine.note ?? ""
+        grid?.cell(for: noteLabel)?.row?.isHidden = engine.note == nil
+
         modelPopup.removeAllItems()
         let auto: String
-        if let s = report?.suggested { auto = String(localized: "Automatic (\(s.id))") }
+        if let s = suggested { auto = String(localized: "Automatic (\(s.id))") }
+        else if builtIn { auto = String(localized: "Automatic (download a model below)") }
         else if report != nil { auto = String(localized: "Automatic (no small Qwen found)") }
         else { auto = String(localized: "Automatic (small Qwen)") }
         modelPopup.addItem(withTitle: auto)
@@ -295,17 +320,21 @@ final class AISettingsSheet: NSObject {
         guard read(), !testing else { refresh(); return }
         testing = true
         testButton.isEnabled = false
-        status(String(localized: "Connecting…"))
+        let builtIn = settings.backend == .builtIn
+        status(builtIn ? String(localized: "Loading the model…") : String(localized: "Connecting…"))
         var quick = settings
         quick.timeout = 5
-        let engine = AIEngines.engine(for: quick)
+        let engine = builtIn ? self.engine : AIEngines.engine(for: quick)
         Task { @MainActor in
             let r = await engine.test()
             testing = false
             testButton.isEnabled = true
             report = r
             if let e = r.error {
-                status(String(localized: "Couldn’t connect (\(Self.describe(e))). Is the server running?"), error: true)
+                status(builtIn ? String(localized: "Couldn’t run the model (\(Self.describe(e))).")
+                               : String(localized: "Couldn’t connect (\(Self.describe(e))). Is the server running?"), error: true)
+            } else if builtIn {
+                status(String(localized: "Loaded and answered in \(Int(r.latency * 1000)) ms."))
             } else {
                 let n = r.models.filter { !$0.isEmbedding }.count
                 status(String(localized: "Connected in \(Int(r.latency * 1000)) ms: \(n) models."))
@@ -335,6 +364,7 @@ final class AISettingsSheet: NSObject {
     @objc func cancel() { close(saved: false) }
 
     private func close(saved: Bool) {
+        modelsView.detach()
         if let parent = panel.sheetParent { parent.endSheet(panel) } else { panel.orderOut(nil) }
         Self.current = nil
         onClose?(saved)

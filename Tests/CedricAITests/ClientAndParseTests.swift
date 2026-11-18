@@ -69,12 +69,12 @@ import CedricCore
     @Test func providerFactoryIsOffByDefaultAndLocalOnly() async {
         #expect(LocalAISettings().enabled == false)
         #expect(await LocalAIOwl.makeProvider(settings: LocalAISettings()) == nil)
-        let cloud = LocalAISettings(enabled: true, baseURL: URL(string: "https://api.openai.com/v1"), model: "x")
+        let cloud = LocalAISettings(enabled: true, backend: .custom, baseURL: URL(string: "https://api.openai.com/v1"), model: "x")
         #expect(await LocalAIOwl.makeProvider(settings: cloud) == nil)
 
         let server = StubServer()
         server.json("/v1/models", ["data": [["id": "qwen/qwen3.6-35b-a3b"], ["id": "qwen2.5-coder-1.5b-instruct"]]])
-        let on = LocalAISettings(enabled: true, baseURL: server.baseURL)
+        let on = LocalAISettings(enabled: true, backend: .custom, baseURL: server.baseURL)
         let p = await LocalAIOwl.makeProvider(settings: on, session: server.session)
         #expect((p as? LocalModelHintProvider)?.model == "qwen2.5-coder-1.5b-instruct")
         #expect(p?.name == "local:qwen2.5-coder-1.5b-instruct")
@@ -93,7 +93,7 @@ import CedricCore
 
     @Test func settingsRoundTrip() throws {
         let defaults = try #require(UserDefaults(suiteName: "cedric-ai-test-\(UUID())"))
-        #expect(LocalAISettings.load(from: defaults) == .default)
+        #expect(LocalAISettings.load(from: defaults, defaultBackend: .builtIn) == .default)
         var s = LocalAISettings(enabled: true, backend: .ollama, model: "qwen3:1.7b", minInterval: 120)
         s.save(to: defaults)
         #expect(LocalAISettings.load(from: defaults) == s)

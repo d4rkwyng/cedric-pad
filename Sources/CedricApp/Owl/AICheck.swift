@@ -112,7 +112,8 @@ enum AICheck {
                 NSApp.sendAction(sheet.modelPopup.action!, to: sheet.modelPopup.target, from: sheet.modelPopup)
             }
             check((sheet.modelPopup.selectedItem?.representedObject as? String) == model, "picked \(model)")
-            check(!sheet.weakLabel.isHidden, "the sheet notes that small models give weaker hints")
+            let weak = sheet.effectiveModel.map(ModelPicker.isWeak) ?? false
+            check(sheet.weakLabel.isHidden == !weak, "the weak-model note \(weak ? "shows" : "is hidden") for \(model)")
             saveSheet(sheet, tab: tab, out: out)
         }
     }

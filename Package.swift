@@ -20,19 +20,34 @@ let package = Package(
         // only; no AppKit.
         .target(name: "CedricCore"),
 
-        // The owl's optional local-AI hint provider: an OpenAI-compatible
-        // client for LM Studio / Ollama (localhost or LAN, never cloud), the
-        // "only checks so often" scheduler, and an Apple Foundation Models
-        // stub. Foundation + URLSession + IOKit only. OFF by default.
+        // The owl's optional AI hints: Cedric's built-in engine (llama.cpp
+        // + in-app model downloads from Hugging Face), Apple Intelligence's
+        // on-device model, and an OpenAI-compatible client for LM Studio /
+        // Ollama (localhost or LAN, never cloud); plus the "only checks so
+        // often" scheduler. OFF by default.
         .target(
             name: "CedricAI",
-            dependencies: ["CedricCore"]
+            dependencies: ["CedricCore", "llama"]
+        ),
+
+        // The built-in engine's inference runtime: llama.cpp's prebuilt
+        // XCFramework (MIT), pinned to release b12360 by its SHA-256. The
+        // macOS slice is universal (arm64 + x86_64) and embeds ggml's Metal
+        // shaders as source, compiled at run time, so no `metal` compiler
+        // (Xcode) is needed to build Cedric. Scripts/bundle-app.sh copies
+        // llama.framework into Contents/Frameworks.
+        .binaryTarget(
+            name: "llama",
+            url: "https://github.com/ggml-org/llama.cpp/releases/download/b12360/llama-b12360-xcframework.zip",
+            checksum: "bf45668c4f916117faea4d1f6b3adf75f31c08fa53b8b8269c4d92358c9c7b30"
         ),
 
         // The AppKit app. Scripts/bundle-app.sh wraps it in Cedric.app.
         .executableTarget(
             name: "CedricApp",
-            dependencies: ["CedricCore", "CedricAI"]
+            dependencies: ["CedricCore", "CedricAI"],
+            // llama.framework sits in Cedric.app/Contents/Frameworks.
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
 
         .testTarget(
