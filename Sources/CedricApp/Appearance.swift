@@ -43,8 +43,11 @@ final class Settings {
         set { defaults.set(newValue, forKey: "wrapLines"); changed() }
     }
 
+    /// CEDRIC_INVISIBLES=1: on for this run, not saved.
+    let invisiblesOverride = ProcessInfo.processInfo.environment["CEDRIC_INVISIBLES"] == "1" ? true : nil as Bool?
+
     var showInvisibles: Bool {
-        get { defaults.bool(forKey: "showInvisibles") }
+        get { invisiblesOverride ?? defaults.bool(forKey: "showInvisibles") }
         set { defaults.set(newValue, forKey: "showInvisibles"); changed() }
     }
 

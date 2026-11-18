@@ -75,7 +75,7 @@ public enum EditorPalettes {
         tokens: [
             .keyword: 0x9b2393, .type: 0x0b4f79, .string: 0xc41a16, .number: 0x1c00cf, .constant: 0x9b2393,
             .comment: 0x5d6c79, .function: 0x326d74, .attribute: 0x815f03, .variable: 0x3e6d8a, .preprocessor: 0x643820,
-            .tag: 0x9b2393, .key: 0x0b4f79, .heading: 0x0b4f79, .emphasis: 0x3c3c43, .strong: 0x1d1d1f,
+            .tag: 0x9b2393, .key: 0x0b4f79, .heading: 0x0b4f79, .emphasis: 0x6c3a9e, .strong: 0x8a3b12,
             .link: 0x0e5bd8, .code: 0xb2380b, .punctuation: 0x6e6e73,
         ])
 
@@ -88,7 +88,7 @@ public enum EditorPalettes {
         tokens: [
             .keyword: 0xfc5fa3, .type: 0x5dd8ff, .string: 0xfc6a5d, .number: 0xd0bf69, .constant: 0xfc5fa3,
             .comment: 0x8a96a2, .function: 0x67b7a4, .attribute: 0xfd8f3f, .variable: 0xa8c9ff, .preprocessor: 0xfd8f3f,
-            .tag: 0xfc5fa3, .key: 0x5dd8ff, .heading: 0x5dd8ff, .emphasis: 0xe8e8e8, .strong: 0xffffff,
+            .tag: 0xfc5fa3, .key: 0x5dd8ff, .heading: 0x5dd8ff, .emphasis: 0xc9a6ff, .strong: 0xffb37a,
             .link: 0x6bb0ff, .code: 0xfd8f3f, .punctuation: 0xa0a0a8,
         ])
 

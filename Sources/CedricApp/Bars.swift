@@ -46,6 +46,7 @@ final class FindBar: NSView, NSSearchFieldDelegate {
         status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         status.textColor = .secondaryLabelColor
         status.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        status.widthAnchor.constraint(greaterThanOrEqualToConstant: 90).isActive = true
 
         func button(_ title: String, _ action: Selector) -> NSButton {
             let b = NSButton(title: title, target: self, action: action)
@@ -83,7 +84,6 @@ final class FindBar: NSView, NSSearchFieldDelegate {
             replaceField.widthAnchor.constraint(equalTo: findField.widthAnchor),
         ])
         showsReplace = false
-        wantsLayer = true
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }

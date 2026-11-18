@@ -11,7 +11,9 @@ import WebKit
 ///   CEDRIC_OPEN=a.md:b.swift      open these files at launch
 ///   CEDRIC_THEME=dark             theme for this run (system/light/dark/tankard/dracula)
 ///   CEDRIC_PREVIEW=1              show the preview in the frontmost tab
-///   CEDRIC_FIND=text              open the find bar with this text (CEDRIC_REPLACE=1: replace too)
+///   CEDRIC_PREVIEW_JS=1           and allow JavaScript in it
+///   CEDRIC_FIND=text              open the find bar with this text (CEDRIC_REPLACE=1: replace too,
+///                                 CEDRIC_FIND_REGEX=1: as a regular expression)
 ///   CEDRIC_GOTO=12                put the caret on this line
 ///   CEDRIC_INVISIBLES=1           show invisibles for this run
 ///   CEDRIC_SNAPSHOT=/out.png      write the front window as a PNG (drawn with
@@ -50,14 +52,15 @@ enum DevHooks {
     }
 
     static func afterLaunch(_ app: AppDelegate) {
-        if env["CEDRIC_INVISIBLES"] == "1" { Settings.shared.showInvisibles = true }
         if let tab = app.currentTab ?? app.tabs.last {
             if env["CEDRIC_PREVIEW"] == "1" { tab.togglePreview() }
+            if env["CEDRIC_PREVIEW_JS"] == "1" { tab.previewAllowsJavaScript = true }
             if let line = env["CEDRIC_GOTO"].flatMap(Int.init) { tab.goToLine(line) }
             if let f = env["CEDRIC_FIND"] {
                 tab.showFindBar(replace: env["CEDRIC_REPLACE"] == "1")
                 tab.findBar.findField.stringValue = f
-                tab.find(backwards: false)
+                if env["CEDRIC_FIND_REGEX"] == "1" { tab.findBar.regexBox.state = .on }
+                tab.findBar.onChange?()
             }
         }
         if env["CEDRIC_LAUNCH_METRICS"] == "1" {
@@ -183,8 +186,9 @@ enum DevHooks {
         func collect(_ v: NSView) {
             guard !v.isHidden else { return }
             if let w = v as? WKWebView { webs.append(w); return }
-            if v is GutterView || v is NSScroller {
+            if v is GutterView || v is NSScroller || v is FindBar {
                 if let r = render(v, v.bounds) { overlays.append((v.convert(v.bounds, to: root), r)) }
+                return
             } else if let tv = v as? EditorTextView {
                 let vis = tv.visibleRect
                 if let r = render(tv, vis) { overlays.append((tv.convert(vis, to: root), r)) }

@@ -35,8 +35,12 @@ final class PreviewController: NSObject, WKNavigationDelegate {
         waiting.append(then)
         guard !compiling else { return }
         compiling = true
-        let json = #"[{"trigger":{"url-filter":"^(https?|wss?|ftp)://"},"action":{"type":"block"}}]"#
-        WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "cedric-block-network", encodedContentRuleList: json) { list, _ in
+        // WebKit's rule regexes have no alternation: one rule per scheme.
+        let json = #"[{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}},"#
+            + #"{"trigger":{"url-filter":"^wss?://"},"action":{"type":"block"}},"#
+            + #"{"trigger":{"url-filter":"^ftp://"},"action":{"type":"block"}}]"#
+        WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "cedric-block-network-v2", encodedContentRuleList: json) { list, error in
+            if let error { FileHandle.standardError.write(Data("preview: rule list: \(error)\n".utf8)) }
             MainActor.assumeIsolated {
                 blockRules = list
                 compiling = false
