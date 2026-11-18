@@ -111,7 +111,76 @@ world, so it works with page JavaScript off). HTML scrolls by fraction.
 - **Macros:** record the `NSTextView` insert/delete commands the window
   controller already routes.
 - **The owl assistant / local AI:** a side panel in the preview slot; the
-  session store already keeps every tab's text locally.
+  session store already keeps every tab's text locally. The local-AI hint
+  provider exists: see *Owl AI hints* below.
+
+## Owl AI hints (CedricAI, optional, OFF by default)
+
+The owl can ask a small local model for coding hints. `CedricAI` is a
+separate module (Foundation, URLSession, IOKit; no third-party code) that
+implements the shared `OwlHintProvider` contract from `CedricCore/Owl`.
+
+**Privacy: what is sent, where, when.**
+
+- *Off by default.* `LocalAISettings.enabled` is `false`; while it is off
+  `LocalAIOwl.makeProvider` returns nil and nothing is ever sent.
+- *Where:* only to the configured OpenAI-compatible server, LM Studio
+  (`http://localhost:1234/v1`) or Ollama (`http://localhost:11434/v1`), or
+  the same on a LAN machine. `LocalEndpointPolicy` refuses any host that is
+  not loopback, `.local`/`.lan`/`.home.arpa`, a bare LAN name, a tailnet
+  `.ts.net` name, or a private/CGNAT/link-local address, before a request is
+  built. There is no cloud backend and no API-key field. The session is
+  ephemeral (no cookies or disk cache) and ignores system proxies.
+- *What:* `OwlContext.text` only — the visible range plus a margin, capped
+  again here at 8 KB of UTF-8 — plus the language and the file name. Never
+  the whole file, the path, other tabs, the selection or the clipboard.
+- *When:* `OwlScheduler` decides. A check fires only after typing pauses
+  for 5 s, at most once per 90 s per document, never twice for the same
+  `editGeneration`, never while the app is inactive, in Low Power Mode, or
+  on battery below 20 %. Each request is hard-capped at 20 s and is
+  cancelled the moment the document is edited again or the app goes
+  inactive; results for a stale generation are dropped.
+- *Logs:* one `os_log` line per request (subsystem `net.mindtricks.cedric`,
+  category `owl-ai`): model, generation, bytes sent, prompt/completion
+  tokens, latency, hint count. No document text, file names or model output.
+
+**Model choice.** `GET /v1/models` (enriched from LM Studio's
+`/api/v0/models` or Ollama's `/api/tags` for type, quantisation and size)
+then `ModelPicker`: a Qwen coder model of 0.5–3B, else a Qwen3 of ≤ 4B,
+else none and the user picks. It never auto-picks a large model, so a
+default setup cannot make LM Studio JIT-load a 35B model. "Test connection"
+(`LocalModelClient.testConnection`) returns the list, sizes, latency and
+the suggested model.
+
+**Prompt and parsing.** One system prompt asks for at most 2 high-confidence
+hints as strict JSON (sent as a `json_schema` `response_format`; retried
+without it if the server returns 400). Qwen3 gets `/no_think`. `HintPrompt.parse`
+is defensive: it strips `<think>` and code fences, drops unknown kinds,
+filler titles, confidence < 0.6, and any hint whose `find` snippet is not in
+the context when it carries a replacement. A replacement is kept only when
+it is anchored in the context, changes more than whitespace, and shares
+more than half its words with what it replaces (small models sometimes
+"fix" a line with unrelated code). Hint ranges are UTF-16 offsets into
+`OwlContext.text`, not document offsets; hint ids are FNV hashes of source,
+title and snippet, so a snoozed hint stays snoozed when lines move.
+
+**Apple Foundation Models.** `AppleFoundationModelsProvider` uses the
+on-device `SystemLanguageModel` (macOS 26+, Apple silicon, Apple
+Intelligence on) behind `#if canImport(FoundationModels)` and a runtime
+availability check. The SDK's Private Cloud Compute model is deliberately
+not used. With CI's Swift 6.1 / macOS 15 SDK the module is absent and a
+placeholder that is never available compiles instead.
+
+**Registry hook.** The owl UI owns the provider registry. It calls
+`LocalAIOwl.makeProvider(settings:)` (nil while off) and wraps the provider
+in `LocalAIOwl.makeScheduler`, feeding it `contextChanged` on edits and
+scrolls and `setAppActive` from NSApplication notifications.
+
+**Tests.** `Tests/CedricAITests` uses a URLProtocol stub server, a fake
+clock and a fake power source. `CEDRIC_AI_LIVE=1 Scripts/test.sh --filter
+LiveCheckTests` runs three sample snippets and a scheduler burst against a
+real local server (`CEDRIC_AI_URL`, `CEDRIC_AI_MODEL` override); CI never
+sets it.
 
 ## Dev hooks
 

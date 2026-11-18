@@ -1,0 +1,277 @@
+import Foundation
+
+/// One model as the server lists it, enriched where the backend says more.
+public struct LocalModelInfo: Sendable, Equatable {
+    public var id: String
+    /// Bytes on disk, when the backend reports it (Ollama `/api/tags`).
+    public var sizeBytes: Int64?
+    /// Parameter count in billions: from the backend if it says, else parsed
+    /// from the id ("qwen2.5-coder-1.5b-instruct" → 1.5).
+    public var parametersB: Double?
+    public var quantization: String?
+    /// LM Studio `type`: "llm", "vlm", "embeddings".
+    public var type: String?
+    /// LM Studio `state`: "loaded" / "not-loaded".
+    public var state: String?
+
+    public init(id: String, sizeBytes: Int64? = nil, parametersB: Double? = nil,
+                quantization: String? = nil, type: String? = nil, state: String? = nil) {
+        self.id = id
+        self.sizeBytes = sizeBytes
+        self.parametersB = parametersB ?? ModelPicker.parameterCount(fromID: id)
+        self.quantization = quantization
+        self.type = type
+        self.state = state
+    }
+
+    /// "1.5B · 4bit · 0.9 GB" — whatever is known.
+    public var sizeLabel: String {
+        var bits: [String] = []
+        if let p = parametersB { bits.append(p < 10 ? String(format: "%.1fB", p) : String(format: "%.0fB", p)) }
+        if let q = quantization { bits.append(q) }
+        if let s = sizeBytes { bits.append(String(format: "%.1f GB", Double(s) / 1_000_000_000)) }
+        return bits.joined(separator: " · ")
+    }
+
+    public var isEmbedding: Bool {
+        type == "embeddings" || id.lowercased().contains("embed")
+    }
+}
+
+public enum LocalAIError: Error, Sendable, Equatable {
+    case endpointNotLocal(String)
+    case http(Int)
+    case badResponse
+    case timedOut
+    case cancelled
+    case transport(String)
+}
+
+public struct ChatMessage: Sendable, Equatable, Encodable {
+    public var role: String
+    public var content: String
+    public init(role: String, content: String) { self.role = role; self.content = content }
+}
+
+public struct ChatResult: Sendable, Equatable {
+    public var content: String
+    public var promptTokens: Int?
+    public var completionTokens: Int?
+    public var latency: TimeInterval
+}
+
+public struct ConnectionReport: Sendable {
+    public var models: [LocalModelInfo]
+    public var latency: TimeInterval
+    public var suggested: LocalModelInfo?
+    public var error: LocalAIError?
+}
+
+/// A minimal OpenAI-compatible client (chat completions + model list) for
+/// LM Studio and Ollama. URLSession only. Refuses non-local endpoints.
+public struct LocalModelClient: Sendable {
+    public let baseURL: URL
+    let session: URLSession
+    let timeout: TimeInterval
+
+    public init(baseURL: URL, timeout: TimeInterval = 20, session: URLSession? = nil) {
+        self.baseURL = baseURL
+        self.timeout = timeout
+        if let session {
+            self.session = session
+        } else {
+            let cfg = URLSessionConfiguration.ephemeral   // no cookies, no cache on disk
+            cfg.timeoutIntervalForRequest = timeout
+            cfg.timeoutIntervalForResource = timeout
+            cfg.connectionProxyDictionary = [:]           // never route through a proxy
+            cfg.waitsForConnectivity = false
+            self.session = URLSession(configuration: cfg)
+        }
+    }
+
+    /// The server root without the trailing `/v1`, for backend-native
+    /// endpoints (LM Studio `/api/v0/models`, Ollama `/api/tags`).
+    var serverRoot: URL {
+        baseURL.lastPathComponent == "v1" ? baseURL.deletingLastPathComponent() : baseURL
+    }
+
+    private func checkLocal() throws {
+        guard LocalEndpointPolicy.isAllowed(baseURL) else {
+            throw LocalAIError.endpointNotLocal(baseURL.host ?? baseURL.absoluteString)
+        }
+    }
+
+    private func send(_ request: URLRequest) async throws -> Data {
+        var request = request
+        request.timeoutInterval = timeout
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw LocalAIError.badResponse }
+            guard (200..<300).contains(http.statusCode) else { throw LocalAIError.http(http.statusCode) }
+            return data
+        } catch let e as LocalAIError {
+            throw e
+        } catch is CancellationError {
+            throw LocalAIError.cancelled
+        } catch let e as URLError {
+            switch e.code {
+            case .cancelled: throw LocalAIError.cancelled
+            case .timedOut: throw LocalAIError.timedOut
+            default: throw LocalAIError.transport(e.localizedDescription)
+            }
+        }
+    }
+
+    // MARK: Discovery
+
+    public func listModels() async throws -> [LocalModelInfo] {
+        try checkLocal()
+        let data = try await send(URLRequest(url: baseURL.appendingPathComponent("models")))
+        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = obj["data"] as? [[String: Any]] else { throw LocalAIError.badResponse }
+        var models = list.compactMap { ($0["id"] as? String).map { LocalModelInfo(id: $0) } }
+        await enrich(&models)
+        return models
+    }
+
+    /// Best effort, short timeout: LM Studio's native list adds type,
+    /// quantization and load state; Ollama's adds bytes and parameter size.
+    private func enrich(_ models: inout [LocalModelInfo]) async {
+        var quick = URLRequest(url: serverRoot.appendingPathComponent("api/v0/models"))
+        quick.timeoutInterval = 2
+        if let data = try? await session.data(for: quick).0,
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let list = obj["data"] as? [[String: Any]] {
+            for entry in list {
+                guard let id = entry["id"] as? String, let i = models.firstIndex(where: { $0.id == id }) else { continue }
+                models[i].type = entry["type"] as? String
+                models[i].quantization = entry["quantization"] as? String
+                models[i].state = entry["state"] as? String
+            }
+            return
+        }
+        var tags = URLRequest(url: serverRoot.appendingPathComponent("api/tags"))
+        tags.timeoutInterval = 2
+        if let data = try? await session.data(for: tags).0,
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let list = obj["models"] as? [[String: Any]] {
+            for entry in list {
+                guard let id = (entry["model"] as? String) ?? (entry["name"] as? String),
+                      let i = models.firstIndex(where: { $0.id == id }) else { continue }
+                if let size = entry["size"] as? NSNumber { models[i].sizeBytes = size.int64Value }
+                if let details = entry["details"] as? [String: Any] {
+                    if let q = details["quantization_level"] as? String { models[i].quantization = q }
+                    if let p = details["parameter_size"] as? String,
+                       let v = Double(p.trimmingCharacters(in: CharacterSet(charactersIn: "Bb "))) {
+                        models[i].parametersB = v
+                    }
+                }
+            }
+        }
+    }
+
+    /// "Test connection": the model list, the round-trip latency and the
+    /// small model the picker would choose.
+    public func testConnection(clock: any OwlClock = SystemClock()) async -> ConnectionReport {
+        let start = clock.now
+        do {
+            let models = try await listModels()
+            return ConnectionReport(models: models, latency: clock.now - start,
+                                    suggested: ModelPicker.pickSmallQwen(models), error: nil)
+        } catch {
+            return ConnectionReport(models: [], latency: clock.now - start, suggested: nil,
+                                    error: (error as? LocalAIError) ?? .transport("\(error)"))
+        }
+    }
+
+    // MARK: Chat
+
+    /// One non-streaming chat completion. `jsonSchema`, when given, is sent
+    /// as `response_format` (LM Studio and Ollama both honour json_schema);
+    /// a 400 from a server that doesn't is retried once without it.
+    public func chat(model: String, messages: [ChatMessage], maxTokens: Int,
+                     temperature: Double = 0, jsonSchema: [String: Any]? = nil,
+                     clock: any OwlClock = SystemClock()) async throws -> ChatResult {
+        try checkLocal()
+        let start = clock.now
+        do {
+            return try await chatOnce(model: model, messages: messages, maxTokens: maxTokens,
+                                      temperature: temperature, jsonSchema: jsonSchema,
+                                      start: start, clock: clock)
+        } catch LocalAIError.http(400) where jsonSchema != nil {
+            return try await chatOnce(model: model, messages: messages, maxTokens: maxTokens,
+                                      temperature: temperature, jsonSchema: nil,
+                                      start: start, clock: clock)
+        }
+    }
+
+    private func chatOnce(model: String, messages: [ChatMessage], maxTokens: Int,
+                          temperature: Double, jsonSchema: [String: Any]?,
+                          start: TimeInterval, clock: any OwlClock) async throws -> ChatResult {
+        var body: [String: Any] = [
+            "model": model,
+            "messages": messages.map { ["role": $0.role, "content": $0.content] },
+            "max_tokens": maxTokens,
+            "temperature": temperature,
+            "stream": false,
+        ]
+        if let jsonSchema {
+            body["response_format"] = [
+                "type": "json_schema",
+                "json_schema": ["name": "owl_hints", "strict": true, "schema": jsonSchema],
+            ]
+        }
+        var request = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let data = try await send(request)
+        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = obj["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let content = message["content"] as? String else { throw LocalAIError.badResponse }
+        let usage = obj["usage"] as? [String: Any]
+        return ChatResult(content: content,
+                          promptTokens: (usage?["prompt_tokens"] as? NSNumber)?.intValue,
+                          completionTokens: (usage?["completion_tokens"] as? NSNumber)?.intValue,
+                          latency: clock.now - start)
+    }
+}
+
+/// Chooses a small Qwen model automatically; never a large one, so a
+/// default setup can't make LM Studio JIT-load a 35B model.
+public enum ModelPicker {
+    /// Billions of parameters from an id such as "qwen2.5-coder-1.5b-instruct",
+    /// "qwen3:1.7b" or "Qwen3-4B-MLX-4bit". Ignores MoE active counts ("a3b")
+    /// and quant suffixes ("4bit").
+    public static func parameterCount(fromID id: String) -> Double? {
+        let s = id.lowercased()
+        let pattern = #"(?:^|[-_/:@\s])(\d+(?:\.\d+)?)b(?=$|[-_/:@.\s])"#
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let m = re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)),
+              let r = Range(m.range(at: 1), in: s) else { return nil }
+        return Double(s[r])
+    }
+
+    /// 1. a Qwen coder model of 0.5–3B (closest to 1.5B first);
+    /// 2. else a Qwen3 model of ≤ 4B (closest to 1.7B first);
+    /// 3. else nil: the user picks.
+    public static func pickSmallQwen(_ models: [LocalModelInfo]) -> LocalModelInfo? {
+        let candidates = models.filter { !$0.isEmbedding && $0.id.lowercased().contains("qwen") }
+        let coders = candidates.filter {
+            guard let p = $0.parametersB else { return false }
+            return $0.id.lowercased().contains("coder") && p >= 0.5 && p <= 3
+        }
+        if let best = coders.min(by: { rank($0, target: 1.5) < rank($1, target: 1.5) }) { return best }
+        let q3 = candidates.filter {
+            guard let p = $0.parametersB else { return false }
+            return $0.id.lowercased().contains("qwen3") && p <= 4
+        }
+        return q3.min(by: { rank($0, target: 1.7) < rank($1, target: 1.7) })
+    }
+
+    private static func rank(_ m: LocalModelInfo, target: Double) -> Double {
+        let instructBonus = m.id.lowercased().contains("instruct") ? 0 : 0.01
+        return abs((m.parametersB ?? 99) - target) + instructBonus
+    }
+}

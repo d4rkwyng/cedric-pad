@@ -1,0 +1,203 @@
+import Foundation
+import CedricCore
+
+/// Builds the request and parses the model's answer. Pure functions, so the
+/// whole path from context to hints is unit-testable without a server.
+public enum HintPrompt {
+    /// The most text ever sent: OwlContext promises ≤ 8 KB; this enforces it.
+    public static let maxContextBytes = 8 * 1024
+    public static let maxHints = 2
+    public static let minConfidence = 0.6
+    public static let maxTitle = 60
+
+    /// Clamps `text` to `maxBytes` of UTF-8 on a character boundary, keeping
+    /// the start (the context builder puts the visible range first + margin;
+    /// cutting the tail keeps returned ranges valid against `text`).
+    public static func capped(_ text: String, maxBytes: Int = maxContextBytes) -> String {
+        guard text.utf8.count > maxBytes else { return text }
+        var out = ""
+        var used = 0
+        for ch in text {
+            let n = String(ch).utf8.count
+            if used + n > maxBytes { break }
+            out.append(ch)
+            used += n
+        }
+        return out
+    }
+
+    static let system = """
+    You review code inside a text editor. Point out at most 2 real problems in the \
+    code you are shown: a bug, a likely mistake, or clearly confusing code with a small fix. \
+    Do not comment on style, naming, missing docs or tests, or code you cannot see. \
+    If nothing is clearly wrong, return {"hints":[]}.
+
+    Reply with JSON only. Fields of each hint:
+    - kind: "fix" (a bug with a fix), "warning" (a likely bug), "tip" or "explain"
+    - title: names the specific problem in a few words
+    - detail: one or two plain sentences on why it is wrong
+    - find: a short snippet copied character for character from the code, or ""
+    - replacement: the corrected snippet that replaces find, or "" if unsure
+    - confidence: 0.0 to 1.0
+
+    Example, for `while n > 0 { total += n }`:
+    {"hints":[{"kind":"fix","title":"Infinite loop: n never decreases",\
+    "detail":"The loop body never changes n, so the condition stays true.",\
+    "find":"total += n","replacement":"total += n; n -= 1","confidence":0.9}]}
+    """
+
+
+    public static func messages(for context: OwlContext, text: String, model: String) -> [ChatMessage] {
+        var user = "Language: \(context.language)\n"
+        if let name = context.fileName { user += "File: \(name)\n" }
+        user += "Code:\n```\n\(text)\n```"
+        // Qwen3 thinks by default; a hint costs too much with a scratchpad.
+        if model.lowercased().contains("qwen3") { user += "\n/no_think" }
+        return [ChatMessage(role: "system", content: system), ChatMessage(role: "user", content: user)]
+    }
+
+    /// The json_schema sent as response_format.
+    public static var schema: [String: Any] {
+        [
+            "type": "object",
+            "properties": [
+                "hints": [
+                    "type": "array",
+                    "maxItems": maxHints,
+                    "items": [
+                        "type": "object",
+                        "properties": [
+                            "kind": ["type": "string", "enum": ["fix", "warning", "tip", "explain"]],
+                            "title": ["type": "string"],
+                            "detail": ["type": "string"],
+                            "find": ["type": "string"],
+                            "replacement": ["type": "string"],
+                            "confidence": ["type": "number"],
+                        ],
+                        "required": ["kind", "title", "detail", "find", "replacement", "confidence"],
+                        "additionalProperties": false,
+                    ],
+                ],
+            ],
+            "required": ["hints"],
+            "additionalProperties": false,
+        ]
+    }
+
+    /// Parses the model output defensively. Drops: non-JSON, unknown kinds,
+    /// empty or filler titles, confidence below `minConfidence`, a `find`
+    /// that isn't in `text` (so a replacement can never land outside the
+    /// context), and no-op replacements. Ranges are UTF-16 offsets into
+    /// `text` — the context the provider was given.
+    public static func parse(_ raw: String, text: String, source: String) -> [OwlHint] {
+        guard let json = extractJSON(raw),
+              let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        let items: [[String: Any]]
+        if let dict = obj as? [String: Any], let list = dict["hints"] as? [[String: Any]] {
+            items = list
+        } else if let list = obj as? [[String: Any]] {
+            items = list
+        } else {
+            return []
+        }
+        let ns = text as NSString
+        var out: [OwlHint] = []
+        for item in items {
+            guard out.count < maxHints else { break }
+            guard let kindRaw = (item["kind"] as? String)?.lowercased(),
+                  let kind = OwlHint.Kind(rawValue: kindRaw),
+                  var title = (item["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty, !isFiller(title) else { continue }
+            if let c = (item["confidence"] as? NSNumber)?.doubleValue, c < minConfidence { continue }
+            if title.count > maxTitle { title = String(title.prefix(maxTitle - 1)) + "…" }
+            let detail = (item["detail"] as? String)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .flatMap { $0.isEmpty ? nil : $0 }
+            let find = (item["find"] as? String) ?? ""
+            var replacement = (item["replacement"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            var range: NSRange?
+            if !find.isEmpty {
+                let r = ns.range(of: find)
+                if r.location == NSNotFound {
+                    // A hint about code that isn't there is a hallucination;
+                    // without a replacement it's still maybe useful prose,
+                    // with one it could apply anywhere. Drop it.
+                    if replacement != nil { continue }
+                } else {
+                    range = r
+                }
+            }
+            // A replacement needs an anchor inside the context, and must change something.
+            if range == nil || replacement.map({ squash($0) == squash(find) }) == true { replacement = nil }
+            // Small models sometimes "fix" a snippet with unrelated code
+            // ("if (x == 0)" → "return x === 0"). An Apply button must only
+            // offer edits that stay close to what they replace.
+            if let rep = replacement, wordOverlap(find, rep) <= minReplacementOverlap { replacement = nil }
+            if replacement == nil && detail == nil && range == nil && kind == .tip { continue }
+            let hint = OwlHint(id: stableID(source: source, title: title, find: find),
+                               kind: kind, title: title, detail: detail,
+                               range: range, replacement: replacement, source: source)
+            if !out.contains(where: { $0.id == hint.id }) { out.append(hint) }
+        }
+        return out
+    }
+
+    /// Strips Qwen `<think>` blocks and Markdown fences, returns the
+    /// outermost {...} or [...] span.
+    static func extractJSON(_ raw: String) -> String? {
+        var s = raw
+        while let open = s.range(of: "<think>"), let close = s.range(of: "</think>", range: open.upperBound..<s.endIndex) {
+            s.removeSubrange(open.lowerBound..<close.upperBound)
+        }
+        let firstObj = s.firstIndex(of: "{"), firstArr = s.firstIndex(of: "[")
+        let start: String.Index
+        let closer: Character
+        switch (firstObj, firstArr) {
+        case let (o?, a?): (start, closer) = o < a ? (o, "}") : (a, "]")
+        case let (o?, nil): (start, closer) = (o, "}")
+        case let (nil, a?): (start, closer) = (a, "]")
+        default: return nil
+        }
+        guard let end = s.lastIndex(of: closer), end > start else { return nil }
+        return String(s[start...end])
+    }
+
+    /// A replacement must share more than this fraction of its words with `find`.
+    public static let minReplacementOverlap = 0.5
+
+    /// Jaccard overlap of the identifier/number words in two snippets.
+    static func wordOverlap(_ a: String, _ b: String) -> Double {
+        func words(_ s: String) -> Set<String> {
+            Set(s.components(separatedBy: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_")).inverted)
+                .filter { !$0.isEmpty })
+        }
+        let wa = words(a), wb = words(b)
+        if wa.isEmpty && wb.isEmpty { return 1 }
+        return Double(wa.intersection(wb).count) / Double(wa.union(wb).count)
+    }
+
+    /// Whitespace-insensitive form, so "cart = []" vs "cart=[]" is a no-op.
+    static func squash(_ s: String) -> String {
+        String(s.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }.map(Character.init))
+    }
+
+    static func isFiller(_ title: String) -> Bool {
+        let t = title.lowercased()
+        let filler = ["under 60 chars", "names the specific problem", "short title","no issues", "looks good", "no problems", "code is correct", "nothing to",
+                      "lgtm", "no bugs", "well written", "add comments", "add documentation"]
+        return filler.contains { t.contains($0) }
+    }
+
+    /// FNV-1a over source + title + snippet: stable across launches (unlike
+    /// Hasher) and independent of where the snippet sits, so a snoozed hint
+    /// stays snoozed when lines move.
+    static func stableID(source: String, title: String, find: String) -> String {
+        var h: UInt64 = 0xcbf29ce484222325
+        for b in "\(source)|\(title.lowercased())|\(find)".utf8 {
+            h ^= UInt64(b)
+            h &*= 0x100000001b3
+        }
+        return "ai-" + String(h, radix: 16)
+    }
+}
