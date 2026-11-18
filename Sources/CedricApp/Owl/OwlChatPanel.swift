@@ -612,7 +612,10 @@ extension EditorWindowController {
 }
 
 extension EditorWindowController {
-    /// Check Grammar with AI (arrives with the AI grammar step).
-    var canCheckGrammarWithAI: Bool { false }
-    func checkGrammarWithAI() {}
+    /// Edit › Spelling and Grammar › Check Grammar with AI, and the owl's button.
+    var canCheckGrammarWithAI: Bool { grammar.mayCheckWithAI }
+    func checkGrammarWithAI() {
+        guard canCheckGrammarWithAI else { NSSound.beep(); return }
+        grammar.checkWithAI(userAsked: true)
+    }
 }

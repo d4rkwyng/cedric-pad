@@ -160,8 +160,15 @@ public enum OwlPrompts {
             s += "- \(t.name.rawValue)(\(params.joined(separator: ", "))): \(t.description)\n"
         }
         s += """
-        Reply with JSON only. To call a tool: {"tool":"get_lines","args":{"start":1,"end":20}}. \
+        You were shown only some lines of the document. Call a tool first when the question needs lines \
+        you were not shown (get_lines), a search (search_document), the headings or structure (get_outline), \
+        counts or the file name (document_stats), the user's selection (get_selection) or a change to the \
+        text (propose_edit). Otherwise answer directly.
+        Reply with JSON only. To call a tool: {"tool":"get_lines","args":{"start":40,"end":44}}. \
         To answer: {"answer":"your answer"}.
+        Examples: "What does line 80 say?" → {"tool":"get_lines","args":{"start":80,"end":80}}. \
+        "Where is foo used?" → {"tool":"search_document","args":{"query":"foo"}}. \
+        "What is 2 + 2?" → {"answer":"4"}.
         """
         return s
     }

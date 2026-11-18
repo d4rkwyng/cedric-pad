@@ -180,6 +180,90 @@ enum OwlChatCheck {
         }
     }
 
-    /// Hook for later steps (animations, grammar).
-    static var extra: @MainActor (EditorWindowController, String) -> Void = { _, out in OwlCheck.finish(out) }
+    /// CEDRIC_OWL_CHECK_CHAT=grammar: Check Grammar with AI on a prose file
+    /// (the fake engine "finds" "then I expected"): an underline, the
+    /// owl's grammar bubble, Fix it, one ⌘Z.
+    static func runGrammar(_ tab: EditorWindowController, out: String) {
+        guard let window = tab.window else { return }
+        let deadline = Date().addingTimeInterval(15)
+        func waitProse() {
+            if tab.grammar.lastSawProse == true {
+                check(tab.canCheckGrammarWithAI, "Check Grammar with AI is available in prose")
+                let original = tab.text
+                NSApp.sendAction(#selector(AppDelegate.checkGrammarWithAIMenu(_:)), to: nil, from: nil)
+                check(tab.grammar.aiPasses == 1, "the menu item starts one AI pass")
+                waitBubble(original)
+                return
+            }
+            if Date() > deadline { check(false, "the text was found to be prose"); OwlCheck.finish(out); return }
+            after(0.2, waitProse)
+        }
+        func waitBubble(_ original: String) {
+            if let b = tab.owl?.bubble, GrammarMap.isGrammarHint(b.hint.id) {
+                check(b.hint.replacement == "than I expected", "the owl offers the AI's grammar fix (\(b.hint.title))")
+                let r = (tab.text as NSString).range(of: "then I expected")
+                check(tab.textView.grammarRanges.contains(r), "the AI's finding is underlined like the system's")
+                OwlCheck.snapshot(window, "\(out)/grammar-ai.png") {
+                    guard let fix = b.buttons.first(where: { $0.title == String(localized: "Fix it") }) else { check(false, "Fix it"); OwlCheck.finish(out); return }
+                    OwlCheck.click(fix)
+                    check(tab.text.contains("than I expected") && !tab.text.contains("then I expected"), "Fix it applied the AI's correction")
+                    window.makeFirstResponder(tab.textView)
+                    OwlCheck.key(window, "z", code: 6, [.command])
+                    check(tab.text == original, "one ⌘Z undoes it")
+                    OwlCheck.finish(out)
+                }
+                return
+            }
+            if Date() > deadline { check(false, "a grammar bubble from the AI within 15 s"); OwlCheck.finish(out); return }
+            after(0.2) { waitBubble(original) }
+        }
+        waitProse()
+    }
+
+    /// Hook for later steps.
+    static var extra: @MainActor (EditorWindowController, String) -> Void = { tab, out in animations(tab, out: out) }
+
+    /// The owl's animations, then the same under Reduce Motion.
+    static func animations(_ tab: EditorWindowController, out: String) {
+        guard let owl = tab.owl, let window = tab.window else { OwlCheck.finish(out); return }
+        let v = owl.owl
+        OwlView.reduceMotion = false
+        owl.reduceMotionChanged()
+        owl.chatPhase(.thinking)
+        check(v.isPlaying && v.inState, "thinking loops while the AI works")
+        owl.chatPhase(.searching)
+        check(v.isPlaying, "searching loops while a search tool runs")
+        owl.chatPhase(nil)
+        check(!v.isPlaying && v.pose == .idle, "back to idle when the answer is done")
+        owl.nod()
+        check(v.isPlaying, "a nod plays after an edit is applied")
+        // Typing stops a gesture at once.
+        window.makeFirstResponder(tab.textView)
+        OwlCheck.key(window, "y", code: 16, [])
+        check(!v.isPlaying, "typing stops the gesture (never animates while typing)")
+        let looks = owl.looks
+        after(1.1) {
+            owl.idleTickNow()
+            check(owl.looks == looks + 1 && v.isPlaying, "after typing stops he looks toward the caret")
+            v.stopSequence()
+            // Reduce Motion.
+            OwlView.reduceMotion = true
+            owl.reduceMotionChanged()
+            owl.chatPhase(.thinking)
+            check(!v.isPlaying && v.inState, "Reduce Motion: thinking is a still frame, no timer")
+            owl.chatPhase(.writing)
+            check(!v.isPlaying, "Reduce Motion: writing is a still frame")
+            owl.chatPhase(nil)
+            owl.nod()
+            v.flap()
+            v.wave()
+            check(!v.isPlaying, "Reduce Motion: no nod, flap or wave")
+            owl.idleTickNow()
+            check(!v.isPlaying, "Reduce Motion: an idle tick animates nothing")
+            OwlCheck.snapshot(window, "\(out)/anim-reduce-motion.png") {
+                OwlView.reduceMotion = OwlView.currentReduceMotion()
+                OwlCheck.finish(out)
+            }
+        }
+    }
 }

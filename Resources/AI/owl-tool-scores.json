@@ -1,0 +1,20 @@
+{
+  "models": {
+    "apple:apple-on-device": {
+      "cases": 40,
+      "date": "2026-11-18",
+      "score": 0.7
+    },
+    "builtIn:qwen2.5-coder-3b-instruct-q4_k_m": {
+      "cases": 40,
+      "date": "2026-11-18",
+      "score": 0.6
+    },
+    "lmStudio:qwen2.5-coder-1.5b-instruct-mlx": {
+      "cases": 40,
+      "date": "2026-11-18",
+      "score": 0.75
+    }
+  },
+  "threshold": 0.8
+}

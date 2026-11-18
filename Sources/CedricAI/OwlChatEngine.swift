@@ -68,9 +68,12 @@ public final class OwlToolbox: @unchecked Sendable {
 
     public var proposal: OwlEditProposal? { lock.withLock { _proposal } }
     public var callCount: Int { lock.withLock { calls } }
+    /// Every call asked for, in order (the tool eval reads the first).
+    public var log: [OwlToolCall] { lock.withLock { _log } }
+    private var _log: [OwlToolCall] = []
 
     public func run(_ call: OwlToolCall) -> OwlToolResult {
-        let n: Int = lock.withLock { calls += 1; return calls }
+        let n: Int = lock.withLock { calls += 1; _log.append(call); return calls }
         guard n <= Self.maxCalls else {
             return OwlToolResult(text: "error: tool limit reached; answer now with what you have", proposal: nil,
                                  summary: "tool limit reached", ok: false)

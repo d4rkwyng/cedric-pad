@@ -51,6 +51,35 @@ enum OwlArt {
 
     static let blink = frames("owl-blink-strip", count: 3)
     static let flap = frames("owl-flap-strip", count: 4)
+
+    /// The v1 animation strips (tools/icon/cedric_icon.py), each loaded the
+    /// first time it plays, never at launch.
+    enum Strip: String, CaseIterable {
+        /// 8 gaze directions: right, up-right, up, up-left, left, down-left, down, down-right.
+        case look, wave, nod
+        /// right, up, left, down.
+        case point
+        case think, search, write
+        var count: Int {
+            switch self {
+            case .look: return 8
+            case .wave, .point: return 4
+            case .nod, .think, .search, .write: return 3
+            }
+        }
+    }
+    private static var loaded: [Strip: [NSImage]] = [:]
+    static func strip(_ s: Strip) -> [NSImage] {
+        if let f = loaded[s] { return f }
+        let f = frames("owl-\(s.rawValue)-strip", count: s.count)
+        loaded[s] = f
+        return f
+    }
+    /// Strips loaded so far (the launch check: none before the first frame).
+    static var loadedStrips: Int { loaded.count }
+
+    static func gazeIndex(dx: CGFloat, dy: CGFloat) -> Int? { OwlMotion.gazeIndex(dx: Double(dx), dy: Double(dy)) }
+    static func pointIndex(dx: CGFloat, dy: CGFloat) -> Int { OwlMotion.pointIndex(dx: Double(dx), dy: Double(dy)) }
 }
 
 /// The owl itself: draws one image. Poses are set by `OwlController`;
@@ -100,7 +129,7 @@ final class OwlView: NSView, NSViewToolTipOwner {
     override var isOpaque: Bool { false }
 
     func setPose(_ p: OwlArt.Pose) {
-        guard p != pose || sequenceTimer != nil else { return }
+        guard p != pose || sequenceTimer != nil || inState else { return }
         pose = p
         stopSequence()
         current = OwlArt.poses[p]
@@ -113,32 +142,108 @@ final class OwlView: NSView, NSViewToolTipOwner {
     func blink() {
         let f = OwlArt.blink
         guard pose == .idle, f.count == 3 else { return }
-        play([f[1], f[2], f[2], f[1]], every: 0.05)
+        gesture([f[1], f[2], f[2], f[1]], every: 0.05)
     }
 
     /// The monocle polish: the pose for a moment, then back.
     func polish() {
         guard pose == .idle, let img = OwlArt.poses[.polish] else { return }
-        play([img], every: 1.6)
+        gesture([img], every: 1.6)
     }
 
     /// Two wing beats (on save).
     func flap() {
         let f = OwlArt.flap
         guard f.count == 4, pose != .talking else { return }
-        play([f[1], f[2], f[3], f[0], f[1], f[2], f[3]], every: 0.07)
+        gesture([f[1], f[2], f[3], f[0], f[1], f[2], f[3]], every: 0.07)
+    }
+
+    /// A glance in gaze direction `i` (look strip), held ~1.2 s.
+    func glance(_ i: Int) {
+        let f = OwlArt.strip(.look)
+        guard pose == .idle, f.indices.contains(i) else { return }
+        hold(f[i], seconds: 1.2)
+    }
+
+    /// Hello, once per launch: the wing waves twice.
+    func wave() {
+        let f = OwlArt.strip(.wave)
+        guard pose == .idle, f.count == 4 else { return }
+        gesture([f[0], f[1], f[2], f[3], f[2], f[3]], every: 0.16)
+    }
+
+    /// An acknowledging nod (an edit applied).
+    func nod() {
+        let f = OwlArt.strip(.nod)
+        guard f.count == 3 else { return }
+        gesture([f[0], f[1], f[1], f[2]], every: 0.11)
+    }
+
+    /// Points in direction `i` (right, up, left, down) for a moment.
+    func point(_ i: Int) {
+        let f = OwlArt.strip(.point)
+        guard f.indices.contains(i) else { return }
+        hold(f[i], seconds: 0.9)
+    }
+
+    /// System Settings › Accessibility › Display › Reduce Motion
+    /// (CEDRIC_REDUCE_MOTION=0/1 for checks): no gestures, no idle
+    /// animation, states shown as single still frames. Kept up to date by
+    /// `OwlController` from NSWorkspace's display-options notification.
+    static var reduceMotion: Bool = currentReduceMotion()
+    static func currentReduceMotion() -> Bool {
+        if let v = ProcessInfo.processInfo.environment["CEDRIC_REDUCE_MOTION"] { return v == "1" }
+        return NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    /// Frames played once, then back to the pose. Skipped under Reduce Motion.
+    func gesture(_ frames: [NSImage], every interval: TimeInterval) {
+        guard OwlMotion.render(.blink, reduceMotion: Self.reduceMotion) == .play, !frames.isEmpty else { return }
+        play(frames, every: interval)
+    }
+
+    /// A state that lasts (thinking, searching, writing): its frames on a
+    /// loop while it lasts, or its first frame, still, under Reduce Motion.
+    func loop(_ frames: [NSImage], every interval: TimeInterval) {
+        guard !frames.isEmpty else { return }
+        stopSequence()
+        if OwlMotion.render(.think, reduceMotion: Self.reduceMotion) == .still || frames.count == 1 {
+            still = frames[0]
+            current = frames[0]
+            needsDisplay = true
+            return
+        }
+        looping = frames
+        play(frames, every: interval)
+    }
+
+    /// The still frame shown for a lasting state under Reduce Motion.
+    private var still: NSImage?
+    private var looping: [NSImage] = []
+    /// A lasting state is shown (looping or still).
+    var inState: Bool { !looping.isEmpty || still != nil }
+
+    /// One frame for `seconds`, then back to the pose (a glance). Skipped under Reduce Motion.
+    func hold(_ frame: NSImage, seconds: TimeInterval) {
+        guard !Self.reduceMotion else { return }
+        play([frame], every: seconds)
     }
 
     private func play(_ frames: [NSImage], every interval: TimeInterval) {
-        stopSequence()
+        stopSequence(keepLoop: true)
         sequence = frames
         step()
-        sequenceTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.step() }
         }
+        RunLoop.main.add(t, forMode: .common)
+        sequenceTimer = t
     }
 
     private func step() {
+        if sequence.isEmpty, !looping.isEmpty {
+            sequence = looping
+        }
         if sequence.isEmpty {
             stopSequence()
             current = OwlArt.poses[pose]
@@ -148,10 +253,16 @@ final class OwlView: NSView, NSViewToolTipOwner {
         needsDisplay = true
     }
 
-    func stopSequence() {
+    func stopSequence() { stopSequence(keepLoop: false) }
+
+    private func stopSequence(keepLoop: Bool) {
         sequenceTimer?.invalidate()
         sequenceTimer = nil
         sequence = []
+        if !keepLoop {
+            looping = []
+            if still != nil { still = nil; current = OwlArt.poses[pose]; needsDisplay = true }
+        }
     }
 
     /// The editor behind him is dark: a soft light rim around the sprite

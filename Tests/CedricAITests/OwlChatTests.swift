@@ -176,3 +176,32 @@ import CedricCore
         #expect(m[3] == ChatMessage(role: "user", content: "Result of get_outline:\n1| # A"))
     }
 }
+
+@Suite struct OwlToolboxTests {
+    @Test func callBudgetAndOneProposalPerQuestion() {
+        let s = OwlDocumentSnapshot(text: "a\nb\nc", generation: 1)
+        let box = OwlToolbox(snapshot: s, allowed: Set(OwlToolName.allCases))
+        let edit = OwlToolCall(name: "propose_edit", arguments: .object(["start": .number(1), "end": .number(1), "new_text": .string("A")]))
+        #expect(box.run(edit).ok)
+        #expect(!box.run(OwlToolCall(name: "propose_edit", arguments: .object(["start": .number(2), "end": .number(2), "new_text": .string("B")]))).ok)
+        #expect(box.proposal?.replacement == "A")
+        for _ in 0..<20 { _ = box.run(OwlToolCall(name: "get_outline")) }
+        #expect(box.callCount == 22)
+        #expect(box.run(OwlToolCall(name: "get_outline")).text.contains("tool limit"))
+    }
+
+    /// A model that never stops calling tools is made to answer after 3 rounds.
+    @Test func roundsAreCapped() async throws {
+        struct Loops: OwlChatEngine {
+            var title: String { "x" }; var scoreKey: String { "x" }; var contextBudget: Int { 6000 }
+            func turn(_ m: [OwlChatMessage], tools: [OwlToolSpec], toolbox: OwlToolbox?, maxTokens: Int,
+                      onText: @escaping @Sendable (String) -> Void) async throws -> OwlTurn {
+                tools.isEmpty ? .answer("done") : .toolCalls([OwlToolCall(name: "get_outline")])
+            }
+        }
+        let s = OwlDocumentSnapshot(text: "# A\ntext", generation: 1)
+        let ctx = OwlChatContext.build(s, scope: .visible, budget: 6000)!
+        let o = try await OwlChatRunner.run(OwlChatRequest(question: "q", context: ctx, snapshot: s, useTools: true, prose: false), engine: Loops()) { _ in }
+        #expect(o.rounds == OwlTools.maxRounds && o.answer == "done" && o.toolCalls == 3)
+    }
+}
