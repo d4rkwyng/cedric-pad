@@ -73,6 +73,8 @@ public struct LocalModelClient: Sendable {
     public let baseURL: URL
     let session: URLSession
     let timeout: TimeInterval
+    /// Name lookup for `checkLocal`; tests put a slow one in.
+    var resolver: @Sendable (String) async -> [String] = { await LocalEndpointPolicy.resolve($0) }
 
     public init(baseURL: URL, timeout: TimeInterval = 20, session: URLSession? = nil) {
         self.baseURL = baseURL
@@ -104,8 +106,59 @@ public struct LocalModelClient: Sendable {
         guard LocalEndpointPolicy.isAllowed(baseURL) else {
             throw LocalAIError.endpointNotLocal(baseURL.host ?? baseURL.absoluteString)
         }
-        guard let host = baseURL.host, await LocalEndpointPolicy.resolvesPrivately(host) else {
-            throw LocalAIError.endpointNotLocal(baseURL.host ?? baseURL.absoluteString)
+        guard let host = baseURL.host else { throw LocalAIError.endpointNotLocal(baseURL.absoluteString) }
+        // getaddrinfo can't be cancelled: when the deadline passes, the
+        // lookup is left to finish on its own and its answer is dropped.
+        let resolver = self.resolver
+        let addrs = try await Self.abandoningOnCancel { await resolver(host) }
+        guard !addrs.isEmpty, addrs.allSatisfy(LocalEndpointPolicy.isPrivateAddress) else {
+            throw LocalAIError.endpointNotLocal(host)
+        }
+    }
+
+    /// Runs `work` under one overall deadline of `timeout` seconds: the name
+    /// check, the request and reading the whole body. URLRequest's
+    /// `timeoutInterval` only limits the wait between packets and doesn't
+    /// cover the lookup; this does. At the deadline the work is cancelled
+    /// (which cancels its URLSession task) and `.timedOut` is thrown.
+    func withDeadline<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        let seconds = timeout
+        do {
+            return try await withThrowingTaskGroup(of: T?.self) { group in
+                group.addTask { try await work() }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
+                    return nil
+                }
+                defer { group.cancelAll() }
+                guard let first = try await group.next(), let value = first else { throw LocalAIError.timedOut }
+                return value
+            }
+        } catch is CancellationError {
+            throw LocalAIError.cancelled
+        }
+    }
+
+    /// Awaits `op`, but returns (throwing CancellationError) as soon as the
+    /// calling task is cancelled, without waiting for `op` to finish.
+    static func abandoningOnCancel<T: Sendable>(_ op: @escaping @Sendable () async -> T) async throws -> T {
+        let state = Locked<(c: CheckedContinuation<T, Error>?, done: Bool)>((nil, false))
+        @Sendable func finish(_ r: Result<T, Error>) {
+            let c: CheckedContinuation<T, Error>? = state.mutate { s in
+                guard !s.done, let c = s.c else { return nil }
+                s.done = true
+                return c
+            }
+            c?.resume(with: r)
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
+                state.mutate { $0.c = c }
+                if Task.isCancelled { finish(.failure(CancellationError())); return }
+                Task.detached { finish(.success(await op())) }
+            }
+        } onCancel: {
+            finish(.failure(CancellationError()))
         }
     }
 
@@ -169,13 +222,15 @@ public struct LocalModelClient: Sendable {
     // MARK: Discovery
 
     public func listModels() async throws -> [LocalModelInfo] {
-        try await checkLocal()
-        let data = try await send(URLRequest(url: baseURL.appendingPathComponent("models")))
-        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let list = obj["data"] as? [[String: Any]] else { throw LocalAIError.badResponse }
-        var models = list.compactMap { ($0["id"] as? String).map { LocalModelInfo(id: $0) } }
-        await enrich(&models)
-        return models
+        try await withDeadline {
+            try await checkLocal()
+            let data = try await send(URLRequest(url: baseURL.appendingPathComponent("models")))
+            guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let list = obj["data"] as? [[String: Any]] else { throw LocalAIError.badResponse }
+            var models = list.compactMap { ($0["id"] as? String).map { LocalModelInfo(id: $0) } }
+            await enrich(&models)
+            return models
+        }
     }
 
     /// Best effort, short timeout: LM Studio's native list adds type,
@@ -236,22 +291,23 @@ public struct LocalModelClient: Sendable {
     public func chat(model: String, messages: [ChatMessage], maxTokens: Int,
                      temperature: Double = 0, jsonSchema: [String: Any]? = nil,
                      clock: any OwlClock = SystemClock()) async throws -> ChatResult {
-        try await checkLocal()
-        let start = clock.now
-        do {
-            return try await chatOnce(model: model, messages: messages, maxTokens: maxTokens,
-                                      temperature: temperature, jsonSchema: jsonSchema,
-                                      start: start, clock: clock)
-        } catch LocalAIError.http(400) where jsonSchema != nil {
-            return try await chatOnce(model: model, messages: messages, maxTokens: maxTokens,
-                                      temperature: temperature, jsonSchema: nil,
-                                      start: start, clock: clock)
+        let withSchema = try chatRequest(model: model, messages: messages, maxTokens: maxTokens,
+                                         temperature: temperature, jsonSchema: jsonSchema)
+        let plain = jsonSchema == nil ? nil
+            : try chatRequest(model: model, messages: messages, maxTokens: maxTokens, temperature: temperature, jsonSchema: nil)
+        return try await withDeadline {
+            try await checkLocal()
+            let start = clock.now
+            do {
+                return try await chatOnce(withSchema, start: start, clock: clock)
+            } catch LocalAIError.http(400) where plain != nil {
+                return try await chatOnce(plain!, start: start, clock: clock)
+            }
         }
     }
 
-    private func chatOnce(model: String, messages: [ChatMessage], maxTokens: Int,
-                          temperature: Double, jsonSchema: [String: Any]?,
-                          start: TimeInterval, clock: any OwlClock) async throws -> ChatResult {
+    private func chatRequest(model: String, messages: [ChatMessage], maxTokens: Int,
+                             temperature: Double, jsonSchema: [String: Any]?) throws -> URLRequest {
         var body: [String: Any] = [
             "model": model,
             "messages": messages.map { ["role": $0.role, "content": $0.content] },
@@ -269,6 +325,10 @@ public struct LocalModelClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    private func chatOnce(_ request: URLRequest, start: TimeInterval, clock: any OwlClock) async throws -> ChatResult {
         let data = try await send(request)
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = obj["choices"] as? [[String: Any]],

@@ -279,7 +279,6 @@ extension LocalModelClient {
     /// `maxResponseBytes`.
     public func chatStream(model: String, messages: [Any], tools: [Any]?, maxTokens: Int, temperature: Double = 0,
                            onText: @escaping @Sendable (String) -> Void) async throws -> OpenAIStreamAccumulator {
-        try await checkLocal()
         var body: [String: Any] = ["model": model, "messages": messages, "max_tokens": maxTokens,
                                    "temperature": temperature, "stream": true]
         if let tools { body["tools"] = tools }
@@ -288,6 +287,15 @@ extension LocalModelClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = timeout
+        // One deadline over the name check, the request and the whole stream.
+        return try await withDeadline { [request] in
+            try await checkLocal()
+            return try await stream(request, onText: onText)
+        }
+    }
+
+    private func stream(_ request: URLRequest,
+                        onText: @escaping @Sendable (String) -> Void) async throws -> OpenAIStreamAccumulator {
         var acc = OpenAIStreamAccumulator()
         do {
             let (bytes, response) = try await session.bytes(for: request, delegate: RedirectGuard())

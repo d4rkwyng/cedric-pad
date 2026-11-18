@@ -265,7 +265,8 @@ import CedricCore
 
     @Test func clientTimesOut() async {
         let server = StubServer()
-        server.json("/v1/chat/completions", chatCompletion("late"), delay: 5)
+        // Stalls until the client gives up: only the deadline can end it.
+        server.json("/v1/chat/completions", chatCompletion("late"), delay: 3600)
         let client = LocalModelClient(baseURL: server.baseURL, timeout: 0.3, session: server.session)
         let start = Date()
         do {
@@ -275,6 +276,61 @@ import CedricCore
             #expect(error as? LocalAIError == .timedOut)
         }
         #expect(Date().timeIntervalSince(start) < 3)
+    }
+
+    @Test func chatStreamTimesOut() async {
+        let server = StubServer()
+        server.json("/v1/chat/completions", chatCompletion("late"), delay: 3600)
+        let client = LocalModelClient(baseURL: server.baseURL, timeout: 0.3, session: server.session)
+        let start = Date()
+        await #expect(throws: LocalAIError.timedOut) {
+            _ = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 1) { _ in }
+        }
+        #expect(Date().timeIntervalSince(start) < 3)
+    }
+
+    /// A lookup that blocks its thread (getaddrinfo can't be cancelled).
+    static let slowResolver: @Sendable (String) async -> [String] = { _ in
+        await withCheckedContinuation { c in
+            DispatchQueue.global().async { Thread.sleep(forTimeInterval: 5); c.resume(returning: ["127.0.0.1"]) }
+        }
+    }
+
+    @Test func deadlineCoversTheNameLookup() async {
+        let server = StubServer()
+        server.json("/v1/chat/completions", chatCompletion("ok"))
+        var client = LocalModelClient(baseURL: server.baseURL, timeout: 0.3, session: server.session)
+        client.resolver = Self.slowResolver
+        let start = Date()
+        await #expect(throws: LocalAIError.timedOut) {
+            _ = try await client.chat(model: "m", messages: [], maxTokens: 1)
+        }
+        await #expect(throws: LocalAIError.timedOut) {
+            _ = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 1) { _ in }
+        }
+        await #expect(throws: LocalAIError.timedOut) { _ = try await client.listModels() }
+        #expect(Date().timeIntervalSince(start) < 3)
+        #expect(server.recorded.isEmpty, "no request while the name is still being checked")
+    }
+
+    @Test func cancellingDuringTheLookupIsPrompt() async {
+        let server = StubServer()
+        var client = LocalModelClient(baseURL: server.baseURL, session: server.session)
+        client.resolver = Self.slowResolver
+        let task = Task { try await client.chat(model: "m", messages: [], maxTokens: 1) }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        let start = Date()
+        task.cancel()
+        let result = await task.result
+        #expect(Date().timeIntervalSince(start) < 1)
+        if case .failure(let e) = result { #expect(e as? LocalAIError == .cancelled) } else { Issue.record("not cancelled") }
+    }
+
+    @Test func slowButInTimeStillAnswers() async throws {
+        let server = StubServer()
+        server.json("/v1/chat/completions", chatCompletion("ok"), delay: 0.1)
+        let client = LocalModelClient(baseURL: server.baseURL, timeout: 5, session: server.session)
+        #expect(try await client.chat(model: "m", messages: [], maxTokens: 1).content == "ok")
     }
 
     @Test func clientCancelsPromptly() async {
