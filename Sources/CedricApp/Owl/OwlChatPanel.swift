@@ -38,7 +38,7 @@ final class OwlChatStore {
             let piece = env["CEDRIC_OWL_CHAT_FAKE_DELAY"].flatMap(Double.init) ?? min(0.08, max(0.01, d / 10))
             return FakeChatEngine(delay: piece)
         }
-        let s = AIStore.load()
+        guard let s = AskCedricEngine.settings() else { return nil }
         if let c = cached, c.settings == s { return c.engine }
         guard let e = await OwlChatEngines.make(settings: s) else { return nil }
         cached = (s, e)
@@ -51,6 +51,36 @@ final class OwlChatStore {
         if let v = ProcessInfo.processInfo.environment["CEDRIC_OWL_TOOLS"] { return v == "1" }
         return gate.allowsTools(engine.scoreKey)
     }
+}
+
+/// Is a local engine ready for Ask Cedric (`OwlChatSetup`)? Never on the
+/// launch path: asked when a menu, the owl or a grammar pass needs it, and
+/// kept for 30 s (a model download or an AI settings change resets it).
+/// CEDRIC_ASK_ENGINE=0/1 overrides it for one run; the fake engine
+/// (CEDRIC_AI_FAKE) counts as ready.
+@MainActor
+enum AskCedricEngine {
+    private static var cache: (at: Date, settings: LocalAISettings?)?
+
+    static func settings() -> LocalAISettings? {
+        let env = ProcessInfo.processInfo.environment
+        if env["CEDRIC_ASK_ENGINE"] == "0" { return nil }
+        if env["CEDRIC_AI_FAKE"] != nil || env["CEDRIC_ASK_ENGINE"] == "1" {
+            var s = AIStore.load()
+            s.enabled = true
+            return s
+        }
+        if let c = cache, Date().timeIntervalSince(c.at) < 30 { return c.settings }
+        let built = BuiltInEngine()
+        let s = OwlChatSetup.chatSettings(AIStore.load(), appleAvailable: AppleChatEngine.isAvailable,
+                                          builtInInstalled: !built.installedModels.isEmpty)
+        cache = (Date(), s)
+        return s
+    }
+
+    static var isAvailable: Bool { settings() != nil }
+
+    static func invalidate() { cache = nil }
 }
 
 @MainActor
@@ -127,14 +157,20 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         let head = NSStackView(views: [about, scopePopup])
         head.spacing = 6
 
-        let actions = NSStackView()
-        actions.spacing = 4
+        // Two rows: what it does (and the script check), then the rest.
+        let firstRow = NSStackView()
+        let secondRow = NSStackView()
+        for row in [firstRow, secondRow] { row.spacing = 4 }
         for a in OwlQuickAction.allCases {
             let b = small(a.title(prose: false), #selector(quickAction(_:)))
             b.tag = OwlQuickAction.allCases.firstIndex(of: a)!
             actionButtons[a] = b
-            actions.addArrangedSubview(b)
+            ([.explain, .explainLine, .scriptSafety].contains(a) ? firstRow : secondRow).addArrangedSubview(b)
         }
+        let actions = NSStackView(views: [firstRow, secondRow])
+        actions.orientation = .vertical
+        actions.alignment = .leading
+        actions.spacing = 4
 
         transcript.isEditable = false
         transcript.isRichText = true
@@ -265,16 +301,20 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         let pick = current ?? OwlChatContext.defaultScope(for: s)
         if let i = scopes.firstIndex(of: pick) { scopePopup.selectItem(at: i) }
         let prose = isProse
-        for (a, b) in actionButtons { b.title = a.title(prose: prose) }
-        let ai = OwlHub.shared.ai
-        if let title = ai.engineTitle {
-            footer.stringValue = AIStore.load().backend.usesServer
-                ? String(localized: "On \(AIStore.load().baseURL.host ?? "this Mac") · \(title)")
-                : String(localized: "On this Mac · \(title)")
-        } else if ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"] != nil {
+        let script = !prose && ScriptSafety.isScript(tab.doc.language)
+        for (a, b) in actionButtons {
+            b.title = a.title(prose: prose)
+            b.isHidden = !a.isOffered(prose: prose, language: tab.doc.language)
+        }
+        if script { actionButtons[.explain]?.title = String(localized: "What Does It Do?") }
+        if tab.textView.selectedRange().length > 0 { actionButtons[.explainLine]?.title = String(localized: "Explain Selection") }
+        if ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"] != nil {
             footer.stringValue = String(localized: "On this Mac · test engine")
+        } else if let chat = AskCedricEngine.settings() {
+            let place = chat.backend.usesServer ? (chat.baseURL.host ?? "this Mac") : String(localized: "this Mac")
+            footer.stringValue = String(localized: "On \(place) · \(LocalAIOwlBridge.shortTitle(chat.backend))")
         } else {
-            footer.stringValue = String(localized: "No AI engine: turn one on in Cedric AI Settings.")
+            footer.stringValue = String(localized: "No AI engine yet: set one up in Cedric AI Settings.")
         }
         panel.title = String(localized: "Ask Cedric — \(tab.doc.displayName)")
         render()
@@ -321,6 +361,10 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             out.append(NSAttributedString(string: "\n\n", attributes: body))
         case .tool, .note:
             out.append(NSAttributedString(string: e.text + "\n", attributes: quiet))
+        case .scan:
+            out.append(NSAttributedString(string: String(localized: "Offline scan (no AI)") + "\n", attributes: label))
+            let mono: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor]
+            out.append(NSAttributedString(string: e.text + "\n\n", attributes: mono))
         }
         return out
     }
@@ -346,7 +390,65 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     @objc func quickAction(_ sender: NSButton) {
         guard sender.tag < OwlQuickAction.allCases.count else { return }
         let a = OwlQuickAction.allCases[sender.tag]
-        ask(question: a.title(prose: isProse), action: a)
+        switch a {
+        case .scriptSafety: checkScriptSafety()
+        case .explainLine: explainLine()
+        default: ask(question: sender.title, action: a)
+        }
+    }
+
+    /// Explain Line: the selection, or the caret's whole line.
+    func explainLine() {
+        guard let tab else { return }
+        let tv = tab.textView
+        var sel = tv.selectedRange()
+        let ns = tv.string as NSString
+        if sel.length == 0 {
+            let line = ns.lineRange(for: NSRange(location: min(sel.location, ns.length), length: 0))
+            var len = line.length
+            while len > 0, [10, 13].contains(Int(ns.character(at: line.location + len - 1))) { len -= 1 }
+            guard len > 0 else { NSSound.beep(); return }
+            sel = NSRange(location: line.location, length: len)
+        }
+        let title = actionButtons[.explainLine]?.title ?? OwlQuickAction.explainLine.title(prose: false)
+        ask(question: title, action: .explainLine, selection: sel, scope: .selection)
+    }
+
+    /// The offline findings of the last script check (checks).
+    private(set) var lastScan: [ScriptSafety.Finding]?
+
+    /// Safe to Run?: the offline scan first (no AI; works on any Mac),
+    /// then, with Ask Cedric on and an engine ready, the model's review of
+    /// the whole script (or what's in view) with the findings attached.
+    func checkScriptSafety() {
+        guard !running, let tab, let id = docID else { return }
+        let text = tab.textView.string
+        let language = tab.doc.language
+        discardProposal(nil)
+        let question = String(localized: "Is this script safe to run?")
+        OwlChatStore.shared.append(OwlChatEntry(role: .user, text: question), to: id)
+        render()
+        running = true
+        updateButtons()
+        Task { @MainActor [weak self] in
+            let findings = await Task.detached(priority: .userInitiated) { ScriptSafety.scan(text, language: language) }.value
+            guard let self, let id = self.docID else { return }
+            self.running = false
+            self.lastScan = findings
+            let summary = ScriptSafety.summary(findings)
+            OwlChatStore.shared.append(OwlChatEntry(role: .scan, text: summary), to: id)
+            if Settings.shared.owlChat, AskCedricEngine.isAvailable {
+                self.selectScope(.wholeDocument)
+                self.ask(question: question, action: .scriptSafety, scope: .wholeDocument,
+                         scan: findings.isEmpty ? nil : summary, showQuestion: false)
+            } else {
+                OwlChatStore.shared.append(OwlChatEntry(role: .note, text: String(localized:
+                    "No AI engine is set up, so this is the offline scan only: it flags risky patterns, it can’t prove a script is safe.")), to: id)
+                self.render()
+                self.updateButtons()
+                self.onFinish?(nil)
+            }
+        }
     }
 
     @objc func send(_ sender: Any?) {
@@ -364,15 +466,24 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                                    language: tab.doc.language.rawValue)
     }
 
-    func ask(question: String, action: OwlQuickAction?) {
+    /// `selection` and `scope` override the document's and the chip's;
+    /// `scan` is the script check's findings.
+    func ask(question: String, action: OwlQuickAction?, selection: NSRange? = nil, scope forced: OwlChatScope? = nil,
+             scan: String? = nil, showQuestion: Bool = true) {
         guard !running, let tab, let id = docID else { return }
         discardProposal(nil)
         lastRequest = (question, action)
-        let snap = snapshot()
-        let scope = selectedScope
+        var snap = snapshot()
+        if let selection {
+            snap = OwlDocumentSnapshot(text: snap.text, generation: snap.generation, selection: selection, visible: snap.visible,
+                                       fileName: snap.fileName, language: snap.language)
+        }
+        let scope = forced ?? selectedScope
         let prose = isProse
-        let history = OwlChatStore.shared.history(id)
-        OwlChatStore.shared.append(OwlChatEntry(role: .user, text: question), to: id)
+        var history = OwlChatStore.shared.history(id)
+        if !showQuestion, history.last?.role == .scan { history.removeLast() }
+        if !showQuestion, history.last?.role == .user { history.removeLast() }
+        if showQuestion { OwlChatStore.shared.append(OwlChatEntry(role: .user, text: question), to: id) }
         OwlChatStore.shared.append(OwlChatEntry(role: .owl, text: ""), to: id)
         render()
         running = true
@@ -384,7 +495,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             guard let engine = await OwlChatStore.shared.engine() else {
-                self.finish(nil, error: String(localized: "No AI engine is on. Choose one in View › Cedric AI Settings…"))
+                self.finish(nil, error: String(localized: "No AI engine is ready. Set one up in View › Cedric AI Settings…"))
                 return
             }
             let ctx = OwlChatContext.build(snap, scope: scope, budget: engine.contextBudget)
@@ -392,7 +503,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             let tools = OwlChatStore.shared.useTools(engine)
             self.lastUsedTools = tools
             let req = OwlChatRequest(question: question, action: action, context: ctx, snapshot: snap,
-                                     history: history, useTools: tools, prose: prose)
+                                     history: history, useTools: tools, prose: prose, scan: scan)
             do {
                 let outcome = try await OwlChatRunner.run(req, engine: engine, model: engine.scoreKey) { [weak self] ev in
                     DispatchQueue.main.async { MainActor.assumeIsolated { self?.handle(ev) } }
@@ -609,10 +720,26 @@ extension EditorWindowController {
         guard canAskCedric else { NSSound.beep(); return }
         chatPanel().show()
     }
+
+    /// Edit › Is This Script Safe to Run?: a script (shell, PowerShell,
+    /// batch, .reg, Python, Ruby), not in large mode. Needs no AI: the
+    /// offline scan always runs; the model's review follows when Ask
+    /// Cedric is on with an engine ready.
+    var canCheckScriptSafety: Bool { ScriptSafety.isScript(doc.language) && !extrasPaused }
+
+    func checkScriptSafety() {
+        guard canCheckScriptSafety else { NSSound.beep(); return }
+        let p = chatPanel()
+        p.show()
+        p.checkScriptSafety()
+    }
 }
 
 extension EditorWindowController {
-    /// Check Grammar with AI (arrives with the AI grammar step).
-    var canCheckGrammarWithAI: Bool { false }
-    func checkGrammarWithAI() {}
+    /// Edit › Spelling and Grammar › Check Grammar with AI, and the owl's button.
+    var canCheckGrammarWithAI: Bool { grammar.mayCheckWithAI }
+    func checkGrammarWithAI() {
+        guard canCheckGrammarWithAI else { NSSound.beep(); return }
+        grammar.checkWithAI(userAsked: true)
+    }
 }

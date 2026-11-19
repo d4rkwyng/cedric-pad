@@ -82,14 +82,24 @@ final class Settings {
         set { defaults.set(newValue, forKey: "checkGrammarInProse"); changed() }
     }
 
-    /// Settings › "Owl chat (beta)", off by default: Ask Cedric (the owl's chat panel and
-    /// its tools) and Check Grammar with AI. CEDRIC_OWL_CHAT=0/1 for one run.
+    /// Settings › "Ask Cedric": the owl's chat panel and its tools, and
+    /// Check Grammar with AI. Until the user sets it, on exactly when a
+    /// local engine is ready (`AskCedricEngine`): Apple Intelligence, a
+    /// downloaded built-in model, or a server set up and turned on.
+    /// CEDRIC_OWL_CHAT=0/1 for one run.
     var owlChat: Bool {
         get {
             if let v = ProcessInfo.processInfo.environment["CEDRIC_OWL_CHAT"] { return v == "1" }
-            return defaults.object(forKey: "owlChat") as? Bool ?? false
+            if let v = defaults.object(forKey: "owlChat") as? Bool { return v }
+            return AskCedricEngine.isAvailable
         }
         set { defaults.set(newValue, forKey: "owlChat"); changed() }
+    }
+
+    /// The user turned Ask Cedric off themselves (the owl then doesn't
+    /// offer to set it up).
+    var owlChatTurnedOff: Bool {
+        ProcessInfo.processInfo.environment["CEDRIC_OWL_CHAT"] == "0" || defaults.object(forKey: "owlChat") as? Bool == false
     }
 
     /// View › Highlight Occurrences: other occurrences of the selection or

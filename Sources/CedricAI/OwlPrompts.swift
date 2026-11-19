@@ -98,7 +98,8 @@ public enum OwlPrompts {
     }
 
     /// The fixed instruction behind a quick action.
-    public static func quickInstruction(_ action: OwlQuickAction, prose: Bool, toolsOn: Bool, context: OwlChatContext) -> String {
+    public static func quickInstruction(_ action: OwlQuickAction, prose: Bool, toolsOn: Bool, context: OwlChatContext,
+                                        scan: String? = nil) -> String {
         let lines = "lines \(context.firstLine)-\(context.lastLine)"
         let what = prose ? "text" : "code"
         let edit = toolsOn
@@ -119,7 +120,26 @@ public enum OwlPrompts {
                 : "Simplify the code in \(lines) without changing what it does. ") + edit
         case .addComments:
             return "Add short, useful comments to the code in \(lines) (in the language's comment syntax), changing nothing else. " + edit
+        case .explainLine:
+            return (context.firstLine == context.lastLine ? "Explain line \(context.firstLine)" : "Explain \(lines)")
+                + " in plain words: what it does, what each part of the command or expression means, and anything surprising or risky. At most 6 sentences."
+        case .scriptSafety:
+            return safetyInstruction(lines: lines, scan: scan)
         }
+    }
+
+    /// "Is this script safe to run?", with the offline scan's findings.
+    static func safetyInstruction(lines: String, scan: String?) -> String {
+        var s = "Is this script (\(lines)) safe to run? Review it as a careful system administrator would. "
+        if let scan {
+            s += "An offline pattern scan flagged:\n\(scan)\n"
+                + "For each flagged line, say in one line whether it is really risky here and why. "
+        }
+        s += "Then name anything else risky it does: downloading and running code, Invoke-Expression or eval, "
+            + "encoded commands, registry or system changes, reading passwords or keys, turning off security, "
+            + "deleting broadly, or running at login. Cite line numbers. Don't invent problems; if it looks harmless, say so. "
+            + "End with one line starting \"Verdict:\": safe to run, run only if you trust where it came from, or don't run it."
+        return s
     }
 
     /// The first messages of a chat request: system, the last two turns
@@ -160,8 +180,21 @@ public enum OwlPrompts {
             s += "- \(t.name.rawValue)(\(params.joined(separator: ", "))): \(t.description)\n"
         }
         s += """
-        Reply with JSON only. To call a tool: {"tool":"get_lines","args":{"start":1,"end":20}}. \
+        You were shown only some lines of the document: the "Shown: … lines A-B" line says which. Rules, in order:
+        - The question names a line number outside A-B, or asks to read lines: call get_lines for those lines.
+        - It says "selected", "selection" or "my selection": call get_selection (you were not shown the selection).
+        - It asks to find, search, or where or how often a word appears: call search_document with that word.
+        - It asks for headings, sections, structure, keys or which functions exist: call get_outline.
+        - It asks how many words, lines or characters, or the file name or language: call document_stats.
+        - It asks to change, rename, rewrite or propose an edit: call propose_edit (or get_lines first).
+        - Otherwise, when the answer is in lines A-B or needs no document: answer directly.
+
+        Reply with JSON only. To call a tool: {"tool":"get_lines","args":{"start":40,"end":44}}. \
         To answer: {"answer":"your answer"}.
+        Examples (shown lines 1-12): "What does line 80 say?" → {"tool":"get_lines","args":{"start":80,"end":80}}. \
+        "Where is foo used?" → {"tool":"search_document","args":{"query":"foo"}}. \
+        "Explain what I selected." → {"tool":"get_selection","args":{}}. \
+        "What is on line 2?" → {"answer":"…"}. "What is 2 + 2?" → {"answer":"4"}.
         """
         return s
     }

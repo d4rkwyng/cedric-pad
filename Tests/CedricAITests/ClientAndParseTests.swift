@@ -289,6 +289,86 @@ import CedricCore
         #expect(Date().timeIntervalSince(start) < 3)
     }
 
+    static func deltas(_ n: Int) -> [Data] {
+        (0..<n).map { i in Data("data: {\"choices\":[{\"delta\":{\"content\":\"w\(i) \"}}]}\n\n".utf8) }
+            + [Data("data: [DONE]\n".utf8)]
+    }
+
+    /// A slow model: the whole answer takes far longer than `timeout`, but
+    /// a chunk keeps coming well inside the idle limit, so it all arrives.
+    @Test func chatStreamSlowDribbleOutlivesTheFirstByteDeadline() async throws {
+        let server = StubServer()
+        server.route("/v1/chat/completions") { _, _ in
+            StubServer.Response(body: Data(), delay: 0.1, chunks: Self.deltas(12), every: 0.1)
+        }
+        var client = LocalModelClient(baseURL: server.baseURL, timeout: 0.4, session: server.session)
+        client.streamIdleLimit = 0.5
+        let start = Date()
+        let acc = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 8) { _ in }
+        #expect(Date().timeIntervalSince(start) > 0.8, "ran past the first-byte deadline")
+        #expect(acc.content.hasPrefix("w0 w1 ") && acc.content.hasSuffix("w11 "))
+    }
+
+    /// Data started, then stopped: the idle limit ends it, with the text so
+    /// far shown and `.timedOut` thrown.
+    @Test func chatStreamStallAfterFirstByteHitsTheIdleLimit() async {
+        let server = StubServer()
+        server.route("/v1/chat/completions") { _, _ in
+            StubServer.Response(body: Self.deltas(2).dropLast().reduce(Data(), +), chunks: [Data("data: [DONE]\n".utf8)], every: 3600)
+        }
+        var client = LocalModelClient(baseURL: server.baseURL, timeout: 30, session: server.session)
+        client.streamIdleLimit = 0.3
+        let seen = Locked("")
+        let start = Date()
+        await #expect(throws: LocalAIError.timedOut) {
+            _ = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 1) { t in seen.mutate { $0 += t } }
+        }
+        let took = Date().timeIntervalSince(start)
+        #expect(took < 3, "idle limit, not the 30 s first-byte wait")
+        #expect(seen.mutate { $0 } == "w0 w1 ")
+    }
+
+    /// The first byte gets `timeout`, not the (shorter) idle limit: a model
+    /// reading a long prompt is not cut off.
+    @Test func chatStreamFirstByteGetsTheLongerWait() async throws {
+        let server = StubServer()
+        server.route("/v1/chat/completions") { _, _ in
+            StubServer.Response(body: Data(), chunks: [Self.deltas(1).reduce(Data(), +)], every: 0.6)
+        }
+        var client = LocalModelClient(baseURL: server.baseURL, timeout: 5, session: server.session)
+        client.streamIdleLimit = 0.2
+        let acc = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 8) { _ in }
+        #expect(acc.content == "w0 ")
+    }
+
+    /// The safety cap ends even a stream that never stalls.
+    @Test func chatStreamSafetyCapEndsAnEndlessStream() async {
+        let server = StubServer()
+        server.route("/v1/chat/completions") { _, _ in
+            StubServer.Response(body: Data(), chunks: Self.deltas(400), every: 0.05)
+        }
+        var client = LocalModelClient(baseURL: server.baseURL, timeout: 5, session: server.session)
+        client.streamIdleLimit = 1
+        client.streamCap = 0.6
+        let start = Date()
+        await #expect(throws: LocalAIError.timedOut) {
+            _ = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 1) { _ in }
+        }
+        #expect(Date().timeIntervalSince(start) < 3)
+    }
+
+    @Test func streamWatchDeadlines() {
+        let t = Locked(100.0)
+        let w = StreamWatch(firstByte: 120, idle: 30, cap: 900) { t.mutate { $0 } }
+        #expect(w.remaining() == 120)
+        t.mutate { $0 = 150 }; w.touch()
+        #expect(w.remaining() == 30)
+        t.mutate { $0 = 179 }
+        #expect(w.remaining() == 1)
+        t.mutate { $0 = 990 }; w.touch()
+        #expect(w.remaining() == 10, "the cap, 900 s after the start, comes before the idle limit")
+    }
+
     /// A lookup that blocks its thread (getaddrinfo can't be cancelled).
     static let slowResolver: @Sendable (String) async -> [String] = { _ in
         await withCheckedContinuation { c in

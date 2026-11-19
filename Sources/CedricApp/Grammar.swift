@@ -1,5 +1,6 @@
 import AppKit
 import CedricCore
+import CedricAI
 
 /// Grammar in prose: the system's grammar checker (NSSpellChecker, local,
 /// nothing sent anywhere) on documents that are writing for people
@@ -256,6 +257,77 @@ final class EditorGrammar {
         issues = prose ? GrammarMap.merge(issues, fresh: kept, checked: checked) : []
         NotificationCenter.default.post(name: .cedricGrammarChecked, object: tab)
         if prose { offerHint(userAsked: false) }
+        // Automatic AI grammar only where automatic AI checks are on (never
+        // on Intel by default), at most once per the AI's interval.
+        if prose, Settings.shared.owlChat, OwlHub.shared.ai.isActive, OwlHub.shared.ai.isAutomatic,
+           Date().timeIntervalSince(lastAIPass ?? .distantPast) >= AIStore.load().minInterval {
+            checkWithAI(userAsked: false)
+        }
+    }
+
+    // MARK: Check Grammar with AI
+
+    /// AI passes started (checks).
+    private(set) var aiPasses = 0
+    private(set) var aiRunning = false
+    private var lastAIPass: Date?
+
+    /// An AI engine is on (or the test fake), Owl chat is on, and the text
+    /// may be prose (not already found not to be).
+    var mayCheckWithAI: Bool {
+        guard mayCheck, Settings.shared.owlChat, lastSawProse != false, !aiRunning else { return false }
+        return AskCedricEngine.isAvailable
+    }
+
+    /// Asks the AI engine about the prose in the owl's window (masked like
+    /// the system pass). Its findings join the issues as the same green
+    /// underlines (where the system checker has none), with Fix it and Fix
+    /// Grammar…; asked for, the owl offers the first at once.
+    func checkWithAI(userAsked: Bool, done: (@MainActor (Int) -> Void)? = nil) {
+        guard let tab, mayCheckWithAI else { done?(0); return }
+        let window = tab.owlContextWindow()
+        let ctx = window.context
+        let generation = tab.doc.changeCount
+        let language = tab.doc.language
+        let text = ctx.text
+        let start = ctx.textStart
+        let lead = Self.markdownLead(tab, start: start)
+        aiRunning = true
+        aiPasses += 1
+        lastAIPass = Date()
+        tab.owl?.setThinking(true)
+        Task { @MainActor [weak self] in
+            let masked = await Task.detached(priority: .utility) {
+                ProseMask.masked(text as NSString, language: language, openFence: lead.fence, blankPrefix: lead.frontMatter)
+            }.value
+            var results: [GrammarResult] = []
+            if let engine = await OwlChatStore.shared.engine() {
+                results = (try? await AIGrammar.check(masked, engine: engine)) ?? []
+            }
+            guard let self else { return }
+            self.aiRunning = false
+            guard let tab = self.tab else { return }
+            tab.owl?.setThinking(false)
+            guard tab.doc.changeCount == generation, self.mayCheck else { done?(0); return }
+            let ns = tab.textView.string as NSString
+            let found = GrammarMap.issues(results, text: masked as NSString, offset: start).filter { i in
+                NSMaxRange(i.range) <= ns.length && ns.substring(with: i.range) == i.original && !self.ignored.contains(i.original.lowercased())
+                    && !self.issues.contains { NSIntersectionRange($0.range, i.range).length > 0 }
+            }
+            if !found.isEmpty {
+                self.issues = (self.issues + found).sorted { $0.range.location < $1.range.location }
+                NotificationCenter.default.post(name: .cedricGrammarChecked, object: tab)
+            }
+            if userAsked {
+                if !found.isEmpty, let owl = tab.owl, owl.bubble == nil {
+                    let hint = GrammarMap.hint(found[0], textStart: ctx.textStart)
+                    owl.present(hint, context: ctx)
+                } else if found.isEmpty {
+                    tab.owl?.shake()
+                }
+            }
+            done?(found.count)
+        }
     }
 
     /// The owl's bubble for the issue nearest after the caret in view, if

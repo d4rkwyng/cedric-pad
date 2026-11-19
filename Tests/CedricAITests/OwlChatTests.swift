@@ -176,3 +176,67 @@ import CedricCore
         #expect(m[3] == ChatMessage(role: "user", content: "Result of get_outline:\n1| # A"))
     }
 }
+
+@Suite struct OwlToolboxTests {
+    @Test func callBudgetAndOneProposalPerQuestion() {
+        let s = OwlDocumentSnapshot(text: "a\nb\nc", generation: 1)
+        let box = OwlToolbox(snapshot: s, allowed: Set(OwlToolName.allCases))
+        let edit = OwlToolCall(name: "propose_edit", arguments: .object(["start": .number(1), "end": .number(1), "new_text": .string("A")]))
+        #expect(box.run(edit).ok)
+        #expect(!box.run(OwlToolCall(name: "propose_edit", arguments: .object(["start": .number(2), "end": .number(2), "new_text": .string("B")]))).ok)
+        #expect(box.proposal?.replacement == "A")
+        for _ in 0..<20 { _ = box.run(OwlToolCall(name: "get_outline")) }
+        #expect(box.callCount == 22)
+        #expect(box.run(OwlToolCall(name: "get_outline")).text.contains("tool limit"))
+    }
+
+    /// A model that never stops calling tools is made to answer after 3 rounds.
+    @Test func roundsAreCapped() async throws {
+        struct Loops: OwlChatEngine {
+            var title: String { "x" }; var scoreKey: String { "x" }; var contextBudget: Int { 6000 }
+            func turn(_ m: [OwlChatMessage], tools: [OwlToolSpec], toolbox: OwlToolbox?, maxTokens: Int,
+                      onText: @escaping @Sendable (String) -> Void) async throws -> OwlTurn {
+                tools.isEmpty ? .answer("done") : .toolCalls([OwlToolCall(name: "get_outline")])
+            }
+        }
+        let s = OwlDocumentSnapshot(text: "# A\ntext", generation: 1)
+        let ctx = OwlChatContext.build(s, scope: .visible, budget: 6000)!
+        let o = try await OwlChatRunner.run(OwlChatRequest(question: "q", context: ctx, snapshot: s, useTools: true, prose: false), engine: Loops()) { _ in }
+        #expect(o.rounds == OwlTools.maxRounds && o.answer == "done" && o.toolCalls == 3)
+    }
+}
+
+@Suite struct OwlChatSetupTests {
+    @Test func nothingReadyMeansNoEngine() {
+        #expect(OwlChatSetup.chatSettings(LocalAISettings(), appleAvailable: false, builtInInstalled: false) == nil)
+    }
+
+    @Test func appleOrBuiltInWorkWithHintsOff() throws {
+        let off = LocalAISettings(enabled: false, backend: .builtIn)
+        let apple = try #require(OwlChatSetup.chatSettings(off, appleAvailable: true, builtInInstalled: false))
+        #expect(apple.backend == .apple && apple.enabled)
+        let built = try #require(OwlChatSetup.chatSettings(off, appleAvailable: false, builtInInstalled: true))
+        #expect(built.backend == .builtIn && built.enabled)
+        // The saved engine first, when it is ready.
+        let both = try #require(OwlChatSetup.chatSettings(off, appleAvailable: true, builtInInstalled: true))
+        #expect(both.backend == .builtIn)
+    }
+
+    @Test func aServerOnlyWhenTurnedOn() throws {
+        var lm = LocalAISettings(enabled: true, backend: .lmStudio)
+        lm.model = "qwen3-4b"
+        let on = try #require(OwlChatSetup.chatSettings(lm, appleAvailable: true, builtInInstalled: true))
+        #expect(on.backend == .lmStudio && on.model == "qwen3-4b")
+        lm.enabled = false
+        #expect(OwlChatSetup.chatSettings(lm, appleAvailable: false, builtInInstalled: false) == nil,
+                "a server the user turned off is never used: the text would leave this Mac")
+        let local = try #require(OwlChatSetup.chatSettings(lm, appleAvailable: false, builtInInstalled: true))
+        #expect(local.backend == .builtIn && local.model == nil && local.baseURL == LocalAISettings.Backend.builtIn.defaultBaseURL)
+    }
+
+    @Test func aPublicServerIsNeverChosen() {
+        var s = LocalAISettings(enabled: true, backend: .custom)
+        s.baseURL = URL(string: "http://example.com:1234/v1")!
+        #expect(OwlChatSetup.chatSettings(s, appleAvailable: false, builtInInstalled: false) == nil)
+    }
+}

@@ -68,9 +68,12 @@ public final class OwlToolbox: @unchecked Sendable {
 
     public var proposal: OwlEditProposal? { lock.withLock { _proposal } }
     public var callCount: Int { lock.withLock { calls } }
+    /// Every call asked for, in order (the tool eval reads the first).
+    public var log: [OwlToolCall] { lock.withLock { _log } }
+    private var _log: [OwlToolCall] = []
 
     public func run(_ call: OwlToolCall) -> OwlToolResult {
-        let n: Int = lock.withLock { calls += 1; return calls }
+        let n: Int = lock.withLock { calls += 1; _log.append(call); return calls }
         guard n <= Self.maxCalls else {
             return OwlToolResult(text: "error: tool limit reached; answer now with what you have", proposal: nil,
                                  summary: "tool limit reached", ok: false)
@@ -101,16 +104,20 @@ public struct OwlChatRequest: Sendable {
     public var useTools: Bool
     public var prose: Bool
     public var maxTokens: Int
+    /// The offline script scan's findings (`ScriptSafety.summary`), for
+    /// "Safe to Run?".
+    public var scan: String?
 
     public init(question: String, action: OwlQuickAction? = nil, context: OwlChatContext, snapshot: OwlDocumentSnapshot,
-                history: [OwlChatEntry] = [], useTools: Bool, prose: Bool, maxTokens: Int = 700) {
+                history: [OwlChatEntry] = [], useTools: Bool, prose: Bool, maxTokens: Int = 700, scan: String? = nil) {
         self.question = question; self.action = action; self.context = context; self.snapshot = snapshot
         self.history = history; self.useTools = useTools; self.prose = prose; self.maxTokens = maxTokens
+        self.scan = scan
     }
 
     /// The question text sent: a quick action's fixed instruction, else the user's words.
     public var prompt: String {
-        if let action { return OwlPrompts.quickInstruction(action, prose: prose, toolsOn: useTools, context: context) }
+        if let action { return OwlPrompts.quickInstruction(action, prose: prose, toolsOn: useTools, context: context, scan: scan) }
         return question
     }
 
@@ -287,14 +294,37 @@ extension LocalModelClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = timeout
-        // One deadline over the name check, the request and the whole stream.
-        return try await withDeadline { [request] in
-            try await checkLocal()
-            return try await stream(request, onText: onText)
+        // `timeout` covers the name check and the wait for the first byte
+        // of the answer (a slow model reads a long prompt first); after
+        // that, at most `streamIdleLimit` between bytes, and `streamCap`
+        // over the whole answer. A long answer that keeps coming is fine.
+        let watch = StreamWatch(firstByte: timeout, idle: streamIdleLimit, cap: streamCap)
+        do {
+            return try await withThrowingTaskGroup(of: OpenAIStreamAccumulator?.self) { group in
+                group.addTask { [request] in
+                    try await checkLocal()
+                    return try await stream(request, watch: watch, onText: onText)
+                }
+                // Wakes at least every quarter of the idle limit, so a stall
+                // soon after the first byte isn't left to the first-byte wait.
+                let step = max(0.01, streamIdleLimit / 4)
+                group.addTask {
+                    while true {
+                        let left = watch.remaining()
+                        if left <= 0 { return nil }
+                        try await Task.sleep(nanoseconds: UInt64(min(left, step) * 1_000_000_000) + 1_000_000)
+                    }
+                }
+                defer { group.cancelAll() }
+                guard let first = try await group.next(), let value = first else { throw LocalAIError.timedOut }
+                return value
+            }
+        } catch is CancellationError {
+            throw LocalAIError.cancelled
         }
     }
 
-    private func stream(_ request: URLRequest,
+    private func stream(_ request: URLRequest, watch: StreamWatch,
                         onText: @escaping @Sendable (String) -> Void) async throws -> OpenAIStreamAccumulator {
         var acc = OpenAIStreamAccumulator()
         do {
@@ -326,6 +356,8 @@ extension LocalModelClient {
             // including one endless line that would never reach a newline.
             for try await b in bytes {
                 total += 1
+                // Not on every byte: a lock per byte of a 2 MB answer adds up.
+                if b == 0x0A || total & 0xFF == 1 { watch.touch() }
                 if total > Self.maxResponseBytes {
                     bytes.task.cancel()
                     throw LocalAIError.transport("response too large")
@@ -353,6 +385,39 @@ extension LocalModelClient {
             default: throw LocalAIError.transport(e.localizedDescription)
             }
         }
+    }
+}
+
+/// The clock on a streamed answer: `firstByte` seconds for the name
+/// check and the first byte, then `idle` seconds after each byte, never
+/// past `cap` from the start. Monotonic time.
+final class StreamWatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private let start: TimeInterval
+    private let firstByte: TimeInterval
+    private let idle: TimeInterval
+    private let cap: TimeInterval
+    private var last: TimeInterval?
+    private let now: @Sendable () -> TimeInterval
+
+    init(firstByte: TimeInterval, idle: TimeInterval, cap: TimeInterval,
+         now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.now = now
+        start = now()
+        self.firstByte = firstByte; self.idle = idle; self.cap = cap
+    }
+
+    /// Data arrived.
+    func touch() {
+        let t = now()
+        lock.withLock { last = t }
+    }
+
+    /// Seconds until the stream is given up (≤ 0: now).
+    func remaining() -> TimeInterval {
+        let t = now()
+        let deadline = lock.withLock { last.map { $0 + idle } ?? start + firstByte }
+        return min(deadline, start + cap) - t
     }
 }
 
@@ -435,12 +500,49 @@ public enum OwlChatEngines {
             return AppleChatEngine.isAvailable ? AppleChatEngine() : nil
         case .lmStudio, .ollama, .custom:
             guard LocalEndpointPolicy.isAllowed(settings.baseURL) else { return nil }
-            // Answers stream for a while: a longer timeout than a hint check.
+            // A slow model may read a long prompt before its first token:
+            // a longer wait for the first byte than a hint check gets.
             let client = LocalModelClient(baseURL: settings.baseURL, timeout: max(settings.timeout, 120), session: session)
             if let m = settings.model, !m.isEmpty { return ServerChatEngine(client: client, model: m, kind: settings.backend) }
             guard let models = try? await client.listModels(), let pick = ModelPicker.pickSmallQwen(models) else { return nil }
             return ServerChatEngine(client: client, model: pick.id, kind: settings.backend)
         }
+    }
+}
+
+// MARK: - Which engine Ask Cedric uses
+
+/// Ask Cedric is on by default only when a local engine is ready, and it
+/// doesn't need the owl's background hints (`enabled`) to be on: a
+/// question is something the user asked for.
+public enum OwlChatSetup {
+    /// The settings Ask Cedric runs on, nil when nothing is ready:
+    ///
+    /// - an LM Studio / Ollama / other-Mac server the user set up and
+    ///   turned on (a server is never used while Cedric AI is off: the
+    ///   text would leave this Mac);
+    /// - else the saved engine, if it is Apple Intelligence (available
+    ///   here) or the built-in engine with a model downloaded;
+    /// - else Apple Intelligence, else the built-in engine (downloaded).
+    public static func chatSettings(_ saved: LocalAISettings, appleAvailable: Bool,
+                                    builtInInstalled: Bool) -> LocalAISettings? {
+        var s = saved
+        s.enabled = true
+        switch saved.backend {
+        case .lmStudio, .ollama, .custom:
+            if saved.enabled, LocalEndpointPolicy.isAllowed(saved.baseURL) { return s }
+        case .apple:
+            if appleAvailable { return s }
+        case .builtIn:
+            if builtInInstalled { return s }
+        }
+        for (b, ready) in [(LocalAISettings.Backend.apple, appleAvailable), (.builtIn, builtInInstalled)] where ready {
+            s = saved
+            s.enabled = true
+            s.selectBackend(b)
+            return s
+        }
+        return nil
     }
 }
 

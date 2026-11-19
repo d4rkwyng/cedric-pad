@@ -20,15 +20,29 @@ public struct FakeChatEngine: OwlChatEngine {
     public var contextBudget: Int { 6_000 }
 
     public static let commentText = "Cedric: checked"
+    /// What the fake grammar check "finds".
+    public static let grammarFixes = [("we was", "we were"), ("He go ", "He goes "), ("then I expected", "than I expected")]
 
     public func turn(_ messages: [OwlChatMessage], tools: [OwlToolSpec], toolbox: OwlToolbox?, maxTokens: Int,
                      onText: @escaping @Sendable (String) -> Void) async throws -> OwlTurn {
+        // The grammar task: a few fixed mistakes, as JSON.
+        if case .system(let sys)? = messages.first, sys.contains("find grammar mistakes") {
+            let text = messages.compactMap { m -> String? in if case .user(let s) = m { return s }; return nil }.last ?? ""
+            var issues: [OwlJSON] = []
+            for (find, rep) in Self.grammarFixes where text.contains(find) {
+                issues.append(.object(["find": .string(find), "replacement": .string(rep), "why": .string("Fake grammar fix.")]))
+            }
+            try await Task.sleep(nanoseconds: UInt64(delay * 1e9))
+            return .answer(OwlJSON.object(["issues": .array(issues)]).jsonString)
+        }
         let names = Set(tools.map(\.name))
         let question = messages.compactMap { m -> String? in if case .user(let s) = m { return s }; return nil }
             .last { !$0.hasPrefix("Answer now") } ?? ""
         let results = messages.compactMap { m -> String? in if case .toolResult(_, let n, _) = m { return n }; return nil }
         let (first, last) = Self.shownLines(question)
-        if !names.isEmpty, results.isEmpty, let call = Self.choose(question, tools: names, first: first, last: last) {
+        // The question itself: after the attached text.
+        let asked = question.range(of: "```\n\n", options: .backwards).map { String(question[$0.upperBound...]) } ?? question
+        if !names.isEmpty, results.isEmpty, let call = Self.choose(asked, tools: names, first: first, last: last) {
             try await Task.sleep(nanoseconds: UInt64(delay * 1e9))
             return .toolCalls([call])
         }
@@ -48,6 +62,14 @@ public struct FakeChatEngine: OwlChatEngine {
             let block = Self.numberedBody(question).first.map { Self.commented($0.text, question: question) } ?? ""
             let rest = Self.numberedBody(question).dropFirst().map(\.text)
             answer = "```\n" + ([block] + rest).joined(separator: "\n") + "\n```\nI added a short comment above line \(first)."
+        } else if asked.contains("safe to run?") {
+            // The script check: confirms each line the scan flagged.
+            let re = try? NSRegularExpression(pattern: #"- line (\d+)"#)
+            let ns = asked as NSString
+            let flagged = (re?.matches(in: asked, range: NSRange(location: 0, length: ns.length)) ?? []).map { ns.substring(with: $0.range(at: 1)) }
+            answer = flagged.isEmpty ? "Nothing risky that I can see.\nVerdict: safe to run."
+                : flagged.map { "Line \($0): risky, as the scan says (test engine)." }.joined(separator: "\n")
+                    + "\nVerdict: don't run it unless you trust where it came from."
         } else {
             answer = "Lines \(first)–\(last) look fine to me. This is a fake answer from the test engine, streamed in pieces so you can watch it arrive."
         }
@@ -85,7 +107,7 @@ public struct FakeChatEngine: OwlChatEngine {
         if tools.contains(.searchDocument), let quoted = quotedTerm(q), has(["find", "where", "search", "how many times", "occur", "mention", "uses of", "used"]) {
             return OwlToolCall(name: "search_document", arguments: .object(["query": .string(quoted)]))
         }
-        if tools.contains(.getLines), let n = lineRef, !(first...max(first, last)).contains(n) || has(["show me line", "read line", "what is on line", "lines "]) {
+        if tools.contains(.getLines), let n = lineRef, !(first...max(first, last)).contains(n) || has(["show me line", "read line", "read lines"]) {
             let end = firstNumber(after: "to", in: s) ?? n
             return OwlToolCall(name: "get_lines", arguments: .object(["start": .number(Double(n)), "end": .number(Double(max(n, end)))]))
         }

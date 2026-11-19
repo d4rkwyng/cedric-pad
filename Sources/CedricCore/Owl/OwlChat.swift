@@ -252,9 +252,15 @@ public struct OwlChatContext: Sendable, Equatable {
 /// free text, and a small subset of the tools.
 public enum OwlQuickAction: String, Sendable, CaseIterable {
     case explain, summarise, findProblems, rewrite, addComments
+    /// Code: the selection, or the caret's line, explained.
+    case explainLine
+    /// Scripts: the offline scan (`ScriptSafety`), then the model's review.
+    case scriptSafety
 
     public func title(prose: Bool) -> String {
         switch self {
+        case .explainLine: return String(localized: "Explain Line")
+        case .scriptSafety: return String(localized: "Safe to Run?")
         case .explain: return String(localized: "Explain")
         case .summarise: return String(localized: "Summarise")
         case .findProblems: return String(localized: "Find Problems")
@@ -266,6 +272,17 @@ public enum OwlQuickAction: String, Sendable, CaseIterable {
     /// The answer is an edit (a proposal shown as a diff), not just words.
     public var proposesEdit: Bool { self == .rewrite || self == .addComments }
 
+    /// Offered for this document: Summarise and Rewrite read prose; Explain
+    /// Line and the script check are for code (the check only for scripts).
+    public func isOffered(prose: Bool, language: Language) -> Bool {
+        switch self {
+        case .summarise: return prose
+        case .addComments, .explainLine: return !prose
+        case .scriptSafety: return !prose && ScriptSafety.isScript(language)
+        default: return true
+        }
+    }
+
     /// The tools the model may use for this action.
     public var tools: [OwlToolName] {
         switch self {
@@ -274,6 +291,8 @@ public enum OwlQuickAction: String, Sendable, CaseIterable {
         case .findProblems: return [.getLines, .searchDocument]
         case .rewrite: return [.getSelection, .getLines, .proposeEdit]
         case .addComments: return [.getLines, .proposeEdit]
+        case .explainLine: return [.getLines, .searchDocument]
+        case .scriptSafety: return [.getLines, .searchDocument]
         }
     }
 }
@@ -558,7 +577,8 @@ public enum OwlTools {
 
 /// One entry in a document's Ask Cedric history (kept in memory only).
 public struct OwlChatEntry: Sendable, Equatable {
-    public enum Role: String, Sendable { case user, owl, tool, note }
+    /// `scan`: the offline script check's findings (no AI).
+    public enum Role: String, Sendable { case user, owl, tool, note, scan }
     public var role: Role
     public var text: String
     public var proposal: OwlEditProposal?
@@ -578,6 +598,7 @@ public struct OwlChatEntry: Sendable, Equatable {
                 if let p = e.proposal { out += "\n```diff\n\(p.unifiedText)\n```\n" }
             case .tool: out += "\n> _\(e.text)_\n"
             case .note: out += "\n_\(e.text)_\n"
+            case .scan: out += "\n**Offline scan:**\n\(e.text)\n"
             }
         }
         return out
