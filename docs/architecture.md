@@ -776,10 +776,14 @@ offers hints in a speech bubble.
   that the text at the range is still what the provider saw.
 - `RulesHintProvider` (no AI): one-line JSON → "Format it?" (re-indents
   without reordering keys; whole document only); mixed tab/space
-  indentation → convert tabs to spaces; ≥5 lines with trailing whitespace →
-  trim (not in Markdown, where two spaces are a line break); file changed
+  indentation → convert the minority to the majority (a Makefile keeps
+  tabs); ≥5 lines with trailing whitespace →
+  trim (in Markdown, two or more spaces before another line of the same
+  paragraph are a hard break and stay); file changed
   on disk under unsaved edits → "Reload?"; unsaved for over 2 h → "Save a
-  copy?"; CRLF → an info line; and a document that starts with "Dear " and
+  copy?"; CRLF → an info line (a shell script's CRLF gets its own
+  warning instead, `rules.sh.crlf`, with a **Use LF** button that
+  switches the document's line ending as one undo step); and a document that starts with "Dear " and
   has more than three lines gets, once ever, "It looks like you're writing a
   letter. Would you like help?" with "No thanks, I'm an owl" as the only
   button. The document facts it needs come in `OwlDocumentFacts` through
@@ -808,6 +812,56 @@ offers hints in a speech bubble.
   Me** (selects it, if the text is unchanged). `OwlMoreRulesTests` covers
   each one firing and its near misses, and a timing bound on a full 8 KB
   window.
+- **Language rules** (0.3.0, `Owl/Rules/`): `RulesHintProvider.check`
+  runs `languageHints` right after `moreHints` and before mixed
+  indentation. `LintRules.swift` holds the table, `languageRules`, in
+  priority order (data loss, a run-time break, a silent wrong result,
+  tidy): each `LintRule` has an id (`rules.sh.*`, `rules.py.*`,
+  `rules.js.*`, `rules.yaml.*`, `rules.json.*`, `rules.xml.*`,
+  `rules.toml.*`, `rules.env.*`), a tier (`.correctness`, always on, or
+  `.style`, only with `OwlDocumentFacts.styleTips` from Settings › Style
+  tips in code), an `applies(language, fileName)` gate (TOML and `.env`
+  are `ini` plus a file name; SVG is `html` plus `.svg`), a
+  `wholeDocument` flag and a pure `check(LintInput) -> LintFinding?` that
+  aggregates every hit into one finding (one hint per id per query). Only
+  the rules for the file's language run. `ShellRules`, `PythonRules`,
+  `JSRules` and `ConfigRules` are the packs; `LintInput.shared` memoises
+  work several rules need (the shell's simple commands, the YAML
+  entries, the TOML and `.env` lines) once per query.
+- **`CodeMask`** (`Owl/Rules/CodeMask.swift`) is what keeps the patterns
+  out of strings and comments. One lexer pass per query, built lazily on
+  the first rule that asks: `scanCode(…, forMask: true)` (the bracket
+  lexer, which now also records the string, comment and regex spans it
+  skips, with Python's string prefix) for Swift, JS, TS, C, CSS and
+  Python, and `CodeMask.scanShell` for shell (`'…'`, `$'…'`, `"…"`, `#`
+  comments at a word start, here-documents including `<<-` and quoted
+  words, not `$((1<<3))`). `spans` are sorted and merged (an
+  interpolation's strings fold into the string around them) and
+  searched by binary search; `codeNS` is the text with comments and
+  string insides blanked to spaces (offsets and newlines kept, a
+  string's quotes kept, a here-document's body blanked whole), so rules
+  run plain regexes over it. A window that starts part-way into a file
+  may start inside a block comment (a `*/` before any `/*`) or a Python
+  docstring (the first `"""` reads as a closer: not after `=`, `(` or a
+  `def`/`class` line, or followed by `%`, `)`, `,`…): `startsInside`
+  finds that and the start is masked up to it. A shell window may start
+  inside a here-document (a terminator-like line such as `EOF` before any
+  `<<`) or a multi-line string: it is lexed from that line, or else from
+  the first blank line. A Python window wholly inside a long docstring
+  shows prose where the mask says code (a backtick, a line ending in
+  "word."): `LintInput.proseInCode` and no Python rule runs. Minified
+  code (a line over 2,000 characters) and autoconf/libtool output (by
+  name, or `as_fn_`/`ac_cv_` in the text) get no language rules.
+- **Speed and the precision gate.** `OwlLanguageRulesTests` times a dense
+  8 KB worst case per language (best of 7; 5 ms in a release build of
+  the tests, measured 0.4–3.0 ms on an M-series Mac; 50 ms in a debug
+  build), and checks that the clean corpus in `Tests/Fixtures/owl-corpus`
+  (permissively licensed real files, see its LICENSES.md) gets no
+  language hint in any window. `Scripts/owl-corpus.sh <tree>` runs the
+  rules over a large tree outside the repo and writes every hit to a
+  TSV, for the hand-checked sample (a rule ships at ≥ 18 of 20 real).
+  Nothing is built before the first frame: the regexes are lazy statics
+  first touched by an owl query.
 - `OwlProviderRegistry`: providers in order; `register(_:isAI:)`. View ›
   Owl Hint Source › Rules + AI is disabled until an AI provider registers.
 - `OwlCoordinator`: asks at most once per 30 s and only after 3 s without

@@ -4,6 +4,12 @@ All notable changes to OwlInk. The format follows [Keep a Changelog](https://kee
 and OwlInk uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
+## [0.3.0]
+
+### Added
+- **Owl rules for shell, Python, JavaScript/TypeScript and config files.** Cedric now knows 23 language-specific mistakes that break at run time or silently do the wrong thing, each with **Fix it** where the fix is safe and **Show Me** where it isn't. Shell: Windows line endings in a script (**Use LF**), `NAME = value`, `[`/`]` without spaces, curly quotes and long dashes pasted into a command, a missing `#!` line, `cd` without `|| exit` before an `rm`/`mv`/`cp`, an unquoted `$var` in `rm`/`mv`/`cp`. Python: invalid escapes like `"\d"` (raw string), a list or dict as a default argument, `== None`, `is` with a literal, Python 2 `print`. JavaScript/TypeScript: `debugger` left in, comparing with `NaN`, a misspelt `typeof` type. Config: a YAML or JSON key set twice, a YAML version like `3.10` read as the number 3.1, XML/plist/SVG that doesn't parse, a TOML table or key defined twice or a bare TOML string, `.env` spaces around `=` and keys set twice. The patterns never match inside strings or comments.
+- **Settings › Style tips in code** (off by default) for Cedric's style suggestions; his checks for code that breaks are always on.
+
 ## [0.2.0]
 
 ### Added
