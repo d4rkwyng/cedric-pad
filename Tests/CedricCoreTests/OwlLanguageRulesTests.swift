@@ -66,6 +66,16 @@ import Testing
         #expect(!jm.code.contains("debugger; in prose") && jm.code.contains("{ debugger; }"))
         #expect(CodeMask.startsInside("/* a */ b */" as NSString, language: "javascript") == nil)
         #expect(CodeMask.startsInside("  'mid' is a synonym.\n\"\"\" % params\n" as NSString, language: "python") != nil)
+        // The same window through the rules: the hint comes from the code part only.
+        let win = OwlContext(fileName: "a.py", language: "python", text: py, textStart: 500, visibleRange: NSRange(location: 0, length: 0),
+                             selection: nil, documentID: UUID(), editGeneration: 0, isWholeDocument: false)
+        let ids = Self.rules.check(win, facts: OwlDocumentFacts(isWholeDocument: false)).map(\.id)
+        #expect(ids.contains(PythonRules.noneCompareID) && !ids.contains(PythonRules.isLiteralID))
+        // A window wholly inside a long docstring: no quotes to go by, but prose isn't code.
+        let inside = "    widths : float\n        The default is 0.5, or ``0.15*(distance``.\n        Use 'a' is fine.\n"
+        let insideWin = OwlContext(fileName: "a.py", language: "python", text: inside, textStart: 9000, visibleRange: NSRange(location: 0, length: 0),
+                                   selection: nil, documentID: UUID(), editGeneration: 0, isWholeDocument: false)
+        #expect(Self.rules.check(insideWin, facts: OwlDocumentFacts(isWholeDocument: false)).allSatisfy { !$0.id.hasPrefix("rules.py.") })
     }
 
     @Test func shellWindowsThatStartInsideAHeredoc() throws {
@@ -119,11 +129,15 @@ import Testing
         #expect(!Self.languageIDs(sh, language: "shell", fileName: "a.sh").isEmpty)
         #expect(Self.languageIDs(sh, language: "python", fileName: "a.py").isEmpty)
         #expect(Self.languageIDs(sh, language: "plain").isEmpty)
+        let py = "if x == None:\n    pass\n"
+        #expect(!Self.languageIDs(py, language: "python").isEmpty)
+        #expect(Self.languageIDs(py, language: "javascript").isEmpty)
     }
 
     @Test func titlesFitTheBubble() {
         let samples: [(String, String, String)] = [
             ("cd build\nrm -rf *\nNAME = x\necho $NAME\nif [$a = b]; then rm -rf $DIR/out; fi\necho “hi” –la\n", "shell", "a.sh"),
+            ("print \"x\"\ndef f(a=[]): pass\nif x == None or y is \"a\": re.compile(\"\\d\")\n", "python", "a.py"),
         ]
         for (text, lang, name) in samples {
             let hints = Self.check(text, language: lang, fileName: name)

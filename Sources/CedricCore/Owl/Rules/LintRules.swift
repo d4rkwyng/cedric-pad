@@ -110,6 +110,12 @@ extension RulesHintProvider {
         ShellRules.testBrackets,
         ShellRules.assignmentSpaces,
         ShellRules.pastedPunctuation,
+        PythonRules.printStatement,
+        // It silently does the wrong thing.
+        PythonRules.mutableDefault,
+        PythonRules.isLiteral,
+        PythonRules.invalidEscape,
+        PythonRules.noneCompare,
         // Left behind, or missing.
         ShellRules.missingShebang,
     ]
@@ -132,6 +138,8 @@ extension RulesHintProvider {
             if rule.wholeDocument, !facts.isWholeDocument { continue }
             let i = input ?? LintInput(context: c, facts: facts, text: text, lines: lines)
             input = i
+            // A window of Python that may sit wholly inside a long docstring.
+            if lang == "python", i.proseInCode { return }
             if let f = rule.check(i) { hint(rule.id, f.kind, f.title, f.detail, f.range, f.replacement) }
         }
     }
