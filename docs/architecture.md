@@ -818,16 +818,74 @@ offers hints in a speech bubble.
   priority order (data loss, a run-time break, a silent wrong result,
   tidy): each `LintRule` has an id (`rules.sh.*`, `rules.py.*`,
   `rules.js.*`, `rules.yaml.*`, `rules.json.*`, `rules.xml.*`,
-  `rules.toml.*`, `rules.env.*`), a tier (`.correctness`, always on, or
+  `rules.toml.*`, `rules.env.*`, `rules.md.*`, `rules.csv.*`,
+  `rules.sql.*`, `rules.ps.*`, `rules.downloaded-script`), a tier (`.correctness`, always on, or
   `.style`, only with `OwlDocumentFacts.styleTips` from Settings › Style
   tips in code), an `applies(language, fileName)` gate (TOML and `.env`
   are `ini` plus a file name; SVG is `html` plus `.svg`), a
   `wholeDocument` flag and a pure `check(LintInput) -> LintFinding?` that
   aggregates every hit into one finding (one hint per id per query). Only
   the rules for the file's language run. `ShellRules`, `PythonRules`,
-  `JSRules` and `ConfigRules` are the packs; `LintInput.shared` memoises
-  work several rules need (the shell's simple commands, the YAML
-  entries, the TOML and `.env` lines) once per query.
+  `JSRules`, `ConfigRules`, `MarkdownRules`, `DataRules` (CSV, SQL),
+  `PowerShellRules` and `SafetyRules` are the packs; `LintInput.shared`
+  memoises work several rules need (the shell's simple commands, the
+  YAML entries, the TOML and `.env` lines, Markdown's fences and links,
+  the parsed CSV table) once per query. The downloaded-script offer is
+  first in the table and runs even where the code rules are off
+  (minified or generated scripts). The style tier (`rules.py.bare-except`,
+  `rules.py.bool-compare`, `rules.sh.backticks`, `rules.md.image-alt`)
+  comes last.
+- **Markdown** has no lexer mask: `MarkdownRules.structure` reads the
+  lines once (front matter, fenced blocks with CommonMark's fence rules
+  and CRLF, inline code spans, HTML comments) and links are found
+  outside those (inline, reference definitions, `<img src>`/`<a href>`).
+  Anchors are GitHub's slugs (with `-1`, `-2` for repeats) plus explicit
+  `id=`/`name=`/`{#id}`, and a looser letters-and-digits form so other
+  renderers' slugs count. Relative links ask
+  `OwlDocumentFacts.fileExists`, an `OwlFileProbe`: the app's
+  `FileProbe` (`CedricApp/Owl/OwlFacts.swift`) answers from a cache and
+  answers nil (skip) for a path it hasn't seen, stat-ing it on a utility
+  queue for the next query (answers kept 2 min). No probe for untitled
+  documents or for folders inside installed packages
+  (`OwlFileProbe.installedCopyFolders`); a bare file name isn't checked
+  under an Obsidian vault or Quartz site (`.obsidian`, `quartz.config.*`
+  up to four folders up).
+- **SQL and PowerShell masks**: `CodeMask.scanSQL` (`'…'` with `''` and
+  `\'`, `"…"` and `` `…` `` identifiers, `--` and `/* */` comments,
+  `$$`/`$tag$` bodies) and `scanPowerShell(…, forMask: true)` (the
+  bracket lexer recording its strings, comments and here-strings). SQL's
+  `= NULL` rule looks back to the statement's last keyword: only after
+  WHERE/ON/HAVING/WHEN/AND/OR/IF/WHILE/NOT (not `NOT NULL`) is it a
+  comparison. UPDATE/DELETE statements are split at `;` and `GO` lines;
+  in a window, the first and an unterminated last statement are skipped.
+- **New facts**: `fileExists` (above), `isQuarantined` (the app reads
+  `com.apple.quarantine` with `getxattr` on a utility queue after the
+  first frame when a script opens, and keeps the offered paths in
+  `owlDownloadedScriptOffered`, at most 200, so the offer is made once per
+  file) and `editorConfig` (`EditorConfig.swift` parses `.editorconfig`
+  and matches its globs, `*`, `**`, `?`, `[…]`, `{a,b}`, `{1..3}`; the
+  app's `EditorConfigReader` walks up from the file to `root = true` on a
+  utility queue, once per file location, on the owl's first query).
+  The trailing-space, final-newline and mixed-indentation rules follow
+  it; `rules.editorconfig-indent` converts a file indented only the other
+  way.
+- **Secrets' Fix it**: `secretPlaceholder` replaces a token with
+  `<REDACTED>`, a URL's password with `<password>` and a private key's
+  block (BEGIN to END, when both are in view) with `<private key
+  removed>`; the app's usual Fix it applies it as one undo step. A URL
+  password is skipped when it is a placeholder (`password`, `changeme`,
+  `${…}`, `%s`, `****`, the user name again…).
+- **Explain & tidy** (`RegexExplain.swift`, `Decode.swift`, `Todos.swift`
+  in CedricCore; `CedricApp/Owl/OwlTools.swift`): pure, on demand only,
+  from Edit › Text Tools and the owl's popover; the result is a small
+  popover by the selection. `RegexExplain` is a hand-written parser over
+  the common syntax (no engine is run); `Decode` never verifies or sends
+  a JWT; `Todos` keeps only comments where a `CodeMask` exists.
+- **AI tie-in**: `HintVerifier.Category` has a case per offline rule
+  topic and `ruleCategory` maps every rule id to one (the model's schema
+  still offers only `modelCases`). `HintPrompt.parse` drops an AI hint
+  whose categories (from its words) match a rule that fires on the same
+  text (`duplicatesRule`): the rule's own hint, with its Fix it, wins.
 - **`CodeMask`** (`Owl/Rules/CodeMask.swift`) is what keeps the patterns
   out of strings and comments. One lexer pass per query, built lazily on
   the first rule that asks: `scanCode(…, forMask: true)` (the bracket
@@ -855,7 +913,9 @@ offers hints in a speech bubble.
 - **Speed and the precision gate.** `OwlLanguageRulesTests` times a dense
   8 KB worst case per language (best of 7; 5 ms in a release build of
   the tests, measured 0.4–3.8 ms on an M-series Mac under load; 50 ms in a debug
-  build), and checks that the clean corpus in `Tests/Fixtures/owl-corpus`
+  build), and checks that the clean corpus (style rules on, Markdown
+  without a file probe since copied files' links point into their own
+  repositories) in `Tests/Fixtures/owl-corpus`
   (permissively licensed real files, see its LICENSES.md) gets no
   language hint in any window. `Scripts/owl-corpus.sh <tree>` runs the
   rules over a large tree outside the repo and writes every hit to a

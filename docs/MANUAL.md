@@ -729,6 +729,38 @@ otherwise **Show Me** selects the place.
   - TOML: a table or key defined twice; a bare word as a value (Fix it
     quotes it).
   - `.env`: spaces around `=` (Fix it removes them); a key set twice.
+- **Markdown**:
+  - a code block (```` ``` ```` or `~~~`) that is never closed, so the
+    rest of the document shows as code. Show Me selects its opening line.
+  - a link to `#a-heading` that no heading in the file makes (GitHub's
+    anchors and the other common styles count, and so do `id=` and
+    `{#id}` anchors). Fix it changes it to the nearest heading's anchor
+    when one is close; otherwise Show Me.
+  - a relative link or image whose file isn't there, relative to the
+    document (`![logo](img/logo.png)`). Only in a saved document; the
+    files are looked up in the background, so this hint can come a
+    little after you open the file. Web links, `#anchors`, site-root
+    paths, links to GitHub's own pages (`../../issues`) and generated
+    `.html` aren't checked, nor the docs inside installed packages
+    (`node_modules` and the like), nor a bare file name in an Obsidian
+    vault or a Quartz site, which find files by name.
+- **CSV and TSV**:
+  - a field that opens with a quote and never closes: the rest of the
+    file reads as one field. Show Me.
+  - rows with more or fewer fields than the others (quoted separators
+    and line breaks inside quotes are understood). Show Me selects the
+    first such row.
+- **SQL**:
+  - `WHERE x = NULL` or `x <> NULL`: never true. Fix it uses `IS NULL` /
+    `IS NOT NULL`. (`SET x = NULL`, defaults and `SET ANSI_NULLS OFF`
+    scripts are left alone.)
+  - `UPDATE` or `DELETE` with no `WHERE`: it changes or removes every
+    row. Show Me.
+- **PowerShell**:
+  - `if ($a > 5)`: `>` writes `$a` to a file named `5`. Fix it uses `-gt`
+    (or `-ge` for `>=`).
+  - a space after the backtick at the end of a line: the line no longer
+    continues. Fix it removes the space.
 
 Generated scripts (`configure`, `config.status`, `libtool` and other
 autoconf output) and minified code get none of these checks.
@@ -738,8 +770,54 @@ line, XML that doesn't parse, `cd` before a delete): in a file longer
 than Cedric's 8 KB view they wait until the whole file fits.
 
 **Settings › Style tips in code** (off by default) adds Cedric's style
-suggestions. The checks above are always on; each hint still has its own
-**Don't show again**.
+suggestions: a bare `except:` in Python (Fix it: `except Exception:`),
+`if x == True:` (Fix it: `if x:`, and `if not x:` for `== False`), shell
+backticks (Fix it: `$(…)`), and a Markdown image without alt text (Fix
+it starts one from the file name). The checks above are always on; each
+hint still has its own **Don't show again**.
+
+**Secrets.** When the text in view has something that looks like a key or
+a token (AWS, GitHub, GitLab, Slack and Slack webhooks, Stripe, OpenAI or
+Anthropic, Google API keys, npm tokens, a private key, or a password
+inside a URL, `scheme://user:password@host`, when the password isn't a
+placeholder), Cedric warns.
+**Fix it** replaces it with a placeholder (`<REDACTED>`, `<password>`, or
+for a private key the whole block) in one ⌘Z.
+
+**Downloaded scripts.** When you open a script that came from the
+internet (a shell, PowerShell, batch, Python or Ruby file with macOS's
+quarantine attribute), Cedric offers **Check Script for Risks…** once for
+that file.
+
+**.editorconfig.** For a saved file under a folder with an
+`.editorconfig`, Cedric follows it: `trim_trailing_whitespace = false`
+and `insert_final_newline = false` turn those hints off
+(`insert_final_newline = true` asks for the final newline in any file),
+`indent_style` decides which way mixed indentation is converted (at
+`indent_size`), and a file indented entirely the other way gets "Convert?"
+(not Makefiles or Go). The file is read in the background the first time
+Cedric looks at the document.
+
+### Explain Regex, Decode Selection, Find TODOs
+
+In Edit › Text Tools, and in the owl's menu when they apply. All three
+work offline.
+
+- **Explain Regex** (with a regular expression selected; a JavaScript
+  `/…/flags` literal works too): a breakdown, one line per piece, nested
+  under its group: anchors, classes, sets, groups (named, non-capturing,
+  lookahead and lookbehind), alternation, quantifiers (lazy, possessive),
+  back-references and flags. It warns about patterns that can take
+  exponential time, like `(a+)+`, and says what it doesn't know rather
+  than guessing.
+- **Decode Selection**: a JWT shows its header and payload as JSON and
+  when it expires (its signature is not checked, and it isn't sent
+  anywhere); base64 (standard or URL-safe) that is text shows the text;
+  a Unix time (10 digits, or 13 for milliseconds) shows the date, in your
+  time zone and in UTC. **Copy** copies the result.
+- **Find TODOs** lists the TODO, FIXME, HACK and XXX notes in the file
+  (in code, only in comments) with their line numbers; click one to go
+  there.
 
 ### Ask Cedric
 
