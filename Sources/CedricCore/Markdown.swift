@@ -74,6 +74,18 @@ final class MarkdownRenderer {
     private var footnoteNumber: [String: Int] = [:]
     private var footnoteRefs: [String: Int] = [:]
     private var slugs: [String: Int] = [:]
+    /// Lists and quotes inside each other so far. Past `maxNesting` the
+    /// rest renders as plain text: a 2 000-deep crafted list took 45 s and
+    /// deep recursion can overflow a render thread's stack.
+    private var nesting = 0
+    private var linkDepth = 0
+    static let maxNesting = 64
+
+    /// Lines past the nesting cap: shown as their text, not parsed further.
+    private func flat(_ lines: ArraySlice<String>, attr: String) -> String {
+        let text = lines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: "\n")
+        return text.isEmpty ? "" : "<p\(attr)>\(escape(text))</p>\n"
+    }
 
     init(options: Markdown.Options) { self.options = options }
 
@@ -308,6 +320,13 @@ final class MarkdownRenderer {
                     inner.append(String(rest))
                     j += 1
                 }
+                if nesting >= Self.maxNesting {
+                    out += "<blockquote\(attr(i))>\n" + flat(inner[...], attr: "") + "</blockquote>\n"
+                    i = j
+                    continue
+                }
+                nesting += 1
+                defer { nesting -= 1 }
                 if let kind = inner.first.flatMap(alertKind) {
                     // A GitHub alert: > [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION].
                     out += "<div\(attr(i)) class=\"markdown-alert markdown-alert-\(kind)\">\n<p class=\"markdown-alert-title\">\(kind.prefix(1).uppercased() + kind.dropFirst())</p>\n"
@@ -416,17 +435,17 @@ final class MarkdownRenderer {
             var sawBlank = false
             while j < end {
                 let l = lines[j]
-                let t = l.trimmingCharacters(in: .whitespaces)
-                if t.isEmpty { sawBlank = true; item.append(""); j += 1; continue }
+                if isBlank(l) { sawBlank = true; item.append(""); j += 1; continue }
                 if leadingSpaces(l) >= marker.contentIndent {
                     if sawBlank { loose = true }
-                    item.append(String(l.dropFirst(marker.contentIndent)))
+                    item.append(dropIndent(l, marker.contentIndent))
                     sawBlank = false
                     j += 1
                     continue
                 }
                 if sawBlank { break }
                 // Lazy continuation of the item's paragraph.
+                let t = l.trimmingCharacters(in: .whitespaces)
                 if listMarker(l) == nil, !t.hasPrefix("#"), !t.hasPrefix(">"), fenceMarker(t) == nil {
                     item.append(t)
                     j += 1
@@ -457,7 +476,13 @@ final class MarkdownRenderer {
                 body[0] = String(firstLine.dropFirst(4))
             }
             var inner = ""
-            renderBlocks(body[...], firstLine: itemLines[k], into: &inner)
+            if nesting >= Self.maxNesting {
+                inner = flat(body[...], attr: "")
+            } else {
+                nesting += 1
+                renderBlocks(body[...], firstLine: itemLines[k], into: &inner)
+                nesting -= 1
+            }
             if !loose {
                 // Tight: unwrap the item's paragraphs.
                 inner = inner.replacingOccurrences(of: #"<p( data-line="\d+")?>"#, with: "", options: .regularExpression)
@@ -558,10 +583,30 @@ final class MarkdownRenderer {
 
     func leadingSpaces(_ line: String) -> Int {
         var n = 0
-        for ch in line {
-            if ch == " " { n += 1 } else if ch == "\t" { n += 4 - n % 4 } else { break }
+        for b in line.utf8 {
+            if b == 0x20 { n += 1 } else if b == 0x09 { n += 4 - n % 4 } else { break }
         }
         return n
+    }
+
+    /// `line` without its first `k` characters; by bytes when they are
+    /// ASCII (the indent of a nested list item), which is the same thing.
+    func dropIndent(_ line: String, _ k: Int) -> String {
+        let u = line.utf8
+        if let cut = u.index(u.startIndex, offsetBy: k, limitedBy: u.endIndex), u[u.startIndex..<cut].allSatisfy({ $0 < 0x80 }) {
+            return String(line[cut...])
+        }
+        return String(line.dropFirst(k))
+    }
+
+    /// Only spaces and tabs (what `trimmingCharacters(in: .whitespaces).isEmpty`
+    /// says for Markdown's purposes), without making a trimmed copy.
+    func isBlank(_ line: String) -> Bool {
+        for b in line.utf8 where b != 0x20 && b != 0x09 {
+            // ASCII: not blank. Otherwise maybe a Unicode space: ask Foundation.
+            return b >= 0x80 && line.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        return true
     }
 
     // MARK: Inline
@@ -632,6 +677,9 @@ final class MarkdownRenderer {
         s.reserveCapacity(chars.count)
         var i = 0
         let n = chars.count
+        let hasLT = chars.contains("<")
+        let nextGT = hasLT ? Self.nextIndex(of: ">", in: chars) : []
+        let nextLT = hasLT ? Self.nextIndex(of: "<", in: chars) : []
         while i < n {
             let c = chars[i]
             if c == "\\", i + 1 < n, Self.escapable.contains(chars[i + 1]) {
@@ -665,7 +713,9 @@ final class MarkdownRenderer {
                 }
                 continue
             }
-            if c == "<", let close = chars[(i + 1)...].firstIndex(of: ">") {
+            // A tag or autolink never holds another `<`: the next `>` counts
+            // only before the next `<`, so a run of `<` is linear.
+            if c == "<", let close = nextGT[i + 1], (nextLT[i + 1] ?? Int.max) > close {
                 let inner = String(chars[(i + 1)..<close])
                 if inner.hasPrefix("http://") || inner.hasPrefix("https://") || inner.hasPrefix("mailto:"), !inner.contains(" ") {
                     let href = escape(safeURL(inner))
@@ -702,13 +752,14 @@ final class MarkdownRenderer {
         var j = i + skip
         while j < c.count, !c[j].isWhitespace, c[j] != "<", c[j] != Self.open { j += 1 }
         // Not trailing punctuation, nor a closing paren without its opener.
+        // Counted once, then kept up to date as the end moves back (a URL
+        // followed by thousands of `)` was quadratic).
+        let opens = c[i..<j].filter { $0 == "(" }.count
+        var closes = c[i..<j].filter { $0 == ")" }.count
         while j > i + skip {
             let last = c[j - 1]
             if ".,:;\"'!?*_~".contains(last) { j -= 1; continue }
-            if last == ")" {
-                let opens = c[i..<j].filter { $0 == "(" }.count, closes = c[i..<j].filter { $0 == ")" }.count
-                if closes > opens { j -= 1; continue }
-            }
+            if last == ")", closes > opens { closes -= 1; j -= 1; continue }
             break
         }
         return j > i + skip ? j : nil
@@ -722,40 +773,60 @@ final class MarkdownRenderer {
         out.reserveCapacity(s.count)
         var i = 0
         let n = s.count
+        // Linear on crafted input (security review 0.2.1): every `[`'s
+        // matching `]` and the next `]` after each place are worked out in
+        // one pass, not rescanned per `[`; link destinations share a scan
+        // budget a real document never reaches (each scans only its own URL).
+        let pairs = Self.bracketPairs(s)
+        let nextClose = Self.nextIndex(of: "]", in: s)
+        var budget = 4 * n + 65_536
         while i < n {
             let c = s[i]
             let isImage = c == "!" && i + 1 < n && s[i + 1] == "["
             guard c == "[" || isImage else { out.append(c); i += 1; continue }
             let open = isImage ? i + 1 : i
             // A footnote reference.
-            if !isImage, open + 2 < n, s[open + 1] == "^", let close = s[(open + 2)...].firstIndex(of: "]"),
+            if !isImage, open + 2 < n, s[open + 1] == "^", let close = nextClose[open + 2],
                !s[(open + 2)..<close].contains("["), let def = footnoteRef(String(s[(open + 2)..<close])) {
                 out += hold(def, &held)
                 i = close + 1
                 continue
             }
-            guard let close = matchingBracket(s, open) else { out.append(c); i += 1; continue }
-            let label = Array(s[(open + 1)..<close])
+            guard let close = pairs[open] else { out.append(c); i += 1; continue }
+            // A reference label is at most 999 characters (CommonMark), so a
+            // long bracketed span is never copied just to be looked up.
+            let labelFits = close - open - 1 <= 999
+            func labelText() -> String { String(s[(open + 1)..<close]) }
             var target: (url: String, title: String?)?
             var end = close + 1
-            if close + 1 < n, s[close + 1] == "(", let d = linkDestination(s, from: close + 2, needsClose: true) {
+            if close + 1 < n, s[close + 1] == "(", budget > 0,
+               let d = linkDestination(s, from: close + 2, needsClose: true, budget: &budget) {
                 target = (d.url, d.title)
                 end = d.end
-            } else if close + 1 < n, s[close + 1] == "[", let rclose = s[(close + 2)...].firstIndex(of: "]") {
-                let ref = String(s[(close + 2)..<rclose])
-                if let r = refs[Markdown.normalizeLabel(ref.isEmpty ? String(label) : ref)] { target = r; end = rclose + 1 }
-            } else if let r = refs[Markdown.normalizeLabel(String(label))] {
+            } else if close + 1 < n, s[close + 1] == "[", close + 2 < n, let rclose = nextClose[close + 2] {
+                if rclose - close - 2 <= 999, rclose == close + 2 ? labelFits : true {
+                    let ref = String(s[(close + 2)..<rclose])
+                    if let r = refs[Markdown.normalizeLabel(ref.isEmpty ? labelText() : ref)] { target = r; end = rclose + 1 }
+                }
+            } else if labelFits, !refs.isEmpty, let r = refs[Markdown.normalizeLabel(labelText())] {
                 target = r
             }
             guard let target, isImage || allowLinks else { out.append(c); i += 1; continue }
+            let label = Array(s[(open + 1)..<close])
             let title = target.title.map { " title=\"\(escape($0))\"" } ?? ""
             let url = escape(safeURL(target.url))
+            // Labels hold images (a badge) in images in…: past
+            // `maxNesting` levels the rest stays text, so crafted nesting
+            // can't overflow the render thread's stack.
+            linkDepth += 1
+            let labelChars = linkDepth > Self.maxNesting ? label : links(label, &held, allowLinks: false)
+            linkDepth -= 1
             if isImage {
-                let alt = Self.stripTags(restore(emphasis(links(label, &held, allowLinks: false)), held))
+                let alt = Self.stripTags(restore(emphasis(labelChars), held))
                 out += hold("<img src=\"\(url)\" alt=\"\(alt)\"\(title)>", &held)
             } else {
                 // The label may hold images (a badge), not other links.
-                let inner = emphasis(links(label, &held, allowLinks: false))
+                let inner = emphasis(labelChars)
                 out += hold("<a href=\"\(url)\"\(title)>\(inner)</a>", &held)
             }
             i = end
@@ -763,26 +834,52 @@ final class MarkdownRenderer {
         return out
     }
 
-    /// The `]` closing the `[` at `open` (brackets nest).
-    private func matchingBracket(_ s: [Character], _ open: Int) -> Int? {
-        var depth = 0
-        var j = open
-        while j < s.count {
-            if s[j] == "[" { depth += 1 } else if s[j] == "]" { depth -= 1; if depth == 0 { return j } }
-            j += 1
+    /// For each `[`, the `]` closing it (brackets nest), in one pass: the
+    /// same answer as scanning on from each `[` and counting depth.
+    static func bracketPairs(_ s: [Character]) -> [Int?] {
+        var pairs = [Int?](repeating: nil, count: s.count)
+        var stack: [Int] = []
+        for (j, c) in s.enumerated() {
+            if c == "[" { stack.append(j) } else if c == "]", let o = stack.popLast() { pairs[o] = j }
         }
-        return nil
+        return pairs
+    }
+
+    /// For each place, the first index at or after it holding `c`.
+    static func nextIndex(of c: Character, in s: [Character]) -> [Int?] {
+        var next = [Int?](repeating: nil, count: s.count + 1)
+        var j = s.count - 1
+        while j >= 0 {
+            next[j] = s[j] == c ? j : next[j + 1]
+            j -= 1
+        }
+        return next
     }
 
     /// A link destination and optional title starting at `from` (after the
     /// `(`); with `needsClose`, up to and including the `)`.
+    /// `budget`: characters it may still scan; it stops (nil) when spent.
     func linkDestination(_ s: [Character], from: Int, needsClose: Bool) -> (url: String, title: String?, end: Int)? {
+        var unlimited = Int.max
+        return linkDestination(s, from: from, needsClose: needsClose, budget: &unlimited)
+    }
+
+    func linkDestination(_ s: [Character], from: Int, needsClose: Bool, budget: inout Int) -> (url: String, title: String?, end: Int)? {
+        // Every scan stops at `n`: what is left of the budget past `from`.
+        let n = budget >= s.count - from ? s.count : from + max(0, budget)
+        var far = from
+        defer { budget -= max(0, far - from) + 1 }
+        func first(_ c: Character, after k: Int) -> Int? {
+            var x = k
+            while x < n, s[x] != c { x += 1 }
+            far = max(far, x)
+            return x < n ? x : nil
+        }
         var j = from
-        let n = s.count
         while j < n, s[j] == " " || s[j] == "\t" { j += 1 }
         var url = ""
         if j < n, s[j] == "<" {
-            guard let close = s[(j + 1)...].firstIndex(of: ">") else { return nil }
+            guard let close = first(">", after: j + 1) else { return nil }
             url = String(s[(j + 1)..<close])
             j = close + 1
         } else {
@@ -793,15 +890,17 @@ final class MarkdownRenderer {
                 j += 1
             }
         }
+        far = max(far, j)
         while j < n, s[j] == " " || s[j] == "\t" { j += 1 }
         var title: String?
         if j < n, s[j] == "\"" || s[j] == "'" || s[j] == "(" {
             let closer: Character = s[j] == "(" ? ")" : s[j]
-            guard let close = s[(j + 1)...].firstIndex(of: closer) else { return nil }
+            guard let close = first(closer, after: j + 1) else { return nil }
             title = String(s[(j + 1)..<close])
             j = close + 1
             while j < n, s[j] == " " || s[j] == "\t" { j += 1 }
         }
+        far = max(far, j)
         if needsClose {
             guard j < n, s[j] == ")" else { return nil }
             j += 1
@@ -866,16 +965,25 @@ final class MarkdownRenderer {
             i = j
         }
         if !text.isEmpty { nodes.append(Node(text: text)) }
-        var delims = nodes.indices.filter { nodes[$0].delim != nil }
+        // Delimiters in order, as a linked list (prev) so a matched pair
+        // drops the ones between it in O(1); `floor` is CommonMark's
+        // "openers bottom": where an earlier search for a closer of the
+        // same kind found nothing, the next one stops. Linear on crafted
+        // input such as 20 000 `**a` (security review 0.2.1).
+        let delims = nodes.indices.filter { nodes[$0].delim != nil }
+        var prev = Array((-1)..<(delims.count - 1))
+        var floor: [String: Int] = [:]
         var ci = 0
         while ci < delims.count {
             let closer = delims[ci]
             guard nodes[closer].canClose, nodes[closer].active, nodes[closer].count > 0 else { ci += 1; continue }
-            var oi = ci - 1
+            let cn = nodes[closer]
+            let key = "\(cn.delim!)\(cn.delim == "~" ? cn.orig : cn.orig % 3)\(cn.canOpen)"
+            let bottom = floor[key] ?? 0
+            var oi = prev[ci]
             var opener: Int?
-            while oi >= 0 {
-                let o = delims[oi]
-                let on = nodes[o], cn = nodes[closer]
+            while oi >= bottom {
+                let on = nodes[delims[oi]]
                 if on.active, on.canOpen, on.delim == cn.delim, on.count > 0 {
                     if cn.delim == "~" {
                         if on.count == cn.count { opener = oi; break }
@@ -883,9 +991,10 @@ final class MarkdownRenderer {
                         opener = oi; break
                     }
                 }
-                oi -= 1
+                oi = prev[oi]
             }
             guard let found = opener else {
+                floor[key] = ci
                 ci += 1
                 continue
             }
@@ -898,11 +1007,14 @@ final class MarkdownRenderer {
             nodes[o].opens.insert("<\(tag)>", at: 0)
             nodes[closer].closes.append("</\(tag)>")
             // Delimiters between the pair are plain text now.
-            for k in (found + 1)..<ci { nodes[delims[k]].active = false }
-            delims.removeSubrange((found + 1)..<ci)
-            ci = found + 1
-            if nodes[o].count == 0 { nodes[o].active = false }
-            if nodes[closer].count == 0 { ci += 1 }
+            var k = prev[ci]
+            while k > found { nodes[delims[k]].active = false; k = prev[k] }
+            prev[ci] = found
+            if nodes[o].count == 0 { nodes[o].active = false; prev[ci] = prev[found] }
+            if nodes[closer].count == 0 {
+                if ci + 1 < delims.count { prev[ci + 1] = prev[ci] }
+                ci += 1
+            }
         }
         var out = ""
         for node in nodes {
@@ -934,7 +1046,12 @@ public enum HTMLScrub {
     nonisolated(unsafe) static let pairs = regex(#"<(script|iframe|object|embed|noscript)\b[^>]*>.*?</\1\s*>"#)
     nonisolated(unsafe) static let singles = regex(#"<(script|iframe|object|embed|frame|frameset|base)\b[^>]*/?>"#)
     nonisolated(unsafe) static let refresh = regex(#"<meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*>"#)
-    nonisolated(unsafe) static let handlers = regex(#"\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)"#)
+    /// A start tag, quoted attribute values included (a `>` inside quotes
+    /// doesn't end it).
+    nonisolated(unsafe) static let tags = regex(#"<[a-z][a-z0-9:-]*(?:"[^"]*"|'[^']*'|[^'">])*>?"#)
+    /// An `on…=` handler inside a tag: after whitespace, a `/` (`<svg/onload=…>`)
+    /// or a closing quote (`<a href="x"onclick=…>`), as browsers read them.
+    nonisolated(unsafe) static let handlers = regex(#"(?<=[\s/"'])on[a-z0-9_-]*\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)"#)
     nonisolated(unsafe) static let jsURL = regex(#"(\s(?:href|src|action|formaction|xlink:href)\s*=\s*)("\s*(?:javascript|vbscript):[^"]*"|'\s*(?:javascript|vbscript):[^']*'|(?:javascript|vbscript):[^\s>]*)"#)
     nonisolated(unsafe) static let remoteAttr = regex(#"\s(?:src|href|srcset|background|poster|data|xlink:href)\s*=\s*("\s*(?:https?:|ftp:|//)[^"]*"|'\s*(?:https?:|ftp:|//)[^']*'|(?:https?:|ftp:|//)[^\s>]*)"#)
     nonisolated(unsafe) static let links = regex(#"<link\b[^>]*>"#)
@@ -949,9 +1066,24 @@ public enum HTMLScrub {
         var s = replace(pairs, in: html, with: "")
         s = replace(singles, in: s, with: "")
         s = replace(refresh, in: s, with: "")
-        s = replace(handlers, in: s, with: "")
+        s = noHandlers(s)
         s = replace(jsURL, in: s, with: "$1\"#\"")
         return s
+    }
+
+    /// Every start tag without its event-handler attributes (text between
+    /// tags is left alone).
+    static func noHandlers(_ html: String) -> String {
+        let ns = html as NSString
+        var out = ""
+        var last = 0
+        for m in tags.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            out += replace(handlers, in: ns.substring(with: m.range), with: "")
+            last = m.range.location + m.range.length
+        }
+        out += ns.substring(from: last)
+        return out
     }
 
     /// `noScript`, and nothing that loads from the network.

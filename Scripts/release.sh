@@ -130,7 +130,8 @@ if [ $NOTARIZE = 1 ]; then
 fi
 
 # 3. Build and assemble (unsigned), sharing bundle-app.sh.
-BUNDLE_ARGS=(--no-sign)
+# --release: no dev/check switches in what ships (DevEnvironment.swift).
+BUNDLE_ARGS=(--no-sign --release)
 if [ $UNIVERSAL = 1 ]; then
     BUNDLE_ARGS+=(--universal)
 else

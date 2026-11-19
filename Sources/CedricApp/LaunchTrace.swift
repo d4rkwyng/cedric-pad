@@ -1,4 +1,5 @@
 import AppKit
+import CedricCore
 
 /// `CEDRIC_LAUNCH_TRACE=1`: launch-phase timings for Scripts/launch-speed-check.sh.
 /// Prints `launch <phase>=<ms>` lines, each the time since the process
@@ -21,7 +22,7 @@ import AppKit
 /// exits without saving the session. Off unless the variable is set.
 @MainActor
 enum LaunchTrace {
-    static let enabled = ProcessInfo.processInfo.environment["CEDRIC_LAUNCH_TRACE"] == "1"
+    static let enabled = DevEnvironment.values["CEDRIC_LAUNCH_TRACE"] == "1"
     private static var start = 0.0
     private static var probeWindow: NSWindow?
     private static var probeChars = "\u{0078}"

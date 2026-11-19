@@ -460,7 +460,7 @@ extension DevChecks {
         func buffer() -> String? { app.store.readBuffer(file.doc.id) }
         run([
             sync {
-                expect(ProcessInfo.processInfo.environment["CEDRIC_NO_SESSION_SAVE"] != "1", "session saving is on for this check")
+                expect(DevEnvironment.values["CEDRIC_NO_SESSION_SAVE"] != "1", "session saving is on for this check")
                 focus(file)
                 file.textView.setSelectedRange(NSRange(location: 7, length: 0))
                 type(" one")

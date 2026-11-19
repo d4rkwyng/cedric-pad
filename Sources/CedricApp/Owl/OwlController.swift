@@ -45,7 +45,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     private var idleTimer: Timer?
     private(set) var lastTyping = Date()
     private var popover: NSPopover?
-    let sleepAfter: TimeInterval = ProcessInfo.processInfo.environment["CEDRIC_OWL_SLEEP_AFTER"].flatMap(Double.init) ?? 300
+    let sleepAfter: TimeInterval = DevEnvironment.values["CEDRIC_OWL_SLEEP_AFTER"].flatMap(Double.init) ?? 300
     /// Owl and bubble faded because the caret is near them.
     private(set) var owlFaded = false
     private(set) var bubbleFaded = false
@@ -261,7 +261,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     /// The in-process check runs with the screen locked, where the window
     /// server reports every window occluded and the app inactive.
     /// CEDRIC_OWL_ASSUME_VISIBLE=1: also for measuring idle cost with the screen locked.
-    static var assumeVisible = ProcessInfo.processInfo.environment["CEDRIC_OWL_ASSUME_VISIBLE"] == "1"
+    static var assumeVisible = DevEnvironment.values["CEDRIC_OWL_ASSUME_VISIBLE"] == "1"
 
     /// The window can be seen and the app is in front.
     var canAnimate: Bool {
@@ -341,7 +341,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     /// (default 45 s from the first owl).
     @discardableResult
     func introduceAskCedric() -> Bool {
-        let env = ProcessInfo.processInfo.environment
+        let env = DevEnvironment.values
         let forced = env["CEDRIC_ASK_HINT"] == "1"
         guard !Self.introduced, env["CEDRIC_ASK_HINT"] != "0", forced || env["CEDRIC_NO_SESSION_SAVE"] == nil,
               let tab, bubble == nil, !popoverShown, !OwlHub.shared.coordinator.isQuiet, !tab.extrasPaused else { return false }

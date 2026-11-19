@@ -28,7 +28,7 @@ extension DevChecks {
     }
 
     static var imageDir: URL {
-        ProcessInfo.processInfo.environment["CEDRIC_IMAGE_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? dir
+        DevEnvironment.values["CEDRIC_IMAGE_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? dir
     }
 
     /// Writes `frames` images of w×h (drawn by `draw`) as `type`.

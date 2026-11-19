@@ -138,7 +138,7 @@ final class GitTabState {
 
     private func startIfIdle() {
         // The setting off: no git process at all.
-        guard !started, showsGutter, let tab, tab.window?.isVisible == true || ProcessInfo.processInfo.environment["CEDRIC_CHECK"] != nil else { return }
+        guard !started, showsGutter, let tab, tab.window?.isVisible == true || DevEnvironment.values["CEDRIC_CHECK"] != nil else { return }
         if Date().timeIntervalSince(lastEdit) < 0.5 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.startIfIdle() }
             return

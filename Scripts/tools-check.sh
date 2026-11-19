@@ -53,6 +53,9 @@ echo "$cli" | grep -q "path=$W/a.txt&wait=.*cedric-wait\\." || { echo "tools-che
 echo "$cli" | grep -q "path=$W/src/x.c&line=12&col=5&wait=" || { echo "tools-check: cli file:line:col FAILED" >&2; fail=1; }
 echo "$cli" | grep -q "path=$W/b.md&line=3&wait=" || { echo "tools-check: cli +line FAILED" >&2; fail=1; }
 echo "$cli" | grep -q "path=$W/c.py&line=9&wait=" || { echo "tools-check: cli file:line: FAILED" >&2; fail=1; }
+# The token goes in a hand-off file (auth=), never on open's command line.
+echo "$cli" | grep -q "token=" && { echo "tools-check: cli token on the command line FAILED" >&2; fail=1; }
+echo "$cli" | grep -q "&auth=AUTH" || { echo "tools-check: cli auth= hand-off FAILED" >&2; fail=1; }
 ls "${TMPDIR:-/tmp}"/cedric-wait.* >/dev/null 2>&1 && echo "note: cedric-wait markers present in TMPDIR (other runs?)"
 # (ReportCrash writes a moment after the process dies.)
 sleep 3

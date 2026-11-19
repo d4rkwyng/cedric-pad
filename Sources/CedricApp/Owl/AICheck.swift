@@ -23,7 +23,7 @@ import CedricAI
 @MainActor
 enum AICheck {
     static var failures = 0
-    static let env = ProcessInfo.processInfo.environment
+    static let env = DevEnvironment.values
     static var live: String? { env["CEDRIC_AI_CHECK_MODEL"] }
 
     static func check(_ ok: Bool, _ what: String) {

@@ -34,7 +34,7 @@ final class OwlChatStore {
     /// The engine for the saved AI settings (the fake under CEDRIC_AI_FAKE).
     func engine() async -> (any OwlChatEngine)? {
         if let d = AskCedricEngine.fakeDelay {
-            let piece = ProcessInfo.processInfo.environment["CEDRIC_OWL_CHAT_FAKE_DELAY"].flatMap(Double.init) ?? min(0.08, max(0.01, d / 10))
+            let piece = DevEnvironment.values["CEDRIC_OWL_CHAT_FAKE_DELAY"].flatMap(Double.init) ?? min(0.08, max(0.01, d / 10))
             return FakeChatEngine(delay: piece)
         }
         guard let s = AskCedricEngine.settings() else { return nil }
@@ -47,7 +47,7 @@ final class OwlChatStore {
     /// Tools for this engine's model: it scored ≥ 80% on the tool set
     /// (CEDRIC_OWL_TOOLS=0/1 overrides for one run).
     func useTools(_ engine: any OwlChatEngine) -> Bool {
-        if let v = ProcessInfo.processInfo.environment["CEDRIC_OWL_TOOLS"] { return v == "1" }
+        if let v = DevEnvironment.values["CEDRIC_OWL_TOOLS"] { return v == "1" }
         return gate.allowsTools(engine.scoreKey)
     }
 }
@@ -66,7 +66,7 @@ enum AskCedricEngine {
     /// The fake engine's delay (CEDRIC_AI_FAKE=0.3); always nil in a release build.
     static var fakeDelay: Double? {
         #if DEBUG
-        return ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"].flatMap(Double.init)
+        return DevEnvironment.values["CEDRIC_AI_FAKE"].flatMap(Double.init)
         #else
         return nil
         #endif
@@ -74,7 +74,7 @@ enum AskCedricEngine {
 
     static func settings() -> LocalAISettings? {
         #if DEBUG
-        let env = ProcessInfo.processInfo.environment
+        let env = DevEnvironment.values
         if env["CEDRIC_ASK_ENGINE"] == "0" { return nil }
         if fakeDelay != nil || env["CEDRIC_ASK_ENGINE"] == "1" {
             var s = AIStore.load()

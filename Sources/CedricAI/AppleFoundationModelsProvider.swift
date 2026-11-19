@@ -55,7 +55,7 @@ public struct AppleFoundationModelsProvider: OwlHintProvider {
     public static var status: AppleIntelligenceStatus {
         // Test hook: CEDRIC_SIMULATE_NO_APPLE_INTELLIGENCE=1 reports this Mac
         // as a CI VM does, to run the suite as on a Mac without Apple Intelligence.
-        if ProcessInfo.processInfo.environment["CEDRIC_SIMULATE_NO_APPLE_INTELLIGENCE"] == "1" { return .deviceNotEligible }
+        if DevEnvironment.values["CEDRIC_SIMULATE_NO_APPLE_INTELLIGENCE"] == "1" { return .deviceNotEligible }
         guard #available(macOS 26.0, *) else { return .osTooOld }
         switch SystemLanguageModel.default.availability {
         case .available: return .available

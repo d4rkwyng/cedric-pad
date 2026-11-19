@@ -14,7 +14,7 @@ final class OwlHub {
     private var queryTimer: Timer?
     private weak var activeTab: EditorWindowController?
     private var querying = false
-    private let env = ProcessInfo.processInfo.environment
+    private let env = DevEnvironment.values
     /// Called after a hint is shown (the in-process check).
     var onPresent: ((EditorWindowController, OwlHint) -> Void)?
     /// The local-AI provider (Cedric AI…), off by default.

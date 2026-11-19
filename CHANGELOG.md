@@ -9,7 +9,6 @@ are its section below (`Scripts/changelog-section.sh`).
 ### Fixed
 - **Undo Replace in Files can always be tried again.** If the backup copy of a file couldn't be read (missing, no permission, or not matching the original), Undo used to mark the replace as undone and offer no retry. Now the file is left as the replace wrote it, the message names it and says why ("backup copy unreadable: permission denied"), and Edit › Undo Replace in Files stays available.
 - **Undo Replace in Files from the Edit menu with the Find in Files panel hidden** now shows its progress and then its result in a bar at the top of the tab.
-
 - **Dragging the Ask Cedric panel is smooth.** It was a child window of the editor and trailed the pointer by one mouse event all the way (measured with real mouse drags on macOS 26); it is now a floating panel of its own that keeps up with the pointer. It no longer moves with the editor window, and it hides when you switch to another tab and comes back with its tab.
 - **Image tabs have a right-click menu:** Zoom In, Zoom Out, Actual Size, Zoom to Fit, Rotate Left and Right (the view only; the file is never changed), Copy Image, Copy Path, Reveal in Finder, Open in the default app and Show Info (dimensions, file size, format, colour space).
 
@@ -19,6 +18,22 @@ are its section below (`Scripts/changelog-section.sh`).
 - **View › Preview menu** with the preview bar's actions and shortcuts: Show Preview ⌥⌘P, Detach Preview ⇧⌥⌘P, Refresh Preview ⌥⌘R, Sync Scrolling, Zoom In Preview ⌥⌘=, Zoom Out Preview ⌥⌘−, Restore File Order (CSV), Export as HTML / PDF, Allow JavaScript and Allow Network, each enabled when the bar's button is. Show and Detach Preview moved there from the top of the View menu.
 - **Settings no longer repeats the menus.** Each option is in one place: Settings has the theme, font, default indentation, git changes in the gutter, Ask Cedric and quitting on the last close; wrap lines, invisibles, line numbers and highlight occurrences stay in the View menu, auto-close brackets, spelling and grammar in the Edit menu. The View › Theme submenu is gone (Settings has it). Your choices are kept as they were.
 - **Status bar zoom** ("110%") is a menu: Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 and 75 % to 200 %. With the preview docked, the editor's status items stay under the editor instead of running under the preview.
+
+### Security
+Fixes from a security review of 0.2.0. None needs anything from you; the details are in the manual.
+- **Release builds ignore OwlInk's developer and test switches.** Another program on your Mac could start OwlInk with them to open files or load an AI model in its name. Only a few switches that open nothing are left, for the release's own launch check.
+- **Links in PDFs no longer open in one click.** A web or mail link asks first and shows the whole address, a link to a file only shows it in Finder, and any other kind of link is ignored, as in the Markdown preview.
+- **The preview with JavaScript on can load only images, fonts and CSS from the document's folder**, never other files or hidden ones, so a page can't read the files next to it. JavaScript and Network switch off when the file is reloaded from disk, and their tooltips say what the two allow together.
+- **Crafted Markdown can no longer stall the preview.** Long runs of brackets, links, emphasis marks and very deep lists or quotes render in linear time; lists and quotes nested more than 64 deep show the rest as text. Copy as HTML and Export as HTML render in the background, and very deep nesting can no longer exhaust a render thread's stack.
+- **Cedric's document search has a time limit**, and a regular expression the model writes is limited in length. A pattern that would run for ever is stopped with an error.
+- **LM Studio and Ollama on the network are reached at the address that was checked**, not looked up a second time, so a DNS answer that changes in between can't send your text elsewhere (plain http; with https the server's certificate must match its name).
+- **Replace in Files and its undo write through the folders they checked.** A folder swapped for a link to somewhere else while a replace runs makes that file's write fail instead of landing outside the searched folder.
+- **Unsaved text and Replace in Files' copies are kept out of Time Machine**, and a closed tab's unsaved text is now deleted 30 days after closing (at most 100 such tabs). The manual has a new Privacy section saying what OwlInk keeps.
+- **The `cedric` command's token is no longer on the command line**, where other users of the Mac could see it, and OwlInk makes a new one at every launch.
+- **A downloaded AI model's checksum is checked again** before it is first loaded and whenever the file changes; one that doesn't match isn't loaded.
+- **Copied and exported HTML loses every script handler**, including ones written without a space before them.
+- **The "Open … requested by a link?" question shows hidden and direction-changing characters as codes**, so a path can't pretend to be another.
+- An unused library search path was dropped from the app.
 
 ## [0.2.0]
 

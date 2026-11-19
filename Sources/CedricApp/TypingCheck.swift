@@ -23,7 +23,7 @@ import CedricCore
 @MainActor
 enum TypingCheck {
     static var failures = 0
-    static let env = ProcessInfo.processInfo.environment
+    static let env = DevEnvironment.values
 
     static func report(_ ok: Bool, _ name: String, _ detail: String) {
         if !ok { failures += 1 }

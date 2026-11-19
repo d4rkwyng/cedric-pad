@@ -34,6 +34,18 @@ public enum PrivateDirectory {
         }
     }
 
+    /// Keeps `dir` out of Time Machine (and other backups that honour the
+    /// flag): the session's unsaved text and Replace in Files' originals
+    /// are working state on this Mac, not documents to keep copies of.
+    /// Best effort: a volume that can't hold the flag is left as it is.
+    public static func excludeFromBackup(_ dir: URL) {
+        var url = dir
+        if (try? url.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup == true { return }
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? url.setResourceValues(values)
+    }
+
     /// Throws unless `path` (not followed if it is a link) is this user's
     /// own folder with mode 0700.
     static func verify(_ path: String) throws {

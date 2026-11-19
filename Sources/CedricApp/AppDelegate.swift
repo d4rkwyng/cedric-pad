@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var officeTabs: [OfficeTabController] = []
     var certificateTabs: [CertificateTabController] = []
     let store = SessionStore(directory: SessionStore.defaultDirectory())
-    private let env = ProcessInfo.processInfo.environment
+    private let env = DevEnvironment.values
     private var sessionTimer: Timer?
     private var appearanceObservation: NSKeyValueObservation?
     /// Files handed over before launch finished (Finder, `open`).
@@ -45,7 +45,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSWindow.allowsAutomaticWindowTabbing = true
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+        rotateCLIToken()
     }
+
+    /// A fresh `cedric` script token every launch (the old one counts for
+    /// CLIToken.rotationGrace more, for a script that started this launch).
+    /// Not for a test run with its own session folder: that leaves the
+    /// user's token alone.
+    private func rotateCLIToken() {
+        guard DevEnvironment.values["CEDRIC_SESSION_DIR"] == nil else { return }
+        Self.previousCLIToken = CLIToken.read(CLIToken.defaultURL)
+        Self.cliTokenRotated = Date()
+        CLIToken.rotate()
+        DispatchQueue.global(qos: .utility).async { CLIHandoff.sweepAuth() }
+    }
+
+    nonisolated(unsafe) static var previousCLIToken: String?
+    nonisolated(unsafe) static var cliTokenRotated = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LaunchTrace.mark("did_finish")
@@ -162,8 +178,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// untitled tab, then the temp file is deleted).
     ///
     /// Any app or web page can send a cedric:// URL, so (CLIHandoff,
-    /// CLIToken in CedricCore): the `cedric` script adds `token=`, a secret
-    /// only this user can read. Without it, `untitled=` and `wait=` are
+    /// CLIToken in CedricCore): the `cedric` script adds `auth=`, a 0600
+    /// temp file holding a secret only this user can read (rotated at
+    /// every launch). Without it, `untitled=` and `wait=` are
     /// refused and `path=` asks first ("Open … requested by a link?", one
     /// question at a time). A file is deleted only if it is the script's
     /// own temp file (cedric-stdin.* / cedric-wait.* in the user's temp
@@ -174,7 +191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let comps = URLComponents(string: s), comps.scheme == "cedric" else { return }
         let q = Dictionary((comps.queryItems ?? []).compactMap { i in i.value.map { (i.name, $0) } }, uniquingKeysWith: { a, _ in a })
-        let trusted = CLIToken.matches(q["token"], CLIToken.ensure())
+        // The script's token comes in a hand-off file (`auth=`), read once
+        // and deleted; never on the command line (`token=` is ignored).
+        let given = q["auth"].flatMap { CLIHandoff.takeAuth($0) }
+        let trusted = CLIToken.matches(given, CLIToken.ensure())
+            || (Date().timeIntervalSince(Self.cliTokenRotated) < CLIToken.rotationGrace && CLIToken.matches(given, Self.previousCLIToken))
         if let raw = q["path"] {
             guard raw.hasPrefix("/") else { refuseURL("path isn’t absolute"); return }
             let path = (raw as NSString).standardizingPath
@@ -215,8 +236,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         defer { Self.askingAboutLink = false }
         NSApp.activate(ignoringOtherApps: true)
         let a = NSAlert()
-        // The full path, so a link to ~/.ssh/config reads as exactly that.
-        a.messageText = String(localized: "Open “\(path)” requested by a link?")
+        // The full path, so a link to ~/.ssh/config reads as exactly that;
+        // bidi and control characters shown as escapes so they can't disguise it.
+        let shown = PromptText.visible(path)
+        a.messageText = String(localized: "Open “\(shown)” requested by a link?")
         a.informativeText = String(localized: "Another app or a web page asked OwlInk to open this file. Open it only if you expected this.")
         a.addButton(withTitle: String(localized: "Open"))
         a.addButton(withTitle: String(localized: "Cancel"))
@@ -355,7 +378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func refuseSpecialFile(_ url: URL, _ kind: String) {
         let text = String(localized: "“\(url.lastPathComponent)” is \(kind), not a regular file, so OwlInk won’t open it.")
         Self.lastSpecialRefusal = text
-        if ProcessInfo.processInfo.environment["CEDRIC_CHECK"] != nil { print("check: note: \(text)"); return }
+        if DevEnvironment.values["CEDRIC_CHECK"] != nil { print("check: note: \(text)"); return }
         let a = NSAlert()
         a.messageText = text
         if let w = NSApp.keyWindow, w.attachedSheet == nil { a.beginSheetModal(for: w) } else { a.runModal() }
@@ -586,11 +609,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// a human reaction time, so a keystroke right after the window shows
     /// doesn't wait behind them). CEDRIC_RESTORE_DELAY overrides it (session-check).
     static let pendingRestoreDelay: TimeInterval =
-        ProcessInfo.processInfo.environment["CEDRIC_RESTORE_DELAY"].flatMap(Double.init) ?? 0.25
+        DevEnvironment.values["CEDRIC_RESTORE_DELAY"].flatMap(Double.init) ?? 0.25
 
     private func restoreSession() {
         guard let session = store.load() else { return }
-        closedTabs = session.closedTabs ?? []
+        // Closed tabs past ClosedTabs.keepDays go, with their unsaved text.
+        let kept = ClosedTabs.expire(session.closedTabs ?? [])
+        closedTabs = kept.list
+        for gone in kept.dropped where gone.hasBuffer { store.removeBuffer(gone.id) }
         restoreFolder(session.folder)
         for w in session.windows {
             // The selected tab first (it is what shows); if its file has
@@ -859,5 +885,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 }
 
 func trace(_ s: String) {
-    if ProcessInfo.processInfo.environment["CEDRIC_TRACE"] == "1" { FileHandle.standardError.write(Data("trace: \(s)\n".utf8)) }
+    if DevEnvironment.values["CEDRIC_TRACE"] == "1" { FileHandle.standardError.write(Data("trace: \(s)\n".utf8)) }
 }

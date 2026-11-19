@@ -17,7 +17,7 @@ import CedricAI
 ///   CEDRIC_AI_AUTO=1 / 0      automatic checks on / off (default: on, off on Intel)
 @MainActor
 enum AIStore {
-    static let env = ProcessInfo.processInfo.environment
+    static let env = DevEnvironment.values
     static var defaults: UserDefaults { env["CEDRIC_AI_DEFAULTS"].flatMap(UserDefaults.init(suiteName:)) ?? .standard }
 
     static func load() -> LocalAISettings {

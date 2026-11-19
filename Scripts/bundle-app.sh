@@ -8,6 +8,14 @@
 #   Scripts/bundle-app.sh --arch x86_64   one specific architecture
 #   Scripts/bundle-app.sh --no-sign       leave it unsigned
 #   Scripts/bundle-app.sh --out DIR       where "OwlInk.app" goes (default: dist)
+#   Scripts/bundle-app.sh --release       a release build: no dev/check switches
+#
+# By default this is a CHECK build: it compiles with CEDRIC_CHECKS, so the
+# CEDRIC_* switches the check scripts use (DevHooks.swift) work. Never
+# ship it: any local program could launch it with those switches and use
+# OwlInk's file-access grants. Scripts/release.sh passes --release, which
+# leaves them out (Sources/CedricCore/DevEnvironment.swift); a release
+# build honours only a few path-free ones its own launch check needs.
 #
 # --universal first tries one multi-arch `swift build`. SwiftPM 6.0 (the
 # macOS 14 Command Line Tools) hands multi-arch builds to xcbuild, which
@@ -34,13 +42,15 @@ OUT=dist
 SIGN=adhoc
 ARCH_ARGS=()
 UNIVERSAL=0
+CHECKS=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --universal) UNIVERSAL=1 ;;
         --arch) ARCH_ARGS+=(--arch "$2"); shift ;;
         --out) OUT=$2; shift ;;
         --no-sign) SIGN=none ;;
-        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+        --release) CHECKS=0 ;;
+        -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
         *) echo "bundle-app.sh: unknown option $1" >&2; exit 2 ;;
     esac
     shift
@@ -51,23 +61,27 @@ SOURCE_VERSION=$(sed -n 's/.*static let source = "\([^"]*\)".*/\1/p' Sources/Ced
 VERSION=${CEDRIC_VERSION:-$SOURCE_VERSION}
 BUILD=$VERSION
 
+# The dev switches: compiled in for a check build only (see the top).
+SWIFTC_FLAGS=()
+[ $CHECKS = 1 ] && SWIFTC_FLAGS=(-Xswiftc -DCEDRIC_CHECKS)
+
 LIPO_FROM=()
 if [ $UNIVERSAL = 1 ]; then
     echo "==> swift build -c release --arch x86_64 --arch arm64"
-    if swift build -c release --arch x86_64 --arch arm64 --product CedricApp; then
-        BIN=$(swift build -c release --arch x86_64 --arch arm64 --show-bin-path)
+    if swift build -c release ${SWIFTC_FLAGS[@]+"${SWIFTC_FLAGS[@]}"} --arch x86_64 --arch arm64 --product CedricApp; then
+        BIN=$(swift build -c release ${SWIFTC_FLAGS[@]+"${SWIFTC_FLAGS[@]}"} --arch x86_64 --arch arm64 --show-bin-path)
     else
         echo "==> one multi-arch build isn't available here; building each architecture and joining them"
         for arch in x86_64 arm64; do
-            swift build -c release --arch "$arch" --product CedricApp
-            LIPO_FROM+=("$(swift build -c release --arch "$arch" --show-bin-path)/CedricApp")
+            swift build -c release ${SWIFTC_FLAGS[@]+"${SWIFTC_FLAGS[@]}"} --arch "$arch" --product CedricApp
+            LIPO_FROM+=("$(swift build -c release ${SWIFTC_FLAGS[@]+"${SWIFTC_FLAGS[@]}"} --arch "$arch" --show-bin-path)/CedricApp")
         done
-        BIN=$(swift build -c release --arch arm64 --show-bin-path)
+        BIN=$(swift build -c release ${SWIFTC_FLAGS[@]+"${SWIFTC_FLAGS[@]}"} --arch arm64 --show-bin-path)
     fi
 else
-    echo "==> swift build -c release ${ARCH_ARGS[*]:-}"
-    swift build -c release ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} --product CedricApp
-    BIN=$(swift build -c release ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} --show-bin-path)
+    echo "==> swift build -c release ${SWIFTC_FLAGS[*]:-} ${ARCH_ARGS[*]:-}"
+    swift build -c release ${SWIFTC_FLAGS[@]+"${SWIFTC_FLAGS[@]}"} ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} --product CedricApp
+    BIN=$(swift build -c release ${SWIFTC_FLAGS[@]+"${SWIFTC_FLAGS[@]}"} ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} --show-bin-path)
 fi
 
 APP="$OUT/OwlInk.app"
@@ -83,6 +97,14 @@ if [ ${#LIPO_FROM[@]} -gt 0 ]; then
     lipo -create "${LIPO_FROM[@]}" -output "$APP/Contents/MacOS/Cedric"
 else
     cp "$BIN/CedricApp" "$APP/Contents/MacOS/Cedric"
+fi
+# SwiftPM adds an @executable_path/../lib rpath that nothing uses (the
+# bundle has no lib folder; llama.framework is found through ../Frameworks).
+# Dropped, so the loader never searches there first.
+# (Captured first: `grep -q` on a pipe would SIGPIPE otool under pipefail.)
+load_cmds=$(otool -l "$APP/Contents/MacOS/Cedric")
+if grep -q "path @executable_path/../lib " <<<"$load_cmds"; then
+    install_name_tool -delete_rpath "@executable_path/../lib" "$APP/Contents/MacOS/Cedric"
 fi
 # llama.cpp for the built-in AI engine: the pinned XCFramework's macOS
 # slice is already universal, so either architecture's copy will do. The
@@ -255,4 +277,4 @@ if [ "$SIGN" = adhoc ]; then
     codesign --verify --deep --strict "$APP"
 fi
 
-echo "==> $APP ($VERSION): $(lipo -archs "$APP/Contents/MacOS/Cedric"), signing: $SIGN"
+echo "==> $APP ($VERSION): $(lipo -archs "$APP/Contents/MacOS/Cedric"), signing: $SIGN, $([ $CHECKS = 1 ] && echo "CHECK build (dev switches on; don't ship)" || echo "release build (dev switches off)")"

@@ -42,7 +42,7 @@ enum OwlCheck {
             owl.updateTimer()
             OwlHub.shared.schedule()
         }
-        let env = ProcessInfo.processInfo.environment
+        let env = DevEnvironment.values
         if env["CEDRIC_OWL_CHECK_RULES"] == "1" { OwlRulesCheck.run(tab, out: out); return }
         if env["CEDRIC_OWL_CHECK_AI"] == "1" { OwlRulesCheck.runAI(tab, out: out); return }
         if env["CEDRIC_OWL_CHECK_CHAT"] == "1" { OwlChatCheck.run(tab, out: out); return }

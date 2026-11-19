@@ -18,7 +18,7 @@ extension EditorWindowController {
     /// A standalone page, light style, with no script: raw HTML blocks'
     /// `<script>`, frames and `on…=` handlers are removed (it is opened
     /// in a browser later), and a CSP forbids script as a second layer.
-    static func exportPage(markdown: String, title: String) -> String {
+    nonisolated static func exportPage(markdown: String, title: String) -> String {
         PreviewController.page(body: HTMLScrub.noScript(Markdown.render(markdown, options: .preview)), palette: EditorPalettes.light,
                                csp: "script-src 'none'; object-src 'none'; frame-src 'none'", title: title)
     }
@@ -32,16 +32,21 @@ extension EditorWindowController {
 
     func exportHTML() {
         guard doc.language == .markdown else { NSSound.beep(); return }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.html]
-        panel.nameFieldStringValue = exportBaseName + ".html"
-        if let dir = doc.fileURL?.deletingLastPathComponent() { panel.directoryURL = dir }
-        let html = Self.exportPage(markdown: textView.string, title: exportBaseName)
-        let done: (NSApplication.ModalResponse) -> Void = { [weak self] r in
-            guard r == .OK, let url = panel.url else { return }
-            self?.writeExport(Data(html.utf8), to: url)
+        let text = textView.string, title = exportBaseName
+        // Rendered off the main thread (a crafted document must not hang
+        // the app), then the save panel.
+        MarkdownWork.run({ Self.exportPage(markdown: text, title: title) }) { [weak self] html in
+            guard let self else { return }
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.html]
+            panel.nameFieldStringValue = title + ".html"
+            if let dir = self.doc.fileURL?.deletingLastPathComponent() { panel.directoryURL = dir }
+            let done: (NSApplication.ModalResponse) -> Void = { [weak self] r in
+                guard r == .OK, let url = panel.url else { return }
+                self?.writeExport(Data(html.utf8), to: url)
+            }
+            if let w = self.window { panel.beginSheetModal(for: w, completionHandler: done) } else { done(panel.runModal()) }
         }
-        if let w = window { panel.beginSheetModal(for: w, completionHandler: done) } else { done(panel.runModal()) }
     }
 
     func exportPDF() {
@@ -66,18 +71,27 @@ extension EditorWindowController {
     }
 
     /// Edit › Copy as HTML: the rendered HTML of the selection (or the
-    /// whole document), as text.
-    func copyAsHTML() {
+    /// whole document), as text. Rendered off the main thread; `done`
+    /// runs once the pasteboard has it.
+    func copyAsHTML(done: (@MainActor () -> Void)? = nil) {
         guard doc.language == .markdown else { NSSound.beep(); return }
-        let html = HTMLScrub.noScript(Markdown.render(exportSelectionMarkdown, options: .preview))
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(html, forType: .string)
+        let md = exportSelectionMarkdown
+        MarkdownWork.run({ HTMLScrub.noScript(Markdown.render(md, options: .preview)) }) { html in
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(html, forType: .string)
+            done?()
+        }
     }
 
     /// Edit › Copy as Rich Text: the rendered selection (or document) as
     /// RTF and HTML for mail, notes and word processors, and its plain text.
-    func copyAsRichText() {
+    /// On the main thread: AppKit's HTML importer runs there anyway (and
+    /// run from a background render's completion it sometimes returned
+    /// nothing); the renderer is linear now, so a crafted document can't
+    /// hang it. `done` runs after, synchronously.
+    func copyAsRichText(done: (@MainActor () -> Void)? = nil) {
+        defer { done?() }
         guard doc.language == .markdown else { NSSound.beep(); return }
         // Nothing remote: the HTML importer must not fetch a tracking image.
         let page = HTMLScrub.noScriptNoRemote(Self.exportPage(markdown: exportSelectionMarkdown, title: exportBaseName))
@@ -93,6 +107,22 @@ extension EditorWindowController {
         item.setString(page, forType: .html)
         item.setString(attributed.string, forType: .string)
         pb.writeObjects([item])
+    }
+}
+
+/// Markdown work kept off the main thread (Copy as HTML, export): a
+/// crafted document can take a while and must not beachball the app. A
+/// thread of its own with a main-thread-sized stack, as rendering recurses
+/// into nested lists and quotes.
+enum MarkdownWork {
+    static func run(_ work: @escaping @Sendable () -> String, then: @escaping @MainActor @Sendable (String) -> Void) {
+        let t = Thread {
+            let result = work()
+            DispatchQueue.main.async { MainActor.assumeIsolated { then(result) } }
+        }
+        t.stackSize = 8 << 20
+        t.qualityOfService = .userInitiated
+        t.start()
     }
 }
 

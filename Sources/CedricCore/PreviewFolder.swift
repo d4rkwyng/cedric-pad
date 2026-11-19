@@ -32,6 +32,36 @@ public enum PreviewFolder {
         return target.hasPrefix(root.hasSuffix("/") ? root : root + "/") ? file : nil
     }
 
+    /// What a page with JavaScript on may still load from its folder:
+    /// images, fonts and style sheets. Script could otherwise read any
+    /// file next to the document (a `.env`, `.git/config`, `~/.ssh` for a
+    /// file in home) and, with Network on, send it out.
+    public static let scriptSafeExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "webp", "avif", "heic", "heif", "bmp", "ico", "tif", "tiff", "svg",
+        "woff", "woff2", "ttf", "otf",
+        "css",
+    ]
+
+    /// `url`'s file, as `file(for:in:)`, and with `scriptOn` only an image,
+    /// font or CSS file, never a dotfile or anything under a dot folder
+    /// (`.git`, `.ssh`), judged on both the path asked for and the path
+    /// its symbolic links lead to.
+    public static func file(for url: URL, in folder: URL, scriptOn: Bool) -> URL? {
+        guard let file = file(for: url, in: folder) else { return nil }
+        guard scriptOn else { return file }
+        let root = resolved(folder.standardizedFileURL).path
+        let target = resolved(file).path
+        let folderPath = folder.standardizedFileURL.path
+        func ok(_ path: String, under base: String) -> Bool {
+            let rel = path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path
+            let parts = rel.split(separator: "/")
+            guard let last = parts.last, !parts.contains(where: { $0.hasPrefix(".") }) else { return false }
+            let ext = (String(last) as NSString).pathExtension.lowercased()
+            return scriptSafeExtensions.contains(ext)
+        }
+        return ok(file.path, under: folderPath) && ok(target, under: root) ? file : nil
+    }
+
     /// `url` with symbolic links resolved, also when its last parts don't
     /// exist (resolvingSymlinksInPath leaves such a path as it is).
     static func resolved(_ url: URL) -> URL {
@@ -110,5 +140,49 @@ public enum PreviewLinkAction: Equatable, Sendable {
         // A folder (an .app bundle is one) is never opened, only shown.
         if inside, !isDir.boolValue, isText(target) { return .openInCedric(file) }
         return .revealInFinder(file)
+    }
+}
+
+extension PreviewLinkAction {
+    /// A link clicked in a PDF: stricter than the Markdown preview's, as a
+    /// PDF has no folder of its own. http, https and mailto ask first; a
+    /// `file:` link is only shown in Finder, never opened (not even a text
+    /// file); every other scheme, `cedric-doc:` included, is ignored.
+    public static func pdfAction(for url: URL, fileManager fm: FileManager = .default) -> PreviewLinkAction {
+        let scheme = url.scheme?.lowercased() ?? ""
+        if externalSchemes.contains(scheme) || url.isFileURL {
+            return action(for: url, folder: nil, isText: { _ in false }, fileManager: fm)
+        }
+        return .ignore(scheme.isEmpty ? "?" : scheme)
+    }
+}
+
+/// Text from outside (a link's path or URL) made safe to show in a prompt:
+/// control characters and the bidirectional overrides and isolates that
+/// could make `~/.ssh/id_ed25519` read as something else are shown as
+/// visible `<U+202E>` escapes instead of acting on the text around them.
+public enum PromptText {
+    static func isHidden(_ s: Unicode.Scalar) -> Bool {
+        switch s.value {
+        case 0x00...0x1F, 0x7F...0x9F: return true          // C0 and C1 controls
+        case 0x200B...0x200F: return true                  // zero-width chars, LRM, RLM
+        case 0x2028...0x202E: return true                  // line/para separators, LRE…RLO
+        case 0x2060...0x206F: return true                  // word joiner, invisible operators, LRI…PDI
+        case 0x061C, 0xFEFF: return true                   // Arabic letter mark, BOM
+        default: return false
+        }
+    }
+
+    public static func visible(_ text: String) -> String {
+        var out = ""
+        out.unicodeScalars.reserveCapacity(text.unicodeScalars.count)
+        for s in text.unicodeScalars {
+            if isHidden(s) {
+                out += String(format: "<U+%04X>", s.value)
+            } else {
+                out.unicodeScalars.append(s)
+            }
+        }
+        return out
     }
 }

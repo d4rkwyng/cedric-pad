@@ -32,7 +32,7 @@ enum PerfTrace {
 ///   CEDRIC_PERF_TRACE=1        print phase timings of the open
 @MainActor
 enum LargeDocPerf {
-    static let env = ProcessInfo.processInfo.environment
+    static let env = DevEnvironment.values
 
     static func run(_ app: AppDelegate, _ path: String) {
         PerfTrace.enabled = env["CEDRIC_PERF_TRACE"] == "1"

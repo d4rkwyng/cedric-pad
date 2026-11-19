@@ -200,7 +200,7 @@ enum DevChecks {
     // MARK: Entry
 
     static func start(_ name: String, _ app: AppDelegate) {
-        let env = ProcessInfo.processInfo.environment
+        let env = DevEnvironment.values
         dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cedric-check-\(name)-\(getpid())", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         out = env["CEDRIC_CHECK_OUT"].map { URL(fileURLWithPath: $0) } ?? dir

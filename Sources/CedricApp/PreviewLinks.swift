@@ -8,7 +8,7 @@ import CedricCore
 /// Checks run with the system calls recorded, not made (nothing opens Finder or a browser).
 @MainActor
 enum PreviewLinkLog {
-    static let dryRun = ProcessInfo.processInfo.environment["CEDRIC_CHECK"] != nil
+    static let dryRun = DevEnvironment.values["CEDRIC_CHECK"] != nil
     static var revealed: [URL] = []
     static var opened: [URL] = []
     static func reveal(_ u: URL) { if dryRun { revealed.append(u) } else { NSWorkspace.shared.activateFileViewerSelecting([u]) } }
@@ -33,10 +33,19 @@ extension EditorWindowController {
     }
 
     private func confirmExternalLink(_ url: URL) {
+        LinkPrompt.confirmExternal(url, in: window)
+    }
+}
+
+/// The "Open this link?" question, shared by the Markdown preview and PDF tabs.
+@MainActor
+enum LinkPrompt {
+    static func confirmExternal(_ url: URL, in window: NSWindow?) {
         let a = NSAlert()
         a.messageText = url.scheme?.lowercased() == "mailto" ? String(localized: "Write an email?") : String(localized: "Open this link?")
-        // The whole URL, so a misleading link text can't hide where it goes.
-        a.informativeText = url.absoluteString
+        // The whole URL, so a misleading link text can't hide where it goes
+        // (bidi and control characters shown as escapes).
+        a.informativeText = PromptText.visible(url.absoluteString)
         a.addButton(withTitle: String(localized: "Open"))
         a.addButton(withTitle: String(localized: "Cancel"))
         let open: (NSApplication.ModalResponse) -> Void = { r in

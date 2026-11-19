@@ -39,6 +39,9 @@ public struct SessionTab: Codable, Equatable, Sendable {
     /// A binary (DER) certificate or PKCS#7 bundle in a certificate tab. Nil otherwise.
     public var certificate: OfficeTabState?
 
+    /// When it was closed (closed tabs only; nil in 0.2.0 sessions).
+    public var closed: Date?
+
     /// A read-only viewer tab (PDF, image, Office, certificate): no text, no buffer.
     public var isViewer: Bool { pdf != nil || image != nil || office != nil || certificate != nil }
 
@@ -143,7 +146,7 @@ public final class SessionStore: @unchecked Sendable {
     }
 
     /// ~/Library/Application Support/Cedric/Session (or `CEDRIC_SESSION_DIR`).
-    public static func defaultDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+    public static func defaultDirectory(environment: [String: String] = DevEnvironment.values) -> URL {
         if let custom = environment["CEDRIC_SESSION_DIR"], !custom.isEmpty { return URL(fileURLWithPath: custom, isDirectory: true) }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support")
@@ -160,6 +163,8 @@ public final class SessionStore: @unchecked Sendable {
     private func ensureDirectory() throws {
         if directoryReady, fm.fileExists(atPath: directory.path) { return }
         try PrivateDirectory.make(directory)
+        // Unsaved tab text: recoverable state on this Mac, not backed up.
+        PrivateDirectory.excludeFromBackup(directory)
         directoryReady = true
     }
 
@@ -212,6 +217,26 @@ public final class SessionStore: @unchecked Sendable {
 public enum ClosedTabs {
     /// How many closed tabs are remembered.
     public static let limit = 50
+    /// Closed tabs with unsaved text: at most this many (the oldest go
+    /// first) and for at most `keepDays` days after closing.
+    public static let unsavedLimit = 100
+    public static let keepDays = 30
+
+    /// `list` without the tabs closed more than `keepDays` before `now`
+    /// (and their unsaved text, which the caller deletes). A tab with no
+    /// closing date (saved by 0.2.0 or older) gets `now`, so it goes
+    /// `keepDays` after this version first sees it.
+    public static func expire(_ list: [SessionTab], now: Date = Date()) -> (list: [SessionTab], dropped: [SessionTab]) {
+        var kept: [SessionTab] = []
+        var dropped: [SessionTab] = []
+        for var t in list {
+            let closed = t.closed ?? now
+            if now.timeIntervalSince(closed) > Double(keepDays) * 86_400 { dropped.append(t); continue }
+            t.closed = closed
+            kept.append(t)
+        }
+        return (kept, dropped)
+    }
 
     /// `tab` pushed on `list` (newest last). Past `limit`, the oldest tabs
     /// without unsaved text go. A tab with unsaved text is never dropped
@@ -220,12 +245,26 @@ public enum ClosedTabs {
     /// list and what was dropped (whose buffers the caller deletes).
     public static func push(_ tab: SessionTab, onto list: [SessionTab], limit: Int = ClosedTabs.limit)
         -> (list: [SessionTab], dropped: [SessionTab]) {
+        push(tab, onto: list, limit: limit, now: Date())
+    }
+
+    public static func push(_ tab: SessionTab, onto list: [SessionTab], limit: Int = ClosedTabs.limit, unsavedLimit: Int = ClosedTabs.unsavedLimit,
+                            now: Date) -> (list: [SessionTab], dropped: [SessionTab]) {
         // Reopening and closing the same tab again: one entry.
         var out = list.filter { $0.id != tab.id }
+        var tab = tab
+        tab.closed = now
         out.append(tab)
         var dropped: [SessionTab] = []
         while out.count > max(1, limit), let i = out.firstIndex(where: { !$0.hasBuffer }) {
             dropped.append(out.remove(at: i))
+        }
+        // Unsaved text is kept, but not without end: past `unsavedLimit`
+        // the oldest goes (and then `keepDays`, see `expire`).
+        var unsaved = out.filter(\.hasBuffer).count
+        while unsaved > max(1, unsavedLimit), let i = out.firstIndex(where: { $0.hasBuffer }) {
+            dropped.append(out.remove(at: i))
+            unsaved -= 1
         }
         return (out, dropped)
     }

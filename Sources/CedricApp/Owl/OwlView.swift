@@ -10,7 +10,7 @@ enum OwlArt {
 
     static let directory: URL? = {
         var candidates: [URL] = []
-        if let d = ProcessInfo.processInfo.environment["CEDRIC_OWL_DIR"] { candidates.append(URL(fileURLWithPath: d)) }
+        if let d = DevEnvironment.values["CEDRIC_OWL_DIR"] { candidates.append(URL(fileURLWithPath: d)) }
         if let r = Bundle.main.resourceURL { candidates.append(r.appendingPathComponent("Owl")) }
         candidates.append(URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("../../../Resources/Owl").standardizedFileURL)
@@ -192,7 +192,7 @@ final class OwlView: NSView, NSViewToolTipOwner {
     /// `OwlController` from NSWorkspace's display-options notification.
     static var reduceMotion: Bool = currentReduceMotion()
     static func currentReduceMotion() -> Bool {
-        if let v = ProcessInfo.processInfo.environment["CEDRIC_REDUCE_MOTION"] { return v == "1" }
+        if let v = DevEnvironment.values["CEDRIC_REDUCE_MOTION"] { return v == "1" }
         return NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 

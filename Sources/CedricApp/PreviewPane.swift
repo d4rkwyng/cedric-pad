@@ -173,12 +173,12 @@ final class PreviewBar: NSView {
         case .zoomIn: return ("plus.magnifyingglass", String(localized: "Zoom In"), String(localized: "Zoom in (now \(pct))"), false)
         case .allowJavaScript:
             return ("curlybraces", String(localized: "Allow JavaScript"),
-                    s.allowJavaScript ? String(localized: "JavaScript in the preview is on (click to turn it off)")
-                                      : String(localized: "Allow JavaScript in the preview (off by default)"), s.allowJavaScript)
+                    s.allowJavaScript ? String(localized: "JavaScript in the preview is on (click to turn it off). With Network also on, the page can send what it shows elsewhere. Turns off when the file reloads from disk.")
+                                      : String(localized: "Allow JavaScript in the preview (off by default). Only for pages you trust: with Network also on, the page's script can send what it shows elsewhere. Files next to it stay limited to images, fonts and CSS."), s.allowJavaScript)
         case .allowNetwork:
             return ("network", String(localized: "Allow Network"),
-                    s.allowNetwork ? String(localized: "Network access in the preview is on (click to turn it off)")
-                                   : String(localized: "Allow the preview to load from the network (off by default)"), s.allowNetwork)
+                    s.allowNetwork ? String(localized: "Network access in the preview is on (click to turn it off). With JavaScript also on, the page can send data anywhere. Turns off when the file reloads from disk.")
+                                   : String(localized: "Allow the preview to load from the network (off by default). With JavaScript also on, the page's script can send data anywhere."), s.allowNetwork)
         case .detach:
             return s.detached
                 ? ("sidebar.right", String(localized: "Attach"), String(localized: "Dock the preview beside the text again (⇧⌥⌘P)"), false)

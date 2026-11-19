@@ -25,7 +25,7 @@ extension DevChecks {
     }
 
     static var pdfDir: URL {
-        ProcessInfo.processInfo.environment["CEDRIC_PDF_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? dir
+        DevEnvironment.values["CEDRIC_PDF_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? dir
     }
 
     /// A PDF of `pages` pages, each with "Page N" and a needle word, drawn
@@ -126,6 +126,45 @@ extension DevChecks {
                 expect(app.currentPDFTab === tab && app.currentTab == nil, "it is the current tab; no text tab is")
             },
             until("the page fits the window (not 10%)") { scale() > 0.8 },
+            { next in
+                // Links out of a PDF (security review 0.2.1): never opened
+                // by PDFKit in one click. Web links ask with the whole URL,
+                // files are only revealed, other schemes are ignored.
+                guard let tab, let v = tab.pdfView else { expect(false, "pdf links: a PDF view"); next(); return }
+                PreviewLinkLog.revealed = []
+                PreviewLinkLog.opened = []
+                let tabsBefore = app.tabs.count
+                expect(v.delegate is PDFLinkDelegate, "the PDF view has OwlInk's link delegate (not PDFKit's open-anything default)")
+                v.delegate?.pdfViewWillClick?(onLink: v, with: URL(string: "smb://attacker.invalid/share")!)
+                expect(tab.lastLinkAction == .ignore("smb"), "pdf: an smb: link is ignored", "\(String(describing: tab.lastLinkAction))")
+                v.perform(PDFActionURL(url: URL(string: "x-apple.systempreferences:com.apple.Security")!))
+                expect(tab.lastLinkAction == .ignore("x-apple.systempreferences"), "pdf: other schemes are ignored",
+                       "\(String(describing: tab.lastLinkAction))")
+                v.perform(PDFActionURL(url: URL(string: "cedric-doc://doc/etc/hosts")!))
+                expect(tab.lastLinkAction == .ignore("cedric-doc"), "pdf: a cedric-doc: link is ignored")
+                v.perform(PDFActionRemoteGoTo(pageIndex: 0, at: .zero, fileURL: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")))
+                expect(PreviewLinkLog.revealed.last?.lastPathComponent == "Terminal.app", "pdf: a link to an app is revealed in Finder, not launched")
+                v.delegate?.pdfViewWillClick?(onLink: v, with: notes)
+                expect(PreviewLinkLog.revealed.last?.lastPathComponent == "notes.txt" && app.tabs.count == tabsBefore,
+                       "pdf: a file: link, even a text file, is only revealed")
+                expect(PreviewLinkLog.opened.isEmpty, "pdf: nothing opened so far")
+                guard let w = tab.window, w.isVisible, w.attachedSheet == nil else {
+                    print("check: note: pdf web-link prompt not checked (window not visible)"); next(); return
+                }
+                v.perform(PDFActionURL(url: URL(string: "https://example.com/a?b=1")!))
+                @MainActor func allViews(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(allViews) }
+                let sheet = w.attachedSheet
+                let shown = sheet.flatMap { s in s.contentView.flatMap { allViews($0) }?
+                    .compactMap { ($0 as? NSTextField)?.stringValue }.joined(separator: " ") }
+                expect(shown?.contains("https://example.com/a?b=1") == true, "pdf: a web link asks first, showing the whole URL", shown ?? "no sheet")
+                if let sheet { w.endSheet(sheet, returnCode: .alertSecondButtonReturn) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    MainActor.assumeIsolated {
+                        expect(PreviewLinkLog.opened.isEmpty && w.attachedSheet == nil, "pdf: Cancel opens nothing")
+                        next()
+                    }
+                }
+            },
             sync {
                 expect(status() == "Page 1 of 5", "status bar: page N of M", status())
                 expect(tab?.statusBar.zoom.stringValue == "\(Int((scale() * 100).rounded()))%", "status bar: zoom", tab?.statusBar.zoom.stringValue ?? "-")

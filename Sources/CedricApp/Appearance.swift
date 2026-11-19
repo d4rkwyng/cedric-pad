@@ -28,7 +28,7 @@ final class Settings {
     static let defaultFontSize: CGFloat = 13
 
     private init() {
-        themeOverride = ProcessInfo.processInfo.environment["CEDRIC_THEME"].flatMap(EditorTheme.init(rawValue:))
+        themeOverride = DevEnvironment.values["CEDRIC_THEME"].flatMap(EditorTheme.init(rawValue:))
     }
 
     var theme: EditorTheme {
@@ -47,7 +47,7 @@ final class Settings {
     }
 
     /// CEDRIC_INVISIBLES=1: on for this run, not saved.
-    let invisiblesOverride = ProcessInfo.processInfo.environment["CEDRIC_INVISIBLES"] == "1" ? true : nil as Bool?
+    let invisiblesOverride = DevEnvironment.values["CEDRIC_INVISIBLES"] == "1" ? true : nil as Bool?
 
     var showInvisibles: Bool {
         get { invisiblesOverride ?? defaults.bool(forKey: "showInvisibles") }
@@ -60,7 +60,7 @@ final class Settings {
     }
 
     /// CEDRIC_OWL=1: show the owl for this run, not saved.
-    var owlOverride = ProcessInfo.processInfo.environment["CEDRIC_OWL"].map { $0 == "1" }
+    var owlOverride = DevEnvironment.values["CEDRIC_OWL"].map { $0 == "1" }
 
     /// "Show Cedric the owl": off by default.
     var showOwl: Bool {
@@ -89,7 +89,7 @@ final class Settings {
     /// CEDRIC_OWL_CHAT=0/1 for one run.
     var owlChat: Bool {
         get {
-            if let v = ProcessInfo.processInfo.environment["CEDRIC_OWL_CHAT"] { return v == "1" }
+            if let v = DevEnvironment.values["CEDRIC_OWL_CHAT"] { return v == "1" }
             if let v = defaults.object(forKey: "owlChat") as? Bool { return v }
             return AskCedricEngine.isAvailable
         }
@@ -99,7 +99,7 @@ final class Settings {
     /// The user turned Ask Cedric off themselves (the owl then doesn't
     /// offer to set it up).
     var owlChatTurnedOff: Bool {
-        ProcessInfo.processInfo.environment["CEDRIC_OWL_CHAT"] == "0" || defaults.object(forKey: "owlChat") as? Bool == false
+        DevEnvironment.values["CEDRIC_OWL_CHAT"] == "0" || defaults.object(forKey: "owlChat") as? Bool == false
     }
 
     /// View › Highlight Occurrences: other occurrences of the selection or
@@ -133,7 +133,7 @@ final class Settings {
 
     /// The checks move the owl without saving where he is.
     var owlPlacementInMemory: OwlPlacement?
-    var owlPlacementSaves = ProcessInfo.processInfo.environment["CEDRIC_NO_SESSION_SAVE"] != "1"
+    var owlPlacementSaves = DevEnvironment.values["CEDRIC_NO_SESSION_SAVE"] != "1"
 
     /// Where the owl sits over the editor (shared by every tab), as a
     /// corner plus an inset, so it survives window resizes.
@@ -151,7 +151,7 @@ final class Settings {
     }
 
     /// CEDRIC_OWL_SOURCE=rulesAndAI: the hint source for this run, not saved.
-    var owlSourceOverride = ProcessInfo.processInfo.environment["CEDRIC_OWL_SOURCE"].flatMap(OwlHintSource.init(rawValue:))
+    var owlSourceOverride = DevEnvironment.values["CEDRIC_OWL_SOURCE"].flatMap(OwlHintSource.init(rawValue:))
 
     /// "Hint source": Rules, or Rules + AI (only once an AI provider registers).
     var owlHintSource: OwlHintSource {

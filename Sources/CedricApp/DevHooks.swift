@@ -67,7 +67,7 @@ import WebKit
 ///                                 Scripts/tools-check.sh runs them all)
 @MainActor
 enum DevHooks {
-    static let env = ProcessInfo.processInfo.environment
+    static let env = DevEnvironment.values
 
     static func metric(_ name: String, _ value: Double) {
         print(String(format: "metric %@=%.1f", name, value))
