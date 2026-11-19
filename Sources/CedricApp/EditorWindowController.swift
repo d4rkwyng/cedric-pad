@@ -491,8 +491,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     func applyAppearance() {
         let s = Settings.shared
-        // App-wide, never per window (Settings.applyAppAppearance: the tab bar).
-        s.applyAppAppearance()
+        window?.appearance = s.windowAppearance
         let p = palette
         textView.palette = p
         textView.backgroundColor = NSColor(hex: p.background)

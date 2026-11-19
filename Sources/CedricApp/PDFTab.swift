@@ -220,7 +220,7 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
 
     /// The chrome follows the theme; the pages stay white, as printed.
     func applyAppearance() {
-        Settings.shared.applyAppAppearance()
+        window?.appearance = Settings.shared.windowAppearance
         let p = palette
         statusBar.background = NSColor(hex: p.statusBar)
         pdfView?.backgroundColor = NSColor(hex: p.gutterBackground)

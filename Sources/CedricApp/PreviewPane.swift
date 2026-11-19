@@ -353,6 +353,7 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
     func updateTitle() {
         guard let tab else { return }
         window?.title = String(localized: "\(tab.doc.displayName) — Preview")
+        window?.appearance = tab.window?.appearance
     }
 
     /// Closes the window, keeping the pane (attach) or not (tab closed).

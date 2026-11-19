@@ -285,7 +285,7 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
 
     /// The chrome follows the theme; the checkerboard is light or dark to match.
     func applyAppearance() {
-        Settings.shared.applyAppAppearance()
+        window?.appearance = Settings.shared.windowAppearance
         let p = palette
         statusBar.background = NSColor(hex: p.statusBar)
         let bg = NSColor(hex: p.gutterBackground)

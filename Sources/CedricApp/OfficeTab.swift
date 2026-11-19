@@ -114,7 +114,7 @@ final class OfficeTabController: NSWindowController, NSWindowDelegate, NSMenuIte
     var palette: EditorPalette { Settings.shared.palette(for: window?.effectiveAppearance) }
 
     func applyAppearance() {
-        Settings.shared.applyAppAppearance()
+        window?.appearance = Settings.shared.windowAppearance
         statusBar.background = NSColor(hex: palette.statusBar)
         body.wantsLayer = true
         body.layer?.backgroundColor = NSColor(hex: palette.gutterBackground).cgColor
