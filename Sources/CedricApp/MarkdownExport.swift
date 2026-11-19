@@ -86,26 +86,27 @@ extension EditorWindowController {
 
     /// Edit › Copy as Rich Text: the rendered selection (or document) as
     /// RTF and HTML for mail, notes and word processors, and its plain text.
-    /// The Markdown is rendered off the main thread; `done` runs after.
+    /// On the main thread: AppKit's HTML importer runs there anyway (and
+    /// run from a background render's completion it sometimes returned
+    /// nothing); the renderer is linear now, so a crafted document can't
+    /// hang it. `done` runs after, synchronously.
     func copyAsRichText(done: (@MainActor () -> Void)? = nil) {
+        defer { done?() }
         guard doc.language == .markdown else { NSSound.beep(); return }
-        let md = exportSelectionMarkdown, title = exportBaseName
         // Nothing remote: the HTML importer must not fetch a tracking image.
-        MarkdownWork.run({ HTMLScrub.noScriptNoRemote(Self.exportPage(markdown: md, title: title)) }) { page in
-            defer { done?() }
-            guard let attributed = NSAttributedString(html: Data(page.utf8), options: [.characterEncoding: String.Encoding.utf8.rawValue],
-                                                      documentAttributes: nil) else { NSSound.beep(); return }
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            let item = NSPasteboardItem()
-            if let rtf = try? attributed.data(from: NSRange(location: 0, length: attributed.length),
-                                              documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
-                item.setData(rtf, forType: .rtf)
-            }
-            item.setString(page, forType: .html)
-            item.setString(attributed.string, forType: .string)
-            pb.writeObjects([item])
+        let page = HTMLScrub.noScriptNoRemote(Self.exportPage(markdown: exportSelectionMarkdown, title: exportBaseName))
+        guard let attributed = NSAttributedString(html: Data(page.utf8), options: [.characterEncoding: String.Encoding.utf8.rawValue],
+                                                  documentAttributes: nil) else { NSSound.beep(); return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        let item = NSPasteboardItem()
+        if let rtf = try? attributed.data(from: NSRange(location: 0, length: attributed.length),
+                                          documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
+            item.setData(rtf, forType: .rtf)
         }
+        item.setString(page, forType: .html)
+        item.setString(attributed.string, forType: .string)
+        pb.writeObjects([item])
     }
 }
 
