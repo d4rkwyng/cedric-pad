@@ -361,7 +361,7 @@ public enum FileReplace {
         // The originals, all of them, before the first write.
         let op: ReplaceUndoStore.Operation
         do {
-            op = try store.begin(query: query)
+            op = try store.begin(query: query, root: root)
             for (k, p) in ready.enumerated() {
                 try op.backup(p.original, index: k, for: p.file.url, written: p.new, mode: p.mode)
                 progress(ReplaceProgress(stage: .backingUp, done: k + 1, total: ready.count))
@@ -381,7 +381,7 @@ public enum FileReplace {
                 continue
             }
             do {
-                try atomicWrite(p.new, to: p.file.url, mode: p.mode)
+                try atomicWrite(p.new, to: p.file.url, mode: p.mode, root: root)
                 op.noteWritten(index: k, stamp: DiskStamp.of(p.file.url))
                 report.written.append(p.file.url)
                 report.replacements += p.count
@@ -426,12 +426,82 @@ public enum FileReplace {
     /// ACL and extended attributes (copyfile) and exactly its mode, then is
     /// renamed over it. Not its dates: the new contents get a new
     /// modification date, so rsync, make and other editors see the change.
-    public static func atomicWrite(_ data: Data, to url: URL, mode: mode_t) throws {
-        let dir = url.deletingLastPathComponent().path
-        var template = Array((dir + "/." + url.lastPathComponent + ".owlink-XXXXXX").utf8CString)
-        let fd = mkstemp(&template)
+    ///
+    /// With `root`, the folders from `root` down to the file are opened one
+    /// at a time without following symbolic links, and the temp file, the
+    /// checks and the rename all happen relative to that open folder: a
+    /// folder on the way swapped for a link after the checks (to send the
+    /// write outside `root`) makes the write fail instead (security review
+    /// 0.2.1). Without `root`, only the file's own folder is opened.
+    public static func atomicWrite(_ data: Data, to url: URL, mode: mode_t, root: URL? = nil) throws {
+        let dirfd: Int32
+        if let root {
+            guard let rel = TreeWrite.relativeDirectories(of: url, under: root) else { throw CocoaError(.fileWriteNoPermission) }
+            dirfd = TreeWrite.openDirectory(root: root.standardizedFileURL.path, components: rel)
+        } else {
+            dirfd = open(url.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        }
+        guard dirfd >= 0 else { throw CocoaError(.fileWriteNoPermission) }
+        defer { close(dirfd) }
+        try TreeWrite.replace(data, name: url.lastPathComponent, in: dirfd, mode: mode)
+    }
+}
+
+/// File writes relative to an open folder (openat/renameat), for Replace
+/// in Files and its undo.
+enum TreeWrite {
+    /// The folder names from `root` down to `url`'s folder (empty when the
+    /// file is directly in `root`); nil when `url` isn't under `root` as
+    /// written (or under `root` with its own links resolved).
+    static func relativeDirectories(of url: URL, under root: URL) -> [String]? {
+        let file = url.standardizedFileURL.pathComponents
+        for base in [root.standardizedFileURL.pathComponents, root.standardizedFileURL.resolvingSymlinksInPath().pathComponents] {
+            guard file.count > base.count, Array(file.prefix(base.count)) == base else { continue }
+            let dirs = Array(file.dropFirst(base.count).dropLast())
+            guard !dirs.contains(where: { $0 == ".." || $0 == "." || $0.isEmpty }) else { return nil }
+            return dirs
+        }
+        return nil
+    }
+
+    /// `root` (its own path may hold links: the folder the user chose),
+    /// then each of `components` with O_NOFOLLOW: a link anywhere below
+    /// `root` fails the open. Returns the last folder's descriptor, or -1.
+    static func openDirectory(root: String, components: [String]) -> Int32 {
+        var fd = open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard fd >= 0 else { return -1 }
+        for c in components {
+            let next = openat(fd, c, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            close(fd)
+            guard next >= 0 else { return -1 }
+            fd = next
+        }
+        return fd
+    }
+
+    /// Writes `data` over `name` in the open folder `dirfd`: `name` must be
+    /// a regular file with one link (checked here, on the folder, right
+    /// before the write); temp file made with O_EXCL | O_NOFOLLOW; ACL and
+    /// extended attributes copied from the file (fcopyfile); exact mode;
+    /// then renameat. The temp file is removed on any failure.
+    static func replace(_ data: Data, name: String, in dirfd: Int32, mode: mode_t) throws {
+        guard !name.isEmpty, !name.contains("/"), name != ".", name != ".." else { throw CocoaError(.fileWriteInvalidFileName) }
+        var st = stat()
+        guard fstatat(dirfd, name, &st, AT_SYMLINK_NOFOLLOW) == 0, st.st_mode & S_IFMT == S_IFREG, st.st_nlink == 1 else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        let src = openat(dirfd, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard src >= 0 else { throw CocoaError(.fileWriteNoPermission) }
+        defer { close(src) }
+        let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+        var tmp = ""
+        var fd: Int32 = -1
+        for _ in 0..<64 {
+            tmp = "." + name + FileReplace.tempMarker + String((0..<6).map { _ in alphabet.randomElement()! })
+            fd = openat(dirfd, tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+            if fd >= 0 || errno != EEXIST { break }
+        }
         guard fd >= 0 else { throw CocoaError(.fileWriteNoPermission) }
-        let tmp = String(cString: template)
         var ok = data.withUnsafeBytes { buf -> Bool in
             var off = 0
             while off < buf.count {
@@ -442,15 +512,15 @@ public enum FileReplace {
             return true
         }
         if ok { ok = fsync(fd) == 0 }
-        close(fd)
         if ok {
             // ACL and xattrs from the file being replaced (not COPYFILE_STAT:
             // that copies the old dates too); then the mode exactly.
-            _ = copyfile(url.path, tmp, nil, copyfile_flags_t(COPYFILE_ACL | COPYFILE_XATTR))
-            ok = chmod(tmp, mode) == 0
+            _ = fcopyfile(src, fd, nil, copyfile_flags_t(COPYFILE_ACL | COPYFILE_XATTR))
+            ok = fchmod(fd, mode) == 0
         }
-        guard ok, rename(tmp, url.path) == 0 else {
-            unlink(tmp)
+        close(fd)
+        guard ok, renameat(dirfd, tmp, dirfd, name) == 0 else {
+            unlinkat(dirfd, tmp, 0)
             throw CocoaError(.fileWriteUnknown)
         }
     }
@@ -494,6 +564,9 @@ public final class ReplaceUndoStore: @unchecked Sendable {
         public var query: ReplaceQuery
         public var entries: [Entry]
         public var undone = false
+        /// The searched folder: undo writes relative to it, links refused
+        /// on the way (as the replace did). Optional: older manifests.
+        public var root: String?
     }
 
     public final class Operation: @unchecked Sendable {
@@ -534,7 +607,7 @@ public final class ReplaceUndoStore: @unchecked Sendable {
         }
     }
 
-    func begin(query: ReplaceQuery, now: Date = Date()) throws -> Operation {
+    func begin(query: ReplaceQuery, root folder: URL? = nil, now: Date = Date()) throws -> Operation {
         let id = UUID()
         let dir = root.appendingPathComponent(id.uuidString, isDirectory: true)
         try PrivateDirectory.make(dir, root: root)
@@ -599,7 +672,8 @@ public final class ReplaceUndoStore: @unchecked Sendable {
             guard let original = try? Data(contentsOf: dir.appendingPathComponent(e.backup)),
                   FileReplace.sha256(original).sha256Hex == e.originalSHA256 else { skip(.unreadable); continue }
             do {
-                try FileReplace.atomicWrite(original, to: url, mode: st.st_mode & 0o7777)
+                try FileReplace.atomicWrite(original, to: url, mode: st.st_mode & 0o7777,
+                                            root: m.root.map { URL(fileURLWithPath: $0, isDirectory: true) })
                 m.entries[k].restored = true
                 report.restored.append(url)
             } catch {
