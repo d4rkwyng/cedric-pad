@@ -558,7 +558,10 @@ enlarged); ⌘+ / ⌘− zoom, ⌘0 actual size, ⌘9 fit, pinch to zoom, scroll
 to pan; a checkerboard behind transparency; animated GIFs play (Pause /
 Play button, or Space). The status bar shows pixel size, file size,
 format, colour space and zoom. ⌘C copies the image; File › Open in
-Preview (the file's default app); Print fits it to the page. A big
+Preview (the file's default app); Print fits it to the page. A
+right-click on the image has Zoom In, Zoom Out, Actual Size, Zoom to
+Fit, Rotate Left / Right (the view only), Copy Image, Copy Path, Reveal
+in Finder, Open in the default app and Show Info. A big
 image is decoded downsampled (about 32 megapixels at most) off the main
 thread, so a 12000×12000 PNG doesn't hold up typing in other tabs.
 OwlInk is an alternate image viewer (Preview stays the default) and
@@ -694,7 +697,9 @@ LM Studio / Ollama / other-Mac server you set up and turned on; with
 none, clicking the owl offers **Set Up Ask Cedric…**). Click the owl:
 **Ask about this file…** is the first item; Edit › Ask Cedric… (⌥⌘/)
 does the same, and the owl says so once, a while after a new user's
-first launch. A small panel about the current document opens. A chip
+first launch. A small panel about the current document opens (a
+floating panel you can drag anywhere; it hides when you switch tabs and
+comes back with its tab). A chip
 picks what Cedric sees (Selection, Visible text, or the Whole document
 when it fits the model); quick actions **Explain** (**What Does It
 Do?** for scripts), **Explain Line** (the selection or the caret's
