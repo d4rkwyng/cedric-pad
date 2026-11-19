@@ -41,8 +41,18 @@ public struct LlamaRuntime: BuiltInRuntime {
 
     public func load(modelAt url: URL) async throws -> any LoadedModel {
         guard FileManager.default.fileExists(atPath: url.path) else { throw BuiltInError.notInstalled }
+        // Only a catalog model whose bytes are still the catalog's
+        // (ModelStore.verifiedForLoad; hashed again after any change).
+        guard let model = ModelCatalog.bundled()?.models.first(where: { $0.fileName == url.lastPathComponent }) else {
+            throw BuiltInError.loadFailed("not a model from OwlInk's list")
+        }
+        let store = ModelStore(directory: url.deletingLastPathComponent())
         return try await withCheckedThrowingContinuation { cont in
             LlamaModel.queue.async {
+                guard store.verifiedForLoad(model) else {
+                    cont.resume(throwing: BuiltInError.loadFailed("the model file doesn't match its checksum; delete it and download it again"))
+                    return
+                }
                 do {
                     let model = try LlamaModel(path: url.path, api: Self.api.get())
                     LlamaModel.registerForExit(model)
