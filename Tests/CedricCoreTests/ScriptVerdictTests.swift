@@ -33,6 +33,9 @@ import Testing
         #expect(a.range(of: "safe to run", options: .caseInsensitive) == nil)
         #expect(a.components(separatedBy: "\n").filter { ScriptVerdict.isVerdictLine($0) }.count == 1, "one verdict, the forced one")
         #expect(a.contains(ScriptVerdict.Reason.highFinding.note))
+        // A verdict at the end of a paragraph (real Qwen3 output) is replaced too.
+        let inline = ScriptVerdict.clamp("Line 3 runs remote code. No other risks. Verdict: Don't run it", forced: .highFinding)
+        #expect(inline == "Line 3 runs remote code. No other risks.\n" + ScriptVerdict.Reason.highFinding.note + "\nVerdict: " + ScriptVerdict.forcedDontRun + ".")
     }
 
     @Test func truncationForcesDontRun() {

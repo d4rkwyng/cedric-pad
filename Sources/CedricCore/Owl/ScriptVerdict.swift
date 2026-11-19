@@ -64,6 +64,8 @@ public enum ScriptVerdict {
 
     public static func isVerdictLine(_ line: String) -> Bool { has(verdictLine, line) }
 
+    private static let inlineVerdict = try! NSRegularExpression(pattern: #"[*_]*\bverdict\b[*_]*\s*:.*$"#, options: [.caseInsensitive])
+
     /// The answer as shown: every claim of safety rewritten, and, when
     /// `forced`, any verdict the model gave replaced by `forcedDontRun`.
     public static func clamp(_ answer: String, forced: Reason? = nil) -> String {
@@ -79,6 +81,11 @@ public enum ScriptVerdict {
         }
         if let forced {
             lines.removeAll { isVerdictLine($0) }
+            // A verdict at the end of a sentence ("… shown lines. Verdict: Don't run it").
+            lines = lines.map { l in
+                guard let m = inlineVerdict.firstMatch(in: l, range: NSRange(location: 0, length: (l as NSString).length)) else { return l }
+                return (l as NSString).substring(to: m.range.location).trimmingCharacters(in: .whitespaces)
+            }
             while let l = lines.last, l.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
             lines.append(forced.note)
             lines.append("Verdict: " + forcedDontRun + ".")
