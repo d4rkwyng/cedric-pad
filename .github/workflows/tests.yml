@@ -65,6 +65,9 @@ jobs:
     # (Swift 6.1). It rejects some things Swift 6.4 accepts (Sendable
     # conversions of local functions, slow type checks), so this catches
     # them before a release. No Apple Intelligence (FoundationModels) here.
+    # Unit tests only: an APP built with 6.1 and the macOS 15 SDK draws no
+    # editor text, so never ship or GUI-test a build from this toolchain.
+    # Releases build on macos-26 (release.yml).
     runs-on: macos-15
     timeout-minutes: 30
     steps:

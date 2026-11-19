@@ -488,7 +488,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 
 ## Build and run
 
-Needs the Command Line Tools (Swift 6.0 or later); Xcode is not required.
+Needs the Command Line Tools or Xcode 26 (Swift 6.3 or later, macOS 26 SDK); Xcode itself is not required. Swift 6.1 / 6.2 with an older SDK still compiles and passes the unit tests, but the app it builds draws no editor text, so never ship or test the app from an older toolchain. Releases are built on GitHub's macos-26 runner.
 
 ```sh
 Scripts/bundle-app.sh               # "dist/Cedric Pad.app" for this Mac, ad-hoc signed
