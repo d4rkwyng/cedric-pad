@@ -6,7 +6,8 @@
 # real. The clean corpus in Tests/Fixtures/owl-corpus is the other half of
 # the gate (zero hits, in Scripts/test.sh).
 #
-#   Scripts/owl-corpus.sh <tree> [out.tsv]     (CEDRIC_OWL_CORPUS_MAX: files per language, default 4000)
+#   Scripts/owl-corpus.sh <tree> [out.tsv]     (CEDRIC_OWL_CORPUS_MAX: files per language, default 4000;
+#                                               CEDRIC_OWL_CORPUS_LANGS=markdown,csv: only those)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ $# -ge 1 ]] || { echo "usage: $0 <tree> [out.tsv]" >&2; exit 2; }

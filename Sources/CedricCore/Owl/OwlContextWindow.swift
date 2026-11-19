@@ -84,9 +84,16 @@ public struct OwlDocumentFacts: Sendable, Equatable {
     /// Settings › "Style tips in code": the style rules run too. Off by
     /// default; the correctness rules always run.
     public var styleTips: Bool
+    /// Whether a path relative to the document's folder exists (Markdown's
+    /// relative links). Nil: the document has no folder (untitled) and the
+    /// rule is skipped. The probe answers nil while it doesn't know yet:
+    /// the app checks off the main thread and the next query has the answer.
+    public var fileExists: OwlFileProbe?
 
     public init(isWholeDocument: Bool = true, changedOnDisk: Bool = false, unsavedSince: Date? = nil, lineEnding: LineEnding = .lf,
-                mixedLineEndings: Bool = false, languageIsManual: Bool = false, now: Date? = nil, styleTips: Bool = false) {
+                mixedLineEndings: Bool = false, languageIsManual: Bool = false, now: Date? = nil, styleTips: Bool = false,
+                fileExists: OwlFileProbe? = nil) {
+        self.fileExists = fileExists
         self.now = now
         self.styleTips = styleTips
         self.isWholeDocument = isWholeDocument
@@ -96,6 +103,36 @@ public struct OwlDocumentFacts: Sendable, Equatable {
         self.mixedLineEndings = mixedLineEndings
         self.languageIsManual = languageIsManual
     }
+}
+
+/// Answers "does this relative path exist?" for the rules (see
+/// `OwlDocumentFacts.fileExists`): true, false, or nil for not known yet.
+/// Two probes are equal when they are the same probe (`id`).
+public struct OwlFileProbe: Sendable, Equatable {
+    public let id: UUID
+    public let exists: @Sendable (String) -> Bool?
+
+    public init(id: UUID = UUID(), exists: @escaping @Sendable (String) -> Bool?) {
+        self.id = id
+        self.exists = exists
+    }
+
+    /// Folders whose Markdown is an installed or vendored copy of a
+    /// package (node_modules, PlatformIO libraries, site-packages…): the
+    /// files its links point to were left out on purpose. No probe there.
+    public static let installedCopyFolders: Set<String> = ["node_modules", "libdeps", "site-packages", "dist-packages", "vendor", "Pods",
+                                                           "Carthage", ".build", "DerivedData", "bower_components", "jspm_packages", ".venv", "venv"]
+
+    public static func probes(folder: URL) -> Bool {
+        !folder.pathComponents.contains(where: installedCopyFolders.contains)
+    }
+
+    /// A fixed set of existing paths (tests).
+    public static func set(_ paths: Set<String>) -> OwlFileProbe {
+        OwlFileProbe { p in paths.contains((p as NSString).standardizingPath) || paths.contains(p) }
+    }
+
+    public static func == (a: OwlFileProbe, b: OwlFileProbe) -> Bool { a.id == b.id }
 }
 
 /// A provider that also wants the document facts. The coordinator calls

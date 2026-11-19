@@ -142,6 +142,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     let fences = FenceIndex()
     /// The Markdown outline sidebar (OutlineSidebar.swift).
     let outline = OutlineState()
+    /// The owl's disk facts (OwlFacts.swift), made when first asked.
+    var fileProbe: FileProbe?
     var editorContainer: EditorContainer { container }
 
     init(doc: EditorDocument, text: String) {
@@ -879,7 +881,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         OwlDocumentFacts(isWholeDocument: wholeDocument, changedOnDisk: doc.changedOnDisk,
                          unsavedSince: doc.isDirty ? doc.unsavedSince : nil, lineEnding: doc.lineEnding,
                          mixedLineEndings: doc.mixedLineEndings, languageIsManual: doc.languageIsManual,
-                         styleTips: Settings.shared.owlStyleTips)
+                         styleTips: Settings.shared.owlStyleTips, fileExists: owlFileProbe())
     }
 
     // MARK: Closing

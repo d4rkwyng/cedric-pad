@@ -146,6 +146,9 @@ import Testing
             ("<a><b></a>", "xml", "a.xml"),
             ("[a]\nx = word\n[a]\n", "ini", "a.toml"),
             ("A = 1\nA=2\n", "ini", ".env"),
+            ("# Install\n\n[x](#instal) [y](#nowhere-near-this-one)\n\n```\nopen\n", "markdown", "a.md"),
+            ("a,b,c\n1,2,3\n4,5,6\n7,8,9,10\n1,2,3\n", "csv", "a.csv"),
+            ("a,b\n\"x,1\n", "csv", "b.csv"),
         ]
         for (text, lang, name) in samples {
             let hints = Self.check(text, language: lang, fileName: name)
@@ -167,12 +170,14 @@ import Testing
         case "json": return ("{" + (0..<400).map { "\"k\($0)\": [1, {\"a\": \"b\"}]" }.joined(separator: ",") + "}", "a.json")
         case "xml": return ("<r>" + String(repeating: "<item id=\"1\">text &amp; more</item>\n", count: 200) + "</r>", "a.xml")
         case "toml": return (fill("[t]\nkey = \"v\"\nn = 1_000\nd = 1979-05-27\narr = [1,\n 2]\n[[a]]\nx = word\n"), "a.toml")
+        case "markdown": return (fill("# Head `a` [x](#head) ![i](img/a.png)\n\n```sh\ncode [y](z.md)\n```\n<!-- c --> [r]: other.md\n"), "a.md")
+        case "csv": return (fill("a,\"b,c\",d\n1,2,3\n"), "a.csv")
         default: return (fill("export A=1\nB = 2\n# c\nC=\"x\ny\"\n"), ".env")
         }
     }
 
     @Test(.offPool) func languageRulesStayUnder5msPerWindow() {
-        for lang in ["shell", "python", "javascript", "yaml", "json", "xml", "toml", "env"] {
+        for lang in ["shell", "python", "javascript", "yaml", "json", "xml", "toml", "env", "markdown", "csv"] {
             let (text, name) = Self.worstCase(lang)
             let language = lang == "toml" || lang == "env" ? "ini" : lang
             let ns = text as NSString
@@ -182,7 +187,7 @@ import Testing
             var times: [TimeInterval] = []
             for _ in 0..<7 {
                 let start = Date()
-                Self.rules.languageHints(ctx, facts: OwlDocumentFacts(), text: ns, lines: lines) { _, _, _, _, _, _ in }
+                Self.rules.languageHints(ctx, facts: Self.timingFacts, text: ns, lines: lines) { _, _, _, _, _, _ in }
                 times.append(Date().timeIntervalSince(start))
             }
             // The best of 7: other tests running in parallel only ever add time.
@@ -191,6 +196,10 @@ import Testing
             #expect(best < Self.budget, "\(lang): \(best * 1000) ms per window")
         }
     }
+
+    /// Every fact a rule may use is there (a probe that knows its answers,
+    /// as the app's cache does after the first query).
+    static let timingFacts = OwlDocumentFacts(styleTips: true, fileExists: OwlFileProbe { _ in false })
 
     /// 5 ms in an optimised build (the plan's budget; `Scripts/test.sh -c
     /// release -Xswiftc -enable-testing` checks it). A debug build runs
@@ -217,9 +226,16 @@ import Testing
         return LanguageDetector.language(forFileName: name)?.rawValue ?? "plain"
     }
 
+    /// A real file probe for a file's folder (Markdown's relative links).
+    static func probe(for url: URL) -> OwlFileProbe? {
+        let folder = url.deletingLastPathComponent()
+        guard OwlFileProbe.probes(folder: folder) else { return nil }
+        return OwlFileProbe { rel in FileManager.default.fileExists(atPath: folder.appendingPathComponent(rel).path) }
+    }
+
     @Test(.offPool) func cleanCorpusGetsNoLanguageHints() throws {
         let files = try #require(FileManager.default.enumerator(at: Self.corpusRoot, includingPropertiesForKeys: nil)?.allObjects as? [URL])
-            .filter { !$0.hasDirectoryPath && $0.pathExtension != "md" }
+            .filter { !$0.hasDirectoryPath && $0.lastPathComponent != "LICENSES.md" }
         #expect(files.count >= 12)
         for url in files {
             let text = try String(contentsOf: url, encoding: .utf8)
@@ -230,6 +246,8 @@ import Testing
             for at in stride(from: 0, to: max(length, 1), by: 3000) {
                 let window = OwlContextWindow(text: text as NSString, visible: NSRange(location: at, length: 0), selection: nil,
                                               fileName: url.lastPathComponent, language: lang, documentID: UUID(), editGeneration: 0)
+                // No file probe: a copied Markdown file's relative links point
+                // into its own repository (the large run checks them in place).
                 let facts = OwlDocumentFacts(isWholeDocument: window.isWholeDocument)
                 let hits = Self.rules.check(window.context, facts: facts).filter { ids.contains($0.id) }
                 #expect(hits.isEmpty, "\(url.lastPathComponent) @\(at): \(hits.map { "\($0.id): \($0.title)" })")
@@ -250,6 +268,8 @@ import Testing
         let root = URL(fileURLWithPath: Self.root!)
         let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["CEDRIC_OWL_CORPUS_OUT"] ?? NSTemporaryDirectory() + "owl-corpus.tsv")
         let maxPerLanguage = Int(ProcessInfo.processInfo.environment["CEDRIC_OWL_CORPUS_MAX"] ?? "") ?? 4000
+        // CEDRIC_OWL_CORPUS_LANGS=markdown,csv: only those (a quicker run).
+        let only = ProcessInfo.processInfo.environment["CEDRIC_OWL_CORPUS_LANGS"].map { Set($0.split(separator: ",").map(String.init)) }
         let ids = Set(RulesHintProvider.languageRules.map(\.id))
         let rules = RulesHintProvider()
         var rows: [String] = [], perRule: [String: Int] = [:], linesPerLanguage: [String: Int] = [:], filesPerLanguage: [String: Int] = [:]
@@ -265,9 +285,10 @@ import Testing
             if lang == "plain", let head = try? String(contentsOf: url, encoding: .utf8).prefix(200),
                let l = LanguageDetector.language(forShebang: head.prefix { $0 != "\n" }) { lang = l.rawValue }
             let key = lang == "ini" ? (RulesHintProvider.isEnvFile(lang, name) ? "env" : RulesHintProvider.isTOMLFile(lang, name) ? "toml" : "") : lang
-            guard ["shell", "python", "javascript", "typescript", "yaml", "json", "xml", "env", "toml"].contains(key)
+            guard ["shell", "python", "javascript", "typescript", "yaml", "json", "xml", "env", "toml", "markdown", "csv", "sql", "powershell"].contains(key)
                     || (lang == "html" && url.pathExtension.lowercased() == "svg") else { continue }
             let k = key.isEmpty ? "svg" : key
+            if let only, !only.contains(k) { continue }
             guard filesPerLanguage[k, default: 0] < maxPerLanguage,
                   let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size < 1_000_000,
                   let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
@@ -278,7 +299,8 @@ import Testing
             for at in stride(from: 0, to: max(ns.length, 1), by: 6000) {
                 let w = OwlContextWindow(text: ns, visible: NSRange(location: at, length: 0), selection: nil, fileName: name, language: lang,
                                          documentID: UUID(), editGeneration: 0)
-                for h in rules.check(w.context, facts: OwlDocumentFacts(isWholeDocument: w.isWholeDocument)) where ids.contains(h.id) {
+                let facts = OwlDocumentFacts(isWholeDocument: w.isWholeDocument, fileExists: OwlLanguageRulesTests.probe(for: url))
+                for h in rules.check(w.context, facts: facts) where ids.contains(h.id) {
                     let loc = w.offset + (h.range?.location ?? 0)
                     guard seen.insert("\(h.id)@\(loc)").inserted else { continue }
                     perRule[h.id, default: 0] += 1

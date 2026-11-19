@@ -70,7 +70,8 @@ final class LintInput {
     /// Work shared by several rules of one query (the shell's commands,
     /// the YAML entries), done once.
     func shared<T>(_ key: String, _ make: () -> T) -> T {
-        if let v = memo[key] as? T { return v }
+        // (memo[key] first: `nil as? T` succeeds when T is itself optional.)
+        if let stored = memo[key], let v = stored as? T { return v }
         let v = make()
         memo[key] = v
         return v
@@ -115,6 +116,8 @@ extension RulesHintProvider {
         ConfigRules.tomlBareString,
         ConfigRules.tomlDuplicate,
         ConfigRules.envSpaces,
+        MarkdownRules.unclosedFence,
+        DataRules.unclosedQuote,
         // It silently does the wrong thing.
         ConfigRules.yamlDuplicateKey,
         ConfigRules.jsonDuplicateKey,
@@ -126,6 +129,9 @@ extension RulesHintProvider {
         PythonRules.isLiteral,
         PythonRules.invalidEscape,
         PythonRules.noneCompare,
+        DataRules.raggedRows,
+        MarkdownRules.brokenRelativeLink,
+        MarkdownRules.brokenAnchor,
         // Left behind, or missing.
         JSRules.debuggerLeftIn,
         ShellRules.missingShebang,
