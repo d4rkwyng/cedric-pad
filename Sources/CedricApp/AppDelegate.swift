@@ -777,9 +777,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let p = (sender as? NSMenuItem)?.tag, p > 0 else { return }
         Settings.shared.fontSize = Settings.defaultFontSize * CGFloat(p) / 100
     }
-    @objc func pickTheme(_ sender: NSMenuItem) {
-        if let raw = sender.representedObject as? String, let t = EditorTheme(rawValue: raw) { Settings.shared.theme = t }
-    }
     @objc func pickLanguageMenu(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let l = Language(rawValue: raw) { currentTab?.setLanguage(l) }
     }
@@ -814,7 +811,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let effective = ai ? s.owlHintSource : .rules
             item.state = (item.representedObject as? String) == effective.rawValue ? .on : .off
             return s.showOwl && (item.representedObject as? String == OwlHintSource.rules.rawValue || ai)
-        case #selector(pickTheme(_:)): item.state = (item.representedObject as? String) == s.theme.rawValue ? .on : .off
         case #selector(toggleOutlineMenu(_:)):
             item.state = tab?.outlineVisible == true ? .on : .off
             return tab?.doc.language.hasOutline == true

@@ -1,10 +1,12 @@
 import AppKit
 import CedricCore
 
-/// Cedric › Settings… (⌘,): the app-wide preferences in one window. Built
+/// Cedric › Settings… (⌘,): the preferences that have no menu of their
+/// own (0.2.1: each option lives in one place; settings-audit.md). Built
 /// the first time it is opened, never at launch. Every control writes
-/// straight to `Settings` (which restyles the open tabs); the View and
-/// Edit menu toggles stay, and the window follows them while it is open.
+/// straight to `Settings` (which restyles the open tabs). The View and
+/// Edit menu toggles (wrap, invisibles, line numbers, occurrences,
+/// auto-close, spelling, grammar) are only in those menus.
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static private(set) var shared: SettingsWindowController?
@@ -22,15 +24,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let fontPopup = NSPopUpButton()
     let fontSize = NSTextField()
     let fontStepper = NSStepper()
-    let wrap = NSButton(checkboxWithTitle: String(localized: "Wrap lines"), target: nil, action: nil)
-    let invisibles = NSButton(checkboxWithTitle: String(localized: "Show invisibles"), target: nil, action: nil)
-    let lineNumbers = NSButton(checkboxWithTitle: String(localized: "Show line numbers"), target: nil, action: nil)
-    let occurrences = NSButton(checkboxWithTitle: String(localized: "Highlight occurrences"), target: nil, action: nil)
     let gitChanges = NSButton(checkboxWithTitle: String(localized: "Show git changes in the gutter"), target: nil, action: nil)
-    let autoClose = NSButton(checkboxWithTitle: String(localized: "Auto-close brackets and quotes"), target: nil, action: nil)
-    let spelling = NSButton(checkboxWithTitle: String(localized: "Check spelling while typing"), target: nil, action: nil)
     let quitOnLastClose = NSButton(checkboxWithTitle: String(localized: "Quit when the last window closes"), target: nil, action: nil)
-    let grammar = NSButton(checkboxWithTitle: String(localized: "Check grammar in prose"), target: nil, action: nil)
     let owlChat = NSButton(checkboxWithTitle: String(localized: "Ask Cedric"), target: nil, action: nil)
     let indentKind = NSPopUpButton()
     let tabWidth = NSPopUpButton()
@@ -98,7 +93,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let fontRow = NSStackView(views: [fontPopup, fontSize, fontStepper, NSTextField(labelWithString: "pt")])
         fontRow.spacing = 6
 
-        for b in [wrap, invisibles, lineNumbers, occurrences, gitChanges, autoClose, spelling, grammar, owlChat, quitOnLastClose] { b.target = self; b.action = #selector(changed(_:)) }
+        for b in [gitChanges, owlChat, quitOnLastClose] { b.target = self; b.action = #selector(changed(_:)) }
         indentKind.addItems(withTitles: [String(localized: "Spaces"), String(localized: "Tabs")])
         indentKind.target = self; indentKind.action = #selector(changed(_:))
         for wdt in Indentation.widths { tabWidth.addItem(withTitle: "\(wdt)"); tabWidth.lastItem?.tag = wdt }
@@ -110,21 +105,20 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         note.textColor = .secondaryLabelColor
         note.preferredMaxLayoutWidth = 300
 
+        let elsewhere = NSTextField(wrappingLabelWithString: String(localized: "Wrap lines, invisibles, line numbers and occurrences are in the View menu; auto-close, spelling and grammar in the Edit menu."))
+        elsewhere.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        elsewhere.textColor = .secondaryLabelColor
+        elsewhere.preferredMaxLayoutWidth = 300
+
         let grid = NSGridView(views: [
             [label(String(localized: "Theme:")), theme],
             [label(String(localized: "Font:")), fontRow],
-            [label(String(localized: "View:")), wrap],
-            [NSGridCell.emptyContentView, invisibles],
-            [NSGridCell.emptyContentView, lineNumbers],
-            [NSGridCell.emptyContentView, occurrences],
-            [NSGridCell.emptyContentView, gitChanges],
-            [label(String(localized: "Editing:")), autoClose],
-            [NSGridCell.emptyContentView, spelling],
-            [NSGridCell.emptyContentView, grammar],
-            [NSGridCell.emptyContentView, owlChat],
-            [label(String(localized: "Indent with:")), indentRow],
+            [label(String(localized: "Default indent:")), indentRow],
             [NSGridCell.emptyContentView, note],
+            [label(String(localized: "Gutter:")), gitChanges],
+            [label(String(localized: "Cedric:")), owlChat],
             [label(String(localized: "App:")), quitOnLastClose],
+            [NSGridCell.emptyContentView, elsewhere],
         ])
         grid.rowSpacing = 8
         grid.columnSpacing = 8
@@ -152,20 +146,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         fontPopup.selectItem(at: fontNames.firstIndex(of: s.fontName) ?? 0)
         fontSize.integerValue = Int(s.fontSize)
         fontStepper.integerValue = Int(s.fontSize)
-        wrap.state = s.wrapLines ? .on : .off
-        invisibles.state = s.showInvisibles ? .on : .off
-        lineNumbers.state = s.showLineNumbers ? .on : .off
-        occurrences.state = s.highlightOccurrences ? .on : .off
         gitChanges.state = s.showGitChanges ? .on : .off
-        autoClose.state = s.autoCloseBrackets ? .on : .off
-        spelling.state = s.checkSpellingWhileTyping ? .on : .off
         quitOnLastClose.state = s.quitWhenLastWindowCloses ? .on : .off
-        grammar.state = s.checkGrammar ? .on : .off
         owlChat.state = s.owlChat ? .on : .off
         let autoGrammar = s.checkGrammar && OwlHub.shared.ai.isActive && OwlHub.shared.ai.isAutomatic
         owlChat.toolTip = String(localized: "Ask Cedric… (⌥⌘/, or click the owl): questions, quick actions and proposed edits from a local AI engine (Apple Intelligence, the built-in model, or your LM Studio / Ollama). On by default when one is ready.")
             + " " + AskCedricEngine.privacy(autoGrammar: autoGrammar).settingsSentence
-        grammar.toolTip = String(localized: "Plain Text and Markdown that reads as sentences: emails, letters, notes. Never code, data or logs.")
         let ind = s.defaultIndentation
         indentKind.selectItem(at: ind.usesTabs ? 1 : 0)
         tabWidth.selectItem(withTag: ind.width)
@@ -182,15 +168,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         case theme: if let raw = theme.selectedItem?.representedObject as? String, let t = EditorTheme(rawValue: raw) { s.theme = t }
         case fontPopup: s.fontName = fontNames[max(0, fontPopup.indexOfSelectedItem)]
         case fontSize: if fontSize.integerValue >= 6 { s.fontSize = CGFloat(fontSize.integerValue) }
-        case wrap: s.wrapLines = wrap.state == .on
-        case invisibles: s.showInvisibles = invisibles.state == .on
-        case lineNumbers: s.showLineNumbers = lineNumbers.state == .on
-        case occurrences: s.highlightOccurrences = occurrences.state == .on
         case gitChanges: s.showGitChanges = gitChanges.state == .on
-        case autoClose: s.autoCloseBrackets = autoClose.state == .on
-        case spelling: s.checkSpellingWhileTyping = spelling.state == .on
         case quitOnLastClose: s.quitWhenLastWindowCloses = quitOnLastClose.state == .on
-        case grammar: s.checkGrammar = grammar.state == .on
         case owlChat: s.owlChat = owlChat.state == .on
         case indentKind, tabWidth:
             s.defaultIndentation = Indentation(usesTabs: indentKind.indexOfSelectedItem == 1, width: tabWidth.selectedTag() > 0 ? tabWidth.selectedTag() : 4)

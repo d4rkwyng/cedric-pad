@@ -253,10 +253,7 @@ func buildMainMenu() -> NSMenu {
         // PDF tabs only (PDFTab.swift).
         item(String(localized: "Zoom to Fit"), #selector(PDFTabController.zoomToFit(_:)), "9"),
         item(String(localized: "Show Page Thumbnails"), #selector(PDFTabController.togglePDFThumbnails(_:)), "b", [.command, .option]),
-        .separator(),
-        submenu(String(localized: "Theme"), EditorTheme.allCases.map {
-            item($0.displayName, #selector(AppDelegate.pickTheme(_:)), represented: $0.rawValue)
-        }),
+        // The theme is in Settings only (0.2.1, settings-audit.md).
         .separator(),
         item(String(localized: "Enter Full Screen"), #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
     ]))

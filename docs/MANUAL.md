@@ -380,11 +380,13 @@ bar's items stay under the editor.
 
 ### Settings
 
-**Settings** (OwlInk › Settings…, ⌘,): theme, font and size, wrap,
-invisibles, line numbers, highlight occurrences, auto-close brackets,
-spelling while typing, the default indentation, and whether closing the
-last window quits, in one window (the
-menu toggles still work and the window follows them).
+**Settings** (OwlInk › Settings…, ⌘,) holds the preferences that have
+no menu: theme, font and size, the default indentation for new files
+(Format › Indentation changes one tab), git changes in the gutter, Ask
+Cedric, and whether closing the last window quits. Each option lives in
+one place: wrap lines, invisibles, line numbers and highlight
+occurrences are in the View menu, auto-close brackets, spelling while
+typing and grammar in the Edit menu (all remembered, for every tab).
 
 ## Markdown and HTML
 

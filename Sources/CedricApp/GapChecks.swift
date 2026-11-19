@@ -260,6 +260,7 @@ extension DevChecks {
         let b = app.open(write("b.txt", "beta\n"))!
         sized(a)
         var settings: SettingsWindowController? { SettingsWindowController.shared }
+        func allSubviews(_ v: NSView?) -> [NSView] { guard let v else { return [] }; return v.subviews + v.subviews.flatMap { allSubviews($0) } }
         func disk(_ t: EditorWindowController) -> String { (try? String(contentsOf: t.doc.fileURL!, encoding: .utf8)) ?? "-" }
         run([
             sync {
@@ -286,19 +287,25 @@ extension DevChecks {
                 s.changed(s.fontPopup)
                 expect(Settings.shared.fontName == nil && a.textView.font?.fontName == NSFont.monospacedSystemFont(ofSize: 15, weight: .regular).fontName,
                        "SF Mono (System) goes back to the system font", a.textView.font?.fontName ?? "-")
-                // Toggles.
+                // 0.2.1: each option in one place (settings-audit.md).
+                let titles = Set(allSubviews(s.window?.contentView).compactMap { ($0 as? NSButton)?.title })
+                let moved = ["Wrap lines", "Show invisibles", "Show line numbers", "Highlight occurrences",
+                             "Auto-close brackets and quotes", "Check spelling while typing", "Check grammar in prose"]
+                expect(moved.allSatisfy { !titles.contains($0) }, "Settings has no copy of the View and Edit menu toggles", "\(titles.sorted())")
+                expect(["Show git changes in the gutter", "Ask Cedric", "Quit when the last window closes"].allSatisfy(titles.contains),
+                       "…and keeps the preferences without a menu")
+                let viewTitles = NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu?.items.map(\.title) ?? []
+                expect(!viewTitles.contains("Theme") && viewTitles.contains("Wrap Lines") && viewTitles.contains("Show Invisibles"),
+                       "View has no Theme submenu (Settings has it) and keeps its toggles", "\(viewTitles)")
                 let wrap = Settings.shared.wrapLines
-                s.wrap.performClick(nil)
-                expect(Settings.shared.wrapLines == !wrap, "Wrap lines checkbox toggles the setting")
+                key("z", [.command, .option])
+                expect(Settings.shared.wrapLines == !wrap, "View › Wrap Lines (⌥⌘Z) still toggles the same setting")
                 UserDefaults.standard.removeObject(forKey: "quitWhenLastWindowCloses")
                 s.refresh()
                 expect(Settings.shared.quitWhenLastWindowCloses && s.quitOnLastClose.state == .on, "Quit when the last window closes: on by default")
                 s.quitOnLastClose.performClick(nil)
                 expect(!Settings.shared.quitWhenLastWindowCloses, "its checkbox turns it off")
                 expect(!app.quitsOnLastClose, "the checks themselves never quit on a last close")
-                let inv = Settings.shared.showInvisibles
-                key("i", [.command, .option])
-                expect(s.invisibles.state == (inv ? .off : .on), "the window follows View › Show Invisibles (⌥⌘I)")
                 s.indentKind.selectItem(at: 1)
                 s.changed(s.indentKind)
                 s.tabWidth.selectItem(withTag: 8)
