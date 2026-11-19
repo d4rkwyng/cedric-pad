@@ -106,6 +106,7 @@ extension RulesHintProvider {
         // Data loss.
         ShellRules.cdUnchecked,
         ShellRules.unquotedVariable,
+        DataRules.noWhere,
         // It won't run, or won't load.
         ShellRules.crlf,
         ConfigRules.xmlInvalid,
@@ -118,7 +119,10 @@ extension RulesHintProvider {
         ConfigRules.envSpaces,
         MarkdownRules.unclosedFence,
         DataRules.unclosedQuote,
+        PowerShellRules.backtickSpace,
         // It silently does the wrong thing.
+        PowerShellRules.redirectCompare,
+        DataRules.nullComparison,
         ConfigRules.yamlDuplicateKey,
         ConfigRules.jsonDuplicateKey,
         ConfigRules.envDuplicateKey,

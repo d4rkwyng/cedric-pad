@@ -149,6 +149,8 @@ import Testing
             ("# Install\n\n[x](#instal) [y](#nowhere-near-this-one)\n\n```\nopen\n", "markdown", "a.md"),
             ("a,b,c\n1,2,3\n4,5,6\n7,8,9,10\n1,2,3\n", "csv", "a.csv"),
             ("a,b\n\"x,1\n", "csv", "b.csv"),
+            ("SELECT * FROM t WHERE a = NULL;\nDELETE FROM t;\nUPDATE t SET a = 1;\n", "sql", "a.sql"),
+            ("if ($a > 5) {}\nGet-Item ` \n", "powershell", "a.ps1"),
         ]
         for (text, lang, name) in samples {
             let hints = Self.check(text, language: lang, fileName: name)
@@ -172,12 +174,14 @@ import Testing
         case "toml": return (fill("[t]\nkey = \"v\"\nn = 1_000\nd = 1979-05-27\narr = [1,\n 2]\n[[a]]\nx = word\n"), "a.toml")
         case "markdown": return (fill("# Head `a` [x](#head) ![i](img/a.png)\n\n```sh\ncode [y](z.md)\n```\n<!-- c --> [r]: other.md\n"), "a.md")
         case "csv": return (fill("a,\"b,c\",d\n1,2,3\n"), "a.csv")
+        case "sql": return (fill("UPDATE t SET a = NULL WHERE b = NULL AND c <> 'x = NULL' -- d = NULL\n/* e */ DELETE FROM u;\nGO\n"), "a.sql")
+        case "powershell": return (fill("if ($a > 5 -and (Get-X 2>$null)) { 'x > 1' } # c > 2\nGet-Item `  \n@'\nhere ` \n'@\n"), "a.ps1")
         default: return (fill("export A=1\nB = 2\n# c\nC=\"x\ny\"\n"), ".env")
         }
     }
 
     @Test(.offPool) func languageRulesStayUnder5msPerWindow() {
-        for lang in ["shell", "python", "javascript", "yaml", "json", "xml", "toml", "env", "markdown", "csv"] {
+        for lang in ["shell", "python", "javascript", "yaml", "json", "xml", "toml", "env", "markdown", "csv", "sql", "powershell"] {
             let (text, name) = Self.worstCase(lang)
             let language = lang == "toml" || lang == "env" ? "ini" : lang
             let ns = text as NSString

@@ -16,6 +16,9 @@ unless noted. No GPL files.
 | `csv/matplotlib-msft.csv` | matplotlib `mpl-data/sample_data/msft.csv` | Matplotlib License (PSF-based) |
 | `csv/regexp_parser-short.csv` | regexp_parser (Ruby gem) `lib/regexp_parser/scanner/properties/short.csv` | MIT, © Ammar Ali |
 | `csv/owlink-sample.tsv`, `csv/owlink-excel.csv` | OwlInk itself | BSD-2-Clause (this repository) |
+| `sql/sakila-mysql-schema.sql`, `sql/sakila-postgres-schema.sql` | jOOQ/sakila (`mysql-sakila-db/mysql-sakila-schema.sql`, `postgres-sakila-db/postgres-sakila-schema.sql`) | BSD (Sakila © 2006 MySQL AB; the jOOQ/sakila port BSD-2-Clause, © 2021 jOOQ) |
+| `powershell/install-powershell.ps1` | PowerShell/PowerShell `tools/install-powershell.ps1` | MIT, © Microsoft Corporation |
+| `powershell/dotnet-install.ps1` | dotnet/install-scripts `src/dotnet-install.ps1` | MIT, © .NET Foundation and contributors |
 
 Markdown fixtures are checked without a file probe: their relative links
 point into their own repositories (the large run checks links in place).

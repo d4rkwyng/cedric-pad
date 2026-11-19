@@ -107,6 +107,21 @@ public struct CodeMask {
                 return CodeMask(s, spans: [Span(range: NSRange(location: 0, length: end), kind: .string)] + scanShell(rest))
             }
             return CodeMask(s, spans: scanShell(s))
+        case "sql":
+            if window, let end = startsInside(s, language: "c") {
+                return CodeMask(s, spans: [Span(range: NSRange(location: 0, length: end), kind: .comment)] + scanSQL(s, from: end))
+            }
+            return CodeMask(s, spans: scanSQL(s))
+        case "powershell":
+            if window, let end = startsInsidePowerShell(s) {
+                var units = Array(repeating: unichar(0), count: s.length)
+                s.getCharacters(&units, range: NSRange(location: 0, length: s.length))
+                for k in 0..<end where units[k] != 10 { units[k] = 32 }
+                let rest = NSString(characters: units, length: units.count)
+                return CodeMask(s, spans: [Span(range: NSRange(location: 0, length: end), kind: .string)]
+                                + RulesHintProvider.scanPowerShell(rest, forMask: true).spans)
+            }
+            return CodeMask(s, spans: RulesHintProvider.scanPowerShell(s, forMask: true).spans)
         default:
             return nil
         }
@@ -289,5 +304,70 @@ public struct CodeMask {
             }
         }
         return out
+    }
+
+    // MARK: SQL
+
+    /// SQL's strings and comments: `'…'` (`''` and `\'` escapes), `"…"`
+    /// and `` `…` `` identifiers, `--` and `/* … */` comments, and
+    /// PostgreSQL's dollar-quoted bodies (`$$ … $$`, `$tag$ … $tag$`).
+    public static func scanSQL(_ s: NSString, from start: Int = 0) -> [Span] {
+        let n = s.length
+        var out: [Span] = []
+        var i = start
+        func ch(_ k: Int) -> unichar { k >= 0 && k < n ? s.character(at: k) : 0 }
+        while i < n {
+            let k = ch(i)
+            switch k {
+            case 39, 34, 96:   // ' " `
+                let a = i
+                i += 1
+                while i < n {
+                    let c = ch(i)
+                    if k == 39, c == 92 { i += 2; continue }
+                    if c == k { if ch(i + 1) == k { i += 2; continue }; i += 1; break }
+                    i += 1
+                }
+                out.append(Span(range: NSRange(location: a, length: min(i, n) - a), kind: .string))
+            case 45 where ch(i + 1) == 45:   // --
+                let a = i
+                while i < n, ch(i) != 10 { i += 1 }
+                out.append(Span(range: NSRange(location: a, length: i - a), kind: .comment))
+            case 47 where ch(i + 1) == 42:   // /*
+                let a = i
+                i += 2
+                while i < n, !(ch(i) == 42 && ch(i + 1) == 47) { i += 1 }
+                i = min(i + 2, n)
+                out.append(Span(range: NSRange(location: a, length: i - a), kind: .comment))
+            case 36:   // $tag$ … $tag$ (not $1, a parameter)
+                var j = i + 1
+                while j < n, let u = UnicodeScalar(ch(j)), CharacterSet.letters.contains(u) || u == "_" { j += 1 }
+                guard ch(j) == 36, !(i > 0 && CharacterSet.alphanumerics.contains(UnicodeScalar(ch(i - 1)) ?? " ")) else { i += 1; continue }
+                let tag = s.substring(with: NSRange(location: i, length: j - i + 1))
+                let close = s.range(of: tag, options: [], range: NSRange(location: j + 1, length: n - j - 1))
+                let end = close.location == NSNotFound ? n : NSMaxRange(close)
+                out.append(Span(range: NSRange(location: i, length: end - i), kind: .string))
+                i = end
+            default:
+                i += 1
+            }
+        }
+        return out
+    }
+
+    // MARK: PowerShell
+
+    /// A PowerShell window that starts inside a block comment (`#>` before
+    /// any `<#`) or a here-string (a line starting `'@` or `"@` before any
+    /// `@'`/`@"` opener): where it leaves it.
+    static func startsInsidePowerShell(_ s: NSString) -> Int? {
+        let close = s.range(of: "#>"), open = s.range(of: "<#")
+        if close.location != NSNotFound, open.location == NSNotFound || close.location < open.location { return NSMaxRange(close) }
+        for q in ["'@", "\"@"] {
+            let c = s.range(of: "\n" + q)
+            let o = s.range(of: q.hasPrefix("'") ? "@'" : "@\"")
+            if c.location != NSNotFound, o.location == NSNotFound || c.location < o.location { return NSMaxRange(c) }
+        }
+        return nil
     }
 }

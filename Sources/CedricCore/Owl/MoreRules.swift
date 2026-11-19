@@ -377,7 +377,7 @@ extension RulesHintProvider {
     /// `"@`), `${any name}` variables and backtick-escaped characters in
     /// code. Typographic quotes are quotes in PowerShell, so none are
     /// reported as curly.
-    static func scanPowerShell(_ s: NSString) -> CodeScan {
+    static func scanPowerShell(_ s: NSString, forMask: Bool = false) -> CodeScan {
         var scan = CodeScan()
         let n = s.length
         var stack: [(Character, Int)] = []
@@ -391,7 +391,13 @@ extension RulesHintProvider {
             return j >= n || ch(j) == 10
         }
 
+        func span(_ start: Int, _ kind: CodeMask.Span.Kind) {
+            if forMask { scan.spans.append(CodeMask.Span(range: NSRange(location: start, length: min(i, n) - start), kind: kind)) }
+        }
+
         func expandable() {   // on the opening quote
+            let start = i
+            defer { span(start, .string) }
             i += 1
             while i < n, scan.problem == nil {
                 let k = ch(i)
@@ -411,24 +417,31 @@ extension RulesHintProvider {
                 switch k {
                 case 96: i += 2; continue   // backtick escape
                 case 60 where ch(i + 1) == 35:   // <# … #>
+                    let start = i
                     i += 2
                     while i < n, !(ch(i) == 35 && ch(i + 1) == 62) { i += 1 }
                     i += 2
+                    span(start, .comment)
                     continue
                 case 35 where i == 0 || [32, 9, 10, 13, 59, 40, 123, 125, 124, 44, 61].contains(ch(i - 1)):
+                    let start = i
                     while i < n, ch(i) != 10 { i += 1 }
+                    span(start, .comment)
                     continue
                 case 64 where (isSQ(ch(i + 1)) || isDQ(ch(i + 1))) && restOfLineBlank(i + 2):   // here-string
-                    let single = isSQ(ch(i + 1))
+                    let single = isSQ(ch(i + 1)), start = i
                     i += 2
                     while i < n {
                         if ch(i) == 10, single ? isSQ(ch(i + 1)) : isDQ(ch(i + 1)), ch(i + 2) == 64 { i += 3; break }
                         i += 1
                     }
+                    span(start, .string)
                     continue
                 case _ where isSQ(k):
+                    let start = i
                     i += 1
                     while i < n { if isSQ(ch(i)) { if isSQ(ch(i + 1)) { i += 2; continue }; i += 1; break }; i += 1 }
+                    span(start, .string)
                     continue
                 case _ where isDQ(k):
                     expandable()
@@ -440,9 +453,10 @@ extension RulesHintProvider {
                     continue
                 case 40, 91, 123:
                     if closer != nil { depth += 1 }
-                    stack.append((Character(UnicodeScalar(k)!), i))
+                    if !forMask { stack.append((Character(UnicodeScalar(k)!), i)) }
                 case 41, 93, 125:
                     if closer != nil { depth -= 1 }
+                    if forMask { break }
                     let want: Character = k == 41 ? "(" : k == 93 ? "[" : "{"
                     let got = Character(UnicodeScalar(k)!)
                     guard let top = stack.popLast() else { scan.problem = .unexpected(got, at: i); return }
@@ -454,6 +468,7 @@ extension RulesHintProvider {
         }
 
         code(until: nil)
+        if forMask { return scan }
         if scan.problem == nil, let open = stack.last { scan.problem = .unclosed(open.0, at: open.1) }
         return scan
     }
