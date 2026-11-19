@@ -142,10 +142,11 @@ final class OwlHub {
 
     /// Hints from the AI scheduler: same dedupe/snooze/range checks as the
     /// rules, then the same bubble. Dropped while a bubble or the popover
-    /// is up, or when the source isn't "Rules + AI".
+    /// is up, while Ask Cedric is busy with the owl, or when the source
+    /// isn't "Rules + AI".
     private func presentAI(_ hints: [OwlHint], context: OwlContext) {
         guard enabled, let tab = tab(for: context.documentID), let owl = tab.owl,
-              owl.bubble == nil, !owl.popoverShown else { return }
+              owl.bubble == nil, !owl.popoverShown, !owl.chatBusy else { return }
         let length = tab.textView.textStorage?.length ?? -1
         guard let hint = coordinator.acceptAI(hints, context: context, length: length, generation: tab.doc.changeCount) else { return }
         owl.present(hint, context: context)
@@ -203,7 +204,9 @@ final class OwlHub {
         guard enabled, let tab = activeTab, let owl = tab.owl, owl.canAnimate else { return } // resumes on activation
         guard !tab.owlIdleForSpeed else { return } // large mode: only when clicked (userAsked)
         guard coordinator.isDue else { schedule(); return }
-        guard owl.bubble == nil, !owl.popoverShown else { return } // one bubble at a time; the next edit asks again
+        // One bubble at a time, and none while Ask Cedric is busy with
+        // him: the next edit asks again.
+        guard owl.bubble == nil, !owl.popoverShown, !owl.chatBusy else { return }
         let window = tab.owlContextWindow()
         let facts = tab.owlFacts(wholeDocument: window.isWholeDocument)
         // Fast: the AI's registry entry answers nothing here; the AI

@@ -12,9 +12,14 @@ import CedricAI
 ///   4. the same again, then an edit in the document: Apply refuses, Ask Again shows;
 ///   5. Stop cancels a running answer;
 ///   6. Escape closes the panel.
-/// Before step 2, Cedric in the panel's header (`face`): he waves, listens
-/// to real typing, thinks, searches, talks and nods through a question,
-/// light, dark and under Reduce Motion; and stops when the panel closes.
+/// Before step 2, the one owl (`owlInChat`): the panel has no owl of its
+/// own and opens beside the editor's owl; he waves, listens to real
+/// typing, thinks, searches, talks and nods through a question, and only
+/// changes still poses under Reduce Motion; his own idle animations wait
+/// meanwhile. After step 6 (`placement`): reopened beside him wherever he
+/// moved, at the default place with the owl hidden (the chat still
+/// works), where the user left it once moved; nothing left running after
+/// close.
 @MainActor
 enum OwlChatCheck {
     static func check(_ ok: Bool, _ what: String) { OwlCheck.check(ok, what) }
@@ -23,13 +28,15 @@ enum OwlChatCheck {
     static func run(_ tab: EditorWindowController, out: String) {
         guard let window = tab.window else { return }
         check(tab.owlChat == nil, "no chat panel before it is asked for")
+        OwlView.reduceMotion = false
+        tab.owl?.reduceMotionChanged()
         OwlCheck.key(window, "/", code: 44, [.command, .option])
         after(0.3) {
             guard let chat = tab.owlChat, chat.isShown else {
                 check(false, "⌥⌘/ opens Ask Cedric"); OwlCheck.finish(out); return
             }
             check(true, "⌥⌘/ opens Ask Cedric")
-            face(tab, chat, out: out) { explain(tab, chat, out: out) }
+            owlInChat(tab, chat, out: out) { explain(tab, chat, out: out) }
         }
     }
 
@@ -201,94 +208,118 @@ enum OwlChatCheck {
         for ch in text { OwlCheck.key(chat.panel, String(ch), code: 0, []) }
     }
 
-    /// Cedric in the header through one question, then under Reduce Motion.
-    static func face(_ tab: EditorWindowController, _ chat: OwlChatPanel, out: String, then: @escaping @MainActor () -> Void) {
-        let f = chat.face
-        OwlView.reduceMotion = false
-        // With the screen locked the window server reports the panel
-        // occluded; the check treats it as visible from then on.
-        f.updateLive()
-        f.reduceMotionChanged()
-        check(f.isLive, "the panel's owl is on screen with the panel")
-        check(f.moodLog.contains(.wave), "he waves when the panel opens (\(f.moodLog))")
-        check(f.superview != nil && f.window === chat.panel, "he sits in the panel's header")
+    /// An owl view anywhere in the panel (there must be none).
+    static func hasOwlView(_ v: NSView?) -> Bool {
+        guard let v else { return false }
+        if v is OwlView || v.accessibilityLabel() == String(localized: "Cedric the owl") { return true }
+        return v.subviews.contains { hasOwlView($0) }
+    }
+
+    /// The panel beside the owl: `gap` from him on one side, overlapping
+    /// him along the other axis, inside the screen's visible frame, at the
+    /// origin `OwlChatPlacement` gives.
+    static func checkBeside(_ tab: EditorWindowController, _ chat: OwlChatPanel, _ what: String) {
+        guard let owl = tab.owl?.screenFrame else { check(false, "\(what): the owl is on screen"); return }
+        let p = chat.panel.frame
+        let screen = NSScreen.screens.first { $0.frame.contains(NSPoint(x: owl.midX, y: owl.midY)) }?.visibleFrame ?? .zero
+        let want = OwlChatPlacement.panelOrigin(owl: owl, panel: p.size, screen: screen)
+        let gap = OwlChatPlacement.gap
+        let side = (abs(p.minX - (owl.maxX + gap)) < 0.5 || abs(owl.minX - (p.maxX + gap)) < 0.5) && p.minY < owl.maxY && p.maxY > owl.minY
+        let stacked = (abs(p.minY - (owl.maxY + gap)) < 0.5 || abs(owl.minY - (p.maxY + gap)) < 0.5) && p.minX < owl.maxX && p.maxX > owl.minX
+        check(chat.openedBesideOwl != nil && hypot(p.minX - want.x, p.minY - want.y) < 0.5 && (side || stacked)
+              && !p.intersects(owl) && screen.contains(p),
+              "\(what): the panel opens beside the owl (panel \(Int(p.minX)),\(Int(p.minY)) \(Int(p.width))×\(Int(p.height)), owl \(Int(owl.minX)),\(Int(owl.minY)), \(side ? "beside" : stacked ? "above/below" : "apart"))")
+    }
+
+    /// The one owl: the editor's, reacting to the chat through one
+    /// question, then under Reduce Motion.
+    static func owlInChat(_ tab: EditorWindowController, _ chat: OwlChatPanel, out: String, then: @escaping @MainActor () -> Void) {
+        guard let o = tab.owl, let window = tab.window else { check(false, "the tab has its owl"); OwlCheck.finish(out); return }
+        let v = o.owl
+        check(!hasOwlView(chat.panel.contentView), "the panel has no owl of its own")
         // 0.2.1: the panel is a floating panel of its own, not a child window.
-        check(chat.panel.parent == nil && chat.panel.isFloatingPanel && tab.window?.childWindows?.contains(chat.panel) != true,
-              "the panel he sits in floats on its own, not as a child of the editor window")
-        OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-0-wave.png") {
+        check(chat.panel.parent == nil && chat.panel.isFloatingPanel && window.childWindows?.contains(chat.panel) != true,
+              "the panel floats on its own, not as a child of the editor window")
+        checkBeside(tab, chat, "first open")
+        check(o.chatOpen, "the owl knows the panel is open")
+        check(o.chatMoodLog.first == .wave, "the editor's owl waves when the panel opens (\(o.chatMoodLog))")
+        check(v.isPlaying && o.chatBusy, "the wave plays on him, and the chat holds him while it does")
+        OwlCheck.snapshot(window, "\(out)/chat-owl-0-wave.png") {
+          OwlCheck.snapshot(chat.panel, "\(out)/chat-panel-0-no-owl.png") {
             after(1.2) {
-                check(f.mood == .idle && f.blinkScheduled, "the wave settles to idle, with a blink scheduled")
-                f.blinkNow()
-                check(f.isAnimating, "idle: he blinks")
-                after(0.4) {
-                    let before = f.moodLog.count
-                    type(chat, "Where is 'total' used?")
-                    let listens = f.moodLog[before...].filter { $0 == .listen }.count
-                    check(chat.input.stringValue == "Where is 'total' used?", "typed with real keys (\(chat.input.stringValue))")
-                    check(f.mood == .listen && listens == 1, "typing: he listens, once for a burst of keys (\(listens))")
-                    OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-1-listen.png") {
-                        let start = f.moodLog.count
-                        var talkShot = false
-                        OwlCheck.key(chat.panel, "\r", code: 36, [])
-                        check(chat.running, "Return asks the question")
-                        @MainActor func poll() {
-                            if chat.running {
-                                if f.mood == .talk, !talkShot {
-                                    talkShot = true
-                                    OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-2-talk.png") {}
-                                }
-                                after(0.02) { poll() }
-                                return
+                check(o.chatMood == .idle && !o.chatBusy && !o.chatGesturePlaying, "the wave settles: he is his own owl again (\(o.chatMood))")
+                let before = o.chatMoodLog.count
+                type(chat, "Where is 'total' used?")
+                let listens = o.chatMoodLog[before...].filter { $0 == .listen }.count
+                check(chat.input.stringValue == "Where is 'total' used?", "typed with real keys (\(chat.input.stringValue))")
+                check(o.chatMood == .listen && listens == 1, "typing: he listens, once for a burst of keys (\(listens))")
+                let look = OwlArt.strip(.look)
+                check(v.isPlaying && look.contains { $0 === v.current }, "the listening glance plays on the editor's owl")
+                // No double animation: his idle tick and the save flap wait.
+                o.idleTickNow()
+                o.noteSave()
+                check(o.chatBusy && look.contains { $0 === v.current }, "his idle animation and the save flap don't cut into the chat's glance")
+                OwlCheck.snapshot(window, "\(out)/chat-owl-1-listen.png") {
+                    let start = o.chatMoodLog.count
+                    var shots: Set<OwlChatMood> = []
+                    var heldWhileWorking = true
+                    OwlCheck.key(chat.panel, "\r", code: 36, [])
+                    check(chat.running, "Return asks the question")
+                    @MainActor func poll() {
+                        if chat.running {
+                            if o.chatMood.isWorking, !o.chatBusy { heldWhileWorking = false }
+                            for m in [OwlChatMood.think, .talk] where o.chatMood == m && !shots.contains(m) {
+                                shots.insert(m)
+                                OwlCheck.snapshot(window, "\(out)/chat-owl-2-\(m.rawValue).png") {}
                             }
-                            let seen = Array(f.moodLog[start...])
-                            let order: [OwlChatMood] = [.think, .search, .talk, .nod]
-                            var i = 0
-                            for m in seen where i < order.count && m == order[i] { i += 1 }
-                            check(i == order.count, "asking: think, search, talk, then a nod (\(seen))")
-                            check(chat.transcriptText.contains("fake answer"), "the answer arrived")
-                            OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-3-nod.png") {
-                                chat.panel.appearance = NSAppearance(named: .darkAqua)
-                                after(0.1) {
-                                    OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-4-dark.png") {
-                                        chat.panel.appearance = nil
-                                        reduced(chat, out: out, then: then)
-                                    }
-                                }
-                            }
+                            after(0.02) { poll() }
+                            return
                         }
-                        after(0.02) { poll() }
+                        let seen = Array(o.chatMoodLog[start...])
+                        let order: [OwlChatMood] = [.think, .search, .talk, .nod]
+                        var i = 0
+                        for m in seen where i < order.count && m == order[i] { i += 1 }
+                        check(i == order.count, "asking: the editor's owl thinks, searches, talks, then nods (\(seen))")
+                        check(heldWhileWorking, "the chat holds him the whole time the model works")
+                        check(o.chatMood == .nod && v.isPlaying, "the nod plays on him")
+                        check(chat.transcriptText.contains("fake answer"), "the answer arrived")
+                        OwlCheck.snapshot(window, "\(out)/chat-owl-3-nod.png") {
+                            reduced(tab, chat, out: out, then: then)
+                        }
                     }
+                    after(0.02) { poll() }
                 }
             }
+          }
         }
     }
 
-    /// Reduce Motion: still poses only, never a timer.
-    static func reduced(_ chat: OwlChatPanel, out: String, then: @escaping @MainActor () -> Void) {
-        let f = chat.face
+    /// Reduce Motion: still poses only, never a strip.
+    static func reduced(_ tab: EditorWindowController, _ chat: OwlChatPanel, out: String, then: @escaping @MainActor () -> Void) {
+        guard let o = tab.owl, let window = tab.window else { then(); return }
+        let v = o.owl
         OwlView.reduceMotion = true
-        f.reduceMotionChanged()
-        check(!f.isAnimating && !f.blinkScheduled, "Reduce Motion: no frame or blink timer when idle")
-        let shown = f.framesShown
+        o.reduceMotionChanged()
+        check(!v.isPlaying, "Reduce Motion: nothing plays when idle")
         type(chat, "Explain this")
-        check(!f.isAnimating, "Reduce Motion: no listening glance")
-        let start = f.moodLog.count
+        check(!v.isPlaying, "Reduce Motion: no listening glance")
+        let start = o.chatMoodLog.count
         var moved = false
-        var stills: Set<ObjectIdentifier> = []
+        var drawn: Set<ObjectIdentifier> = []
         OwlCheck.key(chat.panel, "\r", code: 36, [])
         @MainActor func poll() {
-            if f.isAnimating { moved = true }
-            if let c = f.current { stills.insert(ObjectIdentifier(c)) }
+            if v.isPlaying || v.inState { moved = true }
+            if let c = v.current { drawn.insert(ObjectIdentifier(c)) }
             if chat.running { after(0.02) { poll() }; return }
-            if f.isAnimating { moved = true }
-            let seen = Array(f.moodLog[start...])
-            check(!moved, "Reduce Motion: no strip plays while asking (\(seen))")
-            check(seen.contains(.think) && seen.contains(.talk), "Reduce Motion: his moods still follow the chat (\(seen))")
-            let poses = Set([OwlArt.poses[.idle], OwlArt.poses[.thinking], OwlArt.poses[.talking]].compactMap { $0.map(ObjectIdentifier.init) })
-            check(stills.isSubset(of: poses), "Reduce Motion: only still poses are drawn (\(f.framesShown - shown) changes)")
-            OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-5-reduce-motion.png") {
+            if v.isPlaying || v.inState { moved = true }
+            let seen = Array(o.chatMoodLog[start...])
+            check(!moved, "Reduce Motion: no strip plays on him while asking (\(seen))")
+            check(seen.contains(.think) && seen.contains(.talk), "Reduce Motion: his poses still follow the chat (\(seen))")
+            let stills = Set([OwlArt.Pose.idle, .thinking, .talking, .sleepy].compactMap { OwlArt.poses[$0].map(ObjectIdentifier.init) })
+            check(drawn.isSubset(of: stills), "Reduce Motion: only still poses are drawn (\(drawn.count) different)")
+            OwlCheck.snapshot(window, "\(out)/chat-owl-5-reduce-motion.png") {
                 OwlView.reduceMotion = false
-                f.reduceMotionChanged()
+                o.reduceMotionChanged()
                 chat.clearHistory(nil)
                 then()
             }
@@ -342,14 +373,16 @@ enum OwlChatCheck {
                 let applied = tab.text
                 check(applied.contains("// \(FakeChatEngine.commentText)\n"), "Apply inserted the comment")
                 check(chat.card.isHidden, "the card closes after Apply")
-                check(chat.face.mood == .flap, "the panel's owl flaps on Apply (\(chat.face.mood))")
-                if let w = tab.window {
+                check(tab.owl?.chatMood == .flap && tab.owl?.owl.isPlaying == true,
+                      "the editor's owl flaps on Apply (\(tab.owl.map { "\($0.chatMood)" } ?? "no owl"))")
+                guard let w = tab.window else { stale(tab, chat, out: out); return }
+                OwlCheck.snapshot(w, "\(out)/chat-owl-6-flap.png") {
                     w.makeKeyAndOrderFront(nil)
                     w.makeFirstResponder(tv)
                     OwlCheck.key(w, "z", code: 6, [.command])
+                    check(tab.text == original, "one ⌘Z undoes Cedric’s edit")
+                    stale(tab, chat, out: out)
                 }
-                check(tab.text == original, "one ⌘Z undoes Cedric’s edit")
-                stale(tab, chat, out: out)
             }
         }
     }
@@ -414,9 +447,114 @@ enum OwlChatCheck {
         }
         after(0.3) {
             check(!chat.isShown, "Escape closes the panel")
-            check(!chat.face.isLive && !chat.face.isAnimating && !chat.face.blinkScheduled,
-                  "the panel's owl stops when it closes: no timers")
-            OwlChatCheck.after(0.05) { extra(tab, out) }
+            checkClosed(tab, chat, "after Escape")
+            placement(tab, chat, out: out)
+        }
+    }
+
+    /// Closed: the chat holds nothing: no panel timer or task, the owl his
+    /// own (no chat mood, no chat gesture or loop on him).
+    static func checkClosed(_ tab: EditorWindowController, _ chat: OwlChatPanel, _ what: String) {
+        let o = tab.owl
+        let mood = o?.chatMood ?? .idle
+        let held = o.map { $0.chatBusy || $0.chatGesturePlaying || $0.owl.inState } ?? false
+        check(!chat.hasTimers && mood == .idle && !held && o?.chatOpen != true,
+              "\(what): no timers or animation left from the chat (panel timers \(chat.hasTimers), mood \(mood), owl held \(held))")
+    }
+
+    static func reopen(_ tab: EditorWindowController, _ then: @escaping @MainActor (OwlChatPanel) -> Void) {
+        guard let w = tab.window else { return }
+        w.makeKeyAndOrderFront(nil)
+        w.makeFirstResponder(tab.textView)
+        OwlCheck.key(w, "/", code: 44, [.command, .option])
+        after(0.3) {
+            guard let chat = tab.owlChat, chat.isShown else { check(false, "⌥⌘/ reopens Ask Cedric"); OwlCheck.finish(""); return }
+            then(chat)
+        }
+    }
+
+    static func setOwlShown(_ on: Bool) {
+        Settings.shared.owlOverride = on
+        NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil)
+    }
+
+    /// Where it reopens: beside the owl wherever he moved; with the owl
+    /// hidden, at the default place (and the chat still works); once the
+    /// user moved it, where they left it.
+    static func placement(_ tab: EditorWindowController, _ first: OwlChatPanel, out: String) {
+        guard let o = tab.owl, let w = tab.window else { check(false, "the owl is back"); OwlCheck.finish(out); return }
+        let firstFrame = first.panel.frame
+        o.moveTo(OwlPlacement(corner: .topLeft, inset: OwlPlacement.margin))
+        after(0.4) {
+            reopen(tab) { chat in
+                checkBeside(tab, chat, "the owl moved to the top left")
+                check(chat.panel.frame.origin != firstFrame.origin, "so it opens somewhere else than the first time")
+                OwlCheck.snapshot(w, "\(out)/chat-owl-7-moved.png") {
+                    // Hide Cedric: the panel opens at the default place and the chat works.
+                    chat.close()
+                    setOwlShown(false)
+                    check(tab.owl == nil, "Hide Cedric: no owl")
+                    reopen(tab) { chat in
+                        check(tab.owl == nil, "opening the panel doesn't bring him back")
+                        let p = chat.panel.frame
+                        let screen = (w.screen ?? NSScreen.main)?.visibleFrame ?? w.frame
+                        let x = min(max(w.frame.maxX - p.width - 24, screen.minX + 4), screen.maxX - p.width - 4)
+                        let y = min(max(w.frame.minY + 100, screen.minY + 4), screen.maxY - p.height - 4)
+                        check(chat.openedBesideOwl == nil && abs(p.minX - x) < 0.5 && abs(p.minY - y) < 0.5,
+                              "with no owl it opens at the default place, the window's bottom-right corner")
+                        OwlCheck.click(chat.actionButtons[.explain]!)
+                        waitDone(chat) { _ in
+                            check(chat.transcriptText.contains("fake answer"), "the chat works without the owl")
+                            OwlCheck.snapshot(chat.panel, "\(out)/chat-panel-1-no-owl-shown.png") {
+                                chat.clearHistory(nil)
+                                chat.close()
+                                setOwlShown(true)
+                                // Once he is laid out in his new overlay.
+                                after(0.3) {
+                                    tab.owl?.resetPosition()
+                                    dragged(tab, out: out)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Moved by the user: reopening keeps their place, wherever the owl is.
+    static func dragged(_ tab: EditorWindowController, out: String) {
+        guard tab.owl != nil else { check(false, "Show Cedric brings him back"); OwlCheck.finish(out); return }
+        after(0.4) {
+            if let o = tab.owl {
+                let b = o.overlay.bounds, f = o.owl.frame
+                check(f.maxX > b.midX && f.minY < b.midY, "Show Cedric and Reset Position: he is back at the bottom right (\(Int(f.minX)),\(Int(f.minY)))")
+            }
+            reopen(tab) { chat in
+                checkBeside(tab, chat, "the owl back at the bottom right")
+                check(!chat.movedByUser, "not moved by the user yet")
+                // What a title-bar drag ends with (a real drag can't be
+                // posted in process: the window server moves the window).
+                let f = chat.panel.frame
+                let to = NSPoint(x: f.minX - 40, y: f.minY + 30)
+                chat.panel.setFrameOrigin(to)
+                after(0.1) {
+                    check(chat.movedByUser, "moving the panel counts as the user's place")
+                    check(chat.panel.parent == nil && chat.panel.isFloatingPanel, "still a free-floating panel after moving")
+                    chat.close()
+                    tab.owl?.moveTo(OwlPlacement(corner: .topLeft, inset: OwlPlacement.margin))
+                    after(0.4) {
+                        reopen(tab) { chat in
+                            check(chat.openedBesideOwl == nil && chat.panel.frame.origin == to,
+                                  "reopened where the user left it, not beside the owl")
+                            chat.close()
+                            checkClosed(tab, chat, "closed again")
+                            tab.owl?.resetPosition()
+                            OwlChatCheck.after(0.3) { extra(tab, out) }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -469,12 +607,12 @@ enum OwlChatCheck {
         let v = owl.owl
         OwlView.reduceMotion = false
         owl.reduceMotionChanged()
-        owl.chatPhase(.thinking)
+        owl.chatCue(.asked)
         check(v.isPlaying && v.inState, "thinking loops while the AI works")
-        owl.chatPhase(.searching)
+        owl.chatCue(.searching)
         check(v.isPlaying, "searching loops while a search tool runs")
-        owl.chatPhase(nil)
-        check(!v.isPlaying && v.pose == .idle, "back to idle when the answer is done")
+        owl.chatCue(.stopped)
+        check(!v.isPlaying && v.pose == .idle, "back to idle when the answer stops")
         owl.nod()
         check(v.isPlaying, "a nod plays after an edit is applied")
         // Typing stops a gesture at once.
@@ -489,11 +627,11 @@ enum OwlChatCheck {
             // Reduce Motion.
             OwlView.reduceMotion = true
             owl.reduceMotionChanged()
-            owl.chatPhase(.thinking)
-            check(!v.isPlaying && v.inState, "Reduce Motion: thinking is a still frame, no timer")
-            owl.chatPhase(.writing)
-            check(!v.isPlaying, "Reduce Motion: writing is a still frame")
-            owl.chatPhase(nil)
+            owl.chatCue(.asked)
+            check(!v.isPlaying && v.pose == .thinking, "Reduce Motion: thinking is a still pose, no timer")
+            owl.chatCue(.proposing)
+            check(!v.isPlaying, "Reduce Motion: writing is a still pose")
+            owl.chatCue(.stopped)
             owl.nod()
             v.flap()
             v.wave()

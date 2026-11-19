@@ -117,8 +117,6 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private(set) var stopButton: NSButton!
     private(set) var actionButtons: [OwlQuickAction: NSButton] = [:]
     let footer = NSTextField(labelWithString: "")
-    /// Cedric himself, in the header, reacting to the conversation.
-    let face = OwlChatFace(frame: NSRect(x: 0, y: 0, width: OwlChatFace.width, height: OwlChatFace.size))
     // The diff card.
     let card = NSStackView()
     let cardTitle = NSTextField(labelWithString: "")
@@ -180,8 +178,9 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         scopePopup.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         scopePopup.target = self
         scopePopup.action = #selector(scopeChanged(_:))
-        face.engineReady = { AskCedricEngine.isAvailable }
-        let head = NSStackView(views: [about, scopePopup, NSView(), face])
+        // No owl in here: the editor's own owl, wherever he sits, reacts
+        // to the conversation (OwlController.chatCue).
+        let head = NSStackView(views: [about, scopePopup, NSView()])
         head.spacing = 6
         head.alignment = .centerY
 
@@ -288,13 +287,57 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     /// stutter. It hides with
     /// its tab (another tab selected, the window minimized or closed) and
     /// comes back with it; it no longer follows the window around.
+    /// Where it opens: `place(in:)`.
     func show() {
         guard let tab, let w = tab.window else { return }
         follow(w)
-        if !panel.isVisible { position(in: w) }
+        let opening = !panel.isVisible
+        if opening { place(in: w) }
         refresh()
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(input)
+        if opening { tab.owl?.chatOpened(panel, engineReady: AskCedricEngine.isAvailable) }
+    }
+
+    /// The user moved the panel since it last opened by itself: from then
+    /// on (this tab, this run of the app) it opens where they left it.
+    private(set) var movedByUser = false
+    /// Where it opened next to the owl (checks: nil when it didn't).
+    private(set) var openedBesideOwl: NSRect?
+    private var placedOrigin: NSPoint?
+    private var placing = false
+
+    /// Where it opens, every time it opens (`OwlChatPlacement`):
+    /// 1. moved by the user this session: where they left it (if that is
+    ///    still on a screen);
+    /// 2. the owl on screen: beside him, wherever he sits, on the side
+    ///    with room, inside the screen's visible frame;
+    /// 3. no owl (Hide Cedric, or none in this tab): the window's
+    ///    bottom-right corner, as before. The owl isn't shown for it.
+    private func place(in w: NSWindow) {
+        openedBesideOwl = nil
+        if movedByUser, NSScreen.screens.contains(where: { $0.visibleFrame.intersects(panel.frame) }) { return }
+        if let owl = tab?.owl?.screenFrame {
+            let screen = NSScreen.screens.first { $0.frame.contains(NSPoint(x: owl.midX, y: owl.midY)) } ?? w.screen ?? NSScreen.main
+            if let visible = screen?.visibleFrame {
+                setOrigin(OwlChatPlacement.panelOrigin(owl: owl, panel: panel.frame.size, screen: visible))
+                openedBesideOwl = owl
+                return
+            }
+        }
+        position(in: w)
+    }
+
+    private func setOrigin(_ o: NSPoint) {
+        placing = true
+        panel.setFrameOrigin(o)
+        placing = false
+        placedOrigin = panel.frame.origin
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard !placing, panel.isVisible, let placedOrigin, panel.frame.origin != placedOrigin else { return }
+        movedByUser = true
     }
 
     private weak var followed: NSWindow?
@@ -338,14 +381,15 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         }
     }
 
-    /// Near the owl: the window's bottom-right corner, inside the screen.
+    /// The default place, with no owl to sit beside: the window's
+    /// bottom-right corner, inside the screen.
     private func position(in w: NSWindow) {
         let size = panel.frame.size
         let screen = (w.screen ?? NSScreen.main)?.visibleFrame ?? w.frame
         var o = NSPoint(x: w.frame.maxX - size.width - 24, y: w.frame.minY + 100)
         o.x = min(max(o.x, screen.minX + 4), screen.maxX - size.width - 4)
         o.y = min(max(o.y, screen.minY + 4), screen.maxY - size.height - 4)
-        panel.setFrameOrigin(o)
+        setOrigin(o)
     }
 
     var isShown: Bool { panel.isVisible }
@@ -356,12 +400,14 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         unfollow()
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
+        tab?.owl?.chatClosed()
     }
 
     func windowWillClose(_ notification: Notification) {
         stop(nil)
         hiddenWithTab = false
         panel.parent?.removeChildWindow(panel)
+        tab?.owl?.chatClosed()
     }
 
     /// The scope chip, the action titles (prose or code), the footer and the transcript.
@@ -591,8 +637,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         streamed = ""
         flushes = 0
         updateButtons()
-        tab.owl?.chatPhase(.thinking)
-        face.cue(.asked)
+        tab.owl?.chatCue(.asked)
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             guard let engine = await OwlChatStore.shared.engine() else {
@@ -641,7 +686,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         guard running, let id = docID else { return }
         switch ev {
         case .text(let t):
-            face.cue(.streaming)
+            tab?.owl?.chatCue(.streaming)
             pendingText += t
             if flushTimer == nil {
                 let timer = Timer(timeInterval: 1.0 / 30, repeats: false) { [weak self] _ in
@@ -655,13 +700,11 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             // Above the answer being written.
             OwlChatStore.shared.insertBeforeLast(OwlChatEntry(role: .tool, text: "· " + summary), in: id)
             render()
-            if name == .searchDocument { tab?.owl?.chatPhase(.searching) }
+            if name == .searchDocument { tab?.owl?.chatCue(.searching) }
         case .proposal:
-            tab?.owl?.chatPhase(.writing)
-            face.cue(.proposing)
+            tab?.owl?.chatCue(.proposing)
         case .phase(let p):
-            tab?.owl?.chatPhase(p)
-            face.cue(p == .thinking ? .asked : p == .searching ? .searching : .streaming)
+            tab?.owl?.chatCue(p == .thinking ? .asked : p == .searching ? .searching : .streaming)
         }
     }
 
@@ -698,6 +741,9 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         }
     }
 
+    /// A flush timer or a request is pending (checks: none once closed).
+    var hasTimers: Bool { flushTimer != nil || task != nil }
+
     /// Times streamed text reached the transcript during this answer (checks).
     private(set) var flushes = 0
     /// Characters of answer shown so far (checks: streaming arrives in steps).
@@ -707,7 +753,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         guard running else { return }
         flush()
         running = false
-        face.cue(outcome != nil ? .answered : task?.isCancelled == true ? .stopped : .failed)
+        tab?.owl?.chatCue(outcome != nil ? .answered : task?.isCancelled == true ? .stopped : .failed)
         task = nil
         lastOutcome = outcome
         if let id = docID {
@@ -724,7 +770,6 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         }
         render()
         updateButtons()
-        tab?.owl?.chatPhase(nil)
         if let p = outcome?.proposal { showProposal(p) }
         panel.makeFirstResponder(input)
         onFinish?(outcome)
@@ -784,8 +829,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         card.isHidden = true
         if let id = docID { OwlChatStore.shared.append(OwlChatEntry(role: .note, text: String(localized: "Applied. ⌘Z undoes it.")), to: id) }
         render()
-        tab.owl?.nod()
-        face.cue(.applied)
+        tab.owl?.chatCue(.applied)
         return true
     }
 
@@ -828,6 +872,12 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         OwlChatStore.shared.clear(id)
         discardProposal(nil)
         render()
+    }
+
+    /// A key in the question field: the owl listens (throttled in `OwlController.chatCue`).
+    func controlTextDidChange(_ obj: Notification) {
+        guard (obj.object as? NSTextField) === input else { return }
+        tab?.owl?.chatCue(.typed)
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {

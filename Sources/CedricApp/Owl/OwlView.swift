@@ -196,11 +196,19 @@ final class OwlView: NSView, NSViewToolTipOwner {
         return NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
-    /// Frames played once, then back to the pose. Skipped under Reduce Motion.
-    func gesture(_ frames: [NSImage], every interval: TimeInterval) {
-        guard OwlMotion.render(.blink, reduceMotion: Self.reduceMotion) == .play, !frames.isEmpty else { return }
+    /// Frames played once, then back to the pose. Skipped under Reduce
+    /// Motion. `done` runs when it played to the end (never when cut short
+    /// or skipped), returning false then.
+    @discardableResult
+    func gesture(_ frames: [NSImage], every interval: TimeInterval, done: (() -> Void)? = nil) -> Bool {
+        guard OwlMotion.render(.blink, reduceMotion: Self.reduceMotion) == .play, !frames.isEmpty else { return false }
         play(frames, every: interval)
+        finished = done
+        return true
     }
+
+    /// Runs when the gesture under way plays to its end.
+    private var finished: (() -> Void)?
 
     /// A state that lasts (thinking, searching, writing): its frames on a
     /// loop while it lasts, or its first frame, still, under Reduce Motion.
@@ -245,8 +253,12 @@ final class OwlView: NSView, NSViewToolTipOwner {
             sequence = looping
         }
         if sequence.isEmpty {
+            let done = finished
             stopSequence()
             current = OwlArt.poses[pose]
+            needsDisplay = true
+            done?()
+            return
         } else {
             current = sequence.removeFirst()
         }
@@ -259,6 +271,7 @@ final class OwlView: NSView, NSViewToolTipOwner {
         sequenceTimer?.invalidate()
         sequenceTimer = nil
         sequence = []
+        finished = nil
         if !keepLoop {
             looping = []
             if still != nil { still = nil; current = OwlArt.poses[pose]; needsDisplay = true }

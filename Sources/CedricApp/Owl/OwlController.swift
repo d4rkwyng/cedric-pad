@@ -110,7 +110,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     /// move again), and the idle timer is redone.
     func reduceMotionChanged() {
         if OwlView.reduceMotion, owl.isPlaying, !owl.inState { owl.stopSequence() }
-        if let p = chatState { chatPhase(p) }
+        if chatMood != .idle { renderChat() }
         idleTimer?.invalidate()
         idleTimer = nil
         updateTimer()
@@ -128,7 +128,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
         AfterFirstFrame.run { [weak self] in
             let t = Timer(timeInterval: 1.0, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, self.canAnimate, !OwlView.reduceMotion, self.bubble == nil,
+                    guard let self, self.canAnimate, !OwlView.reduceMotion, self.bubble == nil, !self.chatBusy,
                           !self.typedSinceLaunch, self.owl.pose == .idle else { return }
                     self.owl.wave()
                     Self.wavedAt = Date()
@@ -279,8 +279,10 @@ final class OwlController: NSObject, NSPopoverDelegate {
             owl.stopSequence()
             return
         }
+        // Back on screen while the model works: his chat loop again.
+        if chatMood.isWorking, !owl.inState { renderChat() }
         if owl.pose == .sleepy { return }
-        if Date().timeIntervalSince(lastTyping) >= sleepAfter { owl.setPose(.sleepy); return }
+        if !chatBusy, Date().timeIntervalSince(lastTyping) >= sleepAfter { owl.setPose(.sleepy); return }
         if idleTimer?.isValid != true { scheduleIdle() }
     }
 
@@ -304,11 +306,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
         idleTicks += 1
         guard canAnimate else { return }
         if introduceAskCedric() { scheduleIdle(); return }
-        if Date().timeIntervalSince(lastTyping) >= sleepAfter {
+        if Date().timeIntervalSince(lastTyping) >= sleepAfter, !chatBusy {
             if bubble == nil { owl.setPose(.sleepy) }
             return // asleep: no timer until typing wakes it
         }
-        if owl.pose == .idle, !owl.inState, !OwlView.reduceMotion {
+        // While Ask Cedric drives him, his own idle animations wait.
+        if owl.pose == .idle, !owl.inState, !OwlView.reduceMotion, !chatBusy {
             if typedSinceLook, Date().timeIntervalSince(lastTyping) >= 1, let i = gazeTowardCaret() {
                 // Typing stopped: a look toward where the user is writing.
                 typedSinceLook = false
@@ -344,7 +347,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
         let env = DevEnvironment.values
         let forced = env["CEDRIC_ASK_HINT"] == "1"
         guard !Self.introduced, env["CEDRIC_ASK_HINT"] != "0", forced || env["CEDRIC_NO_SESSION_SAVE"] == nil,
-              let tab, bubble == nil, !popoverShown, !OwlHub.shared.coordinator.isQuiet, !tab.extrasPaused else { return false }
+              let tab, bubble == nil, !popoverShown, !chatOpen, !chatBusy, !OwlHub.shared.coordinator.isQuiet, !tab.extrasPaused else { return false }
         let after = env["CEDRIC_ASK_HINT_AFTER"].flatMap(Double.init) ?? 45
         guard Date().timeIntervalSince(Self.firstOwlAt ?? Date()) >= after, Date().timeIntervalSince(lastTyping) >= min(3, after) else { return false }
         let defaults = UserDefaults.standard
@@ -378,8 +381,11 @@ final class OwlController: NSObject, NSPopoverDelegate {
     }
 
     func noteTyping() {
-        // Never animate while the user types: a gesture in progress stops.
+        // Never animate while the user types: a gesture in progress stops
+        // (the chat's too: it is over).
         if owl.isPlaying, !owl.inState { owl.stopSequence() }
+        if chatMood.isGesture { chatMood = .idle }
+        chatGesture = false
         typedSinceLook = true
         typedSinceLaunch = true
         lastTyping = Date()
@@ -388,37 +394,160 @@ final class OwlController: NSObject, NSPopoverDelegate {
         caretMoved(byUser: true)
     }
 
-    func noteSave() { owl.flap() }
+    func noteSave() {
+        guard !chatBusy else { return }
+        owl.flap()
+    }
 
-    /// Ask Cedric's state: thinking, searching (a search tool runs),
-    /// writing (the answer or an edit streams); nil when done.
-    private(set) var chatState: OwlChatPhase?
-    func chatPhase(_ phase: OwlChatPhase?) {
-        chatState = phase
-        guard bubble == nil else { return }
-        guard let phase else { owl.setPose(.idle); updateTimer(); return }
-        owl.setPose(.thinking)
-        switch phase {
-        case .thinking: owl.loop(OwlArt.strip(.think), every: 0.35)
-        case .searching: owl.loop(OwlArt.strip(.search), every: 0.4)
-        case .writing: owl.loop(OwlArt.strip(.write), every: 0.3)
+    // MARK: Ask Cedric drives him
+
+    /// Ask Cedric's mood for him (`OwlChatMood`): the chat panel has no owl
+    /// of its own; this one, wherever the user put him, reacts. While the
+    /// chat is busy (`chatBusy`) its poses win: his idle animations, hint
+    /// gestures and unasked-for hints wait, and resume when the chat is
+    /// idle or closed. No timer of its own: gestures and loops use the
+    /// owl view's frame timer, only while they play.
+    private(set) var chatMood: OwlChatMood = .idle
+    /// Every mood the chat put him in (checks).
+    private(set) var chatMoodLog: [OwlChatMood] = []
+    /// A chat gesture is under way (a wave, listen, nod or flap).
+    private var chatGesture = false
+    private var lastListen: Date?
+    private var lastWave: Date?
+    /// The Ask Cedric panel while it is open: he glances toward it.
+    private weak var chatWindow: NSWindow?
+
+    var chatBusy: Bool { OwlChatMood.isBusy(chatMood, gesturePlaying: chatGesture && owl.isPlaying) }
+    var chatOpen: Bool { chatWindow?.isVisible == true }
+    /// A chat gesture is playing on him (checks).
+    var chatGesturePlaying: Bool { chatGesture && owl.isPlaying }
+
+    /// His frame on screen, nil when he can't be seen (hidden, no window).
+    var screenFrame: NSRect? {
+        guard !owl.isHidden, !overlay.isHidden, let w = owl.window, w.isVisible else { return nil }
+        return w.convertToScreen(owl.convert(owl.bounds, to: nil))
+    }
+
+    /// The panel opened (`OwlChatPanel.show`).
+    func chatOpened(_ panel: NSWindow, engineReady: Bool) {
+        chatWindow = panel
+        chatCue(.opened(engineReady: engineReady))
+    }
+
+    /// The panel closed: his own again.
+    func chatClosed() {
+        chatWindow = nil
+        chatCue(.closed)
+    }
+
+    func chatCue(_ c: OwlChatMood.Cue) {
+        let next = OwlChatMood.next(c, from: chatMood)
+        switch c {
+        case .typed:
+            // Throttled: one listen per `listenInterval`, never every keystroke.
+            guard next == .listen, OwlChatMood.listenDue(lastListen: lastListen, now: Date()) else { return }
+            lastListen = Date()
+        case .opened(true):
+            // A wave when the panel opens, at most once a minute.
+            guard OwlChatMood.waveDue(lastWave: lastWave, now: Date()) else {
+                if !chatMood.isWorking, chatMood != .idle { enterChat(.idle) }
+                return
+            }
+            lastWave = Date()
+        default: break
+        }
+        // Chatting is activity: he doesn't fall asleep in the middle of it.
+        if case .opened = c { lastTyping = Date() }
+        if c == .typed || c == .asked { lastTyping = Date() }
+        // The same lasting state again (another text piece): nothing to redo.
+        if next == chatMood, !next.isGesture { return }
+        enterChat(next)
+    }
+
+    private func enterChat(_ m: OwlChatMood) {
+        chatMood = m
+        chatMoodLog.append(m)
+        if chatMoodLog.count > 64 { chatMoodLog.removeFirst(chatMoodLog.count - 64) }
+        renderChat()
+    }
+
+    /// Draws the chat's mood on him: a still, a gesture or a loop. Off
+    /// screen or under Reduce Motion: stills only, no timer.
+    private func renderChat() {
+        chatGesture = false
+        if chatMood == .idle {
+            // His own again: the bubble's pose if one is up, his idle timer.
+            owl.setPose(bubble != nil ? .talking : .idle)
+            updateTimer()
+            return
+        }
+        let still = OwlView.reduceMotion || !canAnimate
+        let display = OwlChatMood.display(chatMood, reduceMotion: still, gaze: chatMood == .listen ? gazeTowardChat() : nil)
+        switch display {
+        case .still(let s):
+            owl.setPose(Self.pose(s))
+            // A gesture shown as its still is over at once.
+            if chatMood.isGesture { chatMood = .idle; updateTimer() }
+        case .gesture(let strip, let idx, let every):
+            let f = Self.frames(strip)
+            let pick = idx.compactMap { f.indices.contains($0) ? f[$0] : nil }
+            owl.setPose(.idle)   // ends a loop under way
+            chatGesture = owl.gesture(pick, every: every) { [weak self] in
+                MainActor.assumeIsolated { self?.chatGestureEnded() }
+            }
+            if !chatGesture { chatMood = .idle; updateTimer() }
+        case .loop(let strip, let every):
+            owl.setPose(.thinking)
+            owl.loop(Self.frames(strip), every: every)
         }
     }
 
-    /// An edit was accepted (Ask Cedric's Apply, a hint's Fix it).
+    private func chatGestureEnded() {
+        chatGesture = false
+        chatCue(.settled)
+    }
+
+    private static func pose(_ s: OwlChatMood.Still) -> OwlArt.Pose {
+        switch s {
+        case .idle: return .idle
+        case .talking: return .talking
+        case .thinking: return .thinking
+        case .sleepy: return .sleepy
+        }
+    }
+
+    private static func frames(_ s: OwlChatMood.Strip) -> [NSImage] {
+        switch s {
+        case .wave: return OwlArt.strip(.wave)
+        case .look: return OwlArt.strip(.look)
+        case .think: return OwlArt.strip(.think)
+        case .search: return OwlArt.strip(.search)
+        case .write: return OwlArt.strip(.write)
+        case .nod: return OwlArt.strip(.nod)
+        case .flap: return OwlArt.flap
+        }
+    }
+
+    /// The look-strip frame from him toward the open panel.
+    private func gazeTowardChat() -> Int? {
+        guard let panel = chatWindow, panel.isVisible, let me = screenFrame else { return nil }
+        return OwlArt.gazeIndex(dx: panel.frame.midX - me.midX, dy: panel.frame.midY - me.midY)
+    }
+
+    /// An edit was accepted (a hint's Fix it).
     func nod() {
-        guard canAnimate, bubble == nil, chatState == nil else { return }
+        guard canAnimate, bubble == nil, !chatBusy else { return }
         owl.nod()
     }
 
     /// Nothing found where the user asked: a quiet "no" (a glance aside and back).
     func shake() {
-        guard canAnimate, bubble == nil, chatState == nil else { return }
+        guard canAnimate, bubble == nil, !chatBusy else { return }
         owl.glance(4)
     }
 
     func setThinking(_ on: Bool) {
-        guard bubble == nil, chatState == nil else { return }
+        guard bubble == nil, !chatBusy else { return }
         owl.setPose(on ? .thinking : .idle)
         if on { owl.loop(OwlArt.strip(.think), every: 0.35) }
     }
@@ -520,7 +649,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     @discardableResult
     func offerTypoFix(_ spelling: EditorSpelling, tab: EditorWindowController) -> Bool {
         let hub = OwlHub.shared
-        guard bubble == nil, !popoverShown, !hub.coordinator.isQuiet else { return false }
+        guard bubble == nil, !popoverShown, !chatBusy, !hub.coordinator.isQuiet else { return false }
         let window = tab.owlContextWindow()
         let ctx = window.context
         let probe = OwlHint(id: Self.typoFixID, kind: .fix, title: "", source: "rules")
@@ -633,11 +762,12 @@ final class OwlController: NSObject, NSPopoverDelegate {
         overlay.addSubview(b, positioned: .above, relativeTo: owl)
         bubble = b
         bubbleFaded = false
-        owl.setPose(.talking)
+        // While Ask Cedric is busy its pose stays (the bubble still shows).
+        if !chatBusy { owl.setPose(.talking) }
         layoutViews()
         caretMoved()
         // He points at the lines the hint is about.
-        if canAnimate, let r = hintedRect() {
+        if canAnimate, !chatBusy, let r = hintedRect() {
             owl.point(OwlArt.pointIndex(dx: r.midX - owl.frame.midX, dy: r.midY - owl.frame.midY))
         }
     }
@@ -647,7 +777,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
         bubble = nil
         presented = nil
         bubbleFaded = false
-        owl.setPose(.idle)
+        if !chatBusy { owl.setPose(chatMood == .sleepy ? .sleepy : .idle) }
         updateTimer()
     }
 

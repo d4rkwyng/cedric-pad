@@ -334,7 +334,7 @@ final class EditorGrammar {
     /// the rate limit and the user's choices allow.
     @discardableResult
     func offerHint(userAsked: Bool) -> Bool {
-        guard let tab, let owl = tab.owl, !tab.owlIdleForSpeed, owl.bubble == nil else { return false }
+        guard let tab, let owl = tab.owl, !tab.owlIdleForSpeed, owl.bubble == nil, userAsked || !owl.chatBusy else { return false }
         let hub = OwlHub.shared
         guard userAsked || (!hintsOffHere && !hub.coordinator.isQuiet && !hub.coordinator.never.contains(GrammarMap.globalID)) else { return false }
         // The owl's typing pause (3 s, CEDRIC_OWL_PAUSE in checks): never while typing.

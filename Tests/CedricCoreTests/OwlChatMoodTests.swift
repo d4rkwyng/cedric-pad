@@ -76,14 +76,28 @@ import Testing
         #expect(M.display(.talk, reduceMotion: true) == .still(.talking))
         #expect(M.display(.sleepy, reduceMotion: true) == .still(.sleepy))
         #expect(M.display(.wave, reduceMotion: true) == .still(.idle))
-        #expect(M.blinkDelay(.idle, reduceMotion: true, random: 0.5) == nil, "no blink timer under Reduce Motion")
+        #expect(M.display(.listen, reduceMotion: true, gaze: 2) == .still(.idle), "no glance under Reduce Motion")
     }
 
-    @Test func blinksOnlyWhenIdle() {
-        #expect(M.blinkDelay(.idle, reduceMotion: false, random: 0) == 3)
-        #expect(M.blinkDelay(.idle, reduceMotion: false, random: 1) == 7)
-        for m in M.allCases where m != .idle {
-            #expect(M.blinkDelay(m, reduceMotion: false, random: 0.5) == nil)
+    @Test func closingThePanelMakesHimTheEditorsOwlAgain() {
+        for m in M.allCases { #expect(M.next(.closed, from: m) == .idle) }
+    }
+
+    @Test func busyWhileWorkingOrPlayingAGesture() {
+        for m in [M.think, .search, .talk, .write] {
+            #expect(M.isBusy(m, gesturePlaying: false), "\(m) holds the owl while it lasts")
         }
+        for m in [M.wave, .listen, .nod, .flap] {
+            #expect(M.isBusy(m, gesturePlaying: true))
+            #expect(!M.isBusy(m, gesturePlaying: false), "\(m) lets go once it has played (or was cut short)")
+        }
+        #expect(!M.isBusy(.idle, gesturePlaying: true), "the owl's own gesture isn't the chat's")
+        #expect(!M.isBusy(.sleepy, gesturePlaying: false), "sleepy is a still: hints may show")
+    }
+
+    @Test func listeningGlancesTowardThePanel() {
+        #expect(M.display(.listen, reduceMotion: false, gaze: 2) == .gesture(.look, frames: [2, 2, 2, 2], every: 0.3))
+        #expect(M.display(.listen, reduceMotion: false, gaze: nil) == .gesture(.look, frames: [6, 5, 5, 6], every: 0.3))
+        #expect(M.display(.listen, reduceMotion: false, gaze: 9) == M.display(.listen, reduceMotion: false), "an unknown direction: the default glance")
     }
 }
