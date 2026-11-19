@@ -198,11 +198,19 @@ extension EditorTextView {
         multiApplying = true
         multiOwnsSelection = true
         let attrs = typingAttributes
+        // Each caret's edit is its own storage edit (exact line index, colouring,
+        // bookmarks and git bars), but the text view hears about the change
+        // once: didChangeText per caret ran the window's whole text-changed
+        // path k times and cost 8x more at 800 carets (518 vs 62 ms a key).
+        // One beginEditing bracket was faster still (27 ms) but hands
+        // storageEdited the union of all the edits (see docs/architecture.md).
+        var changed = false
         for e in result.edits.reversed() where !e.isNoOp {
             guard shouldChangeText(in: e.range, replacementString: e.replacement) else { continue }
             storage.replaceCharacters(in: e.range, with: NSAttributedString(string: e.replacement, attributes: attrs))
-            didChangeText()
+            changed = true
         }
+        if changed { didChangeText() }
         multiApplying = false
         multiOwnsSelection = false
         afterEdits?(result.selections)

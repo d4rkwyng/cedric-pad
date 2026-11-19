@@ -330,6 +330,37 @@ extension DevChecks {
                 expectDrawn(tab, [0, 1, 2].map { NSRange(location: tab.lineIndex.starts[$0 * 3] + 1, length: 3) }, "auto-close")
                 escape()
             },
+            // ⇧-arrows extend every caret; ⌘→ moves each to its line end.
+            sync { put("one two\nthree four\n", caret: 0) },
+            sync {
+                key(down, [.control, .shift])
+                arrow(NSRightArrowFunctionKey, 124, [.option, .shift])
+                expect(ranges(tv) == [NSRange(location: 0, length: 3), NSRange(location: 8, length: 5)], "⌥⇧→ selects a word at every caret",
+                       "\(ranges(tv))")
+                arrow(NSLeftArrowFunctionKey, 123, [.shift])
+                expect(ranges(tv) == [NSRange(location: 0, length: 2), NSRange(location: 8, length: 4)], "⇧← shrinks every selection",
+                       "\(ranges(tv))")
+                type("X")
+                expect(tab.text == "Xe two\nXe four\n", "typing over the extended selections", tab.text.debugDescription)
+                arrow(NSRightArrowFunctionKey, 124, [.command])
+                type(";")
+                expect(tab.text == "Xe two;\nXe four;\n", "⌘→ moves every caret to its line end", tab.text.debugDescription)
+                escape()
+            },
+            // Informational: typing at 100 carets (perf-check gets the real metric on the 6 MB log).
+            sync { put(String(repeating: "let value = compute(value) // padding text\n", count: 400), caret: 4) },
+            sync {
+                key("d", [.command])
+                key("g", [.control, .command])
+                let n = tv.multiCarets?.count ?? 0
+                let t0 = Date()
+                type("abcde")
+                let ms = Date().timeIntervalSince(t0) * 1000 / 5
+                print(String(format: "check: note: typing at %d carets: %.1f ms per key (400-line file, this machine's load)", n, ms))
+                expect(n == 800 && tab.text.components(separatedBy: "abcde").count == 801, "typing at 800 carets lands at each",
+                       "carets=\(n)")
+                escape()
+            },
             // ⌘D in a save alert is its Don't Save button, not Add Next Occurrence.
             { next in
                 put("foo foo\n", caret: 1)

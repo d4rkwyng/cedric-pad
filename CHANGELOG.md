@@ -9,10 +9,11 @@ are its section below (`Scripts/changelog-section.sh`).
 ### Added
 - **Replace in Files** (in progress).
 - **Folder sidebar** (in progress).
-- **Multiple carets and column selection** (in progress).
+- **Multiple carets and column selection.** ⌥-drag selects a column (dragging straight down makes a column of carets); ⌘-click adds or removes a caret; Edit › Selection › Add Caret Above / Below (⌃⇧↑ / ⌃⇧↓), Add Next Occurrence (⌘D: the word at the caret first, then each next match) and Select All Occurrences (⌃⌘G); ⎋ goes back to one caret. Typing, Delete, Return (with indent), Tab, auto-closed brackets and quotes, paste (one line per caret when the clipboard has as many lines), copy, cut, the arrow keys and ⇧-arrows work at every caret. Input methods and dead keys compose at the main caret and the committed text goes in at all of them. One ⌘Z undoes one edit at all carets and puts the carets back.
 
 ### Known gaps
 - Code folding and split view come in 0.3.0.
+- Multiple carets: VoiceOver follows the main caret only; the extra carets don't blink; ↑/↓ and Add Caret Above/Below move by logical lines, not wrapped rows; each typed key at several carets is its own undo step.
 
 ## [0.1.2]
 
