@@ -26,6 +26,8 @@ extension DevChecks {
         _ = write("proj/debug.log", "log\n")
         _ = write("proj/build/out.o", "o\n")
         try? FileManager.default.createSymbolicLink(atPath: proj.appendingPathComponent("src/up").path, withDestinationPath: "..")
+        // Outside any git repository: its own folder in the temp folder (checked below).
+        let plain = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cedric-nogit-\(getpid())", isDirectory: true)
         let outside = app.open(write("outside.txt", "not in the folder\n"))!
         sized(outside)
         let fm = FileManager.default
@@ -330,6 +332,62 @@ extension DevChecks {
                 expect(FolderSidebar.shared == nil && s.superview == nil && FolderWatcher.running == 0, "Close Folder removes the sidebar and its stream")
                 expect(toggleItem().map { app.validateMenuItem($0) } == false, "Show Folder Sidebar disabled again")
                 expect(app.folderSessionState == nil, "session: no folder")
+            },
+            // A folder with NO .git in it or anywhere above it (the 0.2.0 VM
+            // hang: GitIgnore's walk up never ended outside a repository).
+            // Its own .gitignore still applies.
+            sync {
+                let fm = FileManager.default
+                try? fm.createDirectory(at: plain, withIntermediateDirectories: true)
+                for (n, t) in [("keep.txt", "needle\n"), ("skip.log", "needle\n"), ("sub/inner.txt", "needle\n"), (".gitignore", "*.log\n")] {
+                    let u = plain.appendingPathComponent(n)
+                    try? fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try? t.write(to: u, atomically: false, encoding: .utf8)
+                }
+                var p = plain.resolvingSymlinksInPath().path
+                var gitAbove: String?
+                while true {
+                    if fm.fileExists(atPath: (p as NSString).appendingPathComponent(".git")) { gitAbove = p; break }
+                    let up = (p as NSString).deletingLastPathComponent
+                    if p == "/" || up.isEmpty || up.count >= p.count { break }
+                    p = up
+                }
+                expect(gitAbove == nil, "no-git fixture: no .git in it or above it", gitAbove ?? "")
+                focus(outside)
+                app.openFolder(plain)
+            },
+            until("no-git folder: listed", timeout: 10) { FolderSidebar.shared?.root.isLoaded == true },
+            sync {
+                expect(names(nil) == ["sub", "keep.txt", "skip.log"], "no-git folder: listed", "\(names(nil))")
+                expect(node("skip.log")?.entry.isIgnored == true && node("keep.txt")?.entry.isIgnored == false,
+                       "no-git folder: its .gitignore still marks skip.log")
+                // Find in Files, Respect .gitignore on: defaults to the sidebar's folder.
+                focus(outside)
+                key("f", [.command, .shift])
+                guard let p = app.findInFiles else { expect(false, "no-git folder: Find in Files opens"); return }
+                expect(p.folderField.stringValue == FolderSidebar.shared?.rootURL.path, "Find in Files defaults to the open sidebar folder",
+                       "\(p.folderField.stringValue) vs \(FolderSidebar.shared?.rootURL.path ?? "-")")
+                p.gitIgnoreBox.state = .on
+                p.queryField.stringValue = "needle"
+            },
+            { next in
+                let p = app.findInFiles!
+                var done = false
+                p.onFinished = { p.onFinished = nil; done = true; next() }
+                p.startSearch()
+                // A search that never ends is the bug: fail, don't hang.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                    if !done { p.onFinished = nil; p.cancel(); expect(false, "no-git folder: the search ends", "timed out"); next() }
+                }
+            },
+            sync {
+                guard let p = app.findInFiles else { return }
+                let files = Set(p.results.map(\.relativePath)).sorted()
+                expect(p.lastSummary?.cancelled == false && files == ["keep.txt", "sub/inner.txt"],
+                       "no-git folder: Find in Files (Respect .gitignore) finds keep.txt and sub/inner.txt, not skip.log", "\(files)")
+                app.hideFindInFiles()
+                app.closeFolder()
+                try? FileManager.default.removeItem(at: plain)
             },
         ])
     }
