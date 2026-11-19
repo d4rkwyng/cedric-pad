@@ -180,7 +180,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     /// coordinates (nil when it has no range or isn't on screen), so the
     /// bubble doesn't cover them in a small window.
     func hintedRect() -> CGRect? {
-        guard let range = presented?.range, let tv = tab?.textView, let window = tv.window,
+        guard let range = presented?.range, let tv = tab?.primaryTextView, let window = tv.window,
               let vis = tv.visibleCharacterRange else { return nil }
         let len = (tv.string as NSString).length
         let start = max(range.location, vis.location), end = min(NSMaxRange(range), NSMaxRange(vis), len)
@@ -368,7 +368,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
 
     /// The gaze frame from the owl toward the caret, nil if it can't be placed.
     func gazeTowardCaret() -> Int? {
-        guard let tv = tab?.textView, let window = tv.window else { return nil }
+        guard let tv = tab?.primaryTextView, let window = tv.window else { return nil }
         let sel = tv.selectedRange()
         if tv.contentStorage?.chunkLimit != nil { return nil }   // large mode: never ask TextKit
         let screen = tv.firstRect(forCharacterRange: NSRange(location: sel.location + sel.length, length: 0), actualRange: nil)
@@ -451,7 +451,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     func caretMoved(byUser: Bool = false) {
         if byUser { holdVisible = false }
         guard !holdVisible || bubble != nil, !isDragging else { return }
-        guard let tv = tab?.textView, let window = tv.window else { return }
+        guard let tv = tab?.primaryTextView, let window = tv.window else { return }
         let sel = tv.selectedRange()
         let caretAt = sel.location + sel.length
         // In a chunked long line (large mode), a caret scrolled out of

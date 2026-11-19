@@ -277,7 +277,7 @@ extension EditorWindowController {
         if let t = tail {
             t.stop()
             tail = nil
-            textView.isEditable = true
+            setEditable(true)
             window?.subtitle = ""
             return
         }
@@ -299,7 +299,7 @@ extension EditorWindowController {
         doc.markSaved()
         doc.fileModified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         updateTitle()
-        textView.isEditable = false
+        setEditable(false)
         window?.subtitle = String(localized: "Following")
         scrollToBottom()
         let me = WeakRef(self)
@@ -333,7 +333,7 @@ extension EditorWindowController {
         textView.undoManager?.removeAllActions()
         doc.markSaved()
         doc.fileModified = doc.fileURL.flatMap { (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate }
-        gutter.needsDisplay = true
+        setGuttersNeedDisplay()
         updateStatus()
         if atBottom {
             scrollToBottom()
@@ -361,7 +361,7 @@ extension EditorWindowController {
             tlm.textViewportLayoutController.layoutViewport()
         }
         colorizer.scheduleViewport()
-        gutter.needsDisplay = true
+        setGuttersNeedDisplay()
     }
 }
 

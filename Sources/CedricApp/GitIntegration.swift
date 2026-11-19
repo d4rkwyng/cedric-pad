@@ -356,7 +356,7 @@ final class GitTabState {
 extension EditorWindowController {
     /// The branch label, dirty dot and gutter after a git refresh or diff.
     func gitStateChanged() {
-        gutter.needsDisplay = true
+        setGuttersNeedDisplay()
         updateGitLabel()
     }
 

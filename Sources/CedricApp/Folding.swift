@@ -88,23 +88,29 @@ final class FoldingController: NSObject, NSTextContentStorageDelegate {
     /// to the end (fragments below a changed fold move), and a caret
     /// that is now hidden goes to the end of its header line.
     private func apply(from: Int) {
-        guard let tab, let tv = Optional(tab.textView), let tlm = tv.textLayoutManager, let cs = tv.contentStorage else { return }
+        guard let tab, let cs = tab.primaryTextView.contentStorage else { return }
         hiddenForLayout = state
         cs.delegate = state.isEmpty ? nil : self
         let start = max(0, min(from - 1, tab.lineIndex.length))
-        if let s = cs.location(cs.documentRange.location, offsetBy: start), let r = NSTextRange(location: s, end: cs.documentRange.endLocation) {
-            tlm.invalidateLayout(for: r)
+        // Every pane: the folds are the content storage's, so a split
+        // tab's two panes hide the same lines.
+        for pane in tab.panes {
+            let tv = pane.textView
+            guard let tlm = tv.textLayoutManager else { continue }
+            if let s = cs.location(cs.documentRange.location, offsetBy: start), let r = NSTextRange(location: s, end: cs.documentRange.endLocation) {
+                tlm.invalidateLayout(for: r)
+            }
+            let sel = tv.selectedRange()
+            let ns = tv.string as NSString
+            let len = ns.length
+            let nl = len > 0 && ns.character(at: len - 1) == 10
+            if !state.isEmpty, let h = state.caretIsHidden(sel.location, length: len, endsWithNewline: nl) {
+                tv.setSelectedRange(NSRange(location: max(0, h.location - 1), length: 0))
+            }
+            tlm.textViewportLayoutController.layoutViewport()
+            tv.needsDisplay = true
+            pane.gutter.needsDisplay = true
         }
-        let sel = tv.selectedRange()
-        let ns = tv.string as NSString
-        let len = ns.length
-        let nl = len > 0 && ns.character(at: len - 1) == 10
-        if !state.isEmpty, let h = state.caretIsHidden(sel.location, length: len, endsWithNewline: nl) {
-            tv.setSelectedRange(NSRange(location: max(0, h.location - 1), length: 0))
-        }
-        tlm.textViewportLayoutController.layoutViewport()
-        tv.needsDisplay = true
-        tab.gutter.needsDisplay = true
         tab.foldsChanged()
     }
 
@@ -230,7 +236,7 @@ extension EditorWindowController {
         if let f = folding { return f }
         let f = FoldingController(tab: self)
         folding = f
-        textView.folding = f
+        panes.forEach { $0.textView.folding = f }
         return f
     }
 
@@ -305,7 +311,7 @@ extension EditorWindowController {
         guard let f = folding, f.isEmpty else { return }
         textView.contentStorage?.delegate = nil
         folding = nil
-        textView.folding = nil
+        panes.forEach { $0.textView.folding = nil }
     }
 
     /// The fold state changed (FoldingController.apply).

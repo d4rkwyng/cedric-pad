@@ -56,9 +56,31 @@ final class EditorContainer: NSView {
 @MainActor
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTextViewDelegate, NSSplitViewDelegate {
     let doc: EditorDocument
-    let textView = EditorTextView.make()
-    let scrollView = NSScrollView()
-    let gutter = GutterView()
+    /// The first (or only) pane: its text view, gutter and scroll view.
+    let primaryPane = EditorPane(textView: EditorTextView.make())
+    var primaryTextView: EditorTextView { primaryPane.textView }
+    /// View › Split Editor (SplitEditor.swift): the second pane, nil until
+    /// the tab is split and again once it is unsplit.
+    var splitEditor: SplitEditor?
+    /// The pane commands act on: the focused one (the last one focused,
+    /// while the find bar or a panel has the focus). The primary unsplit.
+    var activePane: EditorPane { splitEditor?.activePane ?? primaryPane }
+    /// The active pane's text view: what commands, Find, Go to Line,
+    /// bookmarks and the status bar use. The text storage, undo manager
+    /// and line index are the same for both panes; per-view state (the
+    /// spelling and grammar marks, the owl) uses `primaryTextView`.
+    var textView: EditorTextView { activePane.textView }
+    var scrollView: NSScrollView { activePane.scrollView }
+    var gutter: GutterView { activePane.gutter }
+    /// Both panes when split, else the primary.
+    var panes: [EditorPane] {
+        guard let s = splitEditor else { return [primaryPane] }
+        return [primaryPane, s.second]
+    }
+    func setGuttersNeedDisplay() {
+        primaryPane.gutter.needsDisplay = true
+        splitEditor?.second.gutter.needsDisplay = true
+    }
     private(set) var lineIndex = LineIndex()
     private(set) var colorizer: SyntaxColorizer!
     /// Built the first time it is used (an NSSearchField and its row cost
@@ -70,9 +92,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private(set) var stack: NSStackView!
     let statusBar = StatusBar()
     let split = PaneSplitView()
-    private var container: EditorContainer!
-    /// The gutter and text: the pane in `split` the side panels dock around.
-    var editorArea: NSView { container }
+    private var container: EditorContainer { primaryPane.container }
+    /// The gutter and text (both panes' split view when split): the pane
+    /// in `split` the side panels dock around.
+    var editorArea: NSView { splitEditor?.view ?? container }
     /// The preview with its header, docked in `split` or in `previewWindow`.
     private(set) var previewPane: PreviewPane?
     /// The web preview (Markdown, HTML), for its JavaScript and network switches.
@@ -110,7 +133,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// Grammar in prose (Grammar.swift), and Fix Grammar… while its panel is open.
     private(set) lazy var grammar: EditorGrammar = {
         let g = EditorGrammar(tab: self)
-        textView.grammar = g
+        primaryTextView.grammar = g
         return g
     }()
     var grammarStep: GrammarStepController?
@@ -147,6 +170,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var folding: FoldingController?
     /// How long the last Fold All / Fold to Level took (the folding check logs it).
     var lastFoldAllMs: Double = 0
+    /// How long laying out the last split's new pane took (the split check logs it).
+    var lastSplitLayoutMs: Double = 0
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -160,8 +185,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         window.delegate = self
         buildViews()
         PerfTrace.mark("build_views")
-        colorizer = SyntaxColorizer(textView: textView, language: doc.language)
-        textView.language = doc.language
+        colorizer = SyntaxColorizer(textView: primaryTextView, language: doc.language)
+        primaryTextView.language = doc.language
         // [weak self] everywhere a view keeps a closure: AppKit can keep a
         // closed tab's window and views alive (and drawing) after this
         // controller is gone, and an unowned self there aborted the app.
@@ -187,14 +212,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     // MARK: Views
 
-    private func buildViews() {
-        guard let window else { return }
+    /// Wires one pane's text view, scroll view and gutter to this tab
+    /// (the primary at build time; the second pane on split).
+    func configure(_ pane: EditorPane) {
+        let textView = pane.textView, scrollView = pane.scrollView, gutter = pane.gutter
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
         scrollView.borderType = .noBorder
         textView.delegate = self
+        textView.onFocus = { [weak self] tv in self?.paneFocused(tv) }
         textView.onCutLine = { [weak self] in self?.cutLine() }
         textView.indentation = { [weak self] in self?.indentation ?? Settings.shared.defaultIndentation }
         textView.onShiftLines = { [weak self] right in self?.shiftLines(right: right) }
@@ -203,8 +231,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         textView.inFence = { [weak self] offset in
             guard let self else { return false }
             let index = self.lineIndex
-            guard index.length == self.textView.textStorage?.length else { return false }
-            return self.fences.isInFence(self.textView.string as NSString, index: index, line: index.line(containing: offset))
+            guard index.length == self.primaryTextView.textStorage?.length else { return false }
+            return self.fences.isInFence(self.primaryTextView.string as NSString, index: index, line: index.line(containing: offset))
         }
         textView.onImages = { [weak self] files, bitmap, at in self?.insertImages(files, bitmap: bitmap, at: at) }
         textView.onDropFiles = { urls in FileDrop.open(urls) }
@@ -225,7 +253,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             guard let git = self?.gitState, git.showsGutter else { return nil }
             return git.changes
         }
-        container = EditorContainer(gutter: gutter, scrollView: scrollView)
+    }
+
+    private func buildViews() {
+        guard let window else { return }
+        configure(primaryPane)
 
         split.isVertical = true
         split.dividerStyle = .thin
@@ -268,28 +300,36 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observers.append(nc.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: textView.textStorage, queue: nil) { [weak self] n in
             MainActor.assumeIsolated { self?.storageEdited() }
         })
+        observePane(primaryPane)
+        observers.append(nc.addObserver(forName: .cedricAppearanceChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyAppearance() }
+        })
+    }
+
+    /// One pane's scrolling and resizing (its observers live and go with the pane).
+    func observePane(_ pane: EditorPane) {
+        let nc = NotificationCenter.default
+        let scrollView = pane.scrollView, textView = pane.textView
         scrollView.contentView.postsBoundsChangedNotifications = true
-        observers.append(nc.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scrolled() }
+        pane.observers.append(nc.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self, weak pane] _ in
+            MainActor.assumeIsolated { if let pane { self?.scrolled(pane) } }
         })
         scrollView.postsFrameChangedNotifications = true
-        observers.append(nc.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.keepAnchor() }
+        pane.observers.append(nc.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView, queue: .main) { [weak self, weak pane] _ in
+            MainActor.assumeIsolated { if let pane { self?.keepAnchor(pane) } }
         })
-        observers.append(nc.addObserver(forName: NSView.frameDidChangeNotification, object: textView, queue: .main) { [weak self] _ in
+        pane.observers.append(nc.addObserver(forName: NSView.frameDidChangeNotification, object: textView, queue: .main) { [weak self, weak pane] _ in
             MainActor.assumeIsolated {
                 // TextKit 2 re-estimates heights as it lays out, which resizes
                 // the text view and would slide a different line under the
                 // same scroll offset: keep the top line where it was.
-                self?.keepAnchor()
-                self?.gutter.needsDisplay = true
+                guard let pane else { return }
+                self?.keepAnchor(pane)
+                pane.gutter.needsDisplay = true
                 self?.colorizer.scheduleViewport()
             }
         })
-        observers.append(nc.addObserver(forName: .cedricAppearanceChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyAppearance() }
-        })
-        observers.append(nc.addObserver(forName: NSTextView.willSwitchToNSLayoutManagerNotification, object: textView, queue: .main) { _ in
+        pane.observers.append(nc.addObserver(forName: NSTextView.willSwitchToNSLayoutManagerNotification, object: textView, queue: .main) { _ in
             FileHandle.standardError.write(Data("warning: text view fell back to TextKit 1\n".utf8))
         })
     }
@@ -314,8 +354,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         folding?.reset()
         PerfTrace.mark("line_index")
         editing.bookmarks.clamp(lineCount: lineIndex.lineCount)
-        textView.typingAttributes = attrs
-        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        for pane in panes {
+            pane.textView.typingAttributes = attrs
+            pane.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        }
         textView.undoManager?.removeAllActions()
         loading = false
         updateGutterWidth()
@@ -373,13 +415,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             let a = lineIndex.line(containing: oldRange.location), b = lineIndex.line(containing: NSMaxRange(oldRange))
             bookmarkEdit = (a, b - a, lineIndex.starts[a] == oldRange.location && lineIndex.starts[b] == NSMaxRange(oldRange))
         }
-        textView.textEdited(oldRange: oldRange, newLength: edited.length)
+        primaryTextView.textEdited(oldRange: oldRange, newLength: edited.length)
+        splitEditor?.second.textView.textEdited(oldRange: oldRange, newLength: edited.length)
         if let folding, !loading { folding.textEdited(oldRange: oldRange, newLength: edited.length, storage: storage) }
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
         fences.invalidate(fromLine: first)
         if loading { return }
         spellStep?.textEdited(oldRange, newLength: edited.length)
-        if !textView.grammarRanges.isEmpty { grammar.textEdited(oldRange, newLength: edited.length) }
+        if !primaryTextView.grammarRanges.isEmpty { grammar.textEdited(oldRange, newLength: edited.length) }
         grammarStep?.textEdited(oldRange, newLength: edited.length)
         if let chat = owlChat, chat.pending != nil { DispatchQueue.main.async { MainActor.assumeIsolated { chat.documentEdited() } } }
         storageEdits += 1
@@ -427,7 +470,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
                 sniffTimer = t
             }
         }
-        gutter.needsDisplay = true
+        setGuttersNeedDisplay()
         editingTextChanged()
         updateStatus()
         schedulePreview()
@@ -444,14 +487,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRanges oldSelectedCharRanges: [NSValue],
                   toCharacterRanges newSelectedCharRanges: [NSValue]) -> [NSValue] {
         guard let folding else { return newSelectedCharRanges }
-        return folding.selectionWillChange(from: oldSelectedCharRanges, to: newSelectedCharRanges, byKey: self.textView.keyNavigating)
+        return folding.selectionWillChange(from: oldSelectedCharRanges, to: newSelectedCharRanges,
+                                           byKey: (textView as? EditorTextView)?.keyNavigating ?? false)
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
         // New text starts in the theme's text colour, never in the colour
         // of the token before the caret (or a default black); the
         // highlighter recolours it a moment later.
-        if !textView.hasMarkedText() { textView.typingAttributes = baseAttributes() }
+        let tv = notification.object as? EditorTextView ?? textView
+        if !tv.hasMarkedText() { tv.typingAttributes = baseAttributes() }
+        // An edit in one pane moves the other's selection too: the status
+        // bar and the highlights follow the active pane only.
+        guard tv === textView else { (tv.enclosingScrollView?.superview as? EditorContainer)?.gutter.needsDisplay = true; return }
         updateStatus()
         gutter.needsDisplay = true
         owl?.caretMoved(byUser: true)
@@ -460,29 +508,30 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         updateOutlineCurrent()
     }
 
-    /// The line at the top when the user last scrolled: kept there when
-    /// the window is resized (re-wrapping would otherwise drift the view).
-    private var anchorLine = 0
-    private var restoringAnchor = false
-
-    private func keepAnchor() {
-        guard !restoringAnchor, anchorLine > 0, topLine != anchorLine else { return }
-        restoringAnchor = true
-        scrollToLine(anchorLine)
-        restoringAnchor = false
+    /// A pane's top line when the user last scrolled it (`pane.anchorLine`)
+    /// is kept there when the window is resized (re-wrapping would
+    /// otherwise drift the view).
+    private func keepAnchor(_ pane: EditorPane) {
+        guard !pane.restoringAnchor, pane.anchorLine > 0, topLine(in: pane) != pane.anchorLine else { return }
+        pane.restoringAnchor = true
+        scrollToLine(pane.anchorLine, in: pane)
+        pane.restoringAnchor = false
     }
 
-    private func scrolled() {
-        if !restoringAnchor { anchorLine = topLine }
+    private func scrolled(_ pane: EditorPane) {
+        if !pane.restoringAnchor { pane.anchorLine = topLine(in: pane) }
         colorizer.scheduleViewport()
         // Once more after TextKit has laid out the new viewport.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak pane] in
             self?.colorizer.colorViewport()
-            self?.gutter.needsDisplay = true
-            self?.refreshHighlights()
+            pane?.gutter.needsDisplay = true
+            if pane === self?.activePane { self?.refreshHighlights() }
         }
-        gutter.needsDisplay = true
-        syncPreviewScroll()
+        pane.gutter.needsDisplay = true
+        // The preview and the owl follow the active pane (the owl's
+        // overlay is on the primary: only that one moves it).
+        if pane === activePane { syncPreviewScroll() }
+        guard pane === primaryPane else { return }
         owl?.caretMoved()
         if owl != nil { OwlHub.shared.visibleChanged(in: self) }
     }
@@ -495,14 +544,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let s = Settings.shared
         window?.appearance = s.windowAppearance
         let p = palette
-        textView.palette = p
-        textView.backgroundColor = NSColor(hex: p.background)
-        scrollView.backgroundColor = NSColor(hex: p.background)
-        textView.insertionPointColor = NSColor(hex: p.caret)
-        textView.selectedTextAttributes = [.backgroundColor: NSColor(hex: p.selection)]
-        textView.showInvisibles = s.showInvisibles
-        gutter.palette = p
-        container.showsGutter = s.showLineNumbers
+        for pane in panes { applyPaneAppearance(pane, palette: p) }
         statusBar.background = NSColor(hex: p.statusBar)
         // Font and foreground over the whole text: one attribute run.
         let attrs = baseAttributes()
@@ -515,15 +557,18 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             storage.endEditing()
             loading = false
         }
-        textView.font = s.font
-        textView.textColor = NSColor(hex: p.foreground)
-        textView.typingAttributes = attrs
+        for tv in panes.map(\.textView) {
+            tv.font = s.font
+            tv.textColor = NSColor(hex: p.foreground)
+            tv.typingAttributes = attrs
+        }
         tabWidthChanged()
         applyWrap(s.wrapLines)
         updateGutterWidth()
         colorizer.setPalette(p)
         statusBar.zoom.stringValue = "\(Int((s.fontSize / Settings.defaultFontSize * 100).rounded()))%"
-        textView.needsDisplay = true
+        panes.forEach { $0.textView.needsDisplay = true }
+        splitEditor?.applyPalette(p)
         if previewVisible { renderPreview() }
         outline.sidebar?.applyPalette(p)
         owl?.layoutViews()
@@ -533,6 +578,20 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         AfterFirstFrame.run { [weak self] in self?.grammar.apply() }
     }
 
+    /// One pane's colours and switches (applyAppearance; a new second pane).
+    func applyPaneAppearance(_ pane: EditorPane, palette p: EditorPalette) {
+        let s = Settings.shared
+        let textView = pane.textView
+        textView.palette = p
+        textView.backgroundColor = NSColor(hex: p.background)
+        pane.scrollView.backgroundColor = NSColor(hex: p.background)
+        textView.insertionPointColor = NSColor(hex: p.caret)
+        textView.selectedTextAttributes = [.backgroundColor: NSColor(hex: p.selection)]
+        textView.showInvisibles = s.showInvisibles
+        pane.gutter.palette = p
+        pane.container.showsGutter = s.showLineNumbers
+    }
+
     private(set) var wrapsLines = true
 
     /// Perf experiments only (CEDRIC_PERF_WRAP).
@@ -540,6 +599,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     private func applyWrap(_ wrap: Bool) {
         wrapsLines = wrap
+        for pane in panes { applyWrap(wrap, to: pane) }
+    }
+
+    func applyWrap(_ wrap: Bool, to pane: EditorPane) {
+        let textView = pane.textView, scrollView = pane.scrollView
         guard let container = textView.textContainer else { return }
         if wrap {
             scrollView.hasHorizontalScroller = false
@@ -557,9 +621,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     func updateGutterWidth() {
-        gutter.foldColumn = foldingAvailable ? GutterView.foldColumnWidth : 0
-        container.gutterWidth = gutter.requiredWidth(lines: lineIndex.lineCount, font: Settings.shared.font)
-        gutter.needsDisplay = true
+        let fold = foldingAvailable ? GutterView.foldColumnWidth : 0
+        for pane in panes {
+            pane.gutter.foldColumn = fold
+            pane.container.gutterWidth = pane.gutter.requiredWidth(lines: lineIndex.lineCount, font: Settings.shared.font)
+            pane.gutter.needsDisplay = true
+        }
     }
 
     // MARK: Title and status
@@ -644,13 +711,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private func languageChanged() {
         let l = doc.language
         colorizer.setLanguage(l)
-        textView.language = l
+        panes.forEach { $0.textView.language = l }
         foldingContextChanged()
         updateGutterWidth()
         // What counts as a word changed (code vs prose): check again
-        // (or not at all: data such as JSON isn't checked).
-        if textView.isContinuousSpellCheckingEnabled { textView.isContinuousSpellCheckingEnabled = false }
-        textView.markedMisspellings = []
+        // (or not at all: data such as JSON isn't checked). Spelling is
+        // the primary pane's.
+        if primaryTextView.isContinuousSpellCheckingEnabled { primaryTextView.isContinuousSpellCheckingEnabled = false }
+        primaryTextView.markedMisspellings = []
         spelling.apply()
         grammar.apply()
         updateStatus()
@@ -794,13 +862,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             doc.fileModified = newMod
             return
         }
-        let sel = textView.selectedRange()
+        let sels = panes.map { $0.textView.selectedRange() }
         doc.apply(d)
         doc.fileModified = newMod
         setText(d.text)
         doc.markSaved()
         let len = (textView.string as NSString).length
-        textView.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
+        for (pane, sel) in zip(panes, sels) { pane.textView.setSelectedRange(NSRange(location: min(sel.location, len), length: 0)) }
         if previewVisible { renderPreview() }
     }
 
@@ -899,6 +967,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     func windowWillClose(_ notification: Notification) {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
+        unsplit(closing: true)
+        primaryPane.observers.forEach { NotificationCenter.default.removeObserver($0) }
+        primaryPane.observers = []
         previewTimer?.invalidate()
         if let pw = previewWindow { previewWindow = nil; pw.closeWithTab() }
         owl?.detach()
@@ -923,15 +994,30 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// freed. Cut every path from the views back to the controller and
     /// take the views out of the window, so nothing draws or calls in.
     private func detachViews() {
+        (stack as? FileDropStackView)?.onDropFiles = nil
+        primaryTextView.contentStorage?.lineRange = nil
+        colorizer.lineIndexProvider = { LineIndex() }
+        detachPane(primaryPane)
+        window?.delegate = nil
+        // A docked preview's WKWebView comes out first: swapping the content
+        // view with a web view inside traps in WebKit (see PreviewWindowController).
+        previewPane?.removeFromSuperview()
+        window?.contentView = NSView()
+    }
+
+    /// Cuts one pane's paths back to this controller (closing, unsplit).
+    func detachPane(_ pane: EditorPane) {
+        let textView = pane.textView, gutter = pane.gutter
+        textView.onFocus = nil
         textView.onCutLine = nil
         textView.indentation = nil
         textView.onShiftLines = nil
         textView.tabInsertsSpaces = nil
+        textView.onEdit = nil
+        textView.inFence = nil
+        textView.onImages = nil
         textView.onDropFiles = nil
-        (stack as? FileDropStackView)?.onDropFiles = nil
         textView.lineStartFor = nil
-        textView.contentStorage?.lineRange = nil
-        colorizer.lineIndexProvider = { LineIndex() }
         gutter.lineIndex = { LineIndex() }
         gutter.bookmarks = { Bookmarks() }
         gutter.gitChanges = { nil }
@@ -940,11 +1026,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gutter.foldMarks = { _ in nil }
         gutter.textView = nil
         if textView.delegate === self { textView.delegate = nil }
-        window?.delegate = nil
-        // A docked preview's WKWebView comes out first: swapping the content
-        // view with a web view inside traps in WebKit (see PreviewWindowController).
-        previewPane?.removeFromSuperview()
-        window?.contentView = NSView()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -957,10 +1038,16 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     // MARK: Navigation
 
-    var topLine: Int {
+    /// The active pane's first visible line.
+    var topLine: Int { topLine(in: activePane) }
+    /// The primary pane's (the session's `topLine`).
+    var primaryTopLine: Int { topLine(in: primaryPane) }
+
+    func topLine(in pane: EditorPane) -> Int {
+        let textView = pane.textView
         guard let vr = textView.viewportCharacterRange else { return 0 }
         // The viewport range starts above the visible rect; use the visible rect's top instead.
-        let visibleTop = scrollView.contentView.bounds.minY
+        let visibleTop = pane.scrollView.contentView.bounds.minY
         if let tlm = textView.textLayoutManager,
            let frag = tlm.textLayoutFragment(for: CGPoint(x: 0, y: max(0, visibleTop - textView.textContainerOrigin.y))) {
             return lineIndex.line(containing: textView.offset(of: frag.rangeInElement.location))
@@ -968,9 +1055,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         return lineIndex.line(containing: vr.location)
     }
 
-    func scrollToLine(_ line: Int) {
+    /// Scrolls `pane` (the active one by default) so `line` is at the top.
+    func scrollToLine(_ line: Int, in pane: EditorPane? = nil) {
         let l = visibleLine(max(0, min(line, lineIndex.lineCount - 1)))
-        reveal(NSRange(location: lineIndex.starts[l], length: 0), position: .top)
+        reveal(NSRange(location: lineIndex.starts[l], length: 0), position: .top, in: pane)
     }
 
     enum RevealPosition { case top, center }
@@ -981,16 +1069,23 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// (or `scrollRangeToVisible`) lands short of the target. This scrolls
     /// to the target's current frame, lays out the viewport, and repeats
     /// until the target is where it should be (a few passes at most).
-    func reveal(_ range: NSRange, position: RevealPosition = .center) {
+    func reveal(_ range: NSRange, position: RevealPosition = .center, in pane: EditorPane? = nil) {
         folding?.reveal(range)
+        let pane = pane ?? activePane
+        let textView = pane.textView, scrollView = pane.scrollView, gutter = pane.gutter
         guard let tlm = textView.textLayoutManager, let r = textView.textRange(for: range) else {
             textView.scrollRangeToVisible(range)
             return
         }
         let vlc = tlm.textViewportLayoutController
         let origin = textView.textContainerOrigin.y
+        // The second pane's layout manager joined a text it had never laid
+        // out: until its viewport is laid out, a fragment far down can
+        // report a frame near the top (and look visible already).
+        let secondPane = pane !== primaryPane
         for _ in 0..<10 {
             tlm.ensureLayout(for: r)
+            if secondPane { vlc.layoutViewport() }
             guard let frag = tlm.textLayoutFragment(for: r.location) else { textView.scrollRangeToVisible(range); break }
             let f = frag.layoutFragmentFrame
             let visible = scrollView.contentView.bounds
@@ -1246,8 +1341,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         // Half the room right of a folder sidebar: the divider right after
         // the editor (the sidebar may sit before it).
         let w = split.bounds.width
-        if w > 0, let i = split.arrangedSubviews.firstIndex(of: container) {
-            let left = container.frame.minX
+        if w > 0, let i = split.arrangedSubviews.firstIndex(of: editorArea) {
+            let left = editorArea.frame.minX
             split.setPosition(left + (w - left) / 2, ofDividerAt: i)
         }
     }

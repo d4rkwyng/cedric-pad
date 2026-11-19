@@ -504,17 +504,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 // An untouched empty untitled tab isn't worth restoring.
                 if d.fileURL == nil && isEmpty { continue }
-                let sel = t.textView.selectedRange()
+                let sel = t.primaryTextView.selectedRange()
                 sessionTabs.append(SessionTab(id: d.id, path: d.fileURL?.path, untitledName: d.fileURL == nil ? d.untitledName : nil,
                                               hasBuffer: needsBuffer, encoding: d.encoding, lineEnding: d.lineEnding,
                                               language: d.languageIsManual ? d.language : nil,
                                               selectionLocation: sel.location, selectionLength: sel.length,
-                                              topLine: t.topLine, fileModified: d.fileModified,
+                                              topLine: t.primaryTopLine, fileModified: d.fileModified,
                                               bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines,
                                               indentation: d.indentation,
                                               previewDetached: t.previewDetached ? true : nil,
                                               previewFrame: t.previewWindow?.window?.frameDescriptor,
-                                              folds: t.sessionFolds))
+                                              folds: t.sessionFolds, split: t.sessionSplit))
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
             }
             if !sessionTabs.isEmpty {
@@ -660,9 +660,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             tab.editing.bookmarks.clamp(lineCount: tab.lineIndex.lineCount)
         }
         let top = st.topLine
-        DispatchQueue.main.async { tab.scrollToLine(top) }
+        DispatchQueue.main.async { tab.scrollToLine(top, in: tab.primaryPane) }
         // Folds come back after the first frame (Folding.swift).
         if let folds = st.folds { tab.restoreFolds(folds) }
+        // So does a split (SplitEditor.swift).
+        if let sp = st.split { tab.restoreSplit(sp) }
         // A detached preview comes back in its window, after the first
         // frame: no preview work on the launch path.
         if st.previewDetached == true {
@@ -841,7 +843,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(useSelectionForFind(_:)),
              #selector(printDocument(_:)):
             return tab != nil
-        default: return validateReplaceInFilesItem(item) ?? validateFolderItem(item) ?? validateMultiCaretItem(item) ?? validateFoldingItem(item) ?? validateGitItem(item) ?? validateMarkdownItem(item) ?? validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
+        default: return validateSplitItem(item) ?? validateReplaceInFilesItem(item) ?? validateFolderItem(item) ?? validateMultiCaretItem(item) ?? validateFoldingItem(item) ?? validateGitItem(item) ?? validateMarkdownItem(item) ?? validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
         }
         return true
     }

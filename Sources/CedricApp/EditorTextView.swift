@@ -54,9 +54,12 @@ final class EditorTextView: NSTextView {
     /// The "⋯ N lines" pills drawn last, for clicks.
     var foldPills: [(rect: NSRect, hidden: NSRange)] = []
 
-    static func make() -> EditorTextView {
+    /// The view and its TextKit 2 stack. With `sharing`, a second view on
+    /// the same text (View › Split Editor): its own layout manager added
+    /// to that content storage, so both show and edit one text storage.
+    static func make(sharing shared: ChunkedContentStorage? = nil) -> EditorTextView {
         let layoutManager = NSTextLayoutManager()
-        let content = ChunkedContentStorage()
+        let content = shared ?? ChunkedContentStorage()
         content.addTextLayoutManager(layoutManager)
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
@@ -84,6 +87,16 @@ final class EditorTextView: NSTextView {
     }
 
     var contentStorage: ChunkedContentStorage? { textLayoutManager?.textContentManager as? ChunkedContentStorage }
+
+    /// This view became first responder (View › Split Editor: commands
+    /// follow the focused pane).
+    var onFocus: ((EditorTextView) -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok { onFocus?(self) }
+        return ok
+    }
 
     // MARK: Range conversion
 
@@ -487,6 +500,9 @@ final class EditorTextView: NSTextView {
 
     /// ⌥-drag: a column of carets or selections; ⌘-click: add or remove a caret.
     override func mouseDown(with event: NSEvent) {
+        // A click focuses this pane (split view: commands follow it), also
+        // when the event reached the view without the window's own routing.
+        if onFocus != nil, let w = window, w.firstResponder !== self { w.makeFirstResponder(self) }
         if let folding, !foldPills.isEmpty {
             let p = convert(event.locationInWindow, from: nil)
             if let hit = foldPills.first(where: { $0.rect.contains(p) }) {

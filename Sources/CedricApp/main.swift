@@ -221,6 +221,9 @@ func buildMainMenu() -> NSMenu {
         // Code folding (Folding.swift).
         foldingMenu(),
         .separator(),
+        // Two panes on one document (SplitEditor.swift).
+    ] + splitEditorMenuItems() + [
+        .separator(),
         item(String(localized: "Show Cedric the Owl"), #selector(AppDelegate.toggleOwl(_:))),
         submenu(String(localized: "Owl Hint Source"), OwlHintSource.allCases.map {
             item($0 == .rules ? String(localized: "Rules") : String(localized: "Rules + AI"),

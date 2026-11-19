@@ -103,7 +103,7 @@ final class EditorGrammar {
             // Nothing to redraw when nothing changed (opening a large file
             // must not invalidate its whole, huge text view); otherwise
             // only what is on screen.
-            guard let tv = tab?.textView else { return }
+            guard let tv = tab?.primaryTextView else { return }
             let ranges = issues.map(\.range)
             guard ranges != tv.grammarRanges else { return }
             tv.grammarRanges = ranges

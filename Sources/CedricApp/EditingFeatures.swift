@@ -64,7 +64,9 @@ extension EditorWindowController {
 
     /// The text to search for highlights: the visible text and a margin,
     /// never the whole document.
-    private var highlightRange: NSRange? {
+    private var highlightRange: NSRange? { highlightRange(in: textView) }
+
+    private func highlightRange(in textView: EditorTextView) -> NSRange? {
         guard let vis = textView.visibleCharacterRange else { return nil }
         let len = (textView.string as NSString).length
         let start = max(0, vis.location - 2_000)
@@ -92,6 +94,17 @@ extension EditorWindowController {
             textView.occurrenceRanges = occ
             textView.markRanges = marks
             textView.needsDisplay = true
+        }
+        // Split: Mark All's marks show in the other pane too (occurrences
+        // and the bracket match stay with the caret's pane).
+        if let s = splitEditor {
+            let other = textView === s.second.textView ? primaryTextView : s.second.textView
+            var otherMarks: [NSRange] = []
+            if let m = editing.markNeedle, let range = highlightRange(in: other) { otherMarks = Occurrences.find(m, in: ns, range: range) }
+            if otherMarks != other.markRanges {
+                other.markRanges = otherMarks
+                other.needsDisplay = true
+            }
         }
     }
 
@@ -123,10 +136,10 @@ extension EditorWindowController {
     func editingTextChanged() {
         // The ranges are stale after an edit: drop them until the pause
         // (refreshHighlights) finds them again.
-        if !textView.occurrenceRanges.isEmpty || !textView.markRanges.isEmpty {
-            textView.occurrenceRanges = []
-            textView.markRanges = []
-            textView.needsDisplay = true
+        for tv in panes.map(\.textView) where !tv.occurrenceRanges.isEmpty || !tv.markRanges.isEmpty {
+            tv.occurrenceRanges = []
+            tv.markRanges = []
+            tv.needsDisplay = true
         }
         if let needle = editing.markNeedle {
             editing.markCountTimer?.invalidate()
@@ -358,7 +371,7 @@ extension EditorWindowController {
         if changed, var marks {
             marks.clamp(lineCount: lineIndex.lineCount)
             editing.bookmarks = marks
-            gutter.needsDisplay = true
+            setGuttersNeedDisplay()
             registerBookmarks(marks, setNow: false)
         }
         um?.endUndoGrouping()
@@ -379,7 +392,7 @@ extension EditorWindowController {
                     var m = marks
                     m.clamp(lineCount: tab.lineIndex.lineCount)
                     tab.editing.bookmarks = m
-                    tab.gutter.needsDisplay = true
+                    tab.setGuttersNeedDisplay()
                     tab.onChange?(tab)
                 }
                 tab.registerBookmarks(marks, setNow: !setNow)
@@ -446,7 +459,7 @@ extension EditorWindowController {
     }
 
     private func bookmarksChanged() {
-        gutter.needsDisplay = true
+        setGuttersNeedDisplay()
         onChange?(self) // saved with the session
     }
 }

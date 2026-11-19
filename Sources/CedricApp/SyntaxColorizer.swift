@@ -13,6 +13,9 @@ import CedricCore
 @MainActor
 final class SyntaxColorizer {
     private weak var textView: EditorTextView?
+    /// View › Split Editor's second pane: its viewport is coloured too
+    /// (the colours are storage attributes, which both panes show).
+    weak var secondTextView: EditorTextView?
     let engine: HighlightEngine
     private var colored = IndexSet()
     /// For the checks.
@@ -91,15 +94,20 @@ final class SyntaxColorizer {
     @discardableResult
     func colorViewport() -> Int {
         guard !paused, let tv = textView, let storage = tv.textStorage else { return 0 }
+        let second = secondTextView
         // Never restyle under an input method's marked text: try again later.
-        if tv.hasMarkedText() { scheduleLater(); return 0 }
+        if tv.hasMarkedText() || second?.hasMarkedText() == true { scheduleLater(); return 0 }
         guard storage.editedMask.isEmpty else { scheduleViewport(); return 0 }
-        guard let vr = tv.visibleCharacterRange else { return 0 }
+        let ranges = [tv.visibleCharacterRange, second?.visibleCharacterRange].compactMap { $0 }
+        guard !ranges.isEmpty else { return 0 }
         let index = lineIndexProvider()
         guard index.length == storage.length else { scheduleViewport(); return 0 }
-        let first = max(0, index.line(containing: vr.location) - Self.margin)
-        let last = min(index.lineCount, index.line(containing: vr.location + vr.length) + Self.margin + 1)
-        var todo = IndexSet(integersIn: first..<last)
+        var todo = IndexSet()
+        for vr in ranges {
+            let first = max(0, index.line(containing: vr.location) - Self.margin)
+            let last = min(index.lineCount, index.line(containing: vr.location + vr.length) + Self.margin + 1)
+            if last > first { todo.insert(integersIn: first..<last) }
+        }
         todo.subtract(colored)
         guard !todo.isEmpty else { return 0 }
         let text = storage.string as NSString
