@@ -277,13 +277,61 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
 
     // MARK: Showing
 
+    /// A floating panel of its own, not a child window of the tab (0.2.1):
+    /// dragged as a child window it trailed the cursor by one mouse event
+    /// all the way (measured in a macOS 26 VM with real CGEvent drags: 5 pt
+    /// behind at every 16 ms step; as its own panel, 0), which Derek saw as
+    /// stutter. It hides with
+    /// its tab (another tab selected, the window minimized or closed) and
+    /// comes back with it; it no longer follows the window around.
     func show() {
         guard let tab, let w = tab.window else { return }
-        if panel.parent == nil { w.addChildWindow(panel, ordered: .above) }
+        follow(w)
         if !panel.isVisible { position(in: w) }
         refresh()
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(input)
+    }
+
+    private weak var followed: NSWindow?
+    private var followers: [NSObjectProtocol] = []
+    /// Hidden because its tab's window isn't on screen, to come back with it.
+    private var hiddenWithTab = false
+
+    private func follow(_ w: NSWindow) {
+        panel.isFloatingPanel = true
+        panel.collectionBehavior = [.fullScreenAuxiliary, .fullScreenDisallowsTiling]
+        guard followed !== w else { return }
+        unfollow()
+        followed = w
+        let nc = NotificationCenter.default
+        let update: @Sendable (Notification) -> Void = { [weak self] _ in MainActor.assumeIsolated { self?.tabWindowChanged() } }
+        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+                     NSWindow.didDeminiaturizeNotification, NSWindow.didBecomeMainNotification] {
+            followers.append(nc.addObserver(forName: name, object: w, queue: .main, using: update))
+        }
+        followers.append(nc.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.close() }
+        })
+    }
+
+    private func unfollow() {
+        followers.forEach { NotificationCenter.default.removeObserver($0) }
+        followers = []
+        followed = nil
+    }
+
+    /// Its tab went away (another tab selected, minimized) or came back.
+    private func tabWindowChanged() {
+        guard let w = followed else { return }
+        let onScreen = w.isVisible && !w.isMiniaturized && (w.tabGroup?.selectedWindow ?? w) === w
+        if !onScreen, panel.isVisible {
+            hiddenWithTab = true
+            panel.orderOut(nil)
+        } else if onScreen, hiddenWithTab, NSApp.isActive {
+            hiddenWithTab = false
+            panel.orderFront(nil)
+        }
     }
 
     /// Near the owl: the window's bottom-right corner, inside the screen.
@@ -300,12 +348,15 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
 
     func close() {
         stop(nil)
+        hiddenWithTab = false
+        unfollow()
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
     }
 
     func windowWillClose(_ notification: Notification) {
         stop(nil)
+        hiddenWithTab = false
         panel.parent?.removeChildWindow(panel)
     }
 
