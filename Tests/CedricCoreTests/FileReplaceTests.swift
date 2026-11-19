@@ -236,4 +236,57 @@ import Testing
         #expect(r.replacements == 2)
         #expect(try String(contentsOf: f, encoding: .utf8) == "cat1 owl2 cat3\n")
     }
+
+    @Test func applyReportsProgressPerFileAndStage() throws {
+        let root = try dir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent(".undo"))
+        let urls = try (0..<3).map { try put(root, "f\($0).txt", Data("owl \($0)\n".utf8)) }
+        let q = ReplaceQuery(query: "owl", template: "hoot")
+        let plan = try FileReplace.plan(q, root: root, candidates: candidates(root, urls))
+        // The third file changes after the preview: checked, never backed up or written.
+        try Data("owl changed\n".utf8).write(to: urls[2])
+        var seen: [ReplaceProgress] = []
+        let r = FileReplace.apply(plan.files, query: q, root: root, store: store) { seen.append($0) }
+        #expect(r.written.count == 2 && r.skipped.map(\.reason) == [.changedSincePreview])
+        #expect(seen == [
+            ReplaceProgress(stage: .checking, done: 1, total: 3), ReplaceProgress(stage: .checking, done: 2, total: 3),
+            ReplaceProgress(stage: .checking, done: 3, total: 3),
+            ReplaceProgress(stage: .backingUp, done: 1, total: 2), ReplaceProgress(stage: .backingUp, done: 2, total: 2),
+            ReplaceProgress(stage: .writing, done: 1, total: 2), ReplaceProgress(stage: .writing, done: 2, total: 2),
+        ])
+    }
+
+    @Test func applyOffTheMainThreadKeepsEveryByte() async throws {
+        // What the app does: plan, then write on a background queue.
+        let root = try dir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent(".undo"))
+        let orig: [String: Data] = [
+            "bom.txt": Data([0xEF, 0xBB, 0xBF]) + Data("owl\r\nowl\r\n".utf8),
+            "latin.txt": "café owl\n".data(using: .isoLatin1)!,
+            "u16.txt": "owl\n".data(using: .utf16)!,
+        ]
+        var urls: [URL] = []
+        for (k, v) in orig.sorted(by: { $0.key < $1.key }) { urls.append(try put(root, k, v)) }
+        chmod(urls[1].path, 0o604)
+        let q = ReplaceQuery(query: "owl", template: "hibou")
+        let plan = try FileReplace.plan(q, root: root, candidates: candidates(root, urls))
+        let files = plan.files
+        let (report, onMain) = await withCheckedContinuation { (c: CheckedContinuation<(ReplaceReport, Bool), Never>) in
+            DispatchQueue(label: "test.replace.write").async {
+                c.resume(returning: (FileReplace.apply(files, query: q, root: root, store: store), Thread.isMainThread))
+            }
+        }
+        #expect(!onMain && report.written.count == 3 && report.replacements == 4)
+        #expect(try Data(contentsOf: urls[0]) == Data([0xEF, 0xBB, 0xBF]) + Data("hibou\r\nhibou\r\n".utf8))
+        #expect(try Data(contentsOf: urls[1]) == "café hibou\n".data(using: .isoLatin1))
+        #expect(try Data(contentsOf: urls[2]) == "hibou\n".data(using: .utf16))
+        var st = stat()
+        stat(urls[1].path, &st)
+        #expect(st.st_mode & 0o7777 == 0o604)
+        let u = store.undo(try #require(report.operation))
+        #expect(u.restored.count == 3)
+        for (k, v) in orig { #expect(try Data(contentsOf: root.appendingPathComponent(k)) == v, "\(k)") }
+    }
 }

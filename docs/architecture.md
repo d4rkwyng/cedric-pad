@@ -544,6 +544,17 @@ exits 1 on a clash with another item or with a system shortcut (Lock Screen
     original's mode, ACL and extended attributes copied onto it
     (`copyfile`), renamed over the file, in the file's own encoding, BOM
     and line ending.
+  - *Off the main thread.* Replace All edits the open tabs first, on the
+    main thread (their undo stacks and text views live there). The disk
+    files go to `FileReplace.apply` on one serial background queue
+    (`ReplaceInFiles.queue`): checking, backing up and writing each file
+    is I/O. The panel shows "Checking / Backing up / Writing N of M
+    files…" and a bar (`ReplaceProgress`, at most ~20 updates a second),
+    and while it writes the preview stays, its boxes, Replace All,
+    Cancel, the Replace box and Undo Replace in Files are off. The
+    operation (and its undo) is recorded once the writes land; quitting
+    waits for them (`waitForWrites`). A file opened in a tab while it is
+    written is picked up by the tab's disk-change reload.
   - *Undo.* Edit › Undo Replace in Files (and the panel's Undo Replace)
     covers the last operation until quit: it restores each written file
     whose bytes are still exactly what was written (others are skipped and

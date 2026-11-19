@@ -105,9 +105,12 @@ extension AppDelegate: NSMenuDelegate {
         findInFiles = panel
         panel.onOpen = { [weak self] result in self?.openResult(result) }
         panel.onClose = { [weak self] in self?.hideFindInFiles() }
-        panel.onReplace = { [weak self] plan in self?.applyReplace(plan) ?? "" }
+        panel.onReplace = { [weak self] plan, progress, done in
+            guard let self else { done(""); return }
+            self.applyReplace(plan, progress: progress, done: done)
+        }
         panel.onUndo = { [weak self] in self?.undoLastReplace() ?? "" }
-        panel.canUndo = { ReplaceInFiles.last != nil }
+        panel.canUndo = { ReplaceInFiles.last != nil && !ReplaceInFiles.writing }
         panel.buffers = { [weak self] urls in self?.openBuffers(for: urls) ?? [:] }
         if replace { panel.replaceMode = true }
         guard let tab = currentTab ?? tabs.last else { return }

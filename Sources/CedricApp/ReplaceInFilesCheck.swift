@@ -6,7 +6,9 @@ import CedricCore
 /// CRLF file (mode 0640), a Latin-1 file, and one file open in a tab with
 /// unsaved typing. Drives Edit › Replace in Files… with its shortcut, types
 /// the query and replacement as key events, previews, unchecks a file and
-/// one match with mouse clicks, clicks Replace All, then Edit › Undo
+/// one match with mouse clicks, clicks Replace All (slowed down: the tab
+/// is edited at once, the files are written off the main thread with
+/// progress, controls and undo locked meanwhile), then Edit › Undo
 /// Replace in Files; checks the bytes on disk and the tab's text at each
 /// step.
 @MainActor
@@ -137,11 +139,40 @@ extension DevChecks {
                 expect(panel.summary.stringValue.contains("6 replacements in 4 files") && panel.summary.stringValue.contains("2 unchecked"),
                        "the summary follows the boxes", panel.summary.stringValue)
             },
-            { next in
-                click(panel.replaceAllButton, at: NSPoint(x: panel.replaceAllButton.bounds.midX, y: panel.replaceAllButton.bounds.midY))
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { next() }
-            },
             sync {
+                // Slowed down (0.1 s per file per stage, 3 files on disk) to watch the app while it writes.
+                ReplaceInFiles.writeDelayForChecks = 0.1
+                click(panel.replaceAllButton, at: NSPoint(x: panel.replaceAllButton.bounds.midX, y: panel.replaceAllButton.bounds.midY))
+                if !panel.replacing && panel.previewing {
+                    print("check: note: synthetic click on Replace All not taken; pressing it")
+                    panel.replaceAllButton.performClick(nil)
+                }
+                // Back from the click at once: the tab is edited here, the files are written in the background.
+                expect(panel.replacing && ReplaceInFiles.writing, "Replace All returns while the files are written in the background")
+                expect(tab.text == "hoot hoot disk\n", "the open tab's buffer is edited on the main thread first", tab.text.debugDescription)
+                expect(["crlf.txt", "latin.txt", "partial.txt"].allSatisfy { bytes($0) == originals[$0] }, "…before any file on disk is written")
+                expect(!panel.replaceAllButton.isEnabled && !panel.cancelPreviewButton.isEnabled && panel.undoButton.isHidden && !panel.replaceBox.isEnabled,
+                       "while writing: Replace All, Cancel, Undo Replace and the Replace box are off")
+                expect(menuItem(action: #selector(AppDelegate.undoReplaceInFilesMenu(_:))).map { !app.validateMenuItem($0) } == true,
+                       "while writing: Edit › Undo Replace in Files is disabled")
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { next() } },
+            sync {
+                // The main thread ran this timer mid-write: it isn't blocked.
+                expect(panel.replacing, "the main thread runs while the files are written", panel.status.stringValue)
+                let st = panel.status.stringValue
+                expect(!panel.writeProgress.isHidden && panel.writeProgress.doubleValue > 0 && st.contains(" of 3 files"),
+                       "progress is shown", "\(st) \(panel.writeProgress.doubleValue)")
+                // Unchecking now changes nothing: the plan is taken.
+                _ = clickBox(row("latin.txt"))
+                expect(panel.nodes.first { $0.relativePath == "latin.txt" }?.children.allSatisfy(\.checked) == true, "boxes are locked while writing")
+            },
+            snapshot("replaceinfiles-writing.png"),
+            until("the writes land", timeout: 10) { !ReplaceInFiles.writing && !panel.replacing },
+            sync {
+                ReplaceInFiles.writeDelayForChecks = 0
+                expect(ReplaceInFiles.lastWriteOnMain == false, "the files were read, backed up and written off the main thread")
+                expect(panel.writeProgress.isHidden, "the progress bar goes when done")
                 expect(!panel.previewing, "Replace All ends the preview", panel.summary.stringValue)
                 print("check: after replace: \(panel.summary.stringValue)")
                 expect(bytes("crlf.txt") == Data("hoot one\r\nhoot two\r\n".utf8), "CRLF file: replaced, CRLF kept",

@@ -120,6 +120,24 @@ public struct ReplaceReport: Sendable {
     public var skipped: [SkippedFile] = []
     /// The undo store operation, if anything was written.
     public var operation: UUID?
+
+    public init() {}
+}
+
+/// How far `FileReplace.apply` has got: each file checked again, the
+/// originals backed up, each file written. `total` is the number of files
+/// in that stage.
+public struct ReplaceProgress: Sendable, Equatable {
+    public enum Stage: Sendable, Equatable { case checking, backingUp, writing }
+    public var stage: Stage
+    public var done: Int
+    public var total: Int
+
+    public init(stage: Stage, done: Int, total: Int) {
+        self.stage = stage
+        self.done = done
+        self.total = total
+    }
 }
 
 public enum FileReplace {
@@ -255,11 +273,17 @@ public enum FileReplace {
     /// edits to make). Each is checked again (date, size, SHA-256) first;
     /// every original goes to `store` before the first write. Files open
     /// in a tab (`disk == nil`) are ignored here: the app edits those.
-    public static func apply(_ files: [ReplaceFile], query: ReplaceQuery, root: URL, store: ReplaceUndoStore) -> ReplaceReport {
+    /// Reads, hashes and writes files: the app calls it off the main
+    /// thread, one at a time, and shows `progress` (called on the calling
+    /// thread after each file of each stage).
+    public static func apply(_ files: [ReplaceFile], query: ReplaceQuery, root: URL, store: ReplaceUndoStore,
+                             progress: (ReplaceProgress) -> Void = { _ in }) -> ReplaceReport {
         var report = ReplaceReport()
         struct Prepared { var file: ReplaceFile; var original: Data; var new: Data; var mode: mode_t; var count: Int }
         var ready: [Prepared] = []
-        for f in files {
+        let targets = files.filter { $0.disk != nil && !$0.edits.isEmpty }
+        for (n, f) in targets.enumerated() {
+            defer { progress(ReplaceProgress(stage: .checking, done: n + 1, total: targets.count)) }
             guard let disk = f.disk, !f.edits.isEmpty else { continue }
             func skip(_ r: ReplaceSkip) { report.skipped.append(SkippedFile(url: f.url, relativePath: f.relativePath, reason: r)) }
             if let refusal = refusal(f.url, root: root) { skip(refusal); continue }
@@ -280,6 +304,7 @@ public enum FileReplace {
             op = try store.begin(query: query)
             for (k, p) in ready.enumerated() {
                 try op.backup(p.original, index: k, for: p.file.url, written: p.new, mode: p.mode)
+                progress(ReplaceProgress(stage: .backingUp, done: k + 1, total: ready.count))
             }
             try op.save()
         } catch {
@@ -288,6 +313,7 @@ public enum FileReplace {
         }
 
         for (k, p) in ready.enumerated() {
+            defer { progress(ReplaceProgress(stage: .writing, done: k + 1, total: ready.count)) }
             // Last look just before the rename.
             guard let now = DiskStamp.of(p.file.url), let disk = p.file.disk, same(disk.stamp, now) else {
                 op.drop(index: k)

@@ -103,6 +103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// The quit path: the session (unsaved buffers included) written and
     /// waited for, `cedric -w` waiters released.
     private func prepareToQuit() {
+        // Replace in Files' disk writes under way finish first.
+        ReplaceInFiles.waitForWrites()
         saveSession()
         releaseAllWaiters()
         terminating = true

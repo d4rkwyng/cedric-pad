@@ -18,6 +18,20 @@ enum ReplaceInFiles {
     }
 
     static var last: Operation?
+    /// Replace All's disk writes are under way (on `queue`): no undo, no
+    /// second Replace All until they land.
+    static var writing = false
+    /// Where Replace All reads, backs up and writes the files: off the main
+    /// thread, one operation at a time.
+    nonisolated static let queue = DispatchQueue(label: "owlink.replace-in-files.write", qos: .userInitiated)
+    /// The checks slow each file of each stage down, to see the app while it writes.
+    static var writeDelayForChecks: TimeInterval = 0
+    /// Whether the last Replace All wrote on the main thread (the checks).
+    static var lastWriteOnMain: Bool?
+
+    /// Quitting: the writes under way finish first (each is atomic, but
+    /// the undo manifest is saved once they are done).
+    static func waitForWrites() { queue.sync {} }
     /// Where originals go before a write. The check points it at its temp folder.
     static var store = ReplaceUndoStore(root: ProcessInfo.processInfo.environment["CEDRIC_REPLACE_UNDO_DIR"].map { URL(fileURLWithPath: $0) }
         ?? ReplaceUndoStore.defaultRoot)
@@ -61,7 +75,7 @@ extension AppDelegate {
         switch item.action {
         // Not in a viewer tab (PDF, image…), like Find in Files.
         case #selector(replaceInFilesMenu(_:)): return currentViewerTab == nil && !tabs.isEmpty
-        case #selector(undoReplaceInFilesMenu(_:)): return ReplaceInFiles.last != nil
+        case #selector(undoReplaceInFilesMenu(_:)): return ReplaceInFiles.last != nil && !ReplaceInFiles.writing
         default: return nil
         }
     }
@@ -84,9 +98,13 @@ extension AppDelegate {
     }
 
     /// Replace All on the checked matches: open tabs get one undoable edit
-    /// each (not saved); the other files are written by FileReplace.apply.
-    /// Returns what the panel shows.
-    func applyReplace(_ plan: ReplacePlan) -> String {
+    /// each (not saved), here on the main thread; the other files are
+    /// written by FileReplace.apply on `ReplaceInFiles.queue`, with
+    /// `progress` on the main thread. `done` gets what the panel shows,
+    /// once every write has landed.
+    func applyReplace(_ plan: ReplacePlan, progress: @escaping @MainActor (ReplaceProgress) -> Void = { _ in },
+                      done: @escaping @MainActor (String) -> Void) {
+        guard !ReplaceInFiles.writing else { NSSound.beep(); return }
         finishRestore()
         var tabEdits: [ReplaceInFiles.TabEdit] = []
         var diskFiles: [ReplaceFile] = []
@@ -115,27 +133,55 @@ extension AppDelegate {
             tabEdits.append(.init(tab: tab, url: f.url, before: before, after: tab.text))
             tabReplacements += f.edits.count
         }
-        let report = FileReplace.apply(diskFiles, query: plan.query, root: plan.root, store: ReplaceInFiles.store)
-        skipped += report.skipped
-        if report.operation != nil || !tabEdits.isEmpty {
-            ReplaceInFiles.last = .init(diskOperation: report.operation, tabEdits: tabEdits)
+        let finish: @MainActor (ReplaceReport) -> Void = { report in
+            skipped += report.skipped
+            if report.operation != nil || !tabEdits.isEmpty {
+                ReplaceInFiles.last = .init(diskOperation: report.operation, tabEdits: tabEdits)
+            }
+            let total = report.replacements + tabReplacements
+            let files = report.written.count + tabEdits.count
+            var s = total == 1 ? String(localized: "Replaced 1 match in \(files) file.") : String(localized: "Replaced \(total) matches in \(files) files.")
+            if !tabEdits.isEmpty {
+                s += " " + String(localized: "In open tabs, not saved: \(ReplaceInFiles.names(tabEdits.map(\.url))).")
+            }
+            s += ReplaceInFiles.skippedText(skipped)
+            trace("replace in files: \(s)")
+            done(s)
         }
-        let total = report.replacements + tabReplacements
-        let files = report.written.count + tabEdits.count
-        var s = total == 1 ? String(localized: "Replaced 1 match in \(files) file.") : String(localized: "Replaced \(total) matches in \(files) files.")
-        if !tabEdits.isEmpty {
-            s += " " + String(localized: "In open tabs, not saved: \(ReplaceInFiles.names(tabEdits.map(\.url))).")
+        guard !diskFiles.isEmpty else { finish(ReplaceReport()); return }
+        // The disk writes: reading, hashing, backing up and writing every
+        // file is I/O, so it runs on a background queue; nothing is
+        // decided there that the main thread could change (the files were
+        // taken out of the plan above, open tabs excluded).
+        ReplaceInFiles.writing = true
+        let query = plan.query, root = plan.root, store = ReplaceInFiles.store
+        let delay = ReplaceInFiles.writeDelayForChecks
+        let input = MainBox(value: diskFiles)
+        let throttle = ProgressThrottle()
+        ReplaceInFiles.queue.async {
+            let onMain = Thread.isMainThread
+            let report = FileReplace.apply(input.value, query: query, root: root, store: store) { p in
+                if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+                // At most ~20 updates a second, and always the last of a stage.
+                guard throttle.due(last: p.done == p.total) else { return }
+                DispatchQueue.main.async { MainActor.assumeIsolated { progress(p) } }
+            }
+            let out = MainBox(value: report)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    ReplaceInFiles.writing = false
+                    ReplaceInFiles.lastWriteOnMain = onMain
+                    finish(out.value)
+                }
+            }
         }
-        s += ReplaceInFiles.skippedText(skipped)
-        trace("replace in files: \(s)")
-        return s
     }
 
     /// Undo Replace in Files: restores the written files still holding what
     /// was written, and undoes the tab edits still on top of their tab's
     /// undo stack. Returns what to show.
     func undoLastReplace() -> String {
-        guard let op = ReplaceInFiles.last else { return "" }
+        guard !ReplaceInFiles.writing, let op = ReplaceInFiles.last else { return "" }
         ReplaceInFiles.last = nil
         var restored: [URL] = []
         var skipped: [SkippedFile] = []
@@ -157,5 +203,19 @@ extension AppDelegate {
         s += ReplaceInFiles.skippedText(skipped)
         trace("replace in files: \(s)")
         return s
+    }
+}
+
+/// Rate-limits progress updates from a background thread.
+final class ProgressThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastPost = 0.0
+
+    func due(last: Bool, interval: Double = 0.05) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard last || now - lastPost >= interval else { return false }
+        lastPost = now
+        return true
     }
 }
