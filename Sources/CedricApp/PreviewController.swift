@@ -180,14 +180,14 @@ final class PreviewController: NSObject, WKNavigationDelegate {
         return "default-src 'none'; img-src\(doc) data:\(net); media-src\(doc) data:\(net); style-src 'unsafe-inline'\(doc)\(net); font-src\(doc) data:\(net); script-src \(script); connect-src \(allowNetwork ? "*" : "'none'")"
     }
 
-    static func injectCSP(_ csp: String, into html: String) -> String {
+    nonisolated static func injectCSP(_ csp: String, into html: String) -> String {
         "<meta http-equiv=\"Content-Security-Policy\" content=\"\(csp)\">\n" + html
     }
 
-    static func hex(_ c: UInt32) -> String { String(format: "#%06x", c) }
+    nonisolated static func hex(_ c: UInt32) -> String { String(format: "#%06x", c) }
 
     /// The whole page. `csp` nil: none (an exported file).
-    static func page(body: String, palette p: EditorPalette, csp: String?, title: String? = nil) -> String {
+    nonisolated static func page(body: String, palette p: EditorPalette, csp: String?, title: String? = nil) -> String {
         let meta = csp.map { "<meta http-equiv=\"Content-Security-Policy\" content=\"\($0)\">\n" } ?? ""
         let titleTag = title.map { "<title>\(Markdown.escape($0))</title>\n" } ?? ""
         return """
@@ -200,7 +200,7 @@ final class PreviewController: NSObject, WKNavigationDelegate {
         """
     }
 
-    static func styles(_ p: EditorPalette) -> String {
+    nonisolated static func styles(_ p: EditorPalette) -> String {
         """
         :root { color-scheme: \(p.isDark ? "dark" : "light"); }
         body { font: 15px/1.55 -apple-system, system-ui, sans-serif; color: \(hex(p.foreground)); background: \(hex(p.background));

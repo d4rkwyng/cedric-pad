@@ -635,11 +635,22 @@ extension DevChecks {
                 // Copy as HTML: the selection, rendered.
                 let ns = tab.text as NSString
                 tab.textView.setSelectedRange(ns.range(of: "Some **bold** text"))
-                tab.copyAsHTML()
-                expect(pb.string(forType: .string) == "<p data-line=\"0\">Some <strong>bold</strong> text</p>\n", "Copy as HTML copies the selection's HTML",
-                       pb.string(forType: .string) ?? "-")
+            },
+            { next in
+                // Copy as HTML renders off the main thread, then fills the pasteboard.
+                pb.clearContents()
+                tab.copyAsHTML {
+                    expect(pb.string(forType: .string) == "<p data-line=\"0\">Some <strong>bold</strong> text</p>\n", "Copy as HTML copies the selection's HTML",
+                           pb.string(forType: .string) ?? "-")
+                    next()
+                }
+            },
+            { next in
+                let ns = tab.text as NSString
                 tab.textView.setSelectedRange(NSRange(location: ns.range(of: "```swift").location, length: 30))
-                tab.copyAsRichText()
+                tab.copyAsRichText { next() }
+            },
+            sync {
                 let rtf = pb.data(forType: .rtf).flatMap { NSAttributedString(rtf: $0, documentAttributes: nil) }
                 expect(rtf?.string.contains("let answer = 42") == true, "Copy as Rich Text puts RTF on the pasteboard", rtf?.string ?? "-")
                 let colours = Set((0..<(rtf?.length ?? 0)).compactMap { rtf?.attribute(.foregroundColor, at: $0, effectiveRange: nil) as? NSColor })
