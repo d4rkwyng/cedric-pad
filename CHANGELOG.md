@@ -6,10 +6,8 @@ are its section below (`Scripts/changelog-section.sh`).
 
 ## [0.2.1]
 
-### Fixed
-- **Undo Replace in Files can always be tried again.** If the backup copy of a file couldn't be read (missing, no permission, or not matching the original), Undo used to mark the replace as undone and offer no retry. Now the file is left as the replace wrote it, the message names it and says why ("backup copy unreadable: permission denied"), and Edit › Undo Replace in Files stays available.
-- **Undo Replace in Files from the Edit menu with the Find in Files panel hidden** now shows its progress and then its result in a bar at the top of the tab.
-- **Dragging the Ask Cedric panel is smooth.** It was a child window of the editor and trailed the pointer by one mouse event all the way (measured with real mouse drags on macOS 26); it is now a floating panel of its own that keeps up with the pointer. It no longer moves with the editor window, and it hides when you switch to another tab and comes back with its tab.
+### Added
+- **Cedric in Ask Cedric.** The owl now sits in the Ask Cedric panel's header and reacts to the conversation: a wave when it opens, a glance at the question field while you type, thinking (and searching) while the model works, talking while the answer streams, a nod when it's done, a wing flap on Apply, and a sleepy look after an error or with no engine. He blinks when idle, stops entirely while the panel is closed, and under Reduce Motion shows still poses only.
 - **Image tabs have a right-click menu:** Zoom In, Zoom Out, Actual Size, Zoom to Fit, Rotate Left and Right (the view only; the file is never changed), Copy Image, Copy Path, Reveal in Finder, Open in the default app and Show Info (dimensions, file size, format, colour space).
 
 ### Changed
@@ -18,6 +16,11 @@ are its section below (`Scripts/changelog-section.sh`).
 - **View › Preview menu** with the preview bar's actions and shortcuts: Show Preview ⌥⌘P, Detach Preview ⇧⌥⌘P, Refresh Preview ⌥⌘R, Sync Scrolling, Zoom In Preview ⌥⌘=, Zoom Out Preview ⌥⌘−, Restore File Order (CSV), Export as HTML / PDF, Allow JavaScript and Allow Network, each enabled when the bar's button is. Show and Detach Preview moved there from the top of the View menu.
 - **Settings no longer repeats the menus.** Each option is in one place: Settings has the theme, font, default indentation, git changes in the gutter, Ask Cedric and quitting on the last close; wrap lines, invisibles, line numbers and highlight occurrences stay in the View menu, auto-close brackets, spelling and grammar in the Edit menu. The View › Theme submenu is gone (Settings has it). Your choices are kept as they were.
 - **Status bar zoom** ("110%") is a menu: Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 and 75 % to 200 %. With the preview docked, the editor's status items stay under the editor instead of running under the preview.
+
+### Fixed
+- **Undo Replace in Files can always be tried again.** If the backup copy of a file couldn't be read (missing, no permission, or not matching the original), Undo used to mark the replace as undone and offer no retry. Now the file is left as the replace wrote it, the message names it and says why ("backup copy unreadable: permission denied"), and Edit › Undo Replace in Files stays available.
+- **Undo Replace in Files from the Edit menu with the Find in Files panel hidden** now shows its progress and then its result in a bar at the top of the tab.
+- **Dragging the Ask Cedric panel is smooth.** It was a child window of the editor and trailed the pointer by one mouse event all the way (measured with real mouse drags on macOS 26); it is now a floating panel of its own that keeps up with the pointer. It no longer moves with the editor window, and it hides when you switch to another tab and comes back with its tab.
 
 ### Security
 Fixes from a security review of 0.2.0. None needs anything from you; the details are in the manual.

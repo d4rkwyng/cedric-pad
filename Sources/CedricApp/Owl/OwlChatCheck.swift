@@ -12,6 +12,9 @@ import CedricAI
 ///   4. the same again, then an edit in the document: Apply refuses, Ask Again shows;
 ///   5. Stop cancels a running answer;
 ///   6. Escape closes the panel.
+/// Before step 2, Cedric in the panel's header (`face`): he waves, listens
+/// to real typing, thinks, searches, talks and nods through a question,
+/// light, dark and under Reduce Motion; and stops when the panel closes.
 @MainActor
 enum OwlChatCheck {
     static func check(_ ok: Bool, _ what: String) { OwlCheck.check(ok, what) }
@@ -26,7 +29,7 @@ enum OwlChatCheck {
                 check(false, "⌥⌘/ opens Ask Cedric"); OwlCheck.finish(out); return
             }
             check(true, "⌥⌘/ opens Ask Cedric")
-            explain(tab, chat, out: out)
+            face(tab, chat, out: out) { explain(tab, chat, out: out) }
         }
     }
 
@@ -191,6 +194,105 @@ enum OwlChatCheck {
         }
     }
 
+    /// Types `text` into the question field, key by key, through the panel.
+    static func type(_ chat: OwlChatPanel, _ text: String) {
+        chat.panel.makeKeyAndOrderFront(nil)
+        chat.panel.makeFirstResponder(chat.input)
+        for ch in text { OwlCheck.key(chat.panel, String(ch), code: 0, []) }
+    }
+
+    /// Cedric in the header through one question, then under Reduce Motion.
+    static func face(_ tab: EditorWindowController, _ chat: OwlChatPanel, out: String, then: @escaping @MainActor () -> Void) {
+        let f = chat.face
+        OwlView.reduceMotion = false
+        // With the screen locked the window server reports the panel
+        // occluded; the check treats it as visible from then on.
+        f.updateLive()
+        f.reduceMotionChanged()
+        check(f.isLive, "the panel's owl is on screen with the panel")
+        check(f.moodLog.contains(.wave), "he waves when the panel opens (\(f.moodLog))")
+        check(f.superview != nil && f.window === chat.panel, "he sits in the panel's header")
+        OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-0-wave.png") {
+            after(1.2) {
+                check(f.mood == .idle && f.blinkScheduled, "the wave settles to idle, with a blink scheduled")
+                f.blinkNow()
+                check(f.isAnimating, "idle: he blinks")
+                after(0.4) {
+                    let before = f.moodLog.count
+                    type(chat, "Where is 'total' used?")
+                    let listens = f.moodLog[before...].filter { $0 == .listen }.count
+                    check(chat.input.stringValue == "Where is 'total' used?", "typed with real keys (\(chat.input.stringValue))")
+                    check(f.mood == .listen && listens == 1, "typing: he listens, once for a burst of keys (\(listens))")
+                    OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-1-listen.png") {
+                        let start = f.moodLog.count
+                        var talkShot = false
+                        OwlCheck.key(chat.panel, "\r", code: 36, [])
+                        check(chat.running, "Return asks the question")
+                        @MainActor func poll() {
+                            if chat.running {
+                                if f.mood == .talk, !talkShot {
+                                    talkShot = true
+                                    OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-2-talk.png") {}
+                                }
+                                after(0.02) { poll() }
+                                return
+                            }
+                            let seen = Array(f.moodLog[start...])
+                            let order: [OwlChatMood] = [.think, .search, .talk, .nod]
+                            var i = 0
+                            for m in seen where i < order.count && m == order[i] { i += 1 }
+                            check(i == order.count, "asking: think, search, talk, then a nod (\(seen))")
+                            check(chat.transcriptText.contains("fake answer"), "the answer arrived")
+                            OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-3-nod.png") {
+                                chat.panel.appearance = NSAppearance(named: .darkAqua)
+                                after(0.1) {
+                                    OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-4-dark.png") {
+                                        chat.panel.appearance = nil
+                                        reduced(chat, out: out, then: then)
+                                    }
+                                }
+                            }
+                        }
+                        after(0.02) { poll() }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Reduce Motion: still poses only, never a timer.
+    static func reduced(_ chat: OwlChatPanel, out: String, then: @escaping @MainActor () -> Void) {
+        let f = chat.face
+        OwlView.reduceMotion = true
+        f.reduceMotionChanged()
+        check(!f.isAnimating && !f.blinkScheduled, "Reduce Motion: no frame or blink timer when idle")
+        let shown = f.framesShown
+        type(chat, "Explain this")
+        check(!f.isAnimating, "Reduce Motion: no listening glance")
+        let start = f.moodLog.count
+        var moved = false
+        var stills: Set<ObjectIdentifier> = []
+        OwlCheck.key(chat.panel, "\r", code: 36, [])
+        @MainActor func poll() {
+            if f.isAnimating { moved = true }
+            if let c = f.current { stills.insert(ObjectIdentifier(c)) }
+            if chat.running { after(0.02) { poll() }; return }
+            if f.isAnimating { moved = true }
+            let seen = Array(f.moodLog[start...])
+            check(!moved, "Reduce Motion: no strip plays while asking (\(seen))")
+            check(seen.contains(.think) && seen.contains(.talk), "Reduce Motion: his moods still follow the chat (\(seen))")
+            let poses = Set([OwlArt.poses[.idle], OwlArt.poses[.thinking], OwlArt.poses[.talking]].compactMap { $0.map(ObjectIdentifier.init) })
+            check(stills.isSubset(of: poses), "Reduce Motion: only still poses are drawn (\(f.framesShown - shown) changes)")
+            OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-5-reduce-motion.png") {
+                OwlView.reduceMotion = false
+                f.reduceMotionChanged()
+                chat.clearHistory(nil)
+                then()
+            }
+        }
+        after(0.02) { poll() }
+    }
+
     /// Waits until the panel is idle, sampling the streamed length.
     static func waitDone(_ chat: OwlChatPanel, timeout: Double = 15, samples: Set<Int> = [], _ then: @escaping @MainActor (Set<Int>) -> Void) {
         let deadline = Date().addingTimeInterval(timeout)
@@ -237,6 +339,7 @@ enum OwlChatCheck {
                 let applied = tab.text
                 check(applied.contains("// \(FakeChatEngine.commentText)\n"), "Apply inserted the comment")
                 check(chat.card.isHidden, "the card closes after Apply")
+                check(chat.face.mood == .flap, "the panel's owl flaps on Apply (\(chat.face.mood))")
                 if let w = tab.window {
                     w.makeKeyAndOrderFront(nil)
                     w.makeFirstResponder(tv)
@@ -308,6 +411,8 @@ enum OwlChatCheck {
         }
         after(0.3) {
             check(!chat.isShown, "Escape closes the panel")
+            check(!chat.face.isLive && !chat.face.isAnimating && !chat.face.blinkScheduled,
+                  "the panel's owl stops when it closes: no timers")
             OwlChatCheck.after(0.05) { extra(tab, out) }
         }
     }

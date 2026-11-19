@@ -842,6 +842,17 @@ offers hints in a speech bubble.
   OwlInk.app/Contents/Resources/Owl by `bundle-app.sh`; `swift run` loads it
   from the source tree. On dark themes a faint disc behind the navy owl
   keeps it readable.
+- `OwlChatFace` is Cedric in the Ask Cedric panel's header (64 pt, the
+  art's empty left margin cropped). `OwlChatPanel` sends it cues (asked,
+  searching, streaming, proposing, answered, stopped, failed, applied,
+  typed); `OwlChatMood` (CedricCore, `OwlChatMoodTests`) maps each cue to
+  a mood and each mood to a gesture, a loop or a still, with Reduce
+  Motion giving stills only. Typing listens at most every 1.5 s and the
+  opening wave at most once a minute (the panel hides whenever the app
+  is in the background). It watches its own window (occlusion, key,
+  close, app hide/active) rather than hooks in the panel's show and
+  close, so how the panel is attached to the editor window doesn't
+  matter to it; off screen it holds no timer at all.
 
 **Checks.** `OwlTests` (throttle, pause, dedupe, snooze, never-again,
 quiet, once-ever letter, textStart/generation dropping, every rule,
