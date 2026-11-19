@@ -32,14 +32,33 @@ tmpdir=${tmpdir%/}
 
 # The secret that tells the app a URL is from this script, not a web page:
 # a random token in a file only this user can read. Made here if the app
-# hasn't made it yet.
+# hasn't made it yet: written to a private temp file in the same folder,
+# then hard-linked into place, so nobody ever reads a half-written token and
+# a token already there (the app's, another run's) is never replaced. The
+# app writes its own straight into the file, so an empty read gets one
+# retry 50 ms later. The folder is owner-only (0700).
 token_file="$HOME/Library/Application Support/Cedric/cli-token"
 token() {
+    local dir t tmp
+    dir=$(dirname "$token_file")
     if [ ! -s "$token_file" ]; then
-        mkdir -p "$(dirname "$token_file")"
-        ( umask 077; t=$(head -c 16 /dev/urandom | xxd -p | tr -d '\n'); set -o noclobber; echo "$t" > "$token_file" ) 2>/dev/null || true
+        mkdir -p -m 700 "$dir"
+        # Made wider by an older Cedric: tighten it (only our own real folder).
+        if [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] && [ "$(stat -f %Lp "$dir")" != 700 ]; then
+            chmod 700 "$dir" 2>/dev/null || true
+        fi
+        if tmp=$(umask 077; mktemp "$dir/.cli-token.XXXXXX" 2>/dev/null); then
+            { head -c 16 /dev/urandom | xxd -p | tr -d '\n'; echo; } > "$tmp" 2>/dev/null &&
+                ln "$tmp" "$token_file" 2>/dev/null || true
+            rm -f "$tmp"
+        fi
     fi
-    tr -d '\n' < "$token_file"
+    t=$(tr -d '\n' < "$token_file" 2>/dev/null || true)
+    if [ -z "$t" ]; then
+        sleep 0.05
+        t=$(tr -d '\n' < "$token_file" 2>/dev/null || true)
+    fi
+    printf '%s' "$t"
 }
 TOKEN=""
 
