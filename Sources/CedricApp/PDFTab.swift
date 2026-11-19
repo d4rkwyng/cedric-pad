@@ -585,6 +585,11 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
     @objc func zoomOut(_ sender: Any?) { setScale((pdfView?.scaleFactor ?? 1) / 1.25) }
     /// ⌘0, Actual Size: 100%.
     @objc func zoomReset(_ sender: Any?) { setScale(1) }
+    /// The status bar's 75–200 %.
+    @objc func zoomToPercent(_ sender: Any?) {
+        guard let p = (sender as? NSMenuItem)?.tag, p > 0 else { return }
+        setScale(CGFloat(p) / 100)
+    }
     /// ⌘9: fit the page width to the window (how a PDF opens).
     @objc func zoomToFit(_ sender: Any?) {
         pdfView?.autoScales = true

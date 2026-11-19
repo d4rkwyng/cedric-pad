@@ -218,6 +218,7 @@ enum DevChecks {
         case "replaceinfiles": replaceInFilesCheck(app)
         case "folder": folderCheck(app)
         case "multicaret": multiCaretCheck(app)
+        case "statuszoom": statusZoomCheck(app)
         default:
             if !editingCheck(name, app), !pdfCheck(name, app), !imageCheck(name, app), !binaryCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
         }

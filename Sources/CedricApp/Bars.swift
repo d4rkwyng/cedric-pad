@@ -122,6 +122,58 @@ final class FindBar: NSView, NSSearchFieldDelegate {
 
 /// The status bar: caret position, selection, and pop-up menus for the
 /// language, encoding and line ending.
+/// The status bar's zoom: a borderless pull-down whose title is the zoom
+/// ("110%"). Its items go up the responder chain, so the editor, an image
+/// and a PDF each zoom their own way: Zoom In, Zoom Out, Actual Size (the
+/// View menu's actions; their shortcuts are shown, the View menu handles
+/// them) and 75–200 % (`zoomToPercent:`, the percent in `tag`).
+final class ZoomPopUp: NSPopUpButton {
+    static let percents = [75, 90, 100, 110, 125, 150, 200]
+
+    init() {
+        super.init(frame: .zero, pullsDown: true)
+        setAccessibilityLabel(String(localized: "Zoom"))
+        toolTip = String(localized: "Zoom")
+        let menu = NSMenu()
+        menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
+        func add(_ title: String, _ action: Selector, _ key: String = "", tag: Int = 0) {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            i.keyEquivalentModifierMask = key.isEmpty ? [] : .command
+            i.tag = tag
+            menu.addItem(i)
+        }
+        add(String(localized: "Zoom In"), #selector(AppDelegate.zoomIn(_:)), "=")
+        add(String(localized: "Zoom Out"), #selector(AppDelegate.zoomOut(_:)), "-")
+        add(String(localized: "Actual Size"), #selector(AppDelegate.zoomReset(_:)), "0")
+        menu.addItem(.separator())
+        for p in Self.percents { add("\(p)%", #selector(AppDelegate.zoomToPercent(_:)), tag: p) }
+        self.menu = menu
+        // The tick is ours (the size shown), not the last item picked.
+        (cell as? NSPopUpButtonCell)?.altersStateOfSelectedItem = false
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// The title ("110%"); empty hides the pop-up. A tick marks the
+    /// matching size.
+    override var stringValue: String {
+        get { menu?.items.first?.title ?? "" }
+        set {
+            menu?.items.first?.title = newValue
+            setTitle(newValue)
+            isHidden = newValue.isEmpty
+            for i in menu?.items ?? [] where i.action == #selector(AppDelegate.zoomToPercent(_:)) {
+                i.state = "\(i.tag)%" == newValue ? .on : .off
+            }
+        }
+    }
+
+    /// The shortcuts in the menu are shown only: ⌘= / ⌘− / ⌘0 stay the
+    /// View menu's (a pop-up would otherwise answer them first).
+    override func performKeyEquivalent(with event: NSEvent) -> Bool { false }
+}
+
 final class StatusBar: NSView {
     let position = NSTextField(labelWithString: "")
     /// Words, lines and characters of the document or the selection.
@@ -129,11 +181,14 @@ final class StatusBar: NSView {
     let languageButton = NSPopUpButton(frame: .zero, pullsDown: true)
     let encodingButton = NSPopUpButton(frame: .zero, pullsDown: true)
     let lineEndingButton = NSPopUpButton(frame: .zero, pullsDown: true)
-    let zoom = NSTextField(labelWithString: "")
+    /// The zoom ("110%"): a pull-down with Zoom In, Zoom Out, Actual Size
+    /// and a few sizes. Hidden while its title is empty (tabs without zoom).
+    let zoom = ZoomPopUp()
     /// The git branch (or short SHA) with a dot for uncommitted changes;
     /// a click shows a small menu (GitIntegration.swift). Hidden outside git.
     let gitButton = NSButton(title: "", target: nil, action: nil)
     var background: NSColor = .windowBackgroundColor { didSet { needsDisplay = true } }
+    private let stack = NSStackView()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -144,9 +199,7 @@ final class StatusBar: NSView {
         counts.textColor = .secondaryLabelColor
         counts.lineBreakMode = .byTruncatingTail
         counts.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        zoom.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        zoom.textColor = .secondaryLabelColor
-        for b in [languageButton, encodingButton, lineEndingButton] {
+        for b in [languageButton, encodingButton, lineEndingButton, zoom] {
             b.isBordered = false
             b.controlSize = .small
             b.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -162,14 +215,18 @@ final class StatusBar: NSView {
         gitButton.isHidden = true
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let stack = NSStackView(views: [position, counts, spacer, gitButton, zoom, languageButton, encodingButton, lineEndingButton])
+        stack.setViews([position, counts, spacer, gitButton, zoom, languageButton, encodingButton, lineEndingButton], in: .leading)
         stack.spacing = 14
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 8)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        // Under the editor column: past a folder sidebar on the left (when
+        // there is room) and never under a docked preview on the right.
+        leadingInset.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            leadingInset,
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor),
+            trailingInset,
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             heightAnchor.constraint(equalToConstant: 24),
@@ -178,6 +235,21 @@ final class StatusBar: NSView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    private lazy var leadingInset = stack.leadingAnchor.constraint(equalTo: leadingAnchor)
+    private lazy var trailingInset = stack.trailingAnchor.constraint(equalTo: trailingAnchor)
+
+    /// Keeps the items between `left` and `right` points in from the
+    /// edges: the editor column, when a sidebar or preview shares the row.
+    func setInsets(left: CGFloat, right: CGFloat) {
+        guard leadingInset.constant != left || trailingInset.constant != -right else { return }
+        leadingInset.constant = left
+        trailingInset.constant = -right
+        needsDisplay = true
+    }
+
+    /// The items' frame in the bar (the checks).
+    var itemsFrame: NSRect { stack.frame }
+
     override func draw(_ dirtyRect: NSRect) {
         background.setFill()
         // Since macOS 14 views don't clip to their bounds and dirtyRect
@@ -185,6 +257,11 @@ final class StatusBar: NSView {
         dirtyRect.intersection(bounds).fill()
         NSColor.separatorColor.setFill()
         NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
+        // The split's divider carried down to the bar, between the
+        // editor's items and the docked preview's (empty) part.
+        if trailingInset.constant < 0 {
+            NSRect(x: bounds.width + trailingInset.constant, y: 0, width: 1, height: bounds.height).fill()
+        }
     }
 
     /// Fills a pull-down: the first item is the title shown.

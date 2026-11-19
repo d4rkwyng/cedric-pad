@@ -241,6 +241,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         split.setContentHuggingPriority(.init(1), for: .vertical)
         window.contentView = stack
         configureStatusBar()
+        // The status items follow the editor column (a docked preview or a
+        // folder sidebar beside it has none of them under it).
+        container.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(editorColumnMoved(_:)),
+                                               name: NSView.frameDidChangeNotification, object: container)
+    }
+
+    @objc private func editorColumnMoved(_ note: Notification) { alignStatusBar() }
+
+    /// Insets the status bar's items to the editor column's span in the split.
+    func alignStatusBar() {
+        let f = container.superview === split ? container.frame : split.bounds
+        statusBar.setInsets(left: max(0, f.minX), right: max(0, split.bounds.width - f.maxX))
     }
 
     private func makeFindBar() -> FindBar {

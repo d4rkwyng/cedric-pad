@@ -767,6 +767,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func zoomIn(_ sender: Any?) { Settings.shared.fontSize += 1 }
     @objc func zoomOut(_ sender: Any?) { Settings.shared.fontSize -= 1 }
     @objc func zoomReset(_ sender: Any?) { Settings.shared.fontSize = Settings.defaultFontSize }
+    /// The status bar's 75–200 % (the percent in the item's tag).
+    @objc func zoomToPercent(_ sender: Any?) {
+        guard let p = (sender as? NSMenuItem)?.tag, p > 0 else { return }
+        Settings.shared.fontSize = Settings.defaultFontSize * CGFloat(p) / 100
+    }
     @objc func pickTheme(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let t = EditorTheme(rawValue: raw) { Settings.shared.theme = t }
     }

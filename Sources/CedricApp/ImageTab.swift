@@ -448,6 +448,11 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
     @objc func zoomOut(_ sender: Any?) { setScale(Double(scale) / ImageZoom.step) }
     /// ⌘0, Actual Size: one image pixel per point.
     @objc func zoomReset(_ sender: Any?) { setScale(1) }
+    /// The status bar's 75–200 %.
+    @objc func zoomToPercent(_ sender: Any?) {
+        guard let p = (sender as? NSMenuItem)?.tag, p > 0 else { return }
+        setScale(Double(p) / 100)
+    }
     /// ⌘9: fit the image to the window.
     @objc func zoomToFit(_ sender: Any?) { fit() }
 
