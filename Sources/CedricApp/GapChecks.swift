@@ -541,6 +541,23 @@ extension DevChecks {
                 openURL(app, "cedric://open?path=\(enc(file.path))&wait=\(enc(m2))")
                 app.releaseAllWaiters()
                 expect(!FileManager.default.fileExists(atPath: m2), "quitting releases waiting scripts")
+                // `cedric -w some/dir`: the folder opens in the sidebar and the
+                // script isn't left waiting on a tab that never comes.
+                let folder = dir.appendingPathComponent("cli-folder", isDirectory: true)
+                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let m3 = marker + "c"
+                FileManager.default.createFile(atPath: m3, contents: nil)
+                let before = app.tabs.count
+                openURL(app, "cedric://open?path=\(enc(folder.path))&wait=\(enc(m3))")
+                expect(!FileManager.default.fileExists(atPath: m3), "cedric -w on a folder returns at once (its marker is deleted)")
+                expect(app.tabs.count == before, "and opens no tab", "\(app.tabs.count - before)")
+                // The sidebar opens after the first frame (passed by now).
+                expect(FolderSidebar.shared?.rootURL.standardizedFileURL.path == folder.standardizedFileURL.path,
+                       "the folder opens in the folder sidebar", FolderSidebar.shared?.rootURL.path ?? "none")
+                // A marker that isn't the script's is still never deleted.
+                openURL(app, "cedric://open?path=\(enc(folder.path))&wait=\(enc(outside))")
+                expect(FileManager.default.fileExists(atPath: outside), "a folder URL never deletes a file that isn't a cedric-wait marker")
+                app.closeFolder()
             },
             sync {
                 // cedric://open?untitled= from a web page: `..` out of a temp-looking prefix to a victim file.

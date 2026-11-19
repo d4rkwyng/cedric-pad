@@ -223,6 +223,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func openFromURL(_ path: String, _ q: [String: String]) {
         let url = URL(fileURLWithPath: path)
+        // `cedric some/dir`: the folder sidebar. A folder has no tab to wait
+        // for, so `cedric -w some/dir` returns at once: its marker goes now
+        // (the script waits only for files, documented as "each file's tab").
+        if Self.isFolder(url.standardizedFileURL) {
+            open(url)
+            if let marker = q["wait"], let h = CLIHandoff.inspect(marker, kind: .wait) { CLIHandoff.remove(h) }
+            return
+        }
         if FileManager.default.fileExists(atPath: path) {
             open(url)
         } else {

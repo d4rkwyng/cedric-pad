@@ -594,7 +594,9 @@ that isn't a package to `openFolder`) shows a folder tree at the left of
 the editor. View › Show Folder Sidebar (⌃⌘1) hides and shows it; it is
 disabled until a folder is open. The model is `CedricCore/FolderTree.swift`
 (tested in `FolderTreeTests.swift`); the app side is `FolderSidebar.swift`
-and `FolderWatcher.swift`.
+and `FolderWatcher.swift`. `cedric -w some/dir` returns at once: `-w`
+waits for each file's tab, a folder has none, so the app deletes the
+folder's wait marker as it opens it (the `cli` check).
 
 - **Invisible until used.** Nothing is built at launch: no view, no
   listing, no FSEvents stream, no per-tab object. A session with a

@@ -9,6 +9,8 @@
 #   cedric file:42:7        open at line 42, column 7
 #   cedric -w file ...      wait until each file's tab is closed (for
 #                           git and other tools: EDITOR="cedric -w")
+#   cedric dir              open a folder in the folder sidebar (with -w:
+#                           returns at once, a folder has no tab to wait for)
 #   cedric -                read stdin into a new untitled tab
 #   cedric                  bring OwlInk forward
 #
@@ -104,7 +106,7 @@ args=()
 for arg in "$@"; do
     case "$arg" in
         -w|--wait) wait=1 ;;
-        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
         *) args+=("$arg") ;;
     esac
 done

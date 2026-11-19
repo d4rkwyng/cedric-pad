@@ -663,6 +663,7 @@ cedric src/main.c:120           # open at line 120 (also: cedric +120 src/main.c
 cedric src/main.c:120:7         # line 120, column 7 (grep -n / compiler output works too)
 git log | cedric -              # stdin into a new untitled tab
 git config --global core.editor "cedric -w"   # -w / --wait: return when the tab closes
+cedric ~/src/project            # a folder opens in the folder sidebar (-w returns at once: no tab to wait for)
 ```
 
 It talks to the app through a `cedric://open?path=…&line=…&col=…` URL. Any
