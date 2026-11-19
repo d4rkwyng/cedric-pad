@@ -15,7 +15,7 @@ extension DevChecks {
                 let titles = help?.submenu?.items.map(\.title) ?? []
                 expect(titles.contains("OwlInk Help") && titles.contains("Keyboard Shortcuts"), "with OwlInk Help and Keyboard Shortcuts",
                        "\(titles)")
-                expect(AppDelegate.helpURL.absoluteString == "https://github.com/d4rkwyng/owlink#readme", "Help opens the README")
+                expect(AppDelegate.helpURL.absoluteString == "https://github.com/d4rkwyng/owlink/blob/main/docs/MANUAL.md", "Help opens the manual")
                 if let i = help?.submenu?.items.firstIndex(where: { $0.title == "Keyboard Shortcuts" }) {
                     help?.submenu?.performActionForItem(at: i)
                 }

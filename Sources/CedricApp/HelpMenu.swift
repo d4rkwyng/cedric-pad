@@ -38,11 +38,11 @@ enum MenuShortcuts {
     }
 }
 
-/// Help › OwlInk Help (the README on GitHub) and Help › Keyboard
+/// Help › OwlInk Help (the manual, docs/MANUAL.md on GitHub) and Help › Keyboard
 /// Shortcuts (a window listing every menu shortcut). NSApp.helpMenu is
 /// set, so macOS adds its menu search field to Help.
 extension AppDelegate {
-    static let helpURL = URL(string: "https://github.com/d4rkwyng/owlink#readme")!
+    static let helpURL = URL(string: "https://github.com/d4rkwyng/owlink/blob/main/docs/MANUAL.md")!
 
     @objc func showHelp(_ sender: Any?) {
         NSWorkspace.shared.open(Self.helpURL)
