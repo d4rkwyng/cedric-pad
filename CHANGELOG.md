@@ -20,6 +20,9 @@ are its section below (`Scripts/changelog-section.sh`).
 - **Long AI answers are no longer cut off.** The 120-second limit now covers only the wait for the first word; after that an answer may stream as long as words keep coming (30 seconds between them at most, 15 minutes in all).
 - **Closing the last tab no longer brings it back.** Closing the last document tab or window still quits Cedric Pad, but it is now a close like any other: the tab goes to File › Reopen Closed Tab (⇧⌘T) with any unsaved text kept, and the next launch opens an empty Untitled tab. Quit (⌘Q) still restores every open tab.
 
+### Fixed
+- **A file opened while Ask Cedric or Settings was in front no longer becomes a tab of that window.** It opens as a tab in the document window (from Finder, the Dock, Open Recent, the `cedric` command or Reopen Closed Tab).
+
 ### Security
 - **No AI through the environment.** The test switches that turned Ask Cedric on for one run (`CEDRIC_ASK_ENGINE`, `CEDRIC_AI_FAKE`) work only in debug builds; a release build always waits for your opt-in.
 - **Honest privacy wording.** The owl's Ask Cedric bubble, the Ask Cedric setting's tooltip and the owl's own instructions now say where text goes for the engine in use: on this Mac (built-in, Apple Intelligence), or to the AI server you set up (named), and that automatic AI grammar, when on, also sends prose after you pause typing.
