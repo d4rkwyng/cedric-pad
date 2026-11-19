@@ -18,8 +18,8 @@ enum ReplaceInFiles {
     }
 
     static var last: Operation?
-    /// Replace All's disk writes are under way (on `queue`): no undo, no
-    /// second Replace All until they land.
+    /// Replace All's disk writes (or an undo's) are under way (on `queue`):
+    /// no undo, no second Replace All until they land.
     static var writing = false
     /// Where Replace All reads, backs up and writes the files: off the main
     /// thread, one operation at a time.
@@ -28,6 +28,8 @@ enum ReplaceInFiles {
     static var writeDelayForChecks: TimeInterval = 0
     /// Whether the last Replace All wrote on the main thread (the checks).
     static var lastWriteOnMain: Bool?
+    /// Whether the last undo read and wrote on the main thread (the checks).
+    static var lastUndoOnMain: Bool?
 
     /// Quitting: the writes under way finish first (each is atomic, but
     /// the undo manifest is saved once they are done).
@@ -59,10 +61,13 @@ extension AppDelegate {
     }
 
     @objc func undoReplaceInFilesMenu(_ sender: Any?) {
-        let message = undoLastReplace()
+        // The panel shows the undo's progress and locks its controls, as for Replace All.
         if let p = findInFiles, p.isShown {
-            p.showOutcome(message)
-        } else if !message.isEmpty, ProcessInfo.processInfo.environment["CEDRIC_CHECK"] == nil {
+            p.undoReplace()
+            return
+        }
+        undoLastReplace { message in
+            guard !message.isEmpty, ProcessInfo.processInfo.environment["CEDRIC_CHECK"] == nil else { return }
             let a = NSAlert()
             a.messageText = ReplaceInFiles.actionName
             a.informativeText = message
@@ -177,18 +182,50 @@ extension AppDelegate {
     }
 
     /// Undo Replace in Files: restores the written files still holding what
-    /// was written, and undoes the tab edits still on top of their tab's
-    /// undo stack. Returns what to show.
-    func undoLastReplace() -> String {
-        guard !ReplaceInFiles.writing, let op = ReplaceInFiles.last else { return "" }
-        ReplaceInFiles.last = nil
+    /// was written (reading, hashing and writing them on
+    /// `ReplaceInFiles.queue`, with `progress` on the main thread), and
+    /// undoes the tab edits still on top of their tab's undo stack. `done`
+    /// gets what to show. Files it couldn't put back yet (read-only now)
+    /// keep the operation, so Undo can be tried again.
+    func undoLastReplace(progress: @escaping @MainActor (ReplaceProgress) -> Void = { _ in },
+                         done: @escaping @MainActor (String) -> Void) {
+        guard !ReplaceInFiles.writing, let op = ReplaceInFiles.last else { done(""); return }
+        guard let id = op.diskOperation else { finishUndo(op, disk: nil, done: done); return }
+        ReplaceInFiles.writing = true
+        let store = ReplaceInFiles.store
+        let delay = ReplaceInFiles.writeDelayForChecks
+        let throttle = ProgressThrottle()
+        ReplaceInFiles.queue.async {
+            let onMain = Thread.isMainThread
+            let r = store.undo(id) { n, total in
+                if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+                guard throttle.due(last: n == total) else { return }
+                let p = ReplaceProgress(stage: .restoring, done: n, total: total)
+                DispatchQueue.main.async { MainActor.assumeIsolated { progress(p) } }
+            }
+            let out = MainBox(value: r)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    ReplaceInFiles.writing = false
+                    ReplaceInFiles.lastUndoOnMain = onMain
+                    self.finishUndo(op, disk: out.value, done: done)
+                }
+            }
+        }
+    }
+
+    /// The tab edits (here, on the main thread) and the message, once the
+    /// disk files are done.
+    private func finishUndo(_ op: ReplaceInFiles.Operation, disk: ReplaceUndoStore.UndoReport?,
+                            done: @MainActor (String) -> Void) {
         var restored: [URL] = []
         var skipped: [SkippedFile] = []
-        if let id = op.diskOperation {
-            let r = ReplaceInFiles.store.undo(id)
+        if let r = disk {
             restored += r.restored
             skipped += r.skipped
         }
+        // Kept for another try (the tab edits are done now either way).
+        ReplaceInFiles.last = disk?.remaining == true ? .init(diskOperation: op.diskOperation, tabEdits: []) : nil
         for e in op.tabEdits {
             func skip() { skipped.append(SkippedFile(url: e.url, relativePath: e.url.lastPathComponent, reason: .changedSinceReplace)) }
             guard let tab = e.tab, tabs.contains(where: { $0 === tab }), let um = tab.textView.undoManager else { skip(); continue }
@@ -200,8 +237,9 @@ extension AppDelegate {
         var s = restored.count == 1 ? String(localized: "Undid Replace in Files in 1 file.")
             : String(localized: "Undid Replace in Files in \(restored.count) files.")
         s += ReplaceInFiles.skippedText(skipped)
+        if ReplaceInFiles.last != nil { s += " " + String(localized: "Undo again once those files can be written.") }
         trace("replace in files: \(s)")
-        return s
+        done(s)
     }
 }
 

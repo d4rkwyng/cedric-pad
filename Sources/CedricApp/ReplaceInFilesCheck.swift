@@ -11,6 +11,10 @@ import CedricCore
 /// progress, controls and undo locked meanwhile), then Edit › Undo
 /// Replace in Files; checks the bytes on disk and the tab's text at each
 /// step.
+/// Set by a main-queue block that ran while ReplaceInFiles.writing was true:
+/// the UI's run loop turned during the background writes.
+@MainActor private var replaceTickedWhileWriting = false
+
 @MainActor
 extension DevChecks {
     static func replaceInFilesCheck(_ app: AppDelegate) {
@@ -160,8 +164,9 @@ extension DevChecks {
                        "the summary follows the boxes", panel.summary.stringValue)
             },
             sync {
-                // Slowed down (0.1 s per file per stage, 3 files on disk) to watch the app while it writes.
-                ReplaceInFiles.writeDelayForChecks = 0.1
+                // Slowed down (0.3 s per file per stage, 3 files on disk: at least 2.7 s) to watch the app while it writes.
+                ReplaceInFiles.writeDelayForChecks = 0.3
+                replaceTickedWhileWriting = false
                 click(panel.replaceAllButton, at: NSPoint(x: panel.replaceAllButton.bounds.midX, y: panel.replaceAllButton.bounds.midY))
                 if !panel.replacing && panel.previewing {
                     print("check: note: synthetic click on Replace All not taken; pressing it")
@@ -175,11 +180,20 @@ extension DevChecks {
                        "while writing: Replace All, Cancel, Undo Replace and the Replace box are off")
                 expect(menuItem(action: #selector(AppDelegate.undoReplaceInFilesMenu(_:))).map { !app.validateMenuItem($0) } == true,
                        "while writing: Edit › Undo Replace in Files is disabled")
+                // A main-queue block queued now must run before the writes end:
+                // the main thread is not blocked by them.
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { if ReplaceInFiles.writing { replaceTickedWhileWriting = true } }
+                }
             },
-            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { next() } },
+            // Not a fixed wait: a busy machine (the VM) can fire a timer late,
+            // after the writes are done. Wait for the state itself.
+            until("progress shows while the files are written", timeout: 5) {
+                ReplaceInFiles.writing && panel.writeProgress.doubleValue > 0 && replaceTickedWhileWriting
+            },
             sync {
-                // The main thread ran this timer mid-write: it isn't blocked.
-                expect(panel.replacing, "the main thread runs while the files are written", panel.status.stringValue)
+                expect(replaceTickedWhileWriting && ReplaceInFiles.writing,
+                       "the main thread runs while the files are written", panel.status.stringValue)
                 let st = panel.status.stringValue
                 expect(!panel.writeProgress.isHidden && panel.writeProgress.doubleValue > 0 && st.contains(" of 3 files"),
                        "progress is shown", "\(st) \(panel.writeProgress.doubleValue)")
@@ -226,7 +240,13 @@ extension DevChecks {
             sync {
                 let item = menuItem(action: #selector(AppDelegate.undoReplaceInFilesMenu(_:)))
                 expect(item.map { app.validateMenuItem($0) } == true, "Edit › Undo Replace in Files is enabled")
+                ReplaceInFiles.lastUndoOnMain = nil
                 expect(choose(#selector(AppDelegate.undoReplaceInFilesMenu(_:))), "Edit › Undo Replace in Files runs")
+            },
+            until("the undo lands", timeout: 10) { !ReplaceInFiles.writing && !panel.replacing && ReplaceInFiles.lastUndoOnMain != nil },
+            sync {
+                let item = menuItem(action: #selector(AppDelegate.undoReplaceInFilesMenu(_:)))
+                expect(ReplaceInFiles.lastUndoOnMain == false, "undo: the files were hashed and restored off the main thread")
                 for k in ["crlf.txt", "latin.txt", "partial.txt", "unchecked.txt", "mixed.txt", "open.txt"] {
                     expect(bytes(k) == originals[k], "undo: \(k) is byte-for-byte the original")
                 }

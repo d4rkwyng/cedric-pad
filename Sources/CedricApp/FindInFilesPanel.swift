@@ -80,10 +80,12 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
     var onReplace: ((ReplacePlan, @escaping @MainActor (ReplaceProgress) -> Void, @escaping @MainActor (String) -> Void) -> Void)?
     /// Called when a Replace All has finished (the check waits on it).
     var onReplaced: (() -> Void)?
-    /// Replace All is writing: the preview stays, every control is off.
+    /// Replace All (or Undo Replace) is writing: the preview stays, every control is off.
     private(set) var replacing = false
-    /// Undo Replace: what to show.
-    var onUndo: (() -> String)?
+    /// Undo Replace: a progress callback and a completion with what to
+    /// show (the disk files are restored off the main thread; both
+    /// callbacks come on the main thread).
+    var onUndo: ((@escaping @MainActor (ReplaceProgress) -> Void, @escaping @MainActor (String) -> Void) -> Void)?
     /// Whether there is a replace to undo.
     var canUndo: (() -> Bool)?
     /// The text of files open in a tab, by standardized path, for these files.
@@ -273,7 +275,7 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
         let idle = running == nil && planning == nil
         let capped = lastSummary?.truncated == true
         previewButton.isHidden = previewing
-        previewButton.isEnabled = idle && !queryField.stringValue.isEmpty
+        previewButton.isEnabled = idle && !queryField.stringValue.isEmpty && !replacing
         replaceAllButton.isHidden = !previewing
         cancelPreviewButton.isHidden = !previewing
         replaceAllButton.isEnabled = previewing && !capped && checkedCount > 0 && !replacing
@@ -281,9 +283,9 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
         undoButton.isHidden = !(canUndo?() ?? false) || previewing || replacing
         writeProgress.isHidden = !replacing
         summary.isHidden = !on || summary.stringValue.isEmpty
-        // A preview is tied to the fields it was made from.
-        for f in [queryField, replaceField, folderField, includeField, excludeField] { f.isEnabled = !previewing }
-        for b in [regexBox, caseBox, gitIgnoreBox, findButton] { b.isEnabled = !previewing }
+        // A preview is tied to the fields it was made from; an undo under way locks them too.
+        for f in [queryField, replaceField, folderField, includeField, excludeField] { f.isEnabled = !previewing && !replacing }
+        for b in [regexBox, caseBox, gitIgnoreBox, findButton] { b.isEnabled = !previewing && !replacing }
         replaceBox.isEnabled = !replacing
     }
 
@@ -478,6 +480,12 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
         case .checking: status.stringValue = String(localized: "Checking \(p.done) of \(p.total) files…")
         case .backingUp: status.stringValue = String(localized: "Backing up \(p.done) of \(p.total) files…")
         case .writing: status.stringValue = String(localized: "Writing \(p.done) of \(p.total) files…")
+        case .restoring:
+            status.stringValue = String(localized: "Restoring \(p.done) of \(p.total) files…")
+            // Undo: one stage, the whole bar.
+            writeProgress.maxValue = 1
+            writeProgress.doubleValue = p.total > 0 ? Double(p.done) / Double(p.total) : 1
+            return
         }
         // Checking, backing up and writing each take a third of the bar.
         let stage: Double = p.stage == .checking ? 0 : p.stage == .backingUp ? 1 : 2
@@ -485,8 +493,20 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
         writeProgress.doubleValue = stage + (p.total > 0 ? Double(p.done) / Double(p.total) : 1)
     }
 
+    /// Undo Replace: the panel is locked and shows progress while the
+    /// files are restored, as for Replace All.
     @objc func undoReplace() {
-        showOutcome(onUndo?() ?? "")
+        guard !replacing, let onUndo else { NSSound.beep(); return }
+        replacing = true
+        writeProgress.doubleValue = 0
+        status.stringValue = String(localized: "Undoing…")
+        updateReplaceControls()
+        onUndo({ [weak self] progress in self?.showProgress(progress) }, { [weak self] message in
+            guard let self else { return }
+            self.replacing = false
+            self.status.stringValue = message.isEmpty ? "" : String(localized: "Undone.")
+            self.showOutcome(message)
+        })
     }
 
     /// After Replace All or an undo: `message` in the summary, and the
@@ -558,7 +578,7 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
     @objc func startSearch() { search(keepSummary: false) }
 
     func search(keepSummary: Bool) {
-        if previewing { return }
+        if previewing || replacing { return }
         cancel()
         results = []
         nodes = []

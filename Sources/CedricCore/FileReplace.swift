@@ -13,9 +13,14 @@ import Foundation
 /// - every target's original bytes are copied to the undo store before
 ///   the first write;
 /// - writes are atomic (a temp file in the same folder, renamed over the
-///   file) and keep the file's mode, ACL and extended attributes; symbolic
-///   links, hard-linked files and files outside the searched folder are
-///   refused;
+///   file) and keep the file's mode, ACL and extended attributes; the
+///   file gets a new modification date; symbolic links, hard-linked files,
+///   read-only files, anything inside a .git folder (or a .git file) and
+///   files outside the searched folder are refused;
+/// - a file whose encoding is a guess at an 8-bit one (Latin-1,
+///   Windows-1252, Mac Roman) is skipped when the replacement has
+///   non-ASCII text or the bytes hold UTF-8 sequences: it may be UTF-8
+///   with a stray byte, and the write would mix encodings;
 /// - files open in a tab are not written at all: the app edits their
 ///   buffer (one ⌘Z there), from the tab's own text.
 public struct ReplaceQuery: Sendable, Equatable, Codable {
@@ -51,6 +56,7 @@ public enum ReplaceSkip: String, Sendable, Codable, CaseIterable {
     case binary, tooLarge, mixedLineEndings, notRoundTrip, cannotEncode
     case changedSinceSearch, changedSincePreview, changedSinceReplace
     case unreadable, unwritable, outsideFolder, symbolicLink, hardLinked, readOnlyTab
+    case readOnly, encodingUncertain, insideGit
 
     public var summary: String {
         switch self {
@@ -68,6 +74,9 @@ public enum ReplaceSkip: String, Sendable, Codable, CaseIterable {
         case .symbolicLink: return String(localized: "symbolic link")
         case .hardLinked: return String(localized: "hard-linked")
         case .readOnlyTab: return String(localized: "read-only tab")
+        case .readOnly: return String(localized: "read-only")
+        case .encodingUncertain: return String(localized: "encoding uncertain")
+        case .insideGit: return String(localized: "inside .git")
         }
     }
 }
@@ -128,7 +137,7 @@ public struct ReplaceReport: Sendable {
 /// originals backed up, each file written. `total` is the number of files
 /// in that stage.
 public struct ReplaceProgress: Sendable, Equatable {
-    public enum Stage: Sendable, Equatable { case checking, backingUp, writing }
+    public enum Stage: Sendable, Equatable { case checking, backingUp, writing, restoring }
     public var stage: Stage
     public var done: Int
     public var total: Int
@@ -247,7 +256,9 @@ public enum FileReplace {
             }
             let edits = edits(in: decoded.text, regex: re, query: query)
             guard !edits.isEmpty else { continue }
-            if !TextCodec.canEncode(edits.map(\.replacement).joined(), as: decoded.encoding) { skip(.cannotEncode); continue }
+            let replacements = edits.map(\.replacement).joined()
+            if !TextCodec.canEncode(replacements, as: decoded.encoding) { skip(.cannotEncode); continue }
+            if encodingUncertain(decoded.encoding, data: data, replacements: replacements) { skip(.encodingUncertain); continue }
             plan.files.append(ReplaceFile(url: c.url, relativePath: c.relativePath, sourceText: decoded.text, edits: edits,
                                           disk: DiskSource(stamp: stamp, sha256: sha256(data), encoding: decoded.encoding,
                                                            lineEnding: decoded.lineEnding)))
@@ -255,15 +266,63 @@ public enum FileReplace {
         return plan
     }
 
+    /// Whether an 8-bit `encoding` (a guess: no BOM, not valid UTF-8) is
+    /// too uncertain to write: the replacement has non-ASCII text, or the
+    /// bytes hold well-formed UTF-8 multibyte sequences (UTF-8 with a stray
+    /// byte, which would end up with two encodings in one file).
+    static func encodingUncertain(_ encoding: TextEncoding, data: Data, replacements: String) -> Bool {
+        switch encoding {
+        case .latin1, .windows1252, .macRoman:
+            return !replacements.unicodeScalars.allSatisfy(\.isASCII) || containsUTF8Multibyte(data)
+        case .utf8, .utf8BOM, .utf16LE, .utf16BE:
+            return false
+        }
+    }
+
+    /// Whether `data` holds at least one well-formed UTF-8 multibyte sequence.
+    static func containsUTF8Multibyte(_ data: Data) -> Bool {
+        data.withUnsafeBytes { (b: UnsafeRawBufferPointer) -> Bool in
+            let n = b.count
+            var i = 0
+            func cont(_ k: Int, _ lo: UInt8 = 0x80, _ hi: UInt8 = 0xBF) -> Bool { k < n && b[k] >= lo && b[k] <= hi }
+            while i < n {
+                let c = b[i]
+                if c < 0x80 { i += 1; continue }
+                switch c {
+                case 0xC2...0xDF: if cont(i + 1) { return true }
+                case 0xE0: if cont(i + 1, 0xA0) && cont(i + 2) { return true }
+                case 0xE1...0xEC, 0xEE, 0xEF: if cont(i + 1) && cont(i + 2) { return true }
+                case 0xED: if cont(i + 1, 0x80, 0x9F) && cont(i + 2) { return true }
+                case 0xF0: if cont(i + 1, 0x90) && cont(i + 2) && cont(i + 3) { return true }
+                case 0xF1...0xF3: if cont(i + 1) && cont(i + 2) && cont(i + 3) { return true }
+                case 0xF4: if cont(i + 1, 0x80, 0x8F) && cont(i + 2) && cont(i + 3) { return true }
+                default: break
+                }
+                i += 1
+            }
+            return false
+        }
+    }
+
+    /// Whether `url` is a .git file or inside a .git folder (anywhere on
+    /// its path): never written, whatever the Exclude field says.
+    static func isInsideGit(_ url: URL) -> Bool {
+        url.standardizedFileURL.pathComponents.contains(".git")
+    }
+
     /// Why `url` may not be written: a symbolic link, hard-linked, not a
-    /// regular file, or (links resolved) outside `root`.
+    /// regular file, inside .git, (links resolved) outside `root`, or
+    /// read-only.
     static func refusal(_ url: URL, root: URL) -> ReplaceSkip? {
         var st = stat()
         guard lstat(url.path, &st) == 0 else { return .unreadable }
         if st.st_mode & S_IFMT == S_IFLNK { return .symbolicLink }
         guard st.st_mode & S_IFMT == S_IFREG else { return .unreadable }
         if st.st_nlink > 1 { return .hardLinked }
+        if isInsideGit(url) { return .insideGit }
         guard SafePaths.isInside(url, root) else { return .outsideFolder }
+        // The rename needs only a writable folder: honour the file's own permission.
+        if access(url.path, W_OK) != 0 { return .readOnly }
         return nil
     }
 
@@ -297,6 +356,7 @@ public enum FileReplace {
             ready.append(Prepared(file: f, original: data, new: new, mode: st.st_mode & 0o7777, count: f.edits.count))
         }
         guard !ready.isEmpty else { return report }
+        sweepTempFiles(for: ready.map(\.file.url))
 
         // The originals, all of them, before the first write.
         let op: ReplaceUndoStore.Operation
@@ -335,9 +395,37 @@ public enum FileReplace {
         return report
     }
 
+    /// The suffix of `atomicWrite`'s temp files: `.<name>.owlink-XXXXXX`.
+    static let tempMarker = ".owlink-"
+
+    /// Removes temp files a crashed or killed write left next to `urls`
+    /// (`.<name>.owlink-XXXXXX` for one of those names, a regular file
+    /// owned by this user, over a minute old). One listing per folder.
+    static func sweepTempFiles(for urls: [URL], now: Date = Date()) {
+        var byDir: [String: Set<String>] = [:]
+        for u in urls { byDir[u.deletingLastPathComponent().path, default: []].insert(u.lastPathComponent) }
+        let fm = FileManager.default
+        for (dir, names) in byDir {
+            guard let items = try? fm.contentsOfDirectory(atPath: dir) else { continue }
+            for item in items where item.hasPrefix(".") {
+                guard let r = item.range(of: tempMarker, options: .backwards) else { continue }
+                let suffix = item[r.upperBound...]
+                let name = String(item[item.index(after: item.startIndex)..<r.lowerBound])
+                guard suffix.count == 6, suffix.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }), names.contains(name) else { continue }
+                let path = dir + "/" + item
+                var st = stat()
+                guard lstat(path, &st) == 0, st.st_mode & S_IFMT == S_IFREG, st.st_uid == getuid(),
+                      now.timeIntervalSince1970 - Double(st.st_mtimespec.tv_sec) > 60 else { continue }
+                unlink(path)
+            }
+        }
+    }
+
     /// Replaces `url`'s contents atomically: a temp file in the same folder
     /// (so the rename can't cross volumes) gets the bytes, then the file's
-    /// mode, ACL and extended attributes (copyfile), then is renamed over it.
+    /// ACL and extended attributes (copyfile) and exactly its mode, then is
+    /// renamed over it. Not its dates: the new contents get a new
+    /// modification date, so rsync, make and other editors see the change.
     public static func atomicWrite(_ data: Data, to url: URL, mode: mode_t) throws {
         let dir = url.deletingLastPathComponent().path
         var template = Array((dir + "/." + url.lastPathComponent + ".owlink-XXXXXX").utf8CString)
@@ -356,8 +444,9 @@ public enum FileReplace {
         if ok { ok = fsync(fd) == 0 }
         close(fd)
         if ok {
-            // Mode, owner (if allowed), ACL and xattrs from the file being replaced; then the mode exactly.
-            _ = copyfile(url.path, tmp, nil, copyfile_flags_t(COPYFILE_SECURITY | COPYFILE_XATTR))
+            // ACL and xattrs from the file being replaced (not COPYFILE_STAT:
+            // that copies the old dates too); then the mode exactly.
+            _ = copyfile(url.path, tmp, nil, copyfile_flags_t(COPYFILE_ACL | COPYFILE_XATTR))
             ok = chmod(tmp, mode) == 0
         }
         guard ok, rename(tmp, url.path) == 0 else {
@@ -389,8 +478,14 @@ public final class ReplaceUndoStore: @unchecked Sendable {
         public var mode: UInt16
         public var originalSize: Int
         public var writtenModified: Date?
+        /// Saved once the writes are done: a crash before that leaves it
+        /// false for files that were written, so undo decides from the
+        /// bytes (SHA-256), not from this flag.
         public var written: Bool
         public var restored = false
+        /// Not written (changed since the preview, or the write failed).
+        /// Optional: manifests from before 0.2.0's review have no such key.
+        public var dropped: Bool?
     }
 
     public struct Manifest: Codable, Sendable {
@@ -428,6 +523,7 @@ public final class ReplaceUndoStore: @unchecked Sendable {
 
         func drop(index: Int) {
             manifest.entries[index].written = false
+            manifest.entries[index].dropped = true
         }
 
         func save() throws {
@@ -439,12 +535,13 @@ public final class ReplaceUndoStore: @unchecked Sendable {
     }
 
     func begin(query: ReplaceQuery, now: Date = Date()) throws -> Operation {
-        prune(now: now)
         let id = UUID()
         let dir = root.appendingPathComponent(id.uuidString, isDirectory: true)
         try PrivateDirectory.make(dir, root: root)
         let op = Operation(dir: dir, manifest: Manifest(id: id, date: now, query: query, entries: []))
         try op.save()
+        // After the new folder exists, so the 5 kept include it.
+        prune(now: now, keeping: id)
         return op
     }
 
@@ -458,22 +555,47 @@ public final class ReplaceUndoStore: @unchecked Sendable {
     public struct UndoReport: Sendable {
         public var restored: [URL] = []
         public var skipped: [SkippedFile] = []
+        /// Files left to restore that a later undo may still put back
+        /// (read-only now, or the write failed): the operation stays
+        /// undoable. False when everything was decided.
+        public var remaining = false
     }
 
-    /// Puts back every written file whose bytes are still exactly what the
-    /// replace wrote; the rest are skipped and reported.
-    public func undo(_ id: UUID) -> UndoReport {
+    /// Puts back every backed-up file whose bytes are exactly what the
+    /// replace wrote, decided from its SHA-256 (not the manifest's written
+    /// flag, which a crash mid-replace never saved): a file still holding
+    /// the original needs nothing; one changed since is skipped and
+    /// reported, as is one now read-only (left to a later undo). The
+    /// operation is marked undone only when nothing is left to retry.
+    /// Reads, hashes and writes files: call it off the main thread;
+    /// `progress(done, total)` after each file.
+    public func undo(_ id: UUID, progress: (Int, Int) -> Void = { _, _ in }) -> UndoReport {
         var report = UndoReport()
         guard var m = manifest(id), !m.undone else { return report }
         let dir = root.appendingPathComponent(id.uuidString)
-        for (k, e) in m.entries.enumerated() where e.written && !e.restored {
+        let todo = m.entries.indices.filter { !m.entries[$0].restored }
+        for (n, k) in todo.enumerated() {
+            defer { progress(n + 1, todo.count) }
+            let e = m.entries[k]
             let url = URL(fileURLWithPath: e.path)
             func skip(_ r: ReplaceSkip) { report.skipped.append(SkippedFile(url: url, relativePath: url.lastPathComponent, reason: r)) }
+            // Never written as far as the manifest knows, and not ours now: nothing to say.
+            let quiet = e.dropped == true && !e.written
             var st = stat()
-            guard lstat(e.path, &st) == 0, st.st_mode & S_IFMT == S_IFREG else { skip(.changedSinceReplace); continue }
-            guard let current = try? Data(contentsOf: url), FileReplace.sha256(current).sha256Hex == e.writtenSHA256 else {
-                skip(.changedSinceReplace); continue
+            guard lstat(e.path, &st) == 0, st.st_mode & S_IFMT == S_IFREG, st.st_nlink == 1,
+                  let current = try? Data(contentsOf: url) else {
+                if !quiet { skip(.changedSinceReplace) }
+                m.entries[k].restored = true
+                continue
             }
+            let sha = FileReplace.sha256(current).sha256Hex
+            if sha == e.originalSHA256 { m.entries[k].restored = true; continue }
+            guard sha == e.writtenSHA256 else {
+                if !quiet { skip(.changedSinceReplace) }
+                m.entries[k].restored = true
+                continue
+            }
+            if access(e.path, W_OK) != 0 { skip(.readOnly); report.remaining = true; continue }
             guard let original = try? Data(contentsOf: dir.appendingPathComponent(e.backup)),
                   FileReplace.sha256(original).sha256Hex == e.originalSHA256 else { skip(.unreadable); continue }
             do {
@@ -482,16 +604,25 @@ public final class ReplaceUndoStore: @unchecked Sendable {
                 report.restored.append(url)
             } catch {
                 skip(.unwritable)
+                report.remaining = true
             }
         }
-        m.undone = true
+        m.undone = !report.remaining
         let op = Operation(dir: dir, manifest: m)
         try? op.save()
         return report
     }
 
-    /// Keeps the newest `keep` operations younger than `maxAge`.
-    public func prune(keep: Int = 5, maxAge: TimeInterval = 7 * 24 * 3600, now: Date = Date()) {
+    /// At launch (the app runs it off the main thread, after the first
+    /// frame): drops the copies past 7 days or past the newest 5, so they
+    /// go even when no replace follows.
+    public func pruneAtLaunch(now: Date = Date()) {
+        prune(now: now)
+    }
+
+    /// Keeps the newest `keep` operations younger than `maxAge` (and
+    /// always `keeping`, the operation being made).
+    public func prune(keep: Int = 5, maxAge: TimeInterval = 7 * 24 * 3600, now: Date = Date(), keeping: UUID? = nil) {
         let fm = FileManager.default
         guard let dirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return }
         var ops: [(URL, Date)] = []
@@ -502,6 +633,7 @@ public final class ReplaceUndoStore: @unchecked Sendable {
         }
         ops.sort { $0.1 > $1.1 }
         for (k, (d, date)) in ops.enumerated() where k >= keep || now.timeIntervalSince(date) > maxAge {
+            if let keeping, d.lastPathComponent == keeping.uuidString { continue }
             try? fm.removeItem(at: d)
         }
     }

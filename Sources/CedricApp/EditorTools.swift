@@ -109,7 +109,10 @@ extension AppDelegate: NSMenuDelegate {
             guard let self else { done(""); return }
             self.applyReplace(plan, progress: progress, done: done)
         }
-        panel.onUndo = { [weak self] in self?.undoLastReplace() ?? "" }
+        panel.onUndo = { [weak self] progress, done in
+            guard let self else { done(""); return }
+            self.undoLastReplace(progress: progress, done: done)
+        }
         panel.canUndo = { ReplaceInFiles.last != nil && !ReplaceInFiles.writing }
         panel.buffers = { [weak self] urls in self?.openBuffers(for: urls) ?? [:] }
         if replace { panel.replaceMode = true }

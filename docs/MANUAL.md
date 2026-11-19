@@ -175,8 +175,17 @@ Replace field (`$1` for a regex group, as in the find bar):
    encoding and line endings and keeping its permissions.
 3. **Undo Replace** in the panel, or **Edit › Undo Replace in Files**,
    puts the last replace back byte for byte. A file edited since is left
-   alone and listed. The command undoes only the most recent replace, and
-   only until you quit OwlInk.
+   alone and listed, and so is one that has become read-only (Undo stays
+   available to try again once you can write it). The command undoes
+   only the most recent replace, and only until you quit OwlInk.
+
+Replace All never writes read-only files, anything inside a `.git`
+folder (or a `.git` file), whatever the Exclude field says, or a file
+whose encoding OwlInk had to guess as Latin-1, Windows-1252 or Mac Roman
+when the replacement has accented or other non-ASCII text, or the file
+also holds UTF-8 text ("encoding uncertain": it may be UTF-8 with one
+stray byte). Those are listed as skipped, with why. A replaced file gets
+a new modification date, so backup and build tools see the change.
 
 Before Replace All writes a file, OwlInk copies the original to
 `~/Library/Application Support/Cedric/ReplaceUndo/<id>/`, one folder per
@@ -185,7 +194,8 @@ that says which copy belongs to which file. These copies stay after you
 quit, so you can recover a file by hand from them. Files changed in a
 tab aren't written, so they aren't copied: ⌘Z in the tab undoes them.
 OwlInk keeps the copies of the last 5 replaces. Each time you replace
-again, it deletes the older ones and any older than 7 days.
+again, and each time OwlInk starts, it deletes the older ones and any
+older than 7 days.
 
 Files with mixed line endings are skipped: open them and use the find
 bar there.

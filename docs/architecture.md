@@ -539,11 +539,25 @@ exits 1 on a clash with another item or with a system shortcut (Lock Screen
     then every target's original bytes go to
     `~/Library/Application Support/Cedric/ReplaceUndo/<uuid>/` (0700,
     `manifest.json` with path, mode, SHA-256 of the original and of the
-    written bytes; the last 5 operations or 7 days are kept) before the
-    first write. Each write is atomic: a temp file in the same folder, the
-    original's mode, ACL and extended attributes copied onto it
-    (`copyfile`), renamed over the file, in the file's own encoding, BOM
-    and line ending.
+    written bytes; the last 5 operations or 7 days are kept, pruned after
+    each new operation's folder is made and at launch, after the first
+    frame, on `ReplaceInFiles.queue`) before the first write. Each write
+    is atomic: a temp file in the same folder, the original's ACL and
+    extended attributes copied onto it (`copyfile` ACL|XATTR, not STAT:
+    the file gets a new modification date) and its exact mode, renamed
+    over the file, in the file's own encoding, BOM and line ending.
+    Leftover `.<name>.owlink-XXXXXX` temp files of the targets (over a
+    minute old, ours) are swept first. Refused: read-only files
+    (`access(W_OK)`), any path with a `.git` component (whatever the
+    Exclude field says), and an 8-bit encoding guess when the replacement
+    is non-ASCII or the bytes hold UTF-8 multibyte sequences.
+  - *Undo.* Decided per file from the bytes, not the manifest's written
+    flags (saved once, after the writes; a crash leaves them false):
+    current SHA-256 = written → restore; = original → nothing to do;
+    else → changed since, reported. A file now read-only (or a failed
+    write) is reported and keeps the operation undoable for a retry. It
+    runs on `ReplaceInFiles.queue` with progress; the panel is locked as
+    for Replace All.
   - *Off the main thread.* Replace All edits the open tabs first, on the
     main thread (their undo stacks and text views live there). The disk
     files go to `FileReplace.apply` on one serial background queue

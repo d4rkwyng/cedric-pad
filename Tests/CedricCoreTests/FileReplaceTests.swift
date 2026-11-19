@@ -289,4 +289,187 @@ import Testing
         #expect(u.restored.count == 3)
         for (k, v) in orig { #expect(try Data(contentsOf: root.appendingPathComponent(k)) == v, "\(k)") }
     }
+
+    // MARK: 0.2.0 release review (HK-47). The skip reasons are compared by
+    // raw value so these tests also build against the code before the fix.
+
+    func mtime(_ u: URL) -> Date? { (try? FileManager.default.attributesOfItem(atPath: u.path))?[.modificationDate] as? Date }
+    func setOld(_ u: URL) throws {
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_577_836_800)], ofItemAtPath: u.path) // 2020-01-01
+    }
+
+    @Test func replaceAndUndoGiveANewModificationDate() throws {
+        let root = try dir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent(".undo"))
+        let f = try put(root, "old.txt", Data("owl\n".utf8))
+        try setOld(f)
+        let start = Date().addingTimeInterval(-60)
+        let (_, report) = try replaceAll(ReplaceQuery(query: "owl", template: "hoot"), root: root, [f], store: store)
+        #expect(report.written.count == 1)
+        #expect((mtime(f) ?? .distantPast) > start, "replace kept the old date: \(String(describing: mtime(f)))")
+        // Undo, with the file dated 2020 again: the restored file is dated now too.
+        try setOld(f)
+        let u = store.undo(try #require(report.operation))
+        #expect(u.restored.count == 1)
+        #expect(try Data(contentsOf: f) == Data("owl\n".utf8))
+        #expect((mtime(f) ?? .distantPast) > start, "undo kept the old date: \(String(describing: mtime(f)))")
+    }
+
+    @Test func readOnlyFileSkipped() throws {
+        let root = try dir()
+        defer { chmod(root.appendingPathComponent("ro.txt").path, 0o644); try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent(".undo"))
+        let ro = try put(root, "ro.txt", Data("owl\n".utf8))
+        let rw = try put(root, "rw.txt", Data("owl\n".utf8))
+        let q = ReplaceQuery(query: "owl", template: "hoot")
+        // Read-only at preview: skipped there.
+        chmod(ro.path, 0o444)
+        let plan = try FileReplace.plan(q, root: root, candidates: candidates(root, [ro, rw]))
+        #expect(plan.skipped.map(\.reason.rawValue) == ["readOnly"])
+        #expect(plan.skipped.first?.reason.summary == "read-only")
+        // Made read-only after the preview: skipped at the write.
+        chmod(ro.path, 0o644)
+        let plan2 = try FileReplace.plan(q, root: root, candidates: candidates(root, [ro]))
+        chmod(ro.path, 0o444)
+        let r = FileReplace.apply(plan2.files, query: q, root: root, store: store)
+        #expect(r.written.isEmpty && r.skipped.map(\.reason.rawValue) == ["readOnly"])
+        #expect(try Data(contentsOf: ro) == Data("owl\n".utf8))
+        var st = stat()
+        stat(ro.path, &st)
+        #expect(st.st_mode & 0o7777 == 0o444)
+    }
+
+    @Test func undoOverAReadOnlyFileIsReportedAndCanBeRetried() throws {
+        let root = try dir()
+        defer { chmod(root.appendingPathComponent("a.txt").path, 0o644); try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent(".undo"))
+        let a = try put(root, "a.txt", Data("owl a\n".utf8))
+        let b = try put(root, "b.txt", Data("owl b\n".utf8))
+        let (_, report) = try replaceAll(ReplaceQuery(query: "owl", template: "hoot"), root: root, [a, b], store: store)
+        let id = try #require(report.operation)
+        chmod(a.path, 0o444)
+        let u = store.undo(id)
+        #expect(u.restored.map(\.lastPathComponent) == ["b.txt"])
+        #expect(u.skipped.map(\.reason.rawValue) == ["readOnly"])
+        #expect(try Data(contentsOf: a) == Data("hoot a\n".utf8), "a read-only file was overwritten by undo")
+        #expect(store.manifest(id)?.undone == false, "undo marked done with a file left to restore")
+        // Writable again: a second undo puts it back.
+        chmod(a.path, 0o644)
+        let again = store.undo(id)
+        #expect(again.restored.map(\.lastPathComponent) == ["a.txt"] && again.skipped.isEmpty)
+        #expect(try Data(contentsOf: a) == Data("owl a\n".utf8))
+        #expect(store.manifest(id)?.undone == true)
+    }
+
+    @Test func utf8WithAStrayByteIsEncodingUncertain() throws {
+        let root = try dir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent(".undo"))
+        // UTF-8 "café foo" plus one stray Windows-1252 byte: guessed as 8-bit.
+        let stray = Data("café foo".utf8) + Data([0x92, 0x0A])
+        let f = try put(root, "stray.txt", stray)
+        // A real Latin-1 file with an ASCII replacement still works.
+        let latin = try put(root, "latin.txt", "naïve foo\n".data(using: .isoLatin1)!)
+        // Non-ASCII replacement: skipped, even for the UTF-8 case's ASCII-only twin.
+        let ascii8 = try put(root, "ascii8.txt", Data("plain foo".utf8) + Data([0x92, 0x0A]))
+        let q = ReplaceQuery(query: "foo", template: "naïve")
+        let (plan, report) = try replaceAll(q, root: root, [f, ascii8], store: store)
+        #expect(plan.files.isEmpty && report.written.isEmpty)
+        #expect(plan.skipped.map(\.reason.rawValue) == ["encodingUncertain", "encodingUncertain"])
+        #expect(plan.skipped.first?.reason.summary == "encoding uncertain")
+        #expect(try Data(contentsOf: f) == stray)
+        // ASCII replacement, but the bytes hold UTF-8 sequences (é): still uncertain.
+        let qa = ReplaceQuery(query: "foo", template: "bar")
+        let p2 = try FileReplace.plan(qa, root: root, candidates: candidates(root, [f, latin]))
+        #expect(p2.skipped.map(\.reason.rawValue) == ["encodingUncertain"])
+        #expect(p2.files.map(\.relativePath) == ["latin.txt"])
+    }
+
+    @Test func undoAfterACrashMidReplaceRestoresWhatWasWritten() throws {
+        let root = try dir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent(".undo"))
+        let orig = (0..<3).map { Data("owl \($0)\n".utf8) }
+        let urls = try (0..<3).map { try put(root, "f\($0).txt", orig[$0]) }
+        let (_, report) = try replaceAll(ReplaceQuery(query: "owl", template: "hoot"), root: root, urls, store: store)
+        let id = try #require(report.operation)
+        // The manifest as a crash before its final save leaves it: no file marked written.
+        var m = try #require(store.manifest(id))
+        for k in m.entries.indices { m.entries[k].written = false; m.entries[k].writtenModified = nil }
+        try ReplaceUndoStore.Operation(dir: store.root.appendingPathComponent(id.uuidString), manifest: m).save()
+        let u = store.undo(id)
+        #expect(u.restored.count == 3, "undo restored \(u.restored.count) of 3 written files")
+        for (k, url) in urls.enumerated() { #expect(try Data(contentsOf: url) == orig[k]) }
+    }
+
+    @Test func gitIsNeverWrittenEvenWithExcludeEmpty() throws {
+        let root = try dir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent("undo-store"))
+        let head = Data("ref: refs/heads/owl\n".utf8)
+        let inGit = try ["HEAD", "config", "packed-refs", "hooks/pre-commit"].map { try put(root, ".git/\($0)", head) }
+        let gitFile = try put(root, "sub/.git", Data("gitdir: ../.git/modules/owl\n".utf8))
+        let normal = try put(root, "a.txt", Data("owl\n".utf8))
+        // The search, with the Exclude field cleared, finds them.
+        var found: [URL] = []
+        _ = try FileSearch(FileSearchOptions(root: root, query: "owl", exclude: [])).run { found.append($0.url) }
+        #expect(Set(found.map(\.lastPathComponent)).isSuperset(of: ["HEAD", ".git", "a.txt"]))
+        let all = inGit + [gitFile, normal]
+        let (plan, report) = try replaceAll(ReplaceQuery(query: "owl", template: "cat"), root: root, all, store: store)
+        #expect(report.written.map(\.lastPathComponent) == ["a.txt"])
+        #expect(plan.skipped.count == 5 && plan.skipped.allSatisfy { $0.reason.rawValue == "insideGit" }, "\(plan.skipped.map(\.reason))")
+        for u in inGit { #expect(try Data(contentsOf: u) == head, "\(u.path)") }
+        #expect(try Data(contentsOf: gitFile) == Data("gitdir: ../.git/modules/owl\n".utf8))
+        // apply refuses them too, should a plan carry one.
+        var forged = try FileReplace.plan(ReplaceQuery(query: "owl", template: "cat"), root: root,
+                                          candidates: candidates(root, [try put(root, "b.txt", Data("owl\n".utf8))]))
+        forged.files[0].url = inGit[0]
+        let r2 = FileReplace.apply(forged.files, query: forged.query, root: root, store: store)
+        #expect(r2.written.isEmpty)
+        #expect(try Data(contentsOf: inGit[0]) == head)
+    }
+
+    @Test func retentionKeepsExactlyFive() throws {
+        let root = try dir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent("undo"))
+        let q = ReplaceQuery(query: "a", template: "b")
+        let now = Date()
+        var ids: [UUID] = []
+        for k in 0..<7 { ids.append(try store.begin(query: q, now: now.addingTimeInterval(Double(k))).id) }
+        let left = Set(try FileManager.default.contentsOfDirectory(atPath: store.root.path))
+        #expect(left == Set(ids.suffix(5).map(\.uuidString)), "kept \(left.count)")
+    }
+
+    @Test func oldCopiesArePrunedAtLaunchWithoutANewReplace() throws {
+        let root = try dir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent("undo"))
+        let q = ReplaceQuery(query: "a", template: "b")
+        let now = Date()
+        // The recent one first: no replace after the old one prunes it.
+        let recent = try store.begin(query: q, now: now.addingTimeInterval(-3600)).id
+        let old = try store.begin(query: q, now: now.addingTimeInterval(-8 * 24 * 3600)).id
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: store.root.path)) == [recent.uuidString, old.uuidString])
+        store.pruneAtLaunch(now: now)
+        let left = Set(try FileManager.default.contentsOfDirectory(atPath: store.root.path))
+        #expect(left == [recent.uuidString] && !left.contains(old.uuidString))
+    }
+
+    @Test func leftoverTempFilesSweptOnTheNextRun() throws {
+        let root = try dir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent(".undo"))
+        let f = try put(root, "a.txt", Data("owl\n".utf8))
+        let stale = try put(root, ".a.txt.owlink-Ab12Cd", Data("half".utf8))
+        let fresh = try put(root, ".a.txt.owlink-Zz99Yy", Data("busy".utf8))
+        let other = try put(root, ".notes.owlink-Ab12Cd", Data("not ours".utf8))
+        try setOld(stale)
+        try setOld(other)
+        _ = try replaceAll(ReplaceQuery(query: "owl", template: "cat"), root: root, [f], store: store)
+        let names = Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
+        #expect(!names.contains(stale.lastPathComponent), "the stale temp file is left")
+        #expect(names.contains(fresh.lastPathComponent) && names.contains(other.lastPathComponent))
+    }
 }

@@ -57,6 +57,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // off and only untitled tabs the menu item did nothing). Not needed
         // for the first frame (a tab with the owl on creates it at once).
         AfterFirstFrame.run { _ = OwlHub.shared }
+        // Replace in Files' undo copies past 7 days (or the newest 5) go
+        // even when no replace follows: after the first frame, off the
+        // main thread, on the queue the replaces use.
+        AfterFirstFrame.run {
+            let store = ReplaceInFiles.store
+            ReplaceInFiles.queue.async { store.pruneAtLaunch() }
+        }
         if env["CEDRIC_NO_RESTORE"] != "1" { restoreSession() }
         LaunchTrace.mark("restored")
         var toOpen = pendingOpen

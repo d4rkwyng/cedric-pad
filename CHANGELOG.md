@@ -13,7 +13,7 @@ are its section below (`Scripts/changelog-section.sh`).
 
 ### Known gaps
 - Code folding and split view come in 0.3.0.
-- Replace in Files skips files with mixed line endings (open them to replace there), symbolic links and hard-linked files. Respect .gitignore doesn't read git's `core.excludesFile` and matches case-sensitively.
+- Replace in Files skips files with mixed line endings (open them to replace there), symbolic links, hard-linked files, read-only files ("read-only"), anything inside a `.git` folder or a `.git` file (whatever the Exclude field says), and files whose encoding was guessed as Latin-1, Windows-1252 or Mac Roman when the replacement has non-ASCII text or the file holds UTF-8 sequences ("encoding uncertain": it may be UTF-8 with a stray byte; open it to replace there). Undo Replace in Files leaves a file that has become read-only and says so; Undo stays available to try again once it can be written. Respect .gitignore doesn't read git's `core.excludesFile` and matches case-sensitively.
 - Multiple carets: VoiceOver follows the main caret only; the extra carets don't blink; ↑/↓ and Add Caret Above/Below move by logical lines, not wrapped rows; each typed key at several carets is its own undo step.
 
 ## [0.1.2]
