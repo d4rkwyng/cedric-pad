@@ -56,6 +56,17 @@ echo "$cli" | grep -q "path=$W/c.py&line=9&wait=" || { echo "tools-check: cli fi
 # The token goes in a hand-off file (auth=), never on open's command line.
 echo "$cli" | grep -q "token=" && { echo "tools-check: cli token on the command line FAILED" >&2; fail=1; }
 echo "$cli" | grep -q "&auth=AUTH" || { echo "tools-check: cli auth= hand-off FAILED" >&2; fail=1; }
+# A custom TMPDIR (Nix, tmux): hand-off files still go to the user's temp
+# folder, the only one the app accepts (the in-app cli check runs the
+# bundled script this way for real and opens its URL without asking).
+custom=/tmp/custom.cedric-tools-check$$
+mkdir -p "$custom"
+user_tmp=$(getconf DARWIN_USER_TEMP_DIR); user_tmp=${user_tmp%/}
+cli2=$(cd "$W" && TMPDIR="$custom" CEDRIC_DRY_RUN=1 "$OLDPWD/Scripts/cedric" -w a.txt 2>&1) || fail=1
+echo "$cli2"
+echo "$cli2" | grep -q "wait=$user_tmp/cedric-wait\\." || { echo "tools-check: cli custom TMPDIR hand-off FAILED" >&2; fail=1; }
+ls "$custom" | grep -q . && { echo "tools-check: cli wrote into the custom TMPDIR FAILED" >&2; fail=1; }
+rmdir "$custom" 2>/dev/null || true
 ls "${TMPDIR:-/tmp}"/cedric-wait.* >/dev/null 2>&1 && echo "note: cedric-wait markers present in TMPDIR (other runs?)"
 # (ReportCrash writes a moment after the process dies.)
 sleep 3

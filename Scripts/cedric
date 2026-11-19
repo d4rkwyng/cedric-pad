@@ -26,9 +26,12 @@ case "$here" in
 esac
 DRY=${CEDRIC_DRY_RUN:-}
 
-# The user's own temp folder (the app accepts hand-off files only there),
-# even when TMPDIR isn't set (ssh, cron).
-tmpdir=${TMPDIR:-$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || echo /tmp)}
+# The user's own temp folder, as the app sees it (NSTemporaryDirectory):
+# the app accepts hand-off files only there. Asked of the system, not read
+# from TMPDIR, which may point elsewhere (Nix shells, tmux) or be unset
+# (ssh, cron).
+tmpdir=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)
+[ -n "$tmpdir" ] || tmpdir=${TMPDIR:-/tmp}
 tmpdir=${tmpdir%/}
 
 # The secret that tells the app a URL is from this script, not a web page:

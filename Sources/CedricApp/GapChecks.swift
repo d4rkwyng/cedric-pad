@@ -642,7 +642,66 @@ extension DevChecks {
                 expect(new != nil && new != old && CLIToken.ensure() == new && stat(CLIToken.defaultURL.path, &st) == 0 && st.st_mode & 0o777 == 0o600,
                        "the token rotates (new value, still 0600)")
             },
+            sync { cliScriptWithCustomTMPDIR(app) },
         ])
+    }
+
+    /// The bundled `cedric` script itself, run with TMPDIR pointing
+    /// somewhere else (Nix, tmux): its hand-off file must still land in
+    /// the folder the app accepts, so the file opens without the link
+    /// question (release review 0.2.1 S4). `open` is a stand-in that
+    /// records the URL, which is then handed to the app as Launch Services
+    /// would; HOME is the check's folder, so the script makes the check's
+    /// token, not the user's.
+    static func cliScriptWithCustomTMPDIR(_ app: AppDelegate) {
+        guard let script = Bundle.main.url(forResource: "cedric", withExtension: nil) else {
+            expect(false, "the cedric script is in the app's Resources"); return
+        }
+        let home = dir.appendingPathComponent("cli-home", isDirectory: true)
+        let bin = dir.appendingPathComponent("cli-bin", isDirectory: true)
+        let custom = "/tmp/custom.cedric-check\(getpid())"
+        let log = dir.appendingPathComponent("cli-open.log")
+        let fm = FileManager.default
+        try? fm.createDirectory(at: bin, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: home, withIntermediateDirectories: true)
+        try? fm.createDirectory(atPath: custom, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(atPath: custom) }
+        let fakeOpen = bin.appendingPathComponent("open")
+        try? "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done >> \"$CEDRIC_CHECK_OPEN_LOG\"\n".write(to: fakeOpen, atomically: true, encoding: .utf8)
+        chmod(fakeOpen.path, 0o755)
+        try? fm.removeItem(at: log)
+        let victim = write("cli-custom-tmp.txt", "from a custom TMPDIR\n")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = [script.path, victim.path]
+        var env = ProcessInfo.processInfo.environment
+        env["TMPDIR"] = custom + "/"
+        env["HOME"] = home.path
+        env["PATH"] = bin.path + ":/usr/bin:/bin:/usr/sbin:/sbin"
+        env["CEDRIC_CHECK_OPEN_LOG"] = log.path
+        env.removeValue(forKey: "CEDRIC_DRY_RUN")
+        p.environment = env
+        do { try p.run() } catch { expect(false, "the cedric script runs", "\(error)"); return }
+        p.waitUntilExit()
+        expect(p.terminationStatus == 0, "the cedric script exits 0 with TMPDIR=\(custom)", "\(p.terminationStatus)")
+        let lines = ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        guard let url = lines.first(where: { $0.hasPrefix("cedric://open?path=") }) else {
+            expect(false, "the script sends a cedric://open URL", lines.joined(separator: " ")); return
+        }
+        let auth = URLComponents(string: url)?.queryItems?.first { $0.name == "auth" }?.value ?? ""
+        let leftInCustom = ((try? fm.contentsOfDirectory(atPath: custom)) ?? []).filter { $0.hasPrefix("cedric-") }
+        expect(!auth.hasPrefix(custom) && leftInCustom.isEmpty, "the hand-off isn't written to the custom TMPDIR", auth)
+        // The script made its own token under the check's HOME: trust that one.
+        let saved = CLIToken.overrideURL
+        CLIToken.overrideURL = home.appendingPathComponent("Library/Application Support/Cedric/cli-token")
+        defer { CLIToken.overrideURL = saved }
+        AppDelegate.linkAnswerForChecks = false  // a link question would be declined: nothing would open
+        openURL(app, url, token: false)
+        AppDelegate.linkAnswerForChecks = nil
+        let t = app.tabs.first { $0.doc.fileURL?.lastPathComponent == victim.lastPathComponent }
+        expect(t != nil, "with TMPDIR=\(custom) the script's hand-off is accepted: opened without asking", auth)
+        expect(!fm.fileExists(atPath: auth), "and its auth file is used once (deleted)")
+        t?.window?.performClose(nil)
     }
 
     // MARK: Dropping a file onto the text
