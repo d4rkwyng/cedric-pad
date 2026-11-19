@@ -1,25 +1,194 @@
 import AppKit
+import CedricCore
 
-/// CEDRIC_CHECK=replaceinfiles (Scripts/tools-check.sh). Phase 0 stub:
-/// the scaffolding is in place (Edit › Replace in Files… ⌥⇧⌘F, Edit ›
-/// Undo Replace in Files, both disabled). The feature's subunit replaces
-/// this with the real check (plan-0.2.0.md §2, Tests).
+/// CEDRIC_CHECK=replaceinfiles (Scripts/tools-check.sh). A temp tree with
+/// a git-ignored folder, a binary, a 21 MB file, a mixed-ending file, a
+/// CRLF file (mode 0640), a Latin-1 file, and one file open in a tab with
+/// unsaved typing. Drives Edit › Replace in Files… with its shortcut, types
+/// the query and replacement as key events, previews, unchecks a file and
+/// one match with mouse clicks, clicks Replace All, then Edit › Undo
+/// Replace in Files; checks the bytes on disk and the tab's text at each
+/// step.
 @MainActor
 extension DevChecks {
     static func replaceInFilesCheck(_ app: AppDelegate) {
-        let tab = app.open(write("replace.txt", "replace\n"))!
+        let root = dir.appendingPathComponent("rif").resolvingSymlinksInPath()
+        ReplaceInFiles.store = ReplaceUndoStore(root: dir.appendingPathComponent("replace-undo"))
+        func put(_ rel: String, _ data: Data) -> URL {
+            let u = root.appendingPathComponent(rel)
+            try? FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: u)
+            return u
+        }
+        _ = put(".git/HEAD", Data("ref: refs/heads/main\n".utf8))
+        _ = put(".gitignore", Data("ignored/\n".utf8))
+        let ignored = put("ignored/x.txt", Data("owl ignored\n".utf8))
+        _ = put("blob.bin", Data("owl".utf8) + Data([0, 1, 2, 0]))
+        _ = put("huge.log", Data("owl ".utf8) + Data(repeating: 0x6E, count: 21 * 1024 * 1024))
+        let originals: [String: Data] = [
+            "crlf.txt": Data("owl one\r\nowl two\r\n".utf8),
+            "latin.txt": "café owl\n".data(using: .isoLatin1)!,
+            "partial.txt": Data("owl A owl B\n".utf8),
+            "unchecked.txt": Data("owl stays\n".utf8),
+            "mixed.txt": Data("owl\r\nowl\n".utf8),
+            "open.txt": Data("owl disk\n".utf8),
+        ]
+        var url: [String: URL] = [:]
+        for (k, v) in originals { url[k] = put(k, v) }
+        chmod(url["crlf.txt"]!.path, 0o640)
+        func bytes(_ k: String) -> Data? { try? Data(contentsOf: url[k]!) }
+        func mode(_ k: String) -> mode_t { var st = stat(); stat(url[k]!.path, &st); return st.st_mode & 0o7777 }
+
+        let tab = app.open(url["open.txt"]!)!
         sized(tab)
+        tab.window?.setContentSize(NSSize(width: 1300, height: 760))
+        var panel: FindInFilesPanel { app.findInFiles! }
+        func row(_ path: String, line: Int? = nil) -> Int {
+            for r in 0..<panel.table.numberOfRows {
+                guard let n = panel.table.item(atRow: r) as? ResultNode, n.relativePath == path else { continue }
+                if line == nil, n.kind != .match { return r }
+                if let line, n.kind == .match, n.edit?.line == line || n.result?.line == line { return r }
+            }
+            return -1
+        }
+        /// A real click on the check box in row `r`.
+        func clickBox(_ r: Int) -> NSButton? {
+            guard r >= 0, let cell = panel.table.view(atColumn: 0, row: r, makeIfNecessary: true) as? ResultCell, let box = cell.box else { return nil }
+            panel.table.scrollRowToVisible(r)
+            click(box, at: NSPoint(x: box.bounds.midX, y: box.bounds.midY))
+            return box
+        }
+
         run([
             sync {
                 focus(tab)
-                expectScaffold(app, #selector(AppDelegate.replaceInFilesMenu(_:)), "Edit › Replace in Files…", "f", [.command, .option, .shift])
-                expectScaffold(app, #selector(AppDelegate.undoReplaceInFilesMenu(_:)), "Edit › Undo Replace in Files")
+                // Unsaved typing in the open tab: the replace must edit this buffer, not the file behind it.
+                tab.textView.setSelectedRange(NSRange(location: 0, length: 0))
+                type("owl ")
+                expect(tab.text == "owl owl disk\n" && tab.doc.isDirty, "typing made the open tab dirty", tab.text.debugDescription)
+                expect(menuItem(action: #selector(AppDelegate.undoReplaceInFilesMenu(_:))).map { !app.validateMenuItem($0) } == true,
+                       "Undo Replace in Files is disabled before any replace")
+            },
+            sync {
+                key("f", [.command, .option, .shift])
+                let p = app.findInFiles
+                expect(p?.isShown == true && p?.window === tab.window, "⌥⇧⌘F docks the panel")
+                expect(p?.replaceMode == true && p?.replaceField.superview?.isHidden == false, "…in replace mode, the Replace field shown")
+                expect(p?.previewButton.isHidden == false, "Preview Replace… is shown")
+                p?.folderField.stringValue = root.path
+                expect((tab.window?.firstResponder as? NSView)?.isDescendant(of: p!) == true, "the query field has focus")
+            },
+            sync { type("owl") },
+            sync {
+                expect(panel.queryField.stringValue == "owl", "typed query reached the field", panel.queryField.stringValue)
+                tab.window?.makeFirstResponder(panel.replaceField)
+                type("hoot")
+                expect(panel.replaceField.stringValue == "hoot", "typed replacement reached the field", panel.replaceField.stringValue)
+            },
+            { next in
+                // Return in the Replace field: search, then the preview.
+                panel.onPreviewReady = { panel.onPreviewReady = nil; next() }
+                key("\r")
+            },
+            sync {
+                let p = panel
+                expect(p.previewing, "Return in the Replace field shows the preview", p.status.stringValue)
+                guard let plan = p.plan else { return }
+                let files = plan.files.map(\.relativePath).sorted()
+                print("check: preview files \(files), skipped \(plan.skipped.map { "\($0.relativePath):\($0.reason)" })")
+                expect(files == ["crlf.txt", "latin.txt", "open.txt", "partial.txt", "unchecked.txt"],
+                       "preview: the five replaceable files (not the ignored, binary, 21 MB or mixed-ending ones)", "\(files)")
+                expect(!p.results.contains { $0.url.path.hasPrefix(root.appendingPathComponent("ignored").path) }, "the git-ignored folder isn't searched")
+                expect(plan.files.first { $0.relativePath == "open.txt" }?.disk == nil, "the open tab is planned from its unsaved text")
+                expect(plan.replacementCount == 8, "8 replacements planned", "\(plan.replacementCount)")
+                let s = p.summary.stringValue
+                expect(!p.summary.isHidden && s.contains("8 replacements in 5 files") && s.contains("1 binary") && s.contains("1 over 20 MB")
+                       && s.contains("1 mixed line endings"), "the summary counts replacements and every skip", s)
+                expect(row("Skipped (1)") >= 0 && row("mixed.txt") >= 0, "the skipped list is shown, with the mixed-ending file")
+                expect(!p.replaceAllButton.isHidden && p.replaceAllButton.isEnabled, "Replace All is offered")
+                // Nothing written yet.
+                expect(originals.allSatisfy { bytes($0.key) == $0.value }, "preview writes nothing")
+                if let r = Optional(row("crlf.txt", line: 1)), r >= 0, let cell = p.table.view(atColumn: 0, row: r, makeIfNecessary: true) as? ResultCell {
+                    let a = cell.label.attributedStringValue
+                    expect(a.string == "1: owl one".replacingOccurrences(of: "owl", with: "owlhoot"), "a match row shows before → after", a.string)
+                    var struck = false
+                    a.enumerateAttribute(.strikethroughStyle, in: NSRange(location: 0, length: a.length)) { v, _, _ in if v != nil { struck = true } }
+                    expect(struck, "…with the removed text struck through")
+                }
+            },
+            sync { tab.window?.appearance = NSAppearance(named: .aqua); panel.table.reloadData(); panel.table.expandItem(nil, expandChildren: true) },
+            snapshot("replaceinfiles-preview-light.png"),
+            sync { tab.window?.appearance = NSAppearance(named: .darkAqua); panel.table.reloadData(); panel.table.expandItem(nil, expandChildren: true) },
+            snapshot("replaceinfiles-preview-dark.png"),
+            sync { tab.window?.appearance = nil },
+            sync {
+                // Uncheck a whole file, then one match of another, with clicks.
+                let box = clickBox(row("unchecked.txt"))
+                expect(box != nil, "unchecked.txt has a check box")
+                expect(panel.nodes.first { $0.relativePath == "unchecked.txt" }?.children.allSatisfy { !$0.checked } == true,
+                       "clicking a file's box unchecks its matches")
+            },
+            sync {
+                _ = clickBox(row("partial.txt", line: 1).advanced(by: 1))
+                let partial = panel.nodes.first { $0.relativePath == "partial.txt" }
+                expect(partial?.children.map(\.checked) == [true, false], "clicking a match's box unchecks only that match",
+                       "\(partial?.children.map(\.checked) ?? [])")
+                expect(partial?.fileState == .mixed, "…and its file's box shows mixed")
+                expect(panel.summary.stringValue.contains("6 replacements in 4 files") && panel.summary.stringValue.contains("2 unchecked"),
+                       "the summary follows the boxes", panel.summary.stringValue)
+            },
+            { next in
+                click(panel.replaceAllButton, at: NSPoint(x: panel.replaceAllButton.bounds.midX, y: panel.replaceAllButton.bounds.midY))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { next() }
+            },
+            sync {
+                expect(!panel.previewing, "Replace All ends the preview", panel.summary.stringValue)
+                print("check: after replace: \(panel.summary.stringValue)")
+                expect(bytes("crlf.txt") == Data("hoot one\r\nhoot two\r\n".utf8), "CRLF file: replaced, CRLF kept",
+                       String(decoding: bytes("crlf.txt") ?? Data(), as: UTF8.self).debugDescription)
+                expect(mode("crlf.txt") == 0o640, "…and its mode 0640 kept", String(mode("crlf.txt"), radix: 8))
+                expect(bytes("latin.txt") == "café hoot\n".data(using: .isoLatin1), "Latin-1 file: replaced, still Latin-1")
+                expect(bytes("partial.txt") == Data("hoot A owl B\n".utf8), "the unchecked match is left", String(decoding: bytes("partial.txt") ?? Data(), as: UTF8.self))
+                expect(bytes("unchecked.txt") == originals["unchecked.txt"], "the unchecked file is untouched")
+                expect(bytes("mixed.txt") == originals["mixed.txt"], "the mixed-ending file is untouched")
+                expect((try? Data(contentsOf: ignored)) == Data("owl ignored\n".utf8), "the git-ignored file is untouched")
+                expect(bytes("open.txt") == originals["open.txt"], "the open tab's file on disk is untouched")
+                expect(tab.text == "hoot hoot disk\n" && tab.doc.isDirty, "the open tab's buffer is replaced, unsaved", tab.text.debugDescription)
+                expect(tab.textView.undoManager?.undoActionName == ReplaceInFiles.actionName, "…as one undo step named Replace in Files")
+                expect(!panel.undoButton.isHidden, "Undo Replace is offered in the panel")
+                let undoDirs = (try? FileManager.default.contentsOfDirectory(at: ReplaceInFiles.store.root, includingPropertiesForKeys: nil)) ?? []
+                var st = stat()
+                let priv = undoDirs.count == 1 && stat(undoDirs[0].path, &st) == 0 && st.st_mode & 0o777 == 0o700
+                expect(priv, "originals backed up in one owner-only folder", "\(undoDirs)")
+            },
+            snapshot("replaceinfiles-replaced.png"),
+            sync {
+                let item = menuItem(action: #selector(AppDelegate.undoReplaceInFilesMenu(_:)))
+                expect(item.map { app.validateMenuItem($0) } == true, "Edit › Undo Replace in Files is enabled")
+                expect(choose(#selector(AppDelegate.undoReplaceInFilesMenu(_:))), "Edit › Undo Replace in Files runs")
+                for k in ["crlf.txt", "latin.txt", "partial.txt", "unchecked.txt", "mixed.txt", "open.txt"] {
+                    expect(bytes(k) == originals[k], "undo: \(k) is byte-for-byte the original")
+                }
+                expect(mode("crlf.txt") == 0o640, "undo: mode still 0640")
+                expect(tab.text == "owl owl disk\n", "undo: the tab is back to its unsaved text", tab.text.debugDescription)
+                expect(item.map { app.validateMenuItem($0) } == false, "Undo Replace in Files is disabled again")
+                expect(panel.summary.stringValue.contains("in 4 files"), "the panel reports the undo", panel.summary.stringValue)
+            },
+            sync {
+                // Find users see the panel as before: no Replace row once Replace is off.
+                click(panel.replaceBox, at: NSPoint(x: 4, y: panel.replaceBox.bounds.midY))
+                if panel.replaceMode {
+                    print("check: note: synthetic click not taken by the Replace box; pressing it")
+                    panel.replaceBox.performClick(nil)
+                }
+                expect(!panel.replaceMode && panel.replaceField.superview?.isHidden == true, "turning Replace off hides the Replace row")
             },
         ])
     }
 
     /// A Phase 0 menu item: it exists, has its shortcut (if any) and
-    /// validates to disabled until its feature lands.
+    /// validates to disabled until its feature lands (still used by the
+    /// other 0.2.0 stub checks until they are replaced).
     static func expectScaffold(_ app: AppDelegate, _ action: Selector, _ name: String,
                                _ key: String = "", _ mods: NSEvent.ModifierFlags = []) {
         guard let i = menuItem(action: action) else { expect(false, "\(name) is in the menu"); return }
