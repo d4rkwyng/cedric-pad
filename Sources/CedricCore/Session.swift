@@ -94,14 +94,38 @@ public struct Session: Codable, Equatable, Sendable {
     /// One with `hasBuffer` keeps its text in its buffer file, so closing
     /// a tab with unsaved changes never loses them. Nil in older sessions.
     public var closedTabs: [SessionTab]?
+    /// The folder open in the folder sidebar (File › Open Folder…). Nil
+    /// with none open and in sessions saved before 0.2.0.
+    public var folder: SessionFolder?
 
-    public init(windows: [SessionWindow], untitledCounter: Int = 0, closedTabs: [SessionTab]? = nil) {
+    public init(windows: [SessionWindow], untitledCounter: Int = 0, closedTabs: [SessionTab]? = nil, folder: SessionFolder? = nil) {
         self.windows = windows
         self.untitledCounter = untitledCounter
         self.closedTabs = closedTabs
+        self.folder = folder
     }
 
     public var allTabs: [SessionTab] { windows.flatMap(\.tabs) }
+}
+
+/// The folder sidebar as it was: its folder, whether it showed, its width
+/// and the folders expanded in it (paths relative to the folder, parents
+/// first, at most `expandedLimit`).
+public struct SessionFolder: Codable, Equatable, Sendable {
+    public static let expandedLimit = 200
+    public var path: String
+    public var visible: Bool
+    public var width: Double?
+    public var expanded: [String]?
+    public var showHidden: Bool?
+
+    public init(path: String, visible: Bool = true, width: Double? = nil, expanded: [String]? = nil, showHidden: Bool? = nil) {
+        self.path = path
+        self.visible = visible
+        self.width = width
+        self.expanded = expanded.map { Array($0.prefix(Self.expandedLimit)) }
+        self.showHidden = showHidden
+    }
 }
 
 /// Saves and restores the session: `session.json` plus one UTF-8 buffer
