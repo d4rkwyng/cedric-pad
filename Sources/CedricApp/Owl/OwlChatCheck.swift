@@ -55,8 +55,11 @@ enum OwlChatCheck {
             after(0.3) {
                 check(owl.popoverButton(String(localized: "Set Up Ask Cedric…")) != nil, "the owl offers Set Up Ask Cedric…")
                 check(owl.popoverButton(String(localized: "Ask about this file…")) == nil, "and no Ask about this file…")
-                owl.closePopover()
-                OwlCheck.finish(out)
+                guard let pw = owl.popoverButton(String(localized: "Set Up Ask Cedric…"))?.window else { owl.closePopover(); OwlCheck.finish(out); return }
+                OwlCheck.snapshot(pw, "\(out)/owl-menu-setup.png") {
+                    owl.closePopover()
+                    OwlCheck.finish(out)
+                }
             }
         }
     }
@@ -101,7 +104,7 @@ enum OwlChatCheck {
                     check(stack?.arrangedSubviews.first === first, "Ask about this file… is the first item")
                     check(owl.popoverButton(String(localized: "Set Up Ask Cedric…")) == nil, "no Set Up item with an engine ready")
                     check(owl.popoverButton(String(localized: "Is This Script Safe to Run?")) == nil, "no script check for a Swift file")
-                    OwlCheck.snapshot(window, "\(out)/owl-menu.png") {
+                    OwlCheck.snapshot(first.window ?? window, "\(out)/owl-menu.png") {
                         OwlCheck.click(first)
                         after(0.3) {
                             check(tab.owlChat?.isShown == true, "Ask about this file… opens Ask Cedric")
@@ -146,7 +149,7 @@ enum OwlChatCheck {
                 check(false, "the owl offers Is This Script Safe to Run? for a .ps1"); OwlCheck.finish(out); return
             }
             check(true, "the owl offers Is This Script Safe to Run? for a .ps1")
-            OwlCheck.click(b)
+            OwlCheck.snapshot(b.window ?? window, "\(out)/owl-menu-script.png") { OwlCheck.click(b) }
             after(0.2) {
                 guard let chat = tab.owlChat, chat.isShown else { check(false, "the check opens the panel"); OwlCheck.finish(out); return }
                 waitDone(chat, timeout: 20) { _ in
