@@ -81,7 +81,7 @@ or opening a link such as Open on GitHub.
 
 ## Built with Claude
 
-Owlink is built with Claude: Claude Code agents under Derek's direction, with
+Owlink is built with Claude: Claude Code agents under d4rkwyng's direction, with
 review and tests before release.
 
 ## License

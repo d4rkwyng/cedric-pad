@@ -926,7 +926,7 @@ Macros and automatic updates; code folding and split view (0.3.0). See
 
 ## Built with Claude
 
-Owlink is built with Claude: Claude Code agents under Derek's direction, with
+Owlink is built with Claude: Claude Code agents under d4rkwyng's direction, with
 review and tests before release.
 
 ## Licences
