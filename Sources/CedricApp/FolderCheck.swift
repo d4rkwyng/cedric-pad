@@ -68,6 +68,16 @@ extension DevChecks {
             w.sendEvent(down)
         }
         func allSubviews(_ v: NSView) -> [NSView] { v.subviews + v.subviews.flatMap(allSubviews) }
+        /// ⇧⌘F. In the macOS 15 VM (app active) the synthetic key event
+        /// doesn't reach the menu item with the sidebar docked, though a real
+        /// ⇧⌘F does there: then the menu item's action, as the key would.
+        func findInFilesKey() {
+            key("f", [.command, .shift])
+            if app.findInFiles?.isShown != true {
+                print("check: note: synthetic ⇧⌘F not taken; sending Find in Files…'s action")
+                app.findInFilesMenu(nil)
+            }
+        }
         let right = String(UnicodeScalar(UInt16(NSRightArrowFunctionKey))!)
         var tabsBefore = 0
         var redockMs = 0.0
@@ -196,7 +206,7 @@ extension DevChecks {
                 t.window?.setContentSize(NSSize(width: 1500, height: 720))
                 focus(t)
                 key("p", [.command, .option])
-                key("f", [.command, .shift])
+                findInFilesKey()
             },
             until("the preview shows") { tab(named: "readme.md")?.previewVisible == true },
             sync {
@@ -242,7 +252,7 @@ extension DevChecks {
                 a.window?.setContentSize(NSSize(width: 900, height: 670))
                 a.window?.layoutIfNeeded()
                 expect(abs(sidebar.frame.width - FolderSidebar.defaultWidth) <= 2, "900 wide: the sidebar keeps its width", "\(sidebar.frame.width)")
-                key("f", [.command, .shift])
+                findInFilesKey()
                 a.window?.layoutIfNeeded()
                 let subs = a.split.arrangedSubviews
                 let widths = subs.map { Int($0.frame.width) }
@@ -276,7 +286,7 @@ extension DevChecks {
                 // Opened again: the editor isn't squeezed to nothing.
                 let a = tab(named: "a.swift")!
                 focus(a)
-                key("f", [.command, .shift])
+                findInFilesKey()
                 a.window?.layoutIfNeeded()
                 let widths = a.split.arrangedSubviews.map { Int($0.frame.width) }
                 expect(a.split.arrangedSubviews.count == 3 && abs(sidebar.frame.width - FolderSidebar.defaultWidth) <= 2 && a.editorArea.frame.width >= 250,
@@ -363,7 +373,7 @@ extension DevChecks {
                        "no-git folder: its .gitignore still marks skip.log")
                 // Find in Files, Respect .gitignore on: defaults to the sidebar's folder.
                 focus(outside)
-                key("f", [.command, .shift])
+                findInFilesKey()
                 guard let p = app.findInFiles else { expect(false, "no-git folder: Find in Files opens"); return }
                 expect(p.folderField.stringValue == FolderSidebar.shared?.rootURL.path, "Find in Files defaults to the open sidebar folder",
                        "\(p.folderField.stringValue) vs \(FolderSidebar.shared?.rootURL.path ?? "-")")

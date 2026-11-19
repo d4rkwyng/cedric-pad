@@ -73,12 +73,17 @@ extension DevChecks {
             },
             sync {
                 key("f", [.command, .option, .shift])
+                if app.findInFiles?.isShown != true {
+                    // The macOS 15 VM (app active) sometimes drops the synthetic ⌥⇧⌘F; a real one works there.
+                    print("check: note: synthetic ⌥⇧⌘F not taken; sending Replace in Files…'s action")
+                    app.replaceInFilesMenu(nil)
+                }
                 let p = app.findInFiles
                 expect(p?.isShown == true && p?.window === tab.window, "⌥⇧⌘F docks the panel")
                 expect(p?.replaceMode == true && p?.replaceField.superview?.isHidden == false, "…in replace mode, the Replace field shown")
                 expect(p?.previewButton.isHidden == false, "Preview Replace… is shown")
                 p?.folderField.stringValue = root.path
-                expect((tab.window?.firstResponder as? NSView)?.isDescendant(of: p!) == true, "the query field has focus")
+                expect(p.map { (tab.window?.firstResponder as? NSView)?.isDescendant(of: $0) == true } == true, "the query field has focus")
             },
             sync {
                 expect(!panel.previewButton.isEnabled, "Preview Replace… is off while the query is empty")
