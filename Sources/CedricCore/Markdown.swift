@@ -1046,7 +1046,12 @@ public enum HTMLScrub {
     nonisolated(unsafe) static let pairs = regex(#"<(script|iframe|object|embed|noscript)\b[^>]*>.*?</\1\s*>"#)
     nonisolated(unsafe) static let singles = regex(#"<(script|iframe|object|embed|frame|frameset|base)\b[^>]*/?>"#)
     nonisolated(unsafe) static let refresh = regex(#"<meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*>"#)
-    nonisolated(unsafe) static let handlers = regex(#"\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)"#)
+    /// A start tag, quoted attribute values included (a `>` inside quotes
+    /// doesn't end it).
+    nonisolated(unsafe) static let tags = regex(#"<[a-z][a-z0-9:-]*(?:"[^"]*"|'[^']*'|[^'">])*>?"#)
+    /// An `on…=` handler inside a tag: after whitespace, a `/` (`<svg/onload=…>`)
+    /// or a closing quote (`<a href="x"onclick=…>`), as browsers read them.
+    nonisolated(unsafe) static let handlers = regex(#"(?<=[\s/"'])on[a-z0-9_-]*\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)"#)
     nonisolated(unsafe) static let jsURL = regex(#"(\s(?:href|src|action|formaction|xlink:href)\s*=\s*)("\s*(?:javascript|vbscript):[^"]*"|'\s*(?:javascript|vbscript):[^']*'|(?:javascript|vbscript):[^\s>]*)"#)
     nonisolated(unsafe) static let remoteAttr = regex(#"\s(?:src|href|srcset|background|poster|data|xlink:href)\s*=\s*("\s*(?:https?:|ftp:|//)[^"]*"|'\s*(?:https?:|ftp:|//)[^']*'|(?:https?:|ftp:|//)[^\s>]*)"#)
     nonisolated(unsafe) static let links = regex(#"<link\b[^>]*>"#)
@@ -1061,9 +1066,24 @@ public enum HTMLScrub {
         var s = replace(pairs, in: html, with: "")
         s = replace(singles, in: s, with: "")
         s = replace(refresh, in: s, with: "")
-        s = replace(handlers, in: s, with: "")
+        s = noHandlers(s)
         s = replace(jsURL, in: s, with: "$1\"#\"")
         return s
+    }
+
+    /// Every start tag without its event-handler attributes (text between
+    /// tags is left alone).
+    static func noHandlers(_ html: String) -> String {
+        let ns = html as NSString
+        var out = ""
+        var last = 0
+        for m in tags.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            out += replace(handlers, in: ns.substring(with: m.range), with: "")
+            last = m.range.location + m.range.length
+        }
+        out += ns.substring(from: last)
+        return out
     }
 
     /// `noScript`, and nothing that loads from the network.
