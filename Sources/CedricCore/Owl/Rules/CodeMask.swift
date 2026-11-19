@@ -142,7 +142,7 @@ public struct CodeMask {
                 if !text.isEmpty, !text.hasPrefix("#") { break }
                 if start == 0 { return false }
             }
-            return text.range(of: #"^(async\s+def|def|class)\b.*:$|\)\s*(->.*)?:$"#, options: .regularExpression) != nil
+            return blockOpener.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
         }
         let opener = ["=", "(", ",", "[", "{", ":"].contains { before.hasSuffix($0) } || before.hasSuffix("return")
             || (before.count <= 2 && before.lowercased().allSatisfy { "rbfu".contains($0) } && !before.isEmpty)
@@ -162,6 +162,9 @@ public struct CodeMask {
         return NSMaxRange(t)
     }
 
+    static let blockOpener = try! NSRegularExpression(pattern: #"^(async\s+def|def|class)\b.*:$|\)\s*(->.*)?:$"#)
+    static let heredocWord = try! NSRegularExpression(pattern: #"^_?[A-Z][A-Z0-9_]*$"#)
+
     /// A shell window that starts inside a here-document: a line that is
     /// only a terminator-like word (EOF, _ACEOF, PY…) before any `<<` in
     /// the window. Where the body ends (past that line), or nil.
@@ -172,7 +175,7 @@ public struct CodeMask {
             let r = s.lineRange(for: NSRange(location: at, length: 0))
             if first.location != NSNotFound, r.location > first.location { return nil }
             let t = s.substring(with: r).trimmingCharacters(in: .whitespacesAndNewlines)
-            if t.range(of: #"^_?[A-Z][A-Z0-9_]*$"#, options: .regularExpression) != nil, t.count >= 2 { return NSMaxRange(r) }
+            if t.count >= 2, heredocWord.firstMatch(in: t, range: NSRange(location: 0, length: (t as NSString).length)) != nil { return NSMaxRange(r) }
             at = NSMaxRange(r)
         }
         return nil

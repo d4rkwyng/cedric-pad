@@ -176,11 +176,12 @@ enum ShellRules {
         guard code.range(of: "=").location != NSNotFound else { return nil }
         var edits: [(NSRange, String)] = []
         var firstName = ""
+        var used: [String: Bool] = [:]
         for cmd in input.shellCommands where cmd.lead != "!" {
             let w = words(code, cmd)
             guard w.count >= 2 else { continue }
             let name = code.substring(with: w[0])
-            guard name.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) != nil, !notAssignments.contains(name) else { continue }
+            guard isName(name), !notAssignments.contains(name) else { continue }
             let second = code.substring(with: w[1])
             guard second.hasPrefix("="), !second.hasPrefix("==") else { continue }
             // Another language's code (awk, Python, C) reaching here through
@@ -192,7 +193,8 @@ enum ShellRules {
             // A shell variable is meant to be used: `$NAME` or `${NAME` somewhere.
             // (Python or awk that a window shows as code never says $name.)
             // (`$NAME`, not `$NAMES`; a Python set or dict `NAME = {…}` isn't shell.)
-            guard isUsed(name, in: input.text),
+            if used[name] == nil { used[name] = isUsed(name, in: input.text) }
+            guard used[name] == true,
                   !rest.dropFirst().trimmingCharacters(in: .whitespaces).hasPrefix("{"),
                   !rest.dropFirst().trimmingCharacters(in: .whitespaces).hasPrefix("[") else { continue }
             // From the end of the name to the start of the value: no spaces.
@@ -247,10 +249,12 @@ enum ShellRules {
 
     // MARK: SH4 Pasted curly quotes and dashes
 
+    static let typographic = CharacterSet(charactersIn: "\u{201C}\u{201D}\u{2018}\u{2019}\u{2013}\u{2014}")
+
     static let pastedPunctuation = LintRule(pastedID, applies: shell) { input in
         let s = input.text
         // Cheap test first: no typographic quote or dash at all.
-        guard input.string.unicodeScalars.contains(where: { [0x201C, 0x201D, 0x2018, 0x2019, 0x2013, 0x2014].contains($0.value) }) else { return nil }
+        guard s.rangeOfCharacter(from: typographic).location != NSNotFound else { return nil }
         func isLetter(_ k: Int) -> Bool {
             guard k >= 0, k < s.length, let u = UnicodeScalar(s.character(at: k)) else { return false }
             return CharacterSet.letters.contains(u)
@@ -283,6 +287,15 @@ enum ShellRules {
     static let shebangExtensions: Set<String> = ["sh", "bash", "zsh", "ksh"]
     static let bashisms = try! NSRegularExpression(pattern: #"\[\[|^\s*function\s|\w=\(|\$\{\w+\[|<<<|\bsource\s|\bdeclare\s|\(\(|\$'"#, options: [.anchorsMatchLines])
 
+    static let functionHeader = try! NSRegularExpression(pattern: #"^\s*(function\s+[\w:-]+|[\w:-]+\s*\(\s*\))"#)
+    static let settingOrFunction = try! NSRegularExpression(pattern: #"^((export|readonly)\s+)?[A-Za-z_]\w*(\+?=|$)|^[)}{'"]|^[\w:-]+\s*\(\s*\)|^function\s"#)
+
+    /// A shell variable name: [A-Za-z_][A-Za-z0-9_]*.
+    static func isName(_ s: String) -> Bool {
+        guard let f = s.utf8.first, f == 95 || (65...90).contains(f) || (97...122).contains(f) else { return false }
+        return s.utf8.allSatisfy { $0 == 95 || (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) }
+    }
+
     static let programSignals = try! NSRegularExpression(pattern: #"\$[1-9@*#]|\$\{[1-9@*#]|\b(exit|getopts|shift)\b|^set -|^(echo|printf|cd|mkdir|rm|cp|mv|read)\b"#, options: [.anchorsMatchLines])
 
     static let missingShebang = LintRule(shebangID, wholeDocument: true, applies: { l, name in
@@ -298,14 +311,14 @@ enum ShellRules {
         let head = t.prefix(600).lowercased()
         if head.contains("source") || head.contains("sourced") || head.contains("# . ") { return nil }
         if let firstCode = t.split(separator: "\n").first(where: { let l = $0.trimmingCharacters(in: .whitespaces); return !l.isEmpty && !l.hasPrefix("#") }),
-           firstCode.range(of: #"^\s*(function\s+[\w:-]+|[\w:-]+\s*\(\s*\))"#, options: .regularExpression) != nil { return nil }
+           functionHeader.firstMatch(in: String(firstCode), range: NSRange(location: 0, length: (String(firstCode) as NSString).length)) != nil { return nil }
         // Only settings at the top level (NAME=value, export …): a fragment
         // another script sources.
         let topLevel = input.code.split(separator: "\n").filter { l in
             guard let f = l.first else { return false }
             return f != " " && f != "\t"
         }.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        if topLevel.allSatisfy({ $0.range(of: #"^((export|readonly)\s+)?[A-Za-z_]\w*(\+?=|$)|^[)}{'"]|^[\w:-]+\s*\(\s*\)|^function\s"#, options: .regularExpression) != nil }) { return nil }
+        if topLevel.allSatisfy({ settingOrFunction.firstMatch(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length)) != nil }) { return nil }
         // And something only a script run on its own does: read its
         // arguments, exit, or run commands at the top level. A fragment
         // that sets variables for the script sourcing it doesn't.

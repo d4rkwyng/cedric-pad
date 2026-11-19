@@ -854,7 +854,7 @@ offers hints in a speech bubble.
   name, or `as_fn_`/`ac_cv_` in the text) get no language rules.
 - **Speed and the precision gate.** `OwlLanguageRulesTests` times a dense
   8 KB worst case per language (best of 7; 5 ms in a release build of
-  the tests, measured 0.4–3.0 ms on an M-series Mac; 50 ms in a debug
+  the tests, measured 0.4–3.8 ms on an M-series Mac under load; 50 ms in a debug
   build), and checks that the clean corpus in `Tests/Fixtures/owl-corpus`
   (permissively licensed real files, see its LICENSES.md) gets no
   language hint in any window. `Scripts/owl-corpus.sh <tree>` runs the
