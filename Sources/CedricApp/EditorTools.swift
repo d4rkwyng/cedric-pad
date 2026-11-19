@@ -333,3 +333,20 @@ extension EditorWindowController {
         gutter.needsDisplay = true
     }
 }
+
+// MARK: - Tab: left panel (folder sidebar)
+
+extension EditorWindowController {
+    /// Puts a panel (the folder sidebar) at the left of this tab's split
+    /// view, at index 0, `width` wide. It holds its width when the window
+    /// resizes; the editor (and a docked preview) take the change.
+    func dockLeftPanel(_ panel: NSView, width: CGFloat) {
+        guard panel.superview !== split else { return }
+        panel.removeFromSuperview()
+        split.insertArrangedSubview(panel, at: 0)
+        split.adjustSubviews()
+        split.setHoldingPriority(.init(260), forSubviewAt: 0)
+        let w = split.bounds.width
+        if w > 0 { split.setPosition(min(width, w * 0.5), ofDividerAt: 0) }
+    }
+}

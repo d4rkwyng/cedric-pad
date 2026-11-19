@@ -1,20 +1,307 @@
 import AppKit
+import CedricCore
 
-/// CEDRIC_CHECK=folder (Scripts/tools-check.sh). Phase 0 stub: the
-/// scaffolding is in place (File › Open Folder… ⇧⌘O, View › Show Folder
-/// Sidebar ⌃⌘1, both disabled). The feature's subunit replaces this with
-/// the real check (plan-0.2.0.md §6, Tests).
+/// CEDRIC_CHECK=folder (Scripts/tools-check.sh): the folder sidebar
+/// (plan-0.2.0.md §6). Builds a small tree in the temp folder, opens it
+/// the way a folder dropped on the Dock icon arrives, and drives the tree
+/// with real mouse and key events: a click on a disclosure triangle, →
+/// on a selected folder, clicks on files (a tab opens; a second click
+/// doesn't open another), Return on a file. Then changes the tree on disk
+/// (create, delete, rename) and waits for FSEvents to show it; checks the
+/// symlink loop guard, the layout with the preview and Find in Files
+/// docked too, re-docking on a tab switch, ⌃⌘1 hiding (stream stopped)
+/// and showing again (re-listed), the session state, snapshots in light
+/// and dark, and Close Folder.
 @MainActor
 extension DevChecks {
     static func folderCheck(_ app: AppDelegate) {
-        let tab = app.open(write("folder.txt", "folder\n"))!
-        sized(tab)
+        let proj = dir.appendingPathComponent("proj", isDirectory: true)
+        _ = write("proj/src/a.swift", "let a = 1\n")
+        _ = write("proj/src/b.swift", "let b = 2\n")
+        _ = write("proj/docs/readme.md", "# Readme\n\nfolder sidebar\n")
+        for n in ["zeta.txt", "alpha.txt", "file10.txt", "file2.txt", ".hidden", ".DS_Store", ".git/HEAD"] { _ = write("proj/\(n)", "\(n)\n") }
+        try? FileManager.default.createSymbolicLink(atPath: proj.appendingPathComponent("src/up").path, withDestinationPath: "..")
+        let outside = app.open(write("outside.txt", "not in the folder\n"))!
+        sized(outside)
+        let fm = FileManager.default
+        var sidebar: FolderSidebar { FolderSidebar.shared! }
+        func names(_ parent: FolderNode?) -> [String] {
+            let o = sidebar.outline
+            return (0..<o.numberOfChildren(ofItem: parent)).compactMap { (o.child($0, ofItem: parent) as? FolderNode)?.name }
+        }
+        func node(_ rel: String) -> FolderNode? { FolderSidebar.shared?.root.descendant(rel) }
+        func row(_ rel: String) -> Int { node(rel).map { sidebar.outline.row(forItem: $0) } ?? -1 }
+        func tab(named n: String) -> EditorWindowController? { app.tabs.first { $0.doc.fileURL?.lastPathComponent == n } }
+        func toggleItem() -> NSMenuItem? { menuItem(action: #selector(AppDelegate.toggleFolderSidebarMenu(_:))) }
+        /// A real left click on the row's text, or (inactive app: a synthetic
+        /// click isn't taken by a table in a window that can't become key)
+        /// the selection and click action it would make.
+        func clickRow(_ r: Int, _ what: String) {
+            let o = sidebar.outline
+            let rect = o.frameOfCell(atColumn: 0, row: r)
+            click(o, at: NSPoint(x: rect.minX + 30, y: rect.midY))
+            if o.selectedRow != r {
+                print("check: note: synthetic click on \(what) not taken by the inactive outline; selecting it and opening as the click would")
+                o.selectRowIndexes([r], byExtendingSelection: false)
+                sidebar.activateSelection()
+            }
+        }
+        func keyTo(_ view: NSView, _ code: UInt16, _ chars: String) {
+            guard let w = view.window,
+                  let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: w.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars,
+                                              isARepeat: false, keyCode: code) else { return }
+            w.makeFirstResponder(view)
+            w.sendEvent(down)
+        }
+        let right = String(UnicodeScalar(UInt16(NSRightArrowFunctionKey))!)
+        var tabsBefore = 0
+        var redockMs = 0.0
+
         run([
             sync {
-                focus(tab)
-                expectScaffold(app, #selector(AppDelegate.openFolderMenu(_:)), "File › Open Folder…", "o", [.command, .shift])
-                expectScaffold(app, #selector(AppDelegate.toggleFolderSidebarMenu(_:)), "View › Show Folder Sidebar", "1", [.control, .command])
+                focus(outside)
+                print("check: note: app active=\(NSApp.isActive) key window=\(NSApp.keyWindow != nil)")
+                expect(FolderSidebar.shared == nil && FolderWatcher.running == 0, "nothing built and no stream before a folder is opened")
+                guard let open = menuItem(action: #selector(AppDelegate.openFolderMenu(_:))), let show = toggleItem() else {
+                    expect(false, "the menu items exist"); return
+                }
+                expect(open.keyEquivalent == "o" && open.keyEquivalentModifierMask == [.command, .shift] && app.validateMenuItem(open),
+                       "File › Open Folder… is ⇧⌘O and enabled", MenuShortcuts.name(open))
+                expect(show.keyEquivalent == "1" && show.keyEquivalentModifierMask == [.control, .command] && !app.validateMenuItem(show),
+                       "View › Show Folder Sidebar is ⌃⌘1, disabled until a folder is open", MenuShortcuts.name(show))
+                // A folder dropped on the Dock icon (or `owlink dir`) arrives here.
+                app.application(NSApp, open: [proj])
+                expect(app.tabs.count == 1, "a folder doesn't open as a tab", "\(app.tabs.count)")
+                expect(FolderSidebar.shared?.isShown == true, "the folder opens in the sidebar")
+            },
+            until("the folder is listed") { FolderSidebar.shared?.root.isLoaded == true },
+            sync {
+                let s = sidebar
+                outside.window?.layoutIfNeeded()
+                let subs = outside.split.arrangedSubviews
+                expect(subs.first === s && subs.count == 2 && subs[1] === outside.editorArea, "docked at the left of the tab's split", "\(subs.map { Swift.type(of: $0) })")
+                expect(abs(s.frame.width - FolderSidebar.defaultWidth) <= 2, "default width", "\(s.frame.width)")
+                expect(names(nil) == ["docs", "src", "alpha.txt", "file2.txt", "file10.txt", "zeta.txt"],
+                       "folders first, then Finder order; no .git, .DS_Store or hidden files", "\(names(nil))")
+                expect(node("src")?.isLoaded == false, "subfolders aren't listed until expanded")
+                expect(FolderWatcher.running == 1 && s.isWatching, "one FSEvents stream while shown", "\(FolderWatcher.running)")
+                expect(toggleItem().map { app.validateMenuItem($0) && $0.state == .on } == true, "Show Folder Sidebar enabled and checked")
+            },
+            snapshot("folder-root.png"),
+            { next in
+                // Expand src: a click on its disclosure triangle.
+                let o = sidebar.outline
+                let r = row("src")
+                let tri = o.frameOfOutlineCell(atRow: r)
+                expect(r >= 0 && tri.width > 0, "src has a disclosure triangle", "row \(r) \(tri)")
+                click(o, at: NSPoint(x: tri.midX, y: tri.midY))
+                if let n = node("src"), !o.isItemExpanded(n) {
+                    print("check: note: synthetic click on the disclosure triangle not taken; expanding as it would")
+                    o.expandItem(n)
+                }
+                next()
+            },
+            until("src is listed after expanding") { node("src")?.isLoaded == true },
+            sync {
+                expect(sidebar.outline.isItemExpanded(node("src")), "a click on the triangle expands src")
+                expect(names(node("src")) == ["up", "a.swift", "b.swift"], "src's files (and the link to its parent, as a folder)", "\(names(node("src")))")
+                // Expand docs with the keyboard: select it, →.
+                let o = sidebar.outline
+                o.selectRowIndexes([row("docs")], byExtendingSelection: false)
+                keyTo(o, 124, right)
+            },
+            until("docs is listed after →") { node("docs")?.isLoaded == true },
+            sync {
+                expect(sidebar.outline.isItemExpanded(node("docs")), "→ on a selected folder expands it")
+                expect(names(node("docs")) == ["readme.md"], "docs' file", "\(names(node("docs")))")
+                tabsBefore = app.tabs.count
+                clickRow(row("src/a.swift"), "a.swift")
+            },
+            until("clicking a file opens it") { tab(named: "a.swift") != nil },
+            sync {
+                guard let a = tab(named: "a.swift") else { finish(); return }
+                expect(app.tabs.count == tabsBefore + 1, "one new tab", "\(app.tabs.count)")
+                expect(sidebar.superview === a.split && a.split.arrangedSubviews.first === sidebar, "the sidebar moves to the new tab")
+                expect(sidebar.outline.selectedRow == row("src/a.swift"), "the file's row is selected")
+                tabsBefore = app.tabs.count
+                clickRow(row("src/a.swift"), "a.swift again")
+            },
+            sync {
+                expect(app.tabs.count == tabsBefore, "clicking the same file again opens no second tab", "\(app.tabs.count)")
+                // Return on a selected file opens it.
+                let o = sidebar.outline
+                o.selectRowIndexes([row("src/b.swift")], byExtendingSelection: false)
+                keyTo(o, 36, "\r")
+            },
+            until("Return on a file opens it") { tab(named: "b.swift") != nil },
+            sync {
+                // Outside changes: create, delete, rename.
+                try? "new\n".write(to: proj.appendingPathComponent("src/new.swift"), atomically: false, encoding: .utf8)
+                try? fm.removeItem(at: proj.appendingPathComponent("zeta.txt"))
+                try? fm.moveItem(at: proj.appendingPathComponent("alpha.txt"), to: proj.appendingPathComponent("omega.txt"))
+            },
+            until("FSEvents: a created file shows", timeout: 5) { node("src/new.swift") != nil && row("src/new.swift") >= 0 },
+            until("FSEvents: a deleted file goes", timeout: 5) { node("zeta.txt") == nil },
+            until("FSEvents: a renamed file shows its new name", timeout: 5) { node("omega.txt") != nil && node("alpha.txt") == nil },
+            sync {
+                expect(names(nil) == ["docs", "src", "file2.txt", "file10.txt", "omega.txt"], "root rows after the changes", "\(names(nil))")
+                expect(names(node("src")) == ["up", "a.swift", "b.swift", "new.swift"], "src rows after the changes", "\(names(node("src")))")
+                expect(sidebar.outline.isItemExpanded(node("src")) && sidebar.outline.isItemExpanded(node("docs")), "expansion kept through the updates")
+                // The link back to src's parent: never listed into.
+                sidebar.outline.expandItem(node("src/up"))
+            },
+            until("the loop link is handled") { node("src/up")?.isLoaded == true },
+            sync {
+                let up = node("src/up")
+                expect(up?.children?.isEmpty == true && up?.loadError != nil, "a link to a folder above it isn't expanded into (loop guard)",
+                       "\(up?.children?.count ?? -1) \(up?.loadError ?? "-")")
+                // Preview and Find in Files with the sidebar: Folder | editor | preview | Find in Files.
+                clickRow(row("docs/readme.md"), "readme.md")
+            },
+            until("readme.md opens") { tab(named: "readme.md") != nil },
+            sync {
+                let t = tab(named: "readme.md")!
+                t.window?.setContentSize(NSSize(width: 1500, height: 720))
+                focus(t)
+                key("p", [.command, .option])
+                key("f", [.command, .shift])
+            },
+            until("the preview shows") { tab(named: "readme.md")?.previewVisible == true },
+            sync {
+                let t = tab(named: "readme.md")!
+                t.window?.layoutIfNeeded()
+                let subs = t.split.arrangedSubviews
+                let order = subs.map { $0 === sidebar ? "folder" : $0 === t.editorArea ? "editor" : $0 === t.previewPane ? "preview" : $0 === app.findInFiles ? "find" : "?" }
+                expect(order == ["folder", "editor", "preview", "find"], "folder | editor | preview | find in files", "\(order)")
+                let widths = subs.map { Int($0.frame.width) }
+                expect(widths.allSatisfy { $0 >= 150 }, "no pane collapsed", "\(widths)")
+                expect(t.previewVisible, "previewVisible with the folder sidebar docked")
+            },
+            snapshot("folder-with-preview.png"),
+            sync {
+                let t = tab(named: "readme.md")!
+                app.hideFindInFiles()
+                t.togglePreview()
+                expect(!t.previewVisible && t.split.arrangedSubviews.count == 2, "preview and Find in Files closed: folder | editor",
+                       "\(t.split.arrangedSubviews.count)")
+                // Tab switch: the sidebar re-docks in the tab that becomes key.
+                let a = tab(named: "a.swift")!
+                let start = Date()
+                a.window?.makeKeyAndOrderFront(nil)
+                if sidebar.superview !== a.split { app.tabBecameKey(a) }  // inactive app: no key change
+                redockMs = Date().timeIntervalSince(start) * 1000
+                print("check: note: tab switch with re-dock took \(String(format: "%.1f", redockMs)) ms")
+                expect(sidebar.superview === a.split, "re-docked in the selected tab")
+                expect(t.split.arrangedSubviews.count == 1 && t.split.arrangedSubviews.first === t.editorArea, "…and gone from the other tab's split")
+                expect(t.split.holdingPriorityForSubview(at: 0) == .defaultLow, "the other tab's editor keeps the default holding priority",
+                       "\(t.split.holdingPriorityForSubview(at: 0).rawValue)")
+            },
+            sync {
+                // ⌃⌘1: hidden, the stream stopped.
+                focus(tab(named: "a.swift")!)
+                key("1", [.control, .command])
+                expect(sidebar.isShown == false && sidebar.superview == nil, "⌃⌘1 hides the sidebar")
+                expect(FolderWatcher.running == 0 && !sidebar.isWatching, "hidden: no FSEvents stream", "\(FolderWatcher.running)")
+                expect(toggleItem().map { app.validateMenuItem($0) && $0.state == .off } == true, "Show Folder Sidebar still enabled, unchecked")
+                try? "later\n".write(to: proj.appendingPathComponent("docs/later.md"), atomically: false, encoding: .utf8)
+            },
+            sync {
+                key("1", [.control, .command])
+                let a = tab(named: "a.swift")!
+                expect(sidebar.isShown && sidebar.superview === a.split, "⌃⌘1 shows it again in the tab")
+                expect(FolderWatcher.running == 1, "showing starts the stream again", "\(FolderWatcher.running)")
+            },
+            until("shown again: what changed while hidden is listed") { node("docs/later.md") != nil },
+            sync {
+                let st = app.folderSessionState
+                expect(st?.path == proj.standardizedFileURL.path && st?.visible == true, "session: folder and visibility", "\(String(describing: st))")
+                expect(st?.expanded == ["docs", "src"], "session: expanded folders, parents first", "\(st?.expanded ?? [])")
+                expect(st?.width.map { abs($0 - Double(FolderSidebar.defaultWidth)) <= 2 } == true, "session: width", "\(st?.width ?? -1)")
+                Settings.shared.themeOverride = .light
+                NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil)
+                tab(named: "a.swift")?.window?.setContentSize(NSSize(width: 1200, height: 720))
+            },
+            snapshot("folder-light.png"),
+            sync {
+                Settings.shared.themeOverride = .dark
+                NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil)
+            },
+            snapshot("folder-dark.png"),
+            sync {
+                // Close Folder (the × in the header): gone, no stream, menu item off.
+                let s = sidebar
+                guard let close = s.subviews.first(where: { $0.identifier?.rawValue == "folder-close" }) as? NSButton else {
+                    expect(false, "the close button"); return
+                }
+                click(close, at: NSPoint(x: close.bounds.midX, y: close.bounds.midY))
+                if FolderSidebar.shared != nil {
+                    print("check: note: synthetic click on × not taken; sending its action")
+                    close.performClick(nil)
+                }
+                expect(FolderSidebar.shared == nil && s.superview == nil && FolderWatcher.running == 0, "Close Folder removes the sidebar and its stream")
+                expect(toggleItem().map { app.validateMenuItem($0) } == false, "Show Folder Sidebar disabled again")
+                expect(app.folderSessionState == nil, "session: no folder")
             },
         ])
+    }
+}
+
+/// Scripts/render-check.sh (RenderDump.check): the folder sidebar shown,
+/// whole window rendered both ways (CALayer tree and cacheDisplay) in a
+/// light and a dark theme. The rows must have ink, and the editor beside
+/// it must still show its typed text and its own background (an opaque
+/// panel that doesn't clip can paint over its neighbours).
+@MainActor
+enum FolderRenderCheck {
+    static func run(_ app: AppDelegate, out: String, report: (Bool, String, String) -> Void) {
+        let fm = FileManager.default
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cedric-render-folder-\(getpid())", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        for n in ["src/main.swift", "README.md", "notes.txt"] {
+            let u = root.appendingPathComponent(n)
+            try? fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? Data(n.utf8).write(to: u)
+        }
+        for c in TypingCheck.themes where c.name == "light" || c.name == "dark" {
+            TypingCheck.apply(c)
+            app.newTab(nil)
+            guard let tab = app.tabs.last, let window = tab.window else { report(false, "folder/\(c.name)", "no tab"); continue }
+            window.setContentSize(NSSize(width: 900, height: 670))
+            window.makeKeyAndOrderFront(nil)
+            app.openFolder(root)
+            let deadline = Date().addingTimeInterval(3)
+            while FolderSidebar.shared?.root.isLoaded != true, Date() < deadline { TypingCheck.settle(0.05) }
+            guard let s = FolderSidebar.shared, s.superview === tab.split else { report(false, "folder/\(c.name)/docked", "not docked"); continue }
+            window.makeFirstResponder(tab.textView)
+            TypingCheck.type(window, "Beside the folder")
+            TypingCheck.settle(0.3)
+            window.displayIfNeeded()
+            CATransaction.flush()
+            let rootView = window.contentView!.superview ?? window.contentView!
+            let p = tab.palette
+            let bg = NSColor(hex: p.background)
+            let typed = (tab.text as NSString).range(of: "Beside the folder")
+            let textRects = TypingCheck.glyphRects(tab.textView, typed).map { tab.textView.convert($0, to: rootView) }
+            let rows = (0..<min(3, s.outline.numberOfRows)).map { s.outline.convert(s.outline.rect(ofRow: $0), to: rootView) }
+            let tvVis = tab.textView.convert(tab.textView.visibleRect, to: rootView)
+            let empty = NSRect(x: tvVis.minX + 200, y: tvVis.minY + 150, width: 100, height: 100)
+            var sideBG = NSColor.windowBackgroundColor
+            s.effectiveAppearance.performAsCurrentDrawingAppearance { sideBG = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) ?? sideBG }
+            for (how, rep) in [("layer", RenderDump.renderLayer(rootView)), ("cache", DevHooks.render(rootView, rootView.bounds))] {
+                guard let rep else { report(false, "folder/\(c.name)/\(how)", "no image"); continue }
+                RenderDump.save(rep, "\(out)/folder-\(c.name)-\(how).png")
+                let r = RenderDump.inkCount(rep, rows, root: rootView, bg: sideBG)
+                report(rows.count == 3 && r >= 30, "folder/\(c.name)/\(how)/rows", "rows=\(rows.count) ink=\(r)")
+                let t = RenderDump.inkCount(rep, textRects, root: rootView, bg: bg)
+                report(t >= 30, "folder/\(c.name)/\(how)/typed-text-beside", "ink=\(t)")
+                let stray = RenderDump.inkCount(rep, [empty], root: rootView, bg: bg, threshold: 1.25)
+                report(stray == 0, "folder/\(c.name)/\(how)/editor-background", "pixels unlike the theme background=\(stray)")
+            }
+            app.closeFolder()
+            tab.doc.markSaved()
+            window.close()
+            TypingCheck.settle(0.05)
+        }
     }
 }

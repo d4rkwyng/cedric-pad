@@ -172,6 +172,7 @@ enum DevHooks {
         if env["CEDRIC_SESSION_DUMP"] == "1" {
             // A detached preview is restored after the first frame: none may exist yet.
             let earlyPreviews = app.tabs.filter { $0.previewPane != nil }.count
+            let earlyFolder = FolderSidebar.shared != nil ? 1 : 0
             AfterFirstFrame.run { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 // Windows in on-screen order, tabs in tab-bar order.
                 for t in app.tabGroups().joined() {
@@ -179,6 +180,10 @@ enum DevHooks {
                     print("tab: name=\(t.doc.displayName) file=\(t.doc.fileURL?.path ?? "-") dirty=\(t.doc.isDirty) language=\(t.doc.language.rawValue) text=\(body.prefix(60))")
                 }
                 for v in app.viewerTabs { print("viewer: file=\(v.fileURL.path)") }
+                if let f = app.folderSessionState {
+                    print("folder: path=\(f.path) built=\(FolderSidebar.shared != nil) shown=\(FolderSidebar.shared?.isShown ?? false) "
+                          + "expanded=\((f.expanded ?? []).joined(separator: ",")) width=\(Int(f.width ?? 0)) before-first-frame=\(earlyFolder)")
+                }
                 for c in app.closedTabs {
                     let body = (c.hasBuffer ? app.store.readBuffer(c.id) ?? "<missing buffer>" : "-").replacingOccurrences(of: "\n", with: "\\n")
                     print("closed: name=\(c.untitledName ?? "-") file=\(c.path ?? "-") unsaved=\(c.hasBuffer) text=\(body.prefix(60))")
