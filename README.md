@@ -1,4 +1,4 @@
-# Cedric Pad
+# OwlInk
 
 A fast, simple, native text editor for macOS, in the spirit of Notepad++: for
 quick work on files, not for projects or compiling. AppKit and TextKit 2, no
@@ -6,6 +6,22 @@ dependencies outside Apple's frameworks. Its assistant is Cedric, a small
 owl with a monocle (off by default).
 
 Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
+
+## Install
+
+With [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask d4rkwyng/tap/owlink
+```
+
+This also puts the `cedric` command on your PATH. Or download
+`OwlInk-<version>.zip` from [Releases](https://github.com/d4rkwyng/owlink/releases),
+open it, and move OwlInk to Applications. OwlInk doesn't update itself:
+`brew upgrade` (or a new download) brings a new version.
+
+OwlInk was called Cedric Pad up to 0.1.1. Settings, open tabs and downloaded
+models carry over; see `CHANGELOG.md` (0.1.2) for moving from Cedric Pad.
 
 ## Features (v0)
 
@@ -21,11 +37,11 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   first; a closed tab with unsaved text is never forgotten).
   The first time in a launch that a file tab with unsaved edits is closed,
   the tab in front says the file wasn't written, with **Save Now**.
-  Closing the last document window (text, PDF, image or Office tab) quits Cedric Pad.
+  Closing the last document window (text, PDF, image or Office tab) quits OwlInk.
   It is a close like any other: the tab goes to Reopen Closed Tab (⇧⌘T) with
   its unsaved text kept, and the next launch opens an empty Untitled tab.
   Quit (⌘Q) with tabs open brings them all back next launch.
-  Detached previews, Settings and panels don't keep Cedric Pad running.
+  Detached previews, Settings and panels don't keep OwlInk running.
   Settings › "Quit when the last window closes" turns this off.
 - **Fast to open.** TextKit 2 lays out only what is on screen; a 10 MB JSON
   file opens and is coloured in under 0.1 s, a 50 MB log in about 0.2 s on an
@@ -62,14 +78,14 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Scrolling either side scrolls the other to the same source line (by
   block, list item and quote). Relative images load from the document's
   folder (and only from there), and a link to a relative `.md` (or other
-  text) file opens it in a Cedric Pad tab. The renderer follows CommonMark's
+  text) file opens it in an OwlInk tab. The renderer follows CommonMark's
   emphasis rules (`**bold *mix***` nests properly) and knows reference
   links, footnotes (`[^1]`), GitHub alerts (`> [!NOTE]`, `[!TIP]`,
   `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), task lists (disabled
   checkboxes) and YAML frontmatter, which shows as a small metadata table
   (and is coloured as YAML in the editor). Fenced code blocks are
   coloured by their language (```` ```swift ````, `py`, `js`, `bash`, …)
-  both in the editor and in the preview, by Cedric Pad's own tokenizers and
+  both in the editor and in the preview, by OwlInk's own tokenizers and
   the theme's colours (no JavaScript highlighter). **Detach Preview** (View menu, ⇧⌥⌘P,
   or Detach on the preview bar) moves it into its own resizable
   window, "notes.md — Preview", still updating as you type; it stays
@@ -158,7 +174,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   purple and amber) and Dracula, the same set as Tankard. Every theme's text
   colours meet WCAG AA contrast (4.5:1), checked by a test. SF Mono by
   default, or any installed fixed-pitch font; ⌘+ / ⌘− / ⌘0 zoom.
-- **Settings** (Cedric Pad › Settings…, ⌘,): theme, font and size, wrap,
+- **Settings** (OwlInk › Settings…, ⌘,): theme, font and size, wrap,
   invisibles, line numbers, highlight occurrences, auto-close brackets,
   spelling while typing, the default indentation, and whether closing the
   last window quits, in one window (the
@@ -280,7 +296,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Editing** on the bar makes it an ordinary text tab.
 - **PDFs open in a viewer tab** (read-only, PDFKit), from File › Open, a
   drop on a window or the Dock icon, `cedric file.pdf` (`file.pdf:3` for
-  page 3), Open Recent or Finder's Open With (Cedric Pad is registered as an
+  page 3), Open Recent or Finder's Open With (OwlInk is registered as an
   alternate PDF viewer; Preview stays the default). A PDF is recognised by
   its `%PDF-` header, so one without the extension opens too. Continuous
   scroll; ⌘+ / ⌘− zoom, ⌘0 actual size, ⌘9 fit to the window; View › Show
@@ -295,7 +311,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   next one (no fade with Reduce Motion), and stays while the pointer is
   on it. ← / → and Page Up / Page Down turn the page. **File › Open as Text** puts the PDF's
   text in a new untitled tab to edit (extracted in the background). Saving
-  and editing commands are off in a PDF tab, and Cedric Pad never writes to a
+  and editing commands are off in a PDF tab, and OwlInk never writes to a
   PDF. A password-protected PDF asks for its password; a damaged one says
   so. PDF tabs come back with the session on their page and zoom (a PDF
   tab that isn't selected loads when you first click it); the owl stays
@@ -311,11 +327,11 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   with `#L10` or `#L10-L20` for the selection (the branch if it has an
   upstream, else the commit), for a github.com or GitHub Enterprise
   `origin`; **View › Compare with Last Commit** shows the last commit
-  beside the current text. Cedric Pad runs the local git only, after the
+  beside the current text. OwlInk runs the local git only, after the
   window is up, on a background queue; no network, no sign-in. Without
   the developer tools (or another git) it does nothing, rather than
   setting off the install prompt; very large documents are skipped.
-  A repository can't make Cedric Pad run its programs: git is only
+  A repository can't make OwlInk run its programs: git is only
   asked read-only questions (`rev-parse`, `cat-file`, `ls-files`, never
   `status` or `diff`), with fsmonitor, hooks, pagers and diff drivers
   forced off, and a repository whose own config names a program to run
@@ -335,7 +351,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Preview (the file's default app); Print fits it to the page. A big
   image is decoded downsampled (about 32 megapixels at most) off the main
   thread, so a 12000×12000 PNG doesn't hold up typing in other tabs.
-  Cedric Pad is an alternate image viewer (Preview stays the default) and
+  OwlInk is an alternate image viewer (Preview stays the default) and
   never writes to an image; image tabs come back with the session at
   their zoom and place.
 - **Office and iWork documents open in a Quick Look tab** (read-only):
@@ -344,7 +360,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   `[Content_Types].xml`, an OLE2 file) as well as the name. **File › Open
   as Text** takes a Word document's text into a new untitled tab; for an
   .xlsx the same item is **Open Sheet as CSV** (the first sheet, read
-  with Cedric Pad's own zip and XML code: strings, numbers, booleans and
+  with OwlInk's own zip and XML code: strings, numbers, booleans and
   formulas' cached values; dates come out as their serial numbers). File ›
   Open in <default app>. Registered as an alternate viewer.
 - **Certificates.** A PEM file (`.pem` `.crt` `.cer` `.csr`, or any text
@@ -374,9 +390,9 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 - **Files changed on disk** reload by themselves when the tab has no unsaved
   changes. With unsaved changes, a bar says so (**Reload** / **Keep Mine**),
   owl or no owl. **⌘S never overwrites another app's changes:** if the file
-  changed since Cedric Pad read or saved it, a sheet asks first (**Keep My
+  changed since OwlInk read or saved it, a sheet asks first (**Keep My
   Version**, **Reload Theirs** (undoable) or **Compare**).
-- **Help menu**: **Cedric Pad Help** (⌘?, this README), **Keyboard
+- **Help menu**: **OwlInk Help** (⌘?, this README), **Keyboard
   Shortcuts** (every menu shortcut in one window) and the system's menu
   search.
 - **`cedric` command-line launcher** (below), with `-w` so it can be
@@ -501,9 +517,9 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
 Needs the Command Line Tools or Xcode 26 (Swift 6.3 or later, macOS 26 SDK); Xcode itself is not required. Swift 6.1 / 6.2 with an older SDK still compiles and passes the unit tests, but the app it builds draws no editor text, so never ship or test the app from an older toolchain. Releases are built on GitHub's macos-26 runner.
 
 ```sh
-Scripts/bundle-app.sh               # "dist/Cedric Pad.app" for this Mac, ad-hoc signed
+Scripts/bundle-app.sh               # "dist/OwlInk.app" for this Mac, ad-hoc signed
 Scripts/bundle-app.sh --universal   # arm64 + x86_64
-open "dist/Cedric Pad.app"
+open "dist/OwlInk.app"
 ```
 
 Tests (Swift Testing; the script adds the paths the Command Line Tools need):
@@ -516,19 +532,19 @@ Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no
 Scripts/pdf-check.sh                # PDF tabs in the running app: find, copy, zoom, Open as Text, session
 Scripts/image-check.sh              # image and Office tabs: zoom, copy, GIFs, docx/xlsx text, session, a 12000² PNG vs typing
 Scripts/launch-speed-check.sh       # launch phase medians: empty, 8-tab session, 500 KB file
-swift Scripts/launch-time.swift "dist/Cedric Pad.app" /System/Applications/TextEdit.app
+swift Scripts/launch-time.swift "dist/OwlInk.app" /System/Applications/TextEdit.app
 ```
 
 A local build is ad-hoc signed, not notarized. If macOS refuses to open a
-copied build, remove the quarantine flag: `xattr -dr com.apple.quarantine "Cedric Pad.app"`.
+copied build, remove the quarantine flag: `xattr -dr com.apple.quarantine "OwlInk.app"`.
 
 ## The `cedric` command
 
-`Cedric Pad.app/Contents/Resources/cedric` opens files in the running app (or
+`OwlInk.app/Contents/Resources/cedric` opens files in the running app (or
 starts it). The command keeps the name `cedric`. Link it onto your PATH:
 
 ```sh
-ln -s "/Applications/Cedric Pad.app/Contents/Resources/cedric" /usr/local/bin/cedric
+ln -s "/Applications/OwlInk.app/Contents/Resources/cedric" /usr/local/bin/cedric
 cedric notes.md                 # open (a missing file opens as a new tab that saves there)
 cedric src/main.c:120           # open at line 120 (also: cedric +120 src/main.c)
 cedric src/main.c:120:7         # line 120, column 7 (grep -n / compiler output works too)
@@ -546,8 +562,8 @@ file from it asks first. The app deletes only the script's own temp files
 (`cedric-stdin.*`, `cedric-wait.*` in your temp folder), checked after `..`
 and symlinks are resolved.
 With `-w` the script makes a `cedric-wait.*` marker file in the temp
-folder and passes it along; Cedric Pad deletes it when that file's tab closes
-(or when Cedric Pad quits), and the script returns.
+folder and passes it along; OwlInk deletes it when that file's tab closes
+(or when OwlInk quits), and the script returns.
 
 ## Design notes
 
@@ -594,7 +610,7 @@ Macros, Replace in Files, automatic updates. See
 
 ## Built with Claude
 
-Cedric Pad is built with Claude: Claude Code agents under Derek's direction, with
+OwlInk is built with Claude: Claude Code agents under Derek's direction, with
 review and tests before release.
 
 ## License
@@ -604,7 +620,7 @@ BSD-2-Clause. See [LICENSE](LICENSE). The Dracula theme's colours are by
 
 The built-in AI engine uses [llama.cpp](https://github.com/ggml-org/llama.cpp)
 (MIT, © the ggml authors), bundled as `llama.framework`. Models are not
-bundled: the ones Cedric Pad offers to download are Qwen models by Alibaba
+bundled: the ones OwlInk offers to download are Qwen models by Alibaba
 Cloud, each under its own licence, shown before download. The default,
 Qwen3 4B Instruct (2507, the Q4_K_M GGUF quantised by Unsloth), is
 Apache-2.0, as are Qwen2.5-Coder 1.5B and 7B and Qwen3 4B. Qwen2.5-Coder
