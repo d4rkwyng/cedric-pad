@@ -196,6 +196,63 @@ extension DevChecks {
                        "\(String(describing: a)) / \(String(describing: b))")
             },
             snapshot("image-png.png"),
+            // 0.2.1: the right-click menu, by a real right-click on the image.
+            sync {
+                guard let t = tab, let w = t.window else { expect(false, "image tab for the right-click"); return }
+                var seen: NSMenu?
+                let nc = NotificationCenter.default
+                let token = nc.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                    guard let m = note.object as? NSMenu, m.items.contains(where: { $0.title == "Show Info" }) else { return }
+                    seen = m
+                    // Close it from inside its tracking loop.
+                    RunLoop.current.perform(inModes: [.eventTracking, .default]) { m.cancelTracking() }
+                }
+                let p = t.canvas.convert(NSPoint(x: t.canvas.bounds.midX, y: t.canvas.bounds.midY), to: nil)
+                if let e = NSEvent.mouseEvent(with: .rightMouseDown, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    w.sendEvent(e)
+                }
+                nc.removeObserver(token)
+                if seen == nil {
+                    print("check: note: the synthetic right-click opened no menu (window not key); asking the canvas for it")
+                    seen = NSEvent.mouseEvent(with: .rightMouseDown, location: p, modifierFlags: [], timestamp: 0, windowNumber: w.windowNumber,
+                                              context: nil, eventNumber: 0, clickCount: 1, pressure: 1).flatMap { t.canvas.menu(for: $0) }
+                }
+                let titles = seen?.items.map(\.title).filter { !$0.isEmpty } ?? []
+                // "Open in Default App" is retitled with the app's name when validated ("Open in Preview"), as in the File menu.
+                expect(titles == ["Zoom In", "Zoom Out", "Actual Size", "Zoom to Fit", "Rotate Left", "Rotate Right", "Copy Image", "Copy Path",
+                                  "Reveal in Finder", AppDelegate.openInTitle(png), "Show Info"], "right-click on the image: its menu", "\(titles)")
+                @MainActor func run(_ title: String) {
+                    guard let i = seen?.items.first(where: { $0.title == title }), let a = i.action else { expect(false, "context item \(title)"); return }
+                    expect(t.validateMenuItem(i), "\(title) is enabled")
+                    NSApp.sendAction(a, to: i.target, from: i)
+                }
+                run("Rotate Right")
+                expect(t.canvas.rotation == 90 && t.canvas.frame.size == NSSize(width: 1600, height: 2400) && t.fitted,
+                       "Rotate Right turns the view (fitted again)", "\(t.canvas.rotation) \(t.canvas.frame.size)")
+                expect(t.statusText.hasPrefix("2400 × 1600 px"), "…the file's size is unchanged", t.statusText)
+                run("Rotate Left")
+                expect(t.canvas.rotation == 0 && t.canvas.frame.size == NSSize(width: 2400, height: 1600), "Rotate Left turns it back")
+                let before = t.scale
+                run("Zoom In")
+                expect(t.scale > before + 0.001 && !t.fitted, "Zoom In from the context menu", "\(before) → \(t.scale)")
+                run("Zoom to Fit")
+                expect(t.fitted && abs(t.scale - before) < 0.002, "Zoom to Fit")
+                run("Copy Path")
+                expect(NSPasteboard.general.string(forType: .string) == png.path, "Copy Path", NSPasteboard.general.string(forType: .string) ?? "-")
+                run("Show Info")
+                let sheet = w.attachedSheet
+                let text = (sheet?.contentView.map { v -> [String] in
+                    func all(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(all) }
+                    return all(v).compactMap { ($0 as? NSTextField)?.stringValue }
+                } ?? []).joined(separator: " | ")
+                expect(sheet != nil && text.contains("2400 × 1600") && text.contains("PNG") && text.contains("sRGB"),
+                       "Show Info: dimensions, format and colour space", text.replacingOccurrences(of: "\n", with: " / "))
+                if let sheet { w.endSheet(sheet) }
+                expect(seen?.items.contains { $0.action == #selector(ImageTabController.revealImageInFinder(_:)) && $0.target === t } == true
+                       && seen?.items.contains { $0.action == #selector(ImageTabController.openInDefaultApp(_:)) && $0.target === t } == true,
+                       "Reveal in Finder and Open in Default App act on this image (not run here)")
+            },
             // Menus: what applies is on, editing and saving are off.
             sync {
                 let on: [(String, String, NSEvent.ModifierFlags)] = [

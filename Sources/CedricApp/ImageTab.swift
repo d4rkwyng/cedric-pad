@@ -56,6 +56,13 @@ final class ImageCanvas: NSView {
     /// and crisp pixels when zoomed in.
     var magnification: CGFloat = 1 { didSet { if oldValue != magnification { needsDisplay = true } } }
     var onSpace: (() -> Void)?
+    /// Rotate Left / Right (view only), clockwise degrees: 0, 90, 180, 270.
+    /// The view's size is the rotated image's.
+    var rotation = 0 { didSet { if oldValue != rotation { needsDisplay = true } } }
+    /// The right-click menu (the tab's).
+    var contextMenu: (() -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? { contextMenu?() ?? super.menu(for: event) }
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
@@ -89,12 +96,16 @@ final class ImageCanvas: NSView {
         }
         if let image {
             // Pixel art stays crisp when zoomed in; photos are smoothed when shrunk.
-            let px = magnification * CGFloat(image.width) / max(bounds.width, 1)
+            let turned = rotation % 180 != 0
+            let size = turned ? CGSize(width: bounds.height, height: bounds.width) : bounds.size
+            let px = magnification * CGFloat(image.width) / max(size.width, 1)
             ctx.interpolationQuality = px >= 2 ? .none : .high
-            // Flipped view: draw the image the right way up.
+            // Flipped view: draw the image the right way up, turned about the middle.
             ctx.translateBy(x: 0, y: bounds.height)
             ctx.scaleBy(x: 1, y: -1)
-            ctx.draw(image, in: CGRect(origin: .zero, size: bounds.size))
+            ctx.translateBy(x: bounds.width / 2, y: bounds.height / 2)
+            ctx.rotate(by: -CGFloat(rotation) * .pi / 180)
+            ctx.draw(image, in: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height))
         }
         ctx.restoreGState()
     }
@@ -239,6 +250,7 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
         scrollView.documentView = canvas
         canvas.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
         canvas.onSpace = { [weak self] in self?.togglePlaying(nil) }
+        canvas.contextMenu = { [weak self] in self?.makeContextMenu() }
         scrollView.onResize = { [weak self] in self?.windowResized() }
         scrollView.onDropFiles = { urls in for u in urls { (NSApp.delegate as? AppDelegate)?.open(u) } }
         scrollView.registerForDraggedTypes([.fileURL])
@@ -330,6 +342,7 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
         }
         clearMessage()
         self.info = info
+        canvas.rotation = 0
         canvas.frame = NSRect(x: 0, y: 0, width: info.width, height: info.height)
         canvas.image = info.display
         if let s = state.scale {
@@ -394,6 +407,12 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
 
     var scale: CGFloat { scrollView.magnification }
 
+    /// The image's size as shown: turned by Rotate Left / Right.
+    private var shownSize: (width: Int, height: Int) {
+        guard let info else { return (0, 0) }
+        return canvas.rotation % 180 == 0 ? (info.width, info.height) : (info.height, info.width)
+    }
+
     private var visibleCenter: NSPoint {
         let r = clip.bounds
         return NSPoint(x: r.midX, y: r.midY)
@@ -401,13 +420,13 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
 
     /// ⌘9 and how an image opens: all of it in the window, never enlarged.
     func fit() {
-        guard let info else { return }
+        guard info != nil else { return }
         fitted = true
         // The whole frame: once fitted, no scrollers are needed.
-        let size = scrollView.frame.size
-        let s = ImageZoom.fitScale(imageWidth: Double(info.width), imageHeight: Double(info.height),
+        let size = scrollView.frame.size, shown = shownSize
+        let s = ImageZoom.fitScale(imageWidth: Double(shown.width), imageHeight: Double(shown.height),
                                    viewWidth: Double(size.width), viewHeight: Double(size.height))
-        zoom(to: s, center: NSPoint(x: Double(info.width) / 2, y: Double(info.height) / 2))
+        zoom(to: s, center: NSPoint(x: Double(shown.width) / 2, y: Double(shown.height) / 2))
         zoomChanged()
     }
 
@@ -455,6 +474,76 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
     }
     /// ⌘9: fit the image to the window.
     @objc func zoomToFit(_ sender: Any?) { fit() }
+
+    /// Rotate Left / Right: the view only (the file is never changed, as
+    /// in a PDF tab); a fitted image is fitted again.
+    @objc func rotateImageLeft(_ sender: Any?) { rotateView(by: -90) }
+    @objc func rotateImageRight(_ sender: Any?) { rotateView(by: 90) }
+
+    func rotateView(by delta: Int) {
+        guard info != nil else { return }
+        let middle = visibleCenter, old = shownSize
+        let fraction = (x: Double(middle.x) / Double(max(old.width, 1)), y: Double(middle.y) / Double(max(old.height, 1)))
+        canvas.rotation = ((canvas.rotation + delta) % 360 + 360) % 360
+        let shown = shownSize
+        canvas.frame = NSRect(x: 0, y: 0, width: shown.width, height: shown.height)
+        if fitted { fit() } else {
+            // The same spot of the picture stays in the middle.
+            let (fx, fy) = delta > 0 ? (1 - fraction.y, fraction.x) : (fraction.y, 1 - fraction.x)
+            setScale(Double(scale), center: NSPoint(x: fx * Double(shown.width), y: fy * Double(shown.height)))
+        }
+    }
+
+    @objc func copyImagePath(_ sender: Any?) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(fileURL.path, forType: .string)
+    }
+
+    @objc func revealImageInFinder(_ sender: Any?) { NSWorkspace.shared.activateFileViewerSelecting([fileURL]) }
+
+    /// Show Info: what the status bar shows, in a sheet (already read; nothing is decoded again).
+    @objc func showImageInfo(_ sender: Any?) {
+        guard let info, let window else { NSSound.beep(); return }
+        let a = NSAlert()
+        a.messageText = fileURL.lastPathComponent
+        var lines = [String(localized: "Dimensions: \(String(info.width)) × \(String(info.height)) pixels")]
+        if let b = info.fileBytes { lines.append(String(localized: "Size: \(ByteCountFormatter.string(fromByteCount: b, countStyle: .file))")) }
+        if !info.format.isEmpty { lines.append(String(localized: "Format: \(info.format)")) }
+        if let cs = info.colorSpace { lines.append(String(localized: "Colour space: \(cs)")) }
+        if info.animated { lines.append(String(localized: "Frames: \(info.frames)")) }
+        lines.append(fileURL.path)
+        a.informativeText = lines.joined(separator: "\n")
+        a.beginSheetModal(for: window)
+    }
+
+    /// The right-click menu on the image (0.2.1): the View menu's zoom
+    /// items, rotate (view only), Copy Image, Copy Path, Reveal in Finder,
+    /// Open in Default App and Show Info. Validated like the menu bar.
+    func makeContextMenu() -> NSMenu {
+        let m = NSMenu()
+        func add(_ title: String, _ action: Selector, _ key: String = "") {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            i.keyEquivalentModifierMask = key.isEmpty ? [] : .command
+            i.target = self
+            m.addItem(i)
+        }
+        add(String(localized: "Zoom In"), #selector(zoomIn(_:)), "=")
+        add(String(localized: "Zoom Out"), #selector(zoomOut(_:)), "-")
+        add(String(localized: "Actual Size"), #selector(zoomReset(_:)), "0")
+        add(String(localized: "Zoom to Fit"), #selector(zoomToFit(_:)), "9")
+        m.addItem(.separator())
+        add(String(localized: "Rotate Left"), #selector(rotateImageLeft(_:)))
+        add(String(localized: "Rotate Right"), #selector(rotateImageRight(_:)))
+        m.addItem(.separator())
+        add(String(localized: "Copy Image"), #selector(copy(_:)))
+        add(String(localized: "Copy Path"), #selector(copyImagePath(_:)))
+        add(String(localized: "Reveal in Finder"), #selector(revealImageInFinder(_:)))
+        add(String(localized: "Open in Default App"), #selector(openInDefaultApp(_:)))
+        m.addItem(.separator())
+        add(String(localized: "Show Info"), #selector(showImageInfo(_:)))
+        return m
+    }
 
     // MARK: Status
 
@@ -625,7 +714,7 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
             item.title = AppDelegate.openInTitle(fileURL)
             return AppDelegate.defaultApp(for: fileURL) != nil
         case #selector(togglePlaying(_:)): return info?.animated == true
-        case #selector(closeWindow(_:)): return true
+        case #selector(closeWindow(_:)), #selector(copyImagePath(_:)), #selector(revealImageInFinder(_:)): return true
         default: return ready
         }
     }
