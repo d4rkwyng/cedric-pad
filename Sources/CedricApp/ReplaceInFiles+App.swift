@@ -104,7 +104,7 @@ extension AppDelegate {
     /// once every write has landed.
     func applyReplace(_ plan: ReplacePlan, progress: @escaping @MainActor (ReplaceProgress) -> Void = { _ in },
                       done: @escaping @MainActor (String) -> Void) {
-        guard !ReplaceInFiles.writing else { NSSound.beep(); return }
+        guard !ReplaceInFiles.writing else { done(String(localized: "The last replace is still being written.")); return }
         finishRestore()
         var tabEdits: [ReplaceInFiles.TabEdit] = []
         var diskFiles: [ReplaceFile] = []
