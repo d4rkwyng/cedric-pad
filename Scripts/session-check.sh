@@ -6,7 +6,8 @@
 # detached preview comes back in its window with its frame; closing the
 # last window quits, and the tabs closed stay closed (⇧⌘T has them). Uses a throwaway session
 # directory and file; never touches the real session. Needs a GUI session
-# (works with the screen locked).
+# (works with the screen locked). A saved folder sidebar comes back after
+# a kill -9, after the first frame.
 #
 #   Scripts/session-check.sh [--from OLD.app] [APP]     default "dist/OwlInk.app"
 #
@@ -281,6 +282,53 @@ grep -q "^viewer: " "$W/dump.txt" && { echo "session-check: FAIL a closed viewer
     || echo "session-check: OK   viewer tabs: neither comes back as open"
 check "viewer tabs: the last one (Office) is in the closed list" "^closed: .*file=.*memo.docx"
 check "viewer tabs: the image tab closed first is in the closed list" "^closed: .*file=.*pic.png"
+
+# 9. Folder sidebar: a saved folder, shown with two folders expanded, is
+#    rebuilt after the first frame (not before it); the app saves it again
+#    by itself and a kill -9 keeps it. A hidden one is only remembered:
+#    nothing is built until View › Show Folder Sidebar.
+mkdir -p "$W/proj/src/util" && printf 'x\n' > "$W/proj/src/util/a.txt" && printf 'y\n' > "$W/proj/top.txt"
+make_folder_session() { # dir visible(1/0)
+python3 - "$W" "$1" "$2" <<'PY2'
+import sys, os, json, uuid
+w, d, vis = sys.argv[1], os.path.join(sys.argv[1], sys.argv[2]), sys.argv[3] == "1"
+os.makedirs(d, exist_ok=True)
+p = os.path.join(w, "t9.txt"); open(p, "w").write("folder session\n")
+tab = {"id": str(uuid.uuid4()).upper(), "path": p, "hasBuffer": False, "encoding": "utf8", "lineEnding": "lf",
+       "selectionLocation": 0, "selectionLength": 0, "topLine": 0}
+json.dump({"version": 1, "untitledCounter": 0, "windows": [{"tabs": [tab], "selectedTab": 0}],
+           "folder": {"path": os.path.join(w, "proj"), "visible": vis, "width": 300, "expanded": ["src", "src/util"]}},
+          open(os.path.join(d, "session.json"), "w"))
+PY2
+}
+folder_of() { python3 -c '
+import json,sys
+f=json.load(open(sys.argv[1])).get("folder")
+print("none" if not f else "%s %s %d %s" % (f["path"], f["visible"], f.get("width") or 0, ",".join(f.get("expanded") or [])))' "$W/$1/session.json"; }
+export CEDRIC_SESSION_DIR="$W/session9"
+make_folder_session session9 1
+env -u CEDRIC_TEST_TYPE "$BIN" -ApplePersistenceIgnoreState YES >/dev/null 2>&1 &
+pid=$!
+# The folder opens after the first frame and schedules a save (1.5 s).
+sleep 4
+kill -9 $pid; wait $pid 2>/dev/null || true
+got=$(folder_of session9)
+want="$W/proj True 300 src,src/util"
+if [ "$got" = "$want" ]; then echo "session-check: OK   folder: saved again by the app, kept through a kill -9"
+else echo "session-check: FAIL folder after kill -9: got '$got', want '$want'" >&2; fail=1; fi
+dump
+check "folder: rebuilt after the first frame, shown, expansion and width kept" \
+    "^folder: path=$W/proj built=true shown=true expanded=src,src/util width=300 before-first-frame=0"
+export CEDRIC_SESSION_DIR="$W/session9b"
+make_folder_session session9b 0
+dump
+check "folder: a hidden sidebar is remembered, nothing built" "^folder: path=$W/proj built=false shown=false expanded=src,src/util width=300"
+# A folder given at launch (dropped on the Dock icon, `cedric dir`): opened after the first frame, not as a tab.
+export CEDRIC_SESSION_DIR="$W/session9c"
+env CEDRIC_OPEN="$W/proj" CEDRIC_SESSION_DUMP=1 CEDRIC_NO_SESSION_SAVE=1 "$BIN" -ApplePersistenceIgnoreState YES > "$W/dump.txt" 2>/dev/null
+cat "$W/dump.txt"
+check "folder: opened at launch, after the first frame" "^folder: path=$W/proj built=true shown=true .*before-first-frame=0"
+grep -q "^tab: .*file=$W/proj " "$W/dump.txt" && { echo "session-check: FAIL the folder opened as a tab" >&2; fail=1; } || echo "session-check: OK   folder: not opened as a tab"
 
 [ $fail = 0 ] && echo "session-check: all OK"
 exit $fail

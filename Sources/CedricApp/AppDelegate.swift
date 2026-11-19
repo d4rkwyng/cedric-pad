@@ -347,6 +347,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @discardableResult
     func open(_ url: URL) -> EditorWindowController? {
         let std = url.standardizedFileURL
+        // A folder (dropped on the Dock icon, `owlink dir`): the folder sidebar.
+        if Self.isFolder(std) { openFolder(std); return nil }
         // A pipe, device or socket: refused before a byte is read (a FIFO
         // would block forever, /dev/zero never ends).
         if let kind = SpecialFile.kind(atPath: std.path) {
@@ -401,6 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func tabBecameKey(_ tab: EditorWindowController) {
         // The Find in Files panel follows the selected tab.
         if let p = findInFiles, p.isShown { tab.dockSidePanel(p) }
+        folderSidebarFollow(tab)
     }
 
     /// Find in Files (one panel, docked in whichever tab is selected) and
@@ -501,7 +504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
         for c in closedTabs where c.hasBuffer { keep.insert(c.id) }
-        let session = Session(windows: windows, closedTabs: closedTabs.isEmpty ? nil : closedTabs)
+        let session = Session(windows: windows, closedTabs: closedTabs.isEmpty ? nil : closedTabs, folder: folderSessionState)
         let store = self.store
         let toWrite = buffers, keeping = keep
         let write: @Sendable () -> Set<UUID> = {
@@ -571,6 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func restoreSession() {
         guard let session = store.load() else { return }
         closedTabs = session.closedTabs ?? []
+        restoreFolder(session.folder)
         for w in session.windows {
             // The selected tab first (it is what shows); if its file has
             // gone, the next one that still restores.

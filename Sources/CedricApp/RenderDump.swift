@@ -144,6 +144,8 @@ enum RenderDump {
         PolishCheck.spelling(app, out: out, report: report)
         // A PDF tab (PDFCheck.swift): white page, themed chrome.
         PDFRenderCheck.run(app, out: out, report: report)
+        // The folder sidebar beside the editor (FolderCheck.swift).
+        FolderRenderCheck.run(app, out: out, report: report)
         // Untitled numbering: the lowest free number among open untitled tabs.
         for t in app.tabs { t.doc.markSaved(); t.window?.close() }
         TypingCheck.settle(0.05)

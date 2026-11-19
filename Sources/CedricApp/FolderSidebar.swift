@@ -3,21 +3,604 @@ import CedricCore
 
 /// The folder sidebar (0.2.0): File › Open Folder… (⇧⌘O) and View › Show
 /// Folder Sidebar (⌃⌘1). One app-wide sidebar, docked at the left of the
-/// selected tab's split (plan-0.2.0.md §6). Phase 0 scaffolding: the menu
-/// items exist and validate to disabled until the feature lands; nothing
-/// is built until a folder is opened.
+/// selected tab's split and re-docked when another tab becomes key, like
+/// Find in Files (plan-0.2.0.md §6). Nothing exists until a folder is
+/// opened: no view, no listing, no FSEvents stream; a folder saved in the
+/// session with the sidebar hidden is only remembered (`pendingFolder`).
 extension AppDelegate {
-    @objc func openFolderMenu(_ sender: Any?) {}
+    @objc func openFolderMenu(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = String(localized: "Open Folder")
+        if let dir = FolderSidebar.shared?.rootURL ?? currentTab?.doc.fileURL?.deletingLastPathComponent() { panel.directoryURL = dir }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        openFolder(url)
+    }
 
-    @objc func toggleFolderSidebarMenu(_ sender: Any?) {}
+    @objc func toggleFolderSidebarMenu(_ sender: Any?) {
+        if let s = FolderSidebar.shared {
+            if s.isShown { s.hide() } else if let tab = currentTab ?? tabs.last { s.show(in: tab) }
+            scheduleSessionSave()
+        } else if let p = FolderSidebar.pendingFolder {
+            // Saved in the session while hidden: built now, on first use.
+            openFolder(URL(fileURLWithPath: p.path, isDirectory: true), state: p)
+        }
+    }
 
     func validateFolderItem(_ item: NSMenuItem) -> Bool? {
         switch item.action {
-        case #selector(openFolderMenu(_:)): return false
+        case #selector(openFolderMenu(_:)): return true
         case #selector(toggleFolderSidebarMenu(_:)):
-            item.state = .off
-            return false
+            item.state = FolderSidebar.shared?.isShown == true ? .on : .off
+            return (FolderSidebar.shared != nil || FolderSidebar.pendingFolder != nil) && (currentTab ?? tabs.last) != nil
         default: return nil
         }
+    }
+
+    /// A folder (not a package): opened in the sidebar rather than as a file.
+    static func isFolder(_ url: URL) -> Bool {
+        guard let v = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]) else { return false }
+        return v.isDirectory == true && v.isPackage != true
+    }
+
+    /// Opens `url` in the folder sidebar (replacing the folder open before)
+    /// and shows it in the selected tab. `state`: restoring a session.
+    func openFolder(_ url: URL, state: SessionFolder? = nil) {
+        // At launch (a folder dropped on the Dock icon, CEDRIC_OPEN): after
+        // the first frame, once the window's tab exists.
+        guard AfterFirstFrame.passed, let tab = currentTab ?? tabs.last else {
+            AfterFirstFrame.run { [weak self] in
+                guard let self, AfterFirstFrame.passed, (self.currentTab ?? self.tabs.last) != nil else { return }
+                self.openFolder(url, state: state)
+            }
+            return
+        }
+        FolderSidebar.shared?.close()
+        FolderSidebar.pendingFolder = nil
+        let s = FolderSidebar(root: url.standardizedFileURL, state: state)
+        FolderSidebar.shared = s
+        s.onOpen = { [weak self] node in self?.openFromFolder(node) }
+        s.onChange = { [weak self] in self?.scheduleSessionSave() }
+        s.onClose = { [weak self] in self?.closeFolder() }
+        s.onFindInFolder = { [weak self] dir in
+            guard let self else { return }
+            self.findInFilesMenu(nil)
+            self.findInFiles?.folderField.stringValue = dir.path
+        }
+        if state?.visible ?? true { s.show(in: tab) }
+        scheduleSessionSave()
+    }
+
+    func closeFolder() {
+        FolderSidebar.shared?.close()
+        FolderSidebar.shared = nil
+        FolderSidebar.pendingFolder = nil
+        if let t = currentTab { t.window?.makeFirstResponder(t.textView) }
+        scheduleSessionSave()
+    }
+
+    func openFromFolder(_ node: FolderNode) {
+        guard let s = FolderSidebar.shared else { return }
+        let tab = open(node.url)
+        // Keep the tree beside the file it opened (the tab may not become
+        // key when the app isn't active).
+        if let tab, s.isShown {
+            s.show(in: tab)
+            s.reveal(tab.doc.fileURL)
+            tab.window?.makeFirstResponder(s.outline)
+        }
+    }
+
+    /// AppDelegate.tabBecameKey: the sidebar follows the selected tab.
+    func folderSidebarFollow(_ tab: EditorWindowController) {
+        guard let s = FolderSidebar.shared, s.isShown else { return }
+        s.show(in: tab)
+        s.reveal(tab.doc.fileURL)
+    }
+
+    /// For the session: the open folder (built or only remembered).
+    var folderSessionState: SessionFolder? {
+        FolderSidebar.shared?.sessionState ?? FolderSidebar.pendingFolder
+    }
+
+    /// From the session: a visible sidebar is rebuilt after the first
+    /// frame (it shows a frame later rather than slowing launch); a hidden
+    /// one is only remembered until View › Show Folder Sidebar.
+    func restoreFolder(_ f: SessionFolder?) {
+        guard let f else { return }
+        FolderSidebar.pendingFolder = f
+        guard f.visible else { return }
+        AfterFirstFrame.run { [weak self] in
+            guard let self, FolderSidebar.shared == nil, let p = FolderSidebar.pendingFolder, p == f else { return }
+            guard Self.isFolder(URL(fileURLWithPath: f.path)) else { FolderSidebar.pendingFolder = nil; return }
+            self.openFolder(URL(fileURLWithPath: f.path, isDirectory: true), state: f)
+        }
+    }
+}
+
+/// The outline view: Return opens the selected file (or toggles a folder);
+/// a right click selects the row under it before the context menu.
+@MainActor
+final class FolderOutlineView: NSOutlineView {
+    var onReturn: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 || event.keyCode == 76 { onReturn?(); return }
+        super.keyDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let row = self.row(at: convert(event.locationInWindow, from: nil))
+        if row >= 0, !selectedRowIndexes.contains(row) { selectRowIndexes([row], byExtendingSelection: false) }
+        return super.menu(for: event)
+    }
+}
+
+/// The sidebar view: a header with the folder's name and a close button,
+/// and a view-based outline of the folder. Only expanded folders are
+/// listed, off the main thread; FSEvents re-list the loaded folders that
+/// changed and the rows are inserted/removed in place (expansion and
+/// selection kept).
+@MainActor
+final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
+    /// The one sidebar (nil until a folder is opened).
+    static var shared: FolderSidebar?
+    /// A folder from the session whose sidebar was hidden: nothing built.
+    static var pendingFolder: SessionFolder?
+    static let defaultWidth: CGFloat = 240
+
+    let rootURL: URL
+    let root: FolderNode
+    /// The root's real path (symbolic links resolved): FSEvents report those.
+    let realRoot: String
+    let outline = FolderOutlineView()
+    let scroll = NSScrollView()
+    let title = NSTextField(labelWithString: "")
+    private(set) var isShown = false
+    private(set) var width: CGFloat
+    private(set) var showHidden: Bool
+    private(set) var watcher: FolderWatcher?
+    /// Folders that changed while their listing was under way: listed again after it.
+    private var relistAfterLoad = Set<ObjectIdentifier>()
+    /// Folders to expand once listed (restoring a session): relative paths.
+    private var pendingExpand: [String]
+    /// Width changes come from the user (divider drags) only once docked.
+    private var tracksWidth = false
+    private var enforcingWidth = false
+    private var splitObserver: NSObjectProtocol?
+    /// Listings applied, and the last one's folder (the check waits on them).
+    private(set) var listings = 0
+    var onListed: ((FolderNode) -> Void)?
+    var onOpen: ((FolderNode) -> Void)?
+    var onChange: (() -> Void)?
+    var onClose: (() -> Void)?
+    var onFindInFolder: ((URL) -> Void)?
+
+    init(root url: URL, state: SessionFolder? = nil) {
+        rootURL = url
+        root = FolderNode(root: url)
+        realRoot = Self.realPath(url.path)
+        width = state?.width.map { CGFloat($0) } ?? Self.defaultWidth
+        showHidden = state?.showHidden ?? false
+        pendingExpand = state?.expanded ?? []
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 600))
+        clipsToBounds = true
+        build()
+        load(root)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    static func realPath(_ p: String) -> String {
+        guard let r = realpath(p, nil) else { return p }
+        defer { free(r) }
+        return String(cString: r)
+    }
+
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        // Views don't clip to their bounds since macOS 14: fill only our part.
+        dirtyRect.intersection(bounds).fill()
+    }
+
+    private func build() {
+        title.stringValue = rootURL.lastPathComponent
+        title.font = .boldSystemFont(ofSize: NSFont.smallSystemFontSize)
+        title.lineBreakMode = .byTruncatingMiddle
+        title.toolTip = rootURL.path
+        let close = NSButton(title: "", image: NSImage(systemSymbolName: "xmark", accessibilityDescription: String(localized: "Close Folder"))!,
+                             target: self, action: #selector(closeFolder(_:)))
+        close.isBordered = false
+        close.identifier = .init("folder-close")
+        let col = NSTableColumn(identifier: .init("name"))
+        col.resizingMask = .autoresizingMask
+        outline.addTableColumn(col)
+        outline.outlineTableColumn = col
+        outline.headerView = nil
+        outline.style = .sourceList
+        outline.rowHeight = 20
+        outline.indentationPerLevel = 12
+        outline.backgroundColor = .clear
+        outline.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        outline.dataSource = self
+        outline.delegate = self
+        outline.target = self
+        outline.action = #selector(clicked(_:))
+        outline.doubleAction = #selector(doubleClicked(_:))
+        outline.onReturn = { [weak self] in self?.activateSelection() }
+        outline.setAccessibilityLabel(String(localized: "Folder"))
+        let menu = NSMenu()
+        menu.delegate = self
+        outline.menu = menu
+        scroll.documentView = outline
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        addSubview(title)
+        addSubview(close)
+        addSubview(scroll)
+    }
+
+    override func layout() {
+        super.layout()
+        let close = subviews.first { $0.identifier?.rawValue == "folder-close" }
+        close?.frame = NSRect(x: bounds.width - 26, y: 5, width: 20, height: 20)
+        title.frame = NSRect(x: 10, y: 7, width: max(0, bounds.width - 40), height: 16)
+        scroll.frame = NSRect(x: 0, y: 28, width: bounds.width, height: max(0, bounds.height - 28))
+        outline.tableColumns.first?.width = scroll.contentSize.width
+    }
+
+    /// The split it is docked in resized its panes. The user dragging a
+    /// divider (a mouse event in this window, not a live window resize):
+    /// the new width is kept and saved. Anything else (the window
+    /// resized, a panel docked or closed: NSSplitView shares the space out
+    /// by proportion, whatever the holding priorities): our width back,
+    /// the editor takes the difference.
+    private func splitResized() {
+        guard let split = superview as? NSSplitView, let w = window, !enforcingWidth, tracksWidth else { return }
+        guard abs(frame.width - width) >= 1 else { return }
+        let e = NSApp.currentEvent
+        let dragging = e.map { [.leftMouseDragged, .leftMouseUp, .leftMouseDown].contains($0.type) && $0.window === w } ?? false
+        if dragging && !w.inLiveResize {
+            if frame.width >= 120 { width = frame.width; onChange?() }
+            return
+        }
+        guard split.bounds.width > width + 200 else { return }
+        enforcingWidth = true
+        split.setPosition(width, ofDividerAt: 0)
+        enforcingWidth = false
+    }
+
+    // MARK: Showing
+
+    /// Docks the sidebar at the left of `tab` (nothing if it is there), and
+    /// starts watching the folder.
+    func show(in tab: EditorWindowController) {
+        let wasShown = isShown
+        isShown = true
+        if superview !== tab.split {
+            tracksWidth = false
+            undock()
+            tab.dockLeftPanel(self, width: width)
+            splitObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: tab.split, queue: nil) {
+                [weak self] _ in MainActor.assumeIsolated { self?.splitResized() }
+            }
+            // Once the split has its final size, the width the user chose.
+            DispatchQueue.main.async { [weak self, weak tab] in
+                guard let self, let tab, self.superview === tab.split else { return }
+                if abs(self.frame.width - self.width) >= 1, tab.split.bounds.width > self.width + 200 {
+                    tab.split.setPosition(self.width, ofDividerAt: 0)
+                }
+                self.tracksWidth = true
+            }
+        }
+        if !wasShown {
+            // Hidden meant no stream: what changed meanwhile, listed once.
+            if root.isLoaded { for n in root.loadedFolders { load(n) } }
+            startWatching()
+        }
+    }
+
+    /// View › Show Folder Sidebar off: out of the window, no stream.
+    func hide() {
+        isShown = false
+        watcher?.stop()
+        watcher = nil
+        let w = window
+        undock()
+        if let w, let tab = (NSApp.delegate as? AppDelegate)?.tabs.first(where: { $0.window === w }) { w.makeFirstResponder(tab.textView) }
+    }
+
+    /// Close Folder: hidden and forgotten.
+    func close() {
+        hide()
+        onListed = nil
+    }
+
+    private func undock() {
+        if let split = superview as? NSSplitView, let i = split.arrangedSubviews.firstIndex(of: self) {
+            // Its holding priority shouldn't stay with whatever lands at its index.
+            split.setHoldingPriority(.defaultLow, forSubviewAt: i)
+        }
+        tracksWidth = false
+        if let o = splitObserver { NotificationCenter.default.removeObserver(o) }
+        splitObserver = nil
+        removeFromSuperview()
+    }
+
+    private func startWatching() {
+        guard watcher == nil else { return }
+        let ref = WeakRef(self)
+        let w = FolderWatcher(root: realRoot) { changes in
+            MainActor.assumeIsolated { ref.value?.handle(changes) }
+        }
+        watcher = w
+        w.start()
+    }
+
+    var isWatching: Bool { watcher?.isRunning == true }
+
+    // MARK: Listing
+
+    /// Lists `node` off the main thread (again, if it was loaded: the rows
+    /// that changed are inserted and removed in place).
+    func load(_ node: FolderNode) {
+        guard node.isDirectory else { return }
+        if node.isLoading { relistAfterLoad.insert(ObjectIdentifier(node)); return }
+        if node.entry.isSymlink, FolderTree.wouldLoop(node.url, ancestors: node.ancestors.map(\.url)) {
+            // A link back up the tree: shown, never expanded into.
+            node.loadError = String(localized: "Links to a folder above it")
+            apply([], to: node)
+            return
+        }
+        node.isLoading = true
+        let url = node.url, hidden = showHidden
+        let ref = WeakRef(self), box = MainBox(value: node)
+        DispatchQueue.global(qos: .userInitiated).async {
+            var entries: [FolderEntry] = []
+            var failure: String?
+            do { entries = try FolderTree.list(url, showHidden: hidden) } catch { failure = error.localizedDescription }
+            let result = MainBox(value: (entries, failure))
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    box.value.isLoading = false
+                    box.value.loadError = result.value.1
+                    ref.value?.apply(result.value.0, to: box.value)
+                }
+            }
+        }
+    }
+
+    private func isInTree(_ node: FolderNode) -> Bool {
+        var n = node
+        while let p = n.parent {
+            guard p.children?.contains(where: { $0 === n }) == true else { return false }
+            n = p
+        }
+        return n === root
+    }
+
+    private func apply(_ entries: [FolderEntry], to node: FolderNode) {
+        guard isInTree(node) else { return }
+        let wasLoaded = node.isLoaded
+        let diff = node.apply(entries)
+        let item: Any? = node === root ? nil : node
+        if !wasLoaded {
+            if node === root { outline.reloadData() } else { outline.reloadItem(node, reloadChildren: true) }
+        } else if !diff.isEmpty {
+            outline.beginUpdates()
+            if !diff.removed.isEmpty { outline.removeItems(at: IndexSet(diff.removed), inParent: item, withAnimation: []) }
+            if !diff.inserted.isEmpty { outline.insertItems(at: IndexSet(diff.inserted), inParent: item, withAnimation: []) }
+            outline.endUpdates()
+        }
+        listings += 1
+        // Restoring: the folders that were expanded, top-down, as their parents land.
+        if !pendingExpand.isEmpty, let children = node.children {
+            let base = relativePath(node)
+            for c in children where c.isDirectory {
+                let rel = base.isEmpty ? c.name : base + "/" + c.name
+                if let i = pendingExpand.firstIndex(of: rel) {
+                    pendingExpand.remove(at: i)
+                    outline.expandItem(c)
+                }
+            }
+        }
+        onListed?(node)
+        if relistAfterLoad.remove(ObjectIdentifier(node)) != nil { load(node) }
+    }
+
+    func relativePath(_ node: FolderNode) -> String {
+        FolderTree.relativePath(of: node.url, in: rootURL) ?? ""
+    }
+
+    /// FSEvents (FolderWatcher): re-list the loaded folders that changed;
+    /// events under folders never expanded cost a path walk.
+    func handle(_ changes: [FolderWatcher.Change]) {
+        guard isShown, root.isLoaded else { return }
+        var toList: [FolderNode] = []
+        func node(for path: String) -> FolderNode? {
+            let u = URL(fileURLWithPath: path)
+            guard let rel = FolderTree.relativePath(of: u, in: URL(fileURLWithPath: realRoot))
+                ?? FolderTree.relativePath(of: u, in: rootURL) else { return nil }
+            return root.descendant(rel)
+        }
+        for c in changes {
+            switch c {
+            case .rootChanged:
+                if !AppDelegate.isFolder(rootURL) { onClose?(); return }
+                toList += root.loadedFolders
+            case .folder(let p):
+                if let n = node(for: p), n.isLoaded { toList.append(n) }
+            case .subtree(let p):
+                if let n = node(for: p) { toList += n.loadedFolders }
+            }
+        }
+        var seen = Set<ObjectIdentifier>()
+        for n in toList where seen.insert(ObjectIdentifier(n)).inserted { load(n) }
+    }
+
+    // MARK: Session
+
+    var sessionState: SessionFolder {
+        // Not a link that loops (it lists nothing).
+        let expanded = root.loadedFolders.dropFirst().filter { $0.loadError == nil && outline.isItemExpanded($0) }.map(relativePath)
+        return SessionFolder(path: rootURL.path, visible: isShown, width: Double(width),
+                             expanded: expanded.isEmpty ? nil : Array(expanded.prefix(SessionFolder.expandedLimit)),
+                             showHidden: showHidden ? true : nil)
+    }
+
+    // MARK: Selection
+
+    /// Selects the row of `url` if its folder is listed and expanded (no
+    /// folder is expanded for it).
+    func reveal(_ url: URL?) {
+        guard let url, let rel = FolderTree.relativePath(of: url.standardizedFileURL, in: rootURL), !rel.isEmpty,
+              let n = root.descendant(rel) else { return }
+        let row = outline.row(forItem: n)
+        guard row >= 0, outline.selectedRow != row else { return }
+        outline.selectRowIndexes([row], byExtendingSelection: false)
+        outline.scrollRowToVisible(row)
+    }
+
+    var selectedNode: FolderNode? {
+        let row = outline.clickedRow >= 0 ? outline.clickedRow : outline.selectedRow
+        return row >= 0 ? outline.item(atRow: row) as? FolderNode : nil
+    }
+
+    /// Single click: a file opens in a tab (or its tab is selected).
+    @objc func clicked(_ sender: Any?) {
+        let row = outline.clickedRow
+        guard row >= 0, let n = outline.item(atRow: row) as? FolderNode, !n.isDirectory else { return }
+        onOpen?(n)
+    }
+
+    /// Double click: a folder expands or collapses; a file opens, as one click.
+    @objc func doubleClicked(_ sender: Any?) {
+        let row = outline.clickedRow
+        guard row >= 0, let n = outline.item(atRow: row) as? FolderNode else { return }
+        toggleOrOpen(n)
+    }
+
+    func activateSelection() {
+        guard outline.selectedRow >= 0, let n = outline.item(atRow: outline.selectedRow) as? FolderNode else { return }
+        toggleOrOpen(n)
+    }
+
+    private func toggleOrOpen(_ n: FolderNode) {
+        if n.isDirectory {
+            if outline.isItemExpanded(n) { outline.collapseItem(n) } else { outline.expandItem(n) }
+        } else {
+            onOpen?(n)
+        }
+    }
+
+    @objc func closeFolder(_ sender: Any?) { onClose?() }
+
+    // MARK: Context menu
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let n = selectedNode
+        func add(_ title: String, _ action: Selector) {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            i.target = self
+            i.representedObject = n
+            menu.addItem(i)
+        }
+        if n != nil {
+            add(String(localized: "Reveal in Finder"), #selector(revealInFinder(_:)))
+            add(String(localized: "Copy Path"), #selector(copyPath(_:)))
+            add(String(localized: "Find in Folder…"), #selector(findInFolder(_:)))
+            menu.addItem(.separator())
+        }
+        add(String(localized: "Show Hidden Files"), #selector(toggleHidden(_:)))
+        menu.items.last?.state = showHidden ? .on : .off
+        add(String(localized: "Close Folder"), #selector(closeFolder(_:)))
+    }
+
+    private func target(_ sender: Any?) -> FolderNode {
+        ((sender as? NSMenuItem)?.representedObject as? FolderNode) ?? selectedNode ?? root
+    }
+
+    @objc func revealInFinder(_ sender: Any?) {
+        NSWorkspace.shared.activateFileViewerSelecting([target(sender).url])
+    }
+
+    @objc func copyPath(_ sender: Any?) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(target(sender).url.path, forType: .string)
+    }
+
+    @objc func findInFolder(_ sender: Any?) {
+        let n = target(sender)
+        onFindInFolder?(n.isDirectory ? n.url : n.url.deletingLastPathComponent())
+    }
+
+    @objc func toggleHidden(_ sender: Any?) {
+        showHidden.toggle()
+        for n in root.loadedFolders { load(n) }
+        onChange?()
+    }
+
+    // MARK: Data source
+
+    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+        ((item as? FolderNode) ?? root).children?.count ?? 0
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+        ((item as? FolderNode) ?? root).children![index]
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+        // A loop link or an unreadable folder: listed once, nothing to open.
+        guard let n = item as? FolderNode else { return false }
+        return n.isDirectory && n.loadError == nil
+    }
+
+    func outlineViewItemWillExpand(_ notification: Notification) {
+        guard let n = notification.userInfo?["NSObject"] as? FolderNode, !n.isLoaded else { return }
+        load(n)
+    }
+
+    func outlineViewItemDidExpand(_ notification: Notification) { onChange?() }
+    func outlineViewItemDidCollapse(_ notification: Notification) { onChange?() }
+
+    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
+        guard let n = item as? FolderNode else { return nil }
+        let id = NSUserInterfaceItemIdentifier("folder-cell")
+        let cell = outlineView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView ?? {
+            let c = NSTableCellView()
+            c.identifier = id
+            let image = NSImageView()
+            let text = NSTextField(labelWithString: "")
+            text.lineBreakMode = .byTruncatingMiddle
+            text.font = .systemFont(ofSize: NSFont.smallSystemFontSize + 1)
+            for v in [image, text] as [NSView] { v.translatesAutoresizingMaskIntoConstraints = false; c.addSubview(v) }
+            c.imageView = image
+            c.textField = text
+            NSLayoutConstraint.activate([
+                image.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: 2),
+                image.centerYAnchor.constraint(equalTo: c.centerYAnchor),
+                image.widthAnchor.constraint(equalToConstant: 16),
+                image.heightAnchor.constraint(equalToConstant: 16),
+                text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 4),
+                text.trailingAnchor.constraint(lessThanOrEqualTo: c.trailingAnchor, constant: -2),
+                text.centerYAnchor.constraint(equalTo: c.centerYAnchor),
+            ])
+            return c
+        }()
+        let symbol = n.entry.isSymlink ? "link" : n.isDirectory ? "folder" : "doc"
+        cell.imageView?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        cell.imageView?.contentTintColor = n.isDirectory ? .controlAccentColor : .secondaryLabelColor
+        cell.textField?.stringValue = n.name
+        cell.textField?.textColor = n.entry.isHidden || n.loadError != nil ? .secondaryLabelColor : .labelColor
+        cell.toolTip = n.loadError.map { "\(n.url.path)\n\($0)" } ?? n.url.path
+        return cell
     }
 }
