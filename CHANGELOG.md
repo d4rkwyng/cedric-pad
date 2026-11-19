@@ -19,6 +19,7 @@ are its section below (`Scripts/changelog-section.sh`).
 - **Status bar zoom** ("110%") is a menu: Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 and 75 % to 200 %. With the preview docked, the editor's status items stay under the editor instead of running under the preview.
 
 ### Fixed
+- **Ask Cedric no longer says an SVG has no picture.** He is told the file is an SVG image whose picture the preview shows, and that he sees only its XML, so asked what it shows he says he can't see the rendered image and describes what the code draws. (Seeing pictures comes in 0.3.0.)
 - **Undo Replace in Files can always be tried again.** If the backup copy of a file couldn't be read (missing, no permission, or not matching the original), Undo used to mark the replace as undone and offer no retry. Now the file is left as the replace wrote it, the message names it and says why ("backup copy unreadable: permission denied"), and Edit › Undo Replace in Files stays available.
 - **Undo Replace in Files from the Edit menu with the Find in Files panel hidden** now shows its progress and then its result in a bar at the top of the tab.
 - **Dragging the Ask Cedric panel is smooth.** It was a child window of the editor and trailed the pointer by one mouse event all the way (measured with real mouse drags on macOS 26); it is now a floating panel of its own that keeps up with the pointer. It no longer moves with the editor window, and it hides when you switch to another tab and comes back with its tab.

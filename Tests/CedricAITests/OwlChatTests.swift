@@ -157,6 +157,23 @@ import CedricCore
         if case .user(let last) = m[5] { #expect(last.contains("1| func total") && last.hasSuffix("now")) } else { Issue.record("no user turn") }
     }
 
+    @Test func svgDocumentContextSaysItIsAPicture() throws {
+        let s = OwlDocumentSnapshot(text: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"53\" height=\"53\">\n<rect width=\"53\" height=\"53\"/>\n</svg>\n",
+                                    generation: 1, selection: NSRange(location: 0, length: 0), visible: NSRange(location: 0, length: 60),
+                                    fileName: "Document.svg", language: "html")
+        let ctx = try #require(OwlChatContext.build(s, scope: .visible, budget: 6000))
+        let m = OwlPrompts.chatMessages(question: "What is it a picture of", context: ctx, language: "HTML", fileName: "Document.svg",
+                                        history: [], toolsOn: false, model: "x")
+        guard case .user(let user) = m.last else { Issue.record("no user turn"); return }
+        #expect(user.contains("File: Document.svg\nFile kind: This file is an SVG image (XML that draws a picture); the preview shows the rendered picture."))
+        #expect(user.contains("Never say there is no picture") && user.contains("can't see the rendered image"))
+        #expect(OwlPrompts.fileKind("LOGO.SVG") != nil && OwlPrompts.fileKind("icon.svgz") != nil)
+        // Ordinary text and code get no such line.
+        #expect(OwlPrompts.fileKind("Sum.swift") == nil && OwlPrompts.fileKind("notes") == nil)
+        let plain = OwlPrompts.chatMessages(question: "q", context: ctx, language: "Swift", fileName: "Sum.swift", history: [], toolsOn: false, model: "x")
+        if case .user(let u) = plain.last { #expect(!u.contains("File kind:")) }
+    }
+
     @Test func serverRenderingUsesOpenAIToolMessages() throws {
         let call = OwlToolCall(id: "c1", name: "get_lines", arguments: .object(["start": .number(1), "end": .number(2)]))
         let wire = ServerChatEngine.render([.system("s"), .user("u"), .toolCalls([call]), .toolResult(callID: "c1", name: "get_lines", content: "1| a")])

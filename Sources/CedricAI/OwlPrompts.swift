@@ -193,13 +193,32 @@ public enum OwlPrompts {
             out.append(e.role == .user ? .user(t) : .assistant(t))
         }
         var user = "Language: \(language)\n"
-        if let fileName { user += "File: \(fileName)\n" }
+        if let fileName {
+            user += "File: \(fileName)\n"
+            if let kind = fileKind(fileName) { user += kind + "\n" }
+        }
         user += "Shown: \(context.scope.rawValue), lines \(context.firstLine)-\(context.lastLine)"
         if context.truncated { user += " (trimmed; use tools or ask for less)" }
         user += "\n```\n\(context.numbered)\n```\n\n\(question)"
         if model.lowercased().contains("qwen3") { user += "\n/no_think" }
         out.append(.user(user))
         return out
+    }
+
+    /// What a text document is when its text isn't the whole story: an SVG
+    /// is XML that draws a picture, and the preview shows that picture. The
+    /// model sees only the text (no vision tool before 0.3.0), so it must not
+    /// claim there is no picture. nil for ordinary text and code.
+    public static func fileKind(_ fileName: String) -> String? {
+        switch (fileName as NSString).pathExtension.lowercased() {
+        case "svg", "svgz":
+            return "File kind: This file is an SVG image (XML that draws a picture); the preview shows the rendered picture. "
+                + "You see only its XML, not the rendered image. Never say there is no picture. "
+                + "If asked what it shows, say you can't see the rendered image, then describe what the code draws "
+                + "(size, shapes, colours, text) as far as the XML tells."
+        default:
+            return nil
+        }
     }
 
     /// The built-in engine's tool protocol (a grammar enforces it).
