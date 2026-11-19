@@ -33,8 +33,8 @@ tabs and models carry over; see the [changelog](CHANGELOG.md).
 
 ## Features
 
-- **Tabs that come back.** Quit without saving prompts; every tab, saved or
-  not, is there on the next launch. ⇧⌘T reopens closed tabs.
+- **Tabs that come back.** Quit without being asked to save; every tab,
+  saved or not, is there on the next launch. ⇧⌘T reopens closed tabs.
 - **Fast with big files.** A 10 MB JSON file opens and is coloured in under
   0.1 s.
 - **Syntax colouring** for Swift, Python, JavaScript, HTML, shell,
@@ -74,7 +74,10 @@ More in the manual: [Building from source](docs/MANUAL.md#building-from-source).
 
 ## Privacy
 
-Nothing leaves your Mac unless you choose to download a model.
+OwlInk has no accounts, analytics or update checks, and Cedric runs on
+your Mac. It uses the network only when you ask it to: downloading a model,
+letting a preview load remote content, using a model server on your network,
+or opening a link such as Open on GitHub.
 
 ## Built with Claude
 
