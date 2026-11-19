@@ -781,7 +781,14 @@ final class OwlController: NSObject, NSPopoverDelegate {
         let row = NSStackView(views: [quiet, reset, hide])
         stack.setCustomSpacing(10, after: stack.arrangedSubviews.last!)
         stack.addArrangedSubview(row)
-        stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+        // The popover is as wide as its widest row plus the insets. The
+        // wrapping labels ask for 260 pt, and the three buttons together are
+        // wider than that (more so in German or French), so without this the
+        // button row spilled past both edges of the popover and was clipped.
+        for b in [quiet, reset, hide] { b.setContentCompressionResistancePriority(.required, for: .horizontal) }
+        row.setContentCompressionResistancePriority(.required, for: .horizontal)
+        let inset = stack.edgeInsets.left + stack.edgeInsets.right
+        stack.widthAnchor.constraint(greaterThanOrEqualToConstant: max(220, row.fittingSize.width + inset)).isActive = true
         vc.view = stack
         let p = NSPopover()
         p.behavior = .transient
@@ -801,6 +808,22 @@ final class OwlController: NSObject, NSPopoverDelegate {
             return nil
         }
         return find(popover?.contentViewController?.view)
+    }
+    /// Whether every button in the open popover lies inside it (the checks:
+    /// the bottom row once spilled past both edges).
+    var popoverButtonsFit: Bool {
+        guard let root = popover?.contentViewController?.view else { return false }
+        root.layoutSubtreeIfNeeded()
+        var ok = true
+        func walk(_ v: NSView) {
+            if let b = v as? NSButton {
+                let r = b.convert(b.bounds, to: root)
+                if r.minX < root.bounds.minX - 0.5 || r.maxX > root.bounds.maxX + 0.5 { ok = false }
+            }
+            v.subviews.forEach(walk)
+        }
+        walk(root)
+        return ok
     }
     /// At once, no fade: he's being picked up, or reset.
     func closePopover() {

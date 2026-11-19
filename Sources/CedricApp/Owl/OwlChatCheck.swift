@@ -54,6 +54,7 @@ enum OwlChatCheck {
             OwlCheck.click(owl.owl)
             after(0.3) {
                 check(owl.popoverButton(String(localized: "Set Up Ask Cedric…")) != nil, "the owl offers Set Up Ask Cedric…")
+                check(owl.popoverButtonsFit, "every button in the owl's popover fits inside it")
                 check(owl.popoverButton(String(localized: "Ask about this file…")) == nil, "and no Ask about this file…")
                 guard let pw = owl.popoverButton(String(localized: "Set Up Ask Cedric…"))?.window else { owl.closePopover(); OwlCheck.finish(out); return }
                 OwlCheck.snapshot(pw, "\(out)/owl-menu-setup.png") {
