@@ -2,17 +2,15 @@
 
 **Name.** The app is OwlInk (`OwlInk.app`, CFBundleName and
 CFBundleDisplayName "OwlInk", the app menu's About / Hide / Quit). The
-owl assistant is Cedric. The app was called Cedric (test builds) and then
-Cedric Pad (0.1.0 and 0.1.1). Everything users' data or tools hang on kept
-the old name on purpose, so a pre-rename build's settings, session and
-models carry over; don't "fix" these to OwlInk: bundle id
-`net.mindtricks.cedric` (the UserDefaults domain), the `cedric://` URL scheme, `~/Library/Application Support/Cedric/`
+owl assistant is Cedric, and the internal names say Cedric after the owl.
+Everything users' data or tools hang on keeps that name on purpose, for
+continuity of settings, session and models; don't "fix" these to OwlInk:
+bundle id `net.mindtricks.cedric` (the UserDefaults domain), the `cedric://`
+URL scheme, `~/Library/Application Support/Cedric/`
 (Session, Models), the `cedric` command, the executable
 `Contents/MacOS/Cedric` (crash reports, `pgrep -x Cedric`), the Swift
 modules (CedricCore, CedricAI, CedricApp), the theme names "Cedric" and
 "Cedric Night", and the model downloader's User-Agent `Cedric`.
-`Scripts/bundle-app.sh` unregisters and deletes a leftover `dist/Cedric.app`
-or `dist/Cedric Pad.app`.
 
 Two targets, after Tankard's layout:
 

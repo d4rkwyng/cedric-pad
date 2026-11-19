@@ -15,9 +15,8 @@
 # CEDRIC_DRY_RUN=1 prints the cedric:// URLs instead of opening them (tests).
 set -euo pipefail
 
-# The app this script lives in ("OwlInk.app", or a pre-rename
-# "Cedric Pad.app" or "Cedric.app"), else CEDRIC_APP (a name or path), else
-# whichever copy Launch Services knows by the bundle id, which the renames kept.
+# The app this script lives in ("OwlInk.app"), else CEDRIC_APP (a name or
+# path), else whichever copy Launch Services knows by the bundle id.
 here=$(cd "$(dirname "$(readlink "$0" 2>/dev/null || echo "$0")")" && pwd)
 case "$here" in
     *.app/Contents/Resources) TARGET=(-a "${here%/Contents/Resources}") ;;

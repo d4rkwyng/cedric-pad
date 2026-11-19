@@ -28,9 +28,6 @@ OwlInk to Applications.
 
 Needs macOS 14 or later, on Apple silicon or Intel.
 
-Coming from Cedric Pad? It is the same app, renamed in 0.1.2. Your settings,
-tabs and models carry over; see the [changelog](CHANGELOG.md).
-
 ## Features
 
 - **Tabs that come back.** Quit without being asked to save; every tab,

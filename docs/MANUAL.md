@@ -44,9 +44,6 @@ This also puts the `cedric` command on your PATH. Or download
 open it, and move OwlInk to Applications. OwlInk doesn't update itself:
 `brew upgrade` (or a new download) brings a new version.
 
-OwlInk was called Cedric Pad up to 0.1.1. Settings, open tabs and downloaded
-models carry over; see [CHANGELOG.md](../CHANGELOG.md) (0.1.2) for moving from Cedric Pad.
-
 ## Tabs, files and sessions
 
 ### Tabs that come back

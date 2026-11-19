@@ -10,7 +10,7 @@
 #
 #   Scripts/session-check.sh [--from OLD.app] [APP]     default "dist/OwlInk.app"
 #
-# --from OLD.app first has another build (say a pre-rename "Cedric Pad.app")
+# --from OLD.app first has another build (say an older release)
 # save a session, by a normal quit and by a kill -9 after a hot close, and
 # checks that APP restores all of it, Reopen Closed Tab included.
 set -euo pipefail

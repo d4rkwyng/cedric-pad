@@ -20,12 +20,10 @@
 # Tankard, so About shows "Version 0.1.0" with no "(N)" after it.
 #
 # Name: the app is "OwlInk" (bundle "OwlInk.app"); the owl is
-# Cedric. Everything a user's data hangs on keeps the old name: bundle id
+# Cedric. Everything a user's data hangs on keeps the owl's name: bundle id
 # net.mindtricks.cedric (UserDefaults domain), the cedric:// scheme,
 # ~/Library/Application Support/Cedric, and the executable Contents/MacOS/Cedric
-# (crash reports and `pgrep -x Cedric`). A pre-rename build left at
-# OUT/Cedric.app or "OUT/Cedric Pad.app" is unregistered and removed, so
-# Launch Services sees one copy.
+# (crash reports and `pgrep -x Cedric`).
 # The new bundle isn't force-registered: a dev build in dist shouldn't take
 # over Open With from an installed copy; Launch Services registers it (with
 # its new name) the first time it is opened.
@@ -73,14 +71,6 @@ else
 fi
 
 APP="$OUT/OwlInk.app"
-LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-for OLD_APP in "$OUT/Cedric.app" "$OUT/Cedric Pad.app"; do
-    if [ -d "$OLD_APP" ]; then
-        [ -x "$LSREGISTER" ] && "$LSREGISTER" -u "$OLD_APP" 2>/dev/null || true
-        rm -rf "$OLD_APP"
-        echo "==> removed the pre-rename $OLD_APP"
-    fi
-done
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # The app icon (Finder, Dock, About). Made by tools/icon/cedric_icon.py, committed.
