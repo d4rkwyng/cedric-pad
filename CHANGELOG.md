@@ -21,6 +21,7 @@ are its section below (`Scripts/changelog-section.sh`).
 - **Closing the last tab no longer brings it back.** Closing the last document tab or window still quits Cedric Pad, but it is now a close like any other: the tab goes to File › Reopen Closed Tab (⇧⌘T) with any unsaved text kept, and the next launch opens an empty Untitled tab. Quit (⌘Q) still restores every open tab.
 
 ### Security
+- **No AI through the environment.** The test switches that turned Ask Cedric on for one run (`CEDRIC_ASK_ENGINE`, `CEDRIC_AI_FAKE`) work only in debug builds; a release build always waits for your opt-in.
 - **Honest privacy wording.** The owl's Ask Cedric bubble, the Ask Cedric setting's tooltip and the owl's own instructions now say where text goes for the engine in use: on this Mac (built-in, Apple Intelligence), or to the AI server you set up (named), and that automatic AI grammar, when on, also sends prose after you pause typing.
 - **Owner-only Cedric folder.** `~/Library/Application Support/Cedric` (CLI token, session buffers, models) and the folders made in it are created 0700, and tightened to 0700 if an older version left them wider. The CLI token stays 0600.
 - **CLI token made atomically.** The `cedric` script writes a new token to a private temp file and hard-links it into place (a token already there is kept), and retries an empty read once after 50 ms, so a run racing the app never sends an empty token.

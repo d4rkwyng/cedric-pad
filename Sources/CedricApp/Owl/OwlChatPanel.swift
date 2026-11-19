@@ -33,9 +33,8 @@ final class OwlChatStore {
 
     /// The engine for the saved AI settings (the fake under CEDRIC_AI_FAKE).
     func engine() async -> (any OwlChatEngine)? {
-        let env = ProcessInfo.processInfo.environment
-        if let d = env["CEDRIC_AI_FAKE"].flatMap(Double.init) {
-            let piece = env["CEDRIC_OWL_CHAT_FAKE_DELAY"].flatMap(Double.init) ?? min(0.08, max(0.01, d / 10))
+        if let d = AskCedricEngine.fakeDelay {
+            let piece = ProcessInfo.processInfo.environment["CEDRIC_OWL_CHAT_FAKE_DELAY"].flatMap(Double.init) ?? min(0.08, max(0.01, d / 10))
             return FakeChatEngine(delay: piece)
         }
         guard let s = AskCedricEngine.settings() else { return nil }
@@ -56,20 +55,33 @@ final class OwlChatStore {
 /// Is a local engine ready for Ask Cedric (`OwlChatSetup`)? Never on the
 /// launch path: asked when a menu, the owl or a grammar pass needs it, and
 /// kept for 30 s (a model download or an AI settings change resets it).
-/// CEDRIC_ASK_ENGINE=0/1 overrides it for one run; the fake engine
-/// (CEDRIC_AI_FAKE) counts as ready.
+/// Debug builds only (the checks): CEDRIC_ASK_ENGINE=0/1 overrides it
+/// for one run, and the fake engine (a numeric CEDRIC_AI_FAKE) counts as
+/// ready. A release build ignores both, so nothing in the environment
+/// can turn AI on past the user's opt-in.
 @MainActor
 enum AskCedricEngine {
     private static var cache: (at: Date, settings: LocalAISettings?)?
 
+    /// The fake engine's delay (CEDRIC_AI_FAKE=0.3); always nil in a release build.
+    static var fakeDelay: Double? {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"].flatMap(Double.init)
+        #else
+        return nil
+        #endif
+    }
+
     static func settings() -> LocalAISettings? {
+        #if DEBUG
         let env = ProcessInfo.processInfo.environment
         if env["CEDRIC_ASK_ENGINE"] == "0" { return nil }
-        if env["CEDRIC_AI_FAKE"] != nil || env["CEDRIC_ASK_ENGINE"] == "1" {
+        if fakeDelay != nil || env["CEDRIC_ASK_ENGINE"] == "1" {
             var s = AIStore.load()
             s.enabled = true
             return s
         }
+        #endif
         if let c = cache, Date().timeIntervalSince(c.at) < 30 { return c.settings }
         let built = BuiltInEngine()
         let s = OwlChatSetup.chatSettings(AIStore.load(), appleAvailable: AppleChatEngine.isAvailable,
@@ -84,8 +96,7 @@ enum AskCedricEngine {
     static func privacy(autoGrammar: Bool) -> AIPrivacyWording {
         let engine: AIPrivacyWording.Engine
         if let s = settings() {
-            engine = s.backend.usesServer && ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"] == nil
-                ? .server(host: s.baseURL.host) : .local
+            engine = s.backend.usesServer && fakeDelay == nil ? .server(host: s.baseURL.host) : .local
         } else {
             engine = .none
         }
@@ -320,7 +331,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         }
         if script { actionButtons[.explain]?.title = String(localized: "What Does It Do?") }
         if tab.textView.selectedRange().length > 0 { actionButtons[.explainLine]?.title = String(localized: "Explain Selection") }
-        if ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"] != nil {
+        if AskCedricEngine.fakeDelay != nil {
             footer.stringValue = String(localized: "On this Mac · test engine")
         } else if let chat = AskCedricEngine.settings() {
             let place = chat.backend.usesServer ? (chat.baseURL.host ?? "this Mac") : String(localized: "this Mac")
