@@ -5,9 +5,13 @@
 # with a Quit Apple event. Run it before every release. Needs a logged-in
 # GUI session (works with the screen locked).
 #
-#   Scripts/launch-check.sh [--no-build] [--seconds N] [--runs N] [PATH.app]
+#   Scripts/launch-check.sh [--release] [--no-build] [--seconds N] [--runs N] [PATH.app]
 #
 #   PATH.app      an existing app to check (implies --no-build)
+#   --release     the app is to ship (Scripts/release.sh passes it): fail
+#                 unless it reports its dev switches compiled out ("dev
+#                 hooks: off"), so a check build can't ship by accident;
+#                 when building, builds with bundle-app.sh --release
 #   --no-build    use the existing "dist/Owlink.app"
 #   --seconds N   how long it must stay up (default: 10)
 #   --runs N      launch it N times in a row (default: 3)
@@ -21,19 +25,23 @@ APP="dist/Owlink.app"
 SECONDS_UP=10
 RUNS=3
 BUILD=1
+RELEASE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-build) BUILD=0 ;;
+        --release) RELEASE=1 ;;
         --seconds) SECONDS_UP=$2; shift ;;
         --runs) RUNS=$2; shift ;;
-        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
         *.app|*.app/) APP=${1%/}; BUILD=0 ;;
         *) echo "launch-check.sh: unknown option $1" >&2; exit 2 ;;
     esac
     shift
 done
 
-[ $BUILD = 1 ] && Scripts/bundle-app.sh --out "$(dirname "$APP")"
+if [ $BUILD = 1 ]; then
+    if [ $RELEASE = 1 ]; then Scripts/bundle-app.sh --release --out "$(dirname "$APP")"; else Scripts/bundle-app.sh --out "$(dirname "$APP")"; fi
+fi
 BIN="$APP/Contents/MacOS/Cedric"
 [ -x "$BIN" ] || { echo "launch-check.sh: no app at $APP" >&2; exit 1; }
 
@@ -59,13 +67,26 @@ fi
 failed=0
 # The built-in engine's llama.framework isn't linked (dlopen on first use,
 # CLlamaLoader), so a missing or broken copy no longer stops the launch:
-# check that it loads from the bundle.
-if out=$("${ENV_CLEAN[@]}" CEDRIC_LLAMA_CHECK=1 CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 CEDRIC_SESSION_DIR="$(mktemp -d)" \
-        "$BIN_ABS" -ApplePersistenceIgnoreState YES 2>/dev/null) && [ "$out" = "llama: ok" ]; then
+# check that it loads from the bundle. The same run says whether the dev
+# switches are compiled in ("dev hooks: on" = a check build).
+out=$("${ENV_CLEAN[@]}" CEDRIC_LLAMA_CHECK=1 CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 CEDRIC_SESSION_DIR="$(mktemp -d)" \
+        "$BIN_ABS" -ApplePersistenceIgnoreState YES 2>/dev/null) || true
+if grep -qx "llama: ok" <<<"$out"; then
     echo "launch-check: llama.framework loads from the bundle"
 else
     echo "launch-check: FAILED llama.framework did not load: $out" >&2
     failed=1
+fi
+hooks=$(sed -n 's/^dev hooks: //p' <<<"$out")
+if [ $RELEASE = 1 ]; then
+    if [ "$hooks" = off ]; then
+        echo "launch-check: release build (dev hooks: off)"
+    else
+        echo "launch-check: FAILED --release: the app reports dev hooks: ${hooks:-nothing}; a check build must not ship (bundle-app.sh --release)" >&2
+        failed=1
+    fi
+else
+    echo "launch-check: dev hooks: ${hooks:-not reported}"
 fi
 for run in $(seq 1 "$RUNS"); do
     before=$(crash_reports)

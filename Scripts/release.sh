@@ -240,7 +240,7 @@ fi
 #     if it crashes or quits. Tankard 0.3.0 shipped a launch crash only the
 #     signed release build showed, and only on a real launch.
 if [ $LAUNCH_CHECK = 1 ]; then
-    run Scripts/launch-check.sh "$APP" --runs 5 --seconds 10
+    run Scripts/launch-check.sh --release "$APP" --runs 5 --seconds 10
 else
     echo "NOTE: --skip-launch-check: the signed app was not launched. Run Scripts/launch-check.sh $APP before publishing." >&2
 fi

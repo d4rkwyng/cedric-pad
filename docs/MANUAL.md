@@ -869,6 +869,7 @@ Scripts/test.sh                     # unit tests: tokenizers, Markdown, codecs, 
 Scripts/session-check.sh            # end to end: unsaved tabs survive a kill -9, a normal quit and a last-window close
 Scripts/typing-check.sh             # real key events in every theme; typed glyphs' pixels must be visible
 Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no crash report
+Scripts/launch-check.sh --release   # the same for a build to ship: fails unless it reports "dev hooks: off"
 Scripts/pdf-check.sh                # PDF tabs in the running app: find, copy, zoom, Open as Text, session
 Scripts/image-check.sh              # image and Office tabs: zoom, copy, GIFs, docx/xlsx text, session, a 12000² PNG vs typing
 Scripts/launch-speed-check.sh       # launch phase medians: empty, 8-tab session, 500 KB file

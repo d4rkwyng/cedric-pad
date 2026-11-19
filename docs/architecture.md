@@ -1297,7 +1297,8 @@ Application:" identity (override: `CEDRIC_SIGN_ID`), and signs inside out with
 service a later version adds), then the app. It then checks `codesign --verify --strict
 --deep`, that the app and the framework carry the same Team ID and the hardened runtime,
 and that neither has entitlements; real-launches the signed app five times
-(`Scripts/launch-check.sh`); submits a zip with `notarytool --wait` (profile
+(`Scripts/launch-check.sh --release`, which also fails unless the app reports
+`dev hooks: off`, so a check build can't ship); submits a zip with `notarytool --wait` (profile
 `CEDRIC_NOTARY_PROFILE`, default `cedric`); fetches Apple's log after every submission,
 accepted or not (`dist/notary-log.json`, next to `dist/notary-result.json`); fails unless
 Accepted; staples; checks with `spctl -a -vv`; and zips the stapled app.
