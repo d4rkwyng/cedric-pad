@@ -61,8 +61,7 @@ extension AppDelegate {
     @objc func undoReplaceInFilesMenu(_ sender: Any?) {
         let message = undoLastReplace()
         if let p = findInFiles, p.isShown {
-            p.summary.stringValue = message
-            p.updateReplaceControls()
+            p.showOutcome(message)
         } else if !message.isEmpty, ProcessInfo.processInfo.environment["CEDRIC_CHECK"] == nil {
             let a = NSAlert()
             a.messageText = ReplaceInFiles.actionName

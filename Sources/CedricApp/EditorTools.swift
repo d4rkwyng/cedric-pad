@@ -116,7 +116,8 @@ extension AppDelegate: NSMenuDelegate {
         guard let tab = currentTab ?? tabs.last else { return }
         // A replace preview keeps the fields it was made from.
         if !panel.previewing {
-            if let dir = tab.doc.fileURL?.deletingLastPathComponent() {
+            // The open folder (sidebar), else the tab's file's folder.
+            if let dir = FolderSidebar.shared?.rootURL ?? tab.doc.fileURL?.deletingLastPathComponent() {
                 panel.folderField.stringValue = dir.path
             } else if panel.folderField.stringValue.isEmpty {
                 panel.folderField.stringValue = FileManager.default.homeDirectoryForCurrentUser.path

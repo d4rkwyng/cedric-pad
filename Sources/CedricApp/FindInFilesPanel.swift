@@ -159,6 +159,8 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
             f.target = self
             f.action = #selector(startSearch)
             f.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            // Typing re-validates the buttons (Preview Replace… needs a query).
+            f.delegate = self
         }
         replaceField.action = #selector(previewReplace)
         queryField.placeholderString = String(localized: "Text or regular expression")
@@ -285,6 +287,10 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
         replaceBox.isEnabled = !replacing
     }
 
+    func controlTextDidChange(_ obj: Notification) {
+        updateReplaceControls()
+    }
+
     /// The options the fields describe now.
     func currentOptions() -> FileSearchOptions? {
         let path = (folderField.stringValue as NSString).expandingTildeInPath
@@ -337,7 +343,7 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
         for r in results where seen.insert(r.url).inserted {
             candidates.append(.init(url: r.url, relativePath: r.relativePath, searchStamp: r.stamp))
         }
-        let skippedBinary = lastSummary?.skippedBinary ?? 0, skippedLarge = lastSummary?.skippedLarge ?? 0
+        let searchSkipped = lastSummary?.skippedFiles ?? []
         let query = ReplaceQuery(query: queryField.stringValue, template: replaceField.stringValue,
                                  regex: regexBox.state == .on, caseSensitive: caseBox.state == .on)
         let bufs = buffers?(candidates.map(\.url)) ?? [:]
@@ -357,7 +363,7 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
                     p.planning = nil
                     switch out.value {
                     case .success(let plan) where !plan.cancelled:
-                        p.showPreview(plan, searchSkippedBinary: skippedBinary, searchSkippedLarge: skippedLarge)
+                        p.showPreview(plan, searchSkipped: searchSkipped)
                     case .success:
                         p.status.stringValue = String(localized: "stopped")
                     case .failure(let e):
@@ -370,11 +376,14 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
         }
     }
 
-    private var searchSkipped = (binary: 0, large: 0)
+    /// Every file left out of the preview, with why: the search's (binary,
+    /// over 20 MB) and the plan's (mixed line endings, …), in path order.
+    /// The summary counts this same list.
+    private(set) var skippedFiles: [SkippedFile] = []
 
-    func showPreview(_ plan: ReplacePlan, searchSkippedBinary: Int, searchSkippedLarge: Int) {
+    func showPreview(_ plan: ReplacePlan, searchSkipped: [SkippedFile]) {
         self.plan = plan
-        searchSkipped = (searchSkippedBinary, searchSkippedLarge)
+        skippedFiles = (searchSkipped + plan.skipped).sorted { $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending }
         var out: [ResultNode] = []
         for (k, f) in plan.files.enumerated() {
             let file = ResultNode(.file, url: f.url, relativePath: f.relativePath)
@@ -388,9 +397,9 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
             }
             out.append(file)
         }
-        if !plan.skipped.isEmpty {
-            let g = ResultNode(.skippedGroup, url: nil, relativePath: String(localized: "Skipped (\(plan.skipped.count))"))
-            g.children = plan.skipped.map { s in
+        if !skippedFiles.isEmpty {
+            let g = ResultNode(.skippedGroup, url: nil, relativePath: String(localized: "Skipped (\(skippedFiles.count))"))
+            g.children = skippedFiles.map { s in
                 let n = ResultNode(.skipped, url: s.url, relativePath: s.relativePath)
                 n.skip = s.reason
                 n.parent = g
@@ -417,11 +426,12 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
         var s = n == 1 ? String(localized: "1 replacement in \(files) file.") : String(localized: "\(n) replacements in \(files) files.")
         if n != plan.replacementCount { s += " " + String(localized: "(\(plan.replacementCount - n) unchecked)") }
         var skipped: [String] = []
-        let binary = searchSkipped.binary + plan.skippedCount(.binary), large = searchSkipped.large + plan.skippedCount(.tooLarge)
+        func count(_ r: ReplaceSkip) -> Int { skippedFiles.filter { $0.reason == r }.count }
+        let binary = count(.binary), large = count(.tooLarge)
         if binary > 0 { skipped.append(String(localized: "\(binary) binary")) }
         if large > 0 { skipped.append(String(localized: "\(large) over 20 MB")) }
         for r in ReplaceSkip.allCases where r != .binary && r != .tooLarge {
-            let c = plan.skippedCount(r)
+            let c = count(r)
             if c > 0 { skipped.append("\(c) \(r.summary)") }
         }
         if !skipped.isEmpty { s += " " + String(localized: "Skipped: \(skipped.joined(separator: ", ")).") }
@@ -455,9 +465,8 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
             guard let self else { return }
             self.replacing = false
             self.endPreview()
-            self.summary.stringValue = message
             self.status.stringValue = String(localized: "Replaced.")
-            self.updateReplaceControls()
+            self.showOutcome(message)
             self.onReplaced?()
         })
     }
@@ -477,7 +486,16 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
     }
 
     @objc func undoReplace() {
-        let message = onUndo?() ?? ""
+        showOutcome(onUndo?() ?? "")
+    }
+
+    /// After Replace All or an undo: `message` in the summary, and the
+    /// results searched again, so the list shows the files as they are now
+    /// (not the matches from before the replace).
+    func showOutcome(_ message: String) {
+        if !previewing, !replacing, lastOptions != nil || !results.isEmpty {
+            search(keepSummary: true)
+        }
         summary.stringValue = message
         updateReplaceControls()
     }
@@ -537,14 +555,16 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
         }
     }
 
-    @objc func startSearch() {
+    @objc func startSearch() { search(keepSummary: false) }
+
+    func search(keepSummary: Bool) {
         if previewing { return }
         cancel()
         results = []
         nodes = []
         lastSummary = nil
         lastOptions = nil
-        summary.stringValue = ""
+        if !keepSummary { summary.stringValue = "" }
         table.reloadData()
         guard !queryField.stringValue.isEmpty else {
             status.stringValue = String(localized: "Type something to find.")

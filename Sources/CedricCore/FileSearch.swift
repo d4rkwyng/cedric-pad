@@ -77,6 +77,9 @@ public struct FileSearchSummary: Sendable, Equatable {
     public var results = 0
     public var skippedBinary = 0
     public var skippedLarge = 0
+    /// The files counted in `skippedBinary` and `skippedLarge`, each with
+    /// its reason (.binary or .tooLarge), in path order.
+    public var skippedFiles: [SkippedFile] = []
     public var truncated = false
     public var cancelled = false
 }
@@ -151,10 +154,14 @@ public final class FileSearch: @unchecked Sendable {
 
         for (url, rel, size, modified) in files {
             if isCancelled { summary.cancelled = true; break }
-            if size > options.maxFileSize { summary.skippedLarge += 1; continue }
+            func skip(_ reason: ReplaceSkip) {
+                if reason == .tooLarge { summary.skippedLarge += 1 } else { summary.skippedBinary += 1 }
+                summary.skippedFiles.append(SkippedFile(url: url, relativePath: rel, reason: reason))
+            }
+            if size > options.maxFileSize { skip(.tooLarge); continue }
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { continue }
-            if Self.looksBinary(data) { summary.skippedBinary += 1; continue }
-            guard let decoded = TextCodec.decode(data) else { summary.skippedBinary += 1; continue }
+            if Self.looksBinary(data) { skip(.binary); continue }
+            guard let decoded = TextCodec.decode(data) else { skip(.binary); continue }
             summary.filesSearched += 1
             let text = decoded.text as NSString
             var index: LineIndex?

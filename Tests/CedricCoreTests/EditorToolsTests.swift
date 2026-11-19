@@ -214,6 +214,17 @@ import Testing
         #expect(sum.results == 4)
     }
 
+    /// The files behind skippedBinary/skippedLarge are listed, each with
+    /// its reason, so the replace preview can list what its summary counts.
+    @Test func skippedFilesAreListedWithTheirReason() throws {
+        let root = try makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (_, sum) = try search(FileSearchOptions(root: root, query: "needle"))
+        #expect(sum.skippedFiles.map { "\($0.relativePath):\($0.reason)" } == ["big.log:tooLarge", "blob.bin:binary"])
+        #expect(sum.skippedFiles.count == sum.skippedBinary + sum.skippedLarge)
+        #expect(sum.skippedFiles.allSatisfy { $0.url.lastPathComponent == $0.relativePath })
+    }
+
     @Test func caseRegexAndGlobs() throws {
         let root = try makeTree()
         defer { try? FileManager.default.removeItem(at: root) }

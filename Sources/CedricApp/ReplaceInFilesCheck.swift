@@ -80,9 +80,14 @@ extension DevChecks {
                 p?.folderField.stringValue = root.path
                 expect((tab.window?.firstResponder as? NSView)?.isDescendant(of: p!) == true, "the query field has focus")
             },
-            sync { type("owl") },
+            sync {
+                expect(!panel.previewButton.isEnabled, "Preview Replace… is off while the query is empty")
+                type("owl")
+            },
             sync {
                 expect(panel.queryField.stringValue == "owl", "typed query reached the field", panel.queryField.stringValue)
+                // Typing (not only Return or a search) re-validates the buttons.
+                expect(panel.previewButton.isEnabled, "typing a query in a fresh panel enables Preview Replace…")
                 tab.window?.makeFirstResponder(panel.replaceField)
                 type("hoot")
                 expect(panel.replaceField.stringValue == "hoot", "typed replacement reached the field", panel.replaceField.stringValue)
@@ -106,7 +111,11 @@ extension DevChecks {
                 let s = p.summary.stringValue
                 expect(!p.summary.isHidden && s.contains("8 replacements in 5 files") && s.contains("1 binary") && s.contains("1 over 20 MB")
                        && s.contains("1 mixed line endings"), "the summary counts replacements and every skip", s)
-                expect(row("Skipped (1)") >= 0 && row("mixed.txt") >= 0, "the skipped list is shown, with the mixed-ending file")
+                // The list and the summary agree: every skipped file, with its reason.
+                let listed = p.skippedFiles.map { "\($0.relativePath):\($0.reason)" }
+                expect(listed == ["blob.bin:binary", "huge.log:tooLarge", "mixed.txt:mixedLineEndings"], "every skipped file is listed with its reason", "\(listed)")
+                expect(row("Skipped (3)") >= 0 && ["blob.bin", "huge.log", "mixed.txt"].allSatisfy { row($0) >= 0 },
+                       "the skipped list shows the binary, the 21 MB and the mixed-ending files")
                 expect(!p.replaceAllButton.isHidden && p.replaceAllButton.isEnabled, "Replace All is offered")
                 // Nothing written yet.
                 expect(originals.allSatisfy { bytes($0.key) == $0.value }, "preview writes nothing")
@@ -192,6 +201,16 @@ extension DevChecks {
                 let priv = undoDirs.count == 1 && stat(undoDirs[0].path, &st) == 0 && st.st_mode & 0o777 == 0o700
                 expect(priv, "originals backed up in one owner-only folder", "\(undoDirs)")
             },
+            until("the results are searched again after the replace", timeout: 10) { panel.running == nil && panel.lastSummary != nil },
+            sync {
+                let files = Set(panel.results.map(\.relativePath))
+                expect(!files.contains("crlf.txt") && !files.contains("latin.txt") && files.contains("unchecked.txt") && files.contains("partial.txt"),
+                       "after Replace All the list shows the files as they are now (replaced matches gone)", "\(files.sorted())")
+                expect(panel.nodes.allSatisfy { $0.children.allSatisfy { $0.result.map { $0.text.contains("owl") } ?? true } },
+                       "…no stale rows")
+                expect(panel.summary.stringValue.contains("Replaced") || panel.summary.stringValue.contains("replace"), "…the replace's report stays",
+                       panel.summary.stringValue)
+            },
             snapshot("replaceinfiles-replaced.png"),
             sync {
                 let item = menuItem(action: #selector(AppDelegate.undoReplaceInFilesMenu(_:)))
@@ -204,6 +223,13 @@ extension DevChecks {
                 expect(tab.text == "owl owl disk\n", "undo: the tab is back to its unsaved text", tab.text.debugDescription)
                 expect(item.map { app.validateMenuItem($0) } == false, "Undo Replace in Files is disabled again")
                 expect(panel.summary.stringValue.contains("in 4 files"), "the panel reports the undo", panel.summary.stringValue)
+            },
+            until("the results are searched again after the undo", timeout: 10) { panel.running == nil && panel.lastSummary != nil },
+            sync {
+                let files = Set(panel.results.map(\.relativePath))
+                expect(files.isSuperset(of: ["crlf.txt", "latin.txt", "partial.txt", "unchecked.txt"]), "after the undo the list shows the matches again",
+                       "\(files.sorted())")
+                expect(panel.summary.stringValue.contains("in 4 files"), "…and the undo's report stays", panel.summary.stringValue)
             },
             sync {
                 // Find users see the panel as before: no Replace row once Replace is off.
