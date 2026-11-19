@@ -84,6 +84,28 @@ system Services in the app menu.
 **Drop a file on the text to open it** (in its own tab), rather than
 pasting its path; dropped text is inserted as before. (On a Markdown
 tab a dropped image is linked instead; see [Markdown editing](#markdown-editing).)
+A file dropped beside the text (the line numbers, the status bar) opens
+too, and a dropped **folder** opens in the [folder sidebar](#folder-sidebar).
+
+### Folder sidebar
+
+**File › Open Folder…** (⇧⌘O), a folder dropped on the Dock icon or on
+a window, or `cedric some/folder` shows the folder as a tree at the left
+of the editor. **View › Show Folder Sidebar** (⌃⌘1) hides and shows it
+again. Until a folder is open nothing is loaded or watched.
+
+- Click a file to open it in a tab, or to go to its tab if it is open
+  (Return does the same). Click a folder's triangle, or select it and
+  press → / ←, to expand and collapse it.
+- Folders come first, then files in Finder's order. `.git`, `.DS_Store`
+  and hidden files don't show; what the folder's `.gitignore` files
+  ignore is shown dimmed.
+- The tree follows files created, deleted and renamed on disk.
+- Right-click: Reveal in Finder, Copy Path, Find in Folder… (Find in
+  Files on that folder), Show Hidden Files, Close Folder (or the × at
+  the top).
+- Drag the divider to resize it. The folder, the folders you expanded
+  and the width come back with the session.
 
 ### Files changed on disk
 
@@ -130,6 +152,53 @@ folder that points outside the document's folder.
 **Find and replace** in the current document, with regular expressions
 (ICU syntax, `$1` in replacements), match case and whole word; ⌘F, ⌥⌘F,
 ⌘G / ⇧⌘G, ⌘E. Replace All is one undo step.
+
+### Find and replace in files
+
+**Edit › Find in Files…** (⇧⌘F) searches a folder (Include and Exclude
+take patterns such as `*.swift`; **Respect .gitignore**, on by default,
+skips what the folder's `.gitignore` files ignore). Results are grouped
+by file; click one to open the file with the match selected. Binary
+files and files over 20 MB are skipped.
+
+**Edit › Replace in Files…** (⌥⇧⌘F) opens the same panel with a
+Replace field (`$1` for a regex group, as in the find bar):
+
+1. **Preview Replace…** (or Return in the Replace field) lists every
+   change as before → after. Nothing is changed yet. Uncheck a file or a
+   single match to leave it out. The summary says how many replacements
+   in how many files, and which files are skipped and why (binary, over
+   20 MB, mixed line endings, changed since the search…).
+2. **Replace All** changes the checked matches. A file open in a tab is
+   changed in the tab (one ⌘Z there, not saved). The other files are
+   written in the background, with a progress bar, each in its own
+   encoding and line endings and keeping its permissions.
+3. **Undo Replace** in the panel, or **Edit › Undo Replace in Files**,
+   puts the last replace back byte for byte, until you quit. A file
+   edited since is left alone and listed.
+
+Files with mixed line endings are skipped: open them and use the find
+bar there.
+
+### Multiple carets and column selection
+
+| To | Do |
+|---|---|
+| Select a column | ⌥-drag (straight down makes a column of carets) |
+| Add or remove a caret | ⌘-click |
+| Add a caret on the line above / below | ⌃⇧↑ / ⌃⇧↓ |
+| Select the next match of the selection | ⌘D (first press: the word at the caret) |
+| Select every match | ⌃⌘G |
+| Go back to one caret | ⎋ |
+
+The menu items are in Edit › Selection. Typing, Delete, Return (with
+indent), Tab, auto-closed brackets and quotes, copy, cut, paste, the
+arrow keys and ⇧-arrows work at every caret. Pasting as many lines as
+there are carets puts one line at each. The status bar shows the number
+of carets. One ⌘Z undoes one edit at all of them.
+
+Input methods and dead keys (⌥E then E for é) compose at the main caret,
+and the result goes in at every caret. VoiceOver follows the main caret.
 
 ### Highlight occurrences
 
@@ -745,7 +814,7 @@ More in [docs/architecture.md](architecture.md).
 
 ## Not built yet
 
-Macros, Replace in Files, automatic updates. See
+Macros and automatic updates; code folding and split view (0.3.0). See
 `docs/architecture.md` for where they plug in.
 
 ## Built with Claude

@@ -39,7 +39,10 @@ Needs macOS 14 or later, on Apple silicon or Intel.
 - **Live preview** for Markdown and HTML, side by side or in its own window.
 - **CSV and TSV as a spreadsheet**: a sortable grid next to the text.
 - **PDFs, images and Office files** open in tabs too.
-- **Find and replace** with regular expressions.
+- **Find and replace** with regular expressions, in a file or across a
+  folder: Replace in Files previews every change and can undo it.
+- **A folder sidebar** (⇧⌘O): the folder as a tree beside the text.
+- **Multiple carets**: ⌥-drag a column, ⌘-click, ⌘D for the next match.
 - **Git, lightly**: changed lines in the gutter, and Compare with Last
   Commit.
 - **The `cedric` command** opens files from Terminal (`cedric notes.md:42`)
