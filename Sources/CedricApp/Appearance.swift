@@ -212,6 +212,22 @@ final class Settings {
         }
     }
 
+    /// The typing check's stand-in for the system's light or dark mode
+    /// (System theme only); nil in the app.
+    var systemAppearanceForChecks: NSAppearance?
+
+    /// The theme's appearance, set once for the whole app (0.2.1). It used
+    /// to be set on each tab's window instead: the windows went dark while
+    /// the app stayed light (Dark theme, light Mac), and the macOS 26 tab
+    /// bar, which draws the other tabs from the app's appearance, drew
+    /// their titles in a light-mode grey on its dark bar (near-invisible).
+    /// Windows now keep no appearance of their own and inherit this one,
+    /// so the tab bar, the title bar, sheets and panels all agree.
+    func applyAppAppearance() {
+        let want = theme == .system ? systemAppearanceForChecks : windowAppearance
+        if NSApp.appearance?.name != want?.name { NSApp.appearance = want }
+    }
+
     private func changed() {
         NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil)
     }

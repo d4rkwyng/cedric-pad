@@ -169,8 +169,9 @@ enum TypingCheck {
     ]
 
     static func apply(_ c: ThemeCase) {
-        NSApp.appearance = c.system.flatMap(NSAppearance.init(named:))
+        Settings.shared.systemAppearanceForChecks = c.system.flatMap(NSAppearance.init(named:))
         Settings.shared.themeOverride = c.theme
+        Settings.shared.applyAppAppearance()
         NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil)
     }
 

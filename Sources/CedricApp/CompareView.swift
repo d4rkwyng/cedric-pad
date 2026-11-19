@@ -38,7 +38,7 @@ final class CompareWindowController: NSWindowController, NSWindowDelegate {
         stack.alignment = .width
         scroll.setContentHuggingPriority(.init(1), for: .vertical)
         window.contentView = stack
-        window.appearance = palette.isDark ? NSAppearance(named: .darkAqua) : NSAppearance(named: .aqua)
+        // The app-wide appearance (Settings.applyAppAppearance), as its tab group's other windows.
         diffView.frame = NSRect(x: 0, y: 0, width: scroll.contentSize.width, height: diffView.contentHeight)
     }
 

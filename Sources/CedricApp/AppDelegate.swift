@@ -42,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         LaunchTrace.mark("will_finish")
+        // The theme's appearance, app-wide, before the first window.
+        Settings.shared.applyAppAppearance()
         NSWindow.allowsAutomaticWindowTabbing = true
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))

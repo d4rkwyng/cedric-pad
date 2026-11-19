@@ -255,7 +255,7 @@ final class CertificateTabController: NSWindowController, NSWindowDelegate, NSMe
     var palette: EditorPalette { Settings.shared.palette(for: window?.effectiveAppearance) }
 
     func applyAppearance() {
-        window?.appearance = Settings.shared.windowAppearance
+        Settings.shared.applyAppAppearance()
         statusBar.background = NSColor(hex: palette.statusBar)
     }
 
