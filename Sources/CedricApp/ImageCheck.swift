@@ -242,10 +242,15 @@ extension DevChecks {
                 expect(NSPasteboard.general.string(forType: .string) == png.path, "Copy Path", NSPasteboard.general.string(forType: .string) ?? "-")
                 run("Show Info")
                 let sheet = w.attachedSheet
-                let text = (sheet?.contentView.map { v -> [String] in
-                    func all(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(all) }
-                    return all(v).compactMap { ($0 as? NSTextField)?.stringValue }
-                } ?? []).joined(separator: " | ")
+                // Swift 6.1 (CI) doesn't infer the main actor for a local
+                // function inside a closure: walk the views iteratively.
+                var labels: [String] = []
+                var stack: [NSView] = sheet?.contentView.map { [$0] } ?? []
+                while let v = stack.popLast() {
+                    if let f = v as? NSTextField { labels.append(f.stringValue) }
+                    stack.append(contentsOf: v.subviews.reversed())
+                }
+                let text = labels.joined(separator: " | ")
                 expect(sheet != nil && text.contains("2400 × 1600") && text.contains("PNG") && text.contains("sRGB"),
                        "Show Info: dimensions, format and colour space", text.replacingOccurrences(of: "\n", with: " / "))
                 if let sheet { w.endSheet(sheet) }
