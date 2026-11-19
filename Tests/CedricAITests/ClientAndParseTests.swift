@@ -299,13 +299,17 @@ import CedricCore
     @Test func chatStreamSlowDribbleOutlivesTheFirstByteDeadline() async throws {
         let server = StubServer()
         server.route("/v1/chat/completions") { _, _ in
-            StubServer.Response(body: Data(), delay: 0.1, chunks: Self.deltas(12), every: 0.1)
+            StubServer.Response(body: Data(), delay: 0.1, chunks: Self.deltas(12), every: 0.2)
         }
-        var client = LocalModelClient(baseURL: server.baseURL, timeout: 0.4, session: server.session)
-        client.streamIdleLimit = 0.5
+        // Wide margins: when the whole suite starts at once in one process
+        // (Swift 6.1 runs both test targets together), a 4-core CI runner or
+        // VM starves the stub's and the client's tasks for ~1 s; 0.4 s and
+        // 0.8 s first-byte limits failed every full run in the macOS 15 VM.
+        var client = LocalModelClient(baseURL: server.baseURL, timeout: 2.0, session: server.session)
+        client.streamIdleLimit = 2.0
         let start = Date()
         let acc = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 8) { _ in }
-        #expect(Date().timeIntervalSince(start) > 0.8, "ran past the first-byte deadline")
+        #expect(Date().timeIntervalSince(start) > 2.2, "ran past the first-byte deadline")
         #expect(acc.content.hasPrefix("w0 w1 ") && acc.content.hasSuffix("w11 "))
     }
 
