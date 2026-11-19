@@ -7,7 +7,7 @@ are its section below (`Scripts/changelog-section.sh`).
 ## [0.1.2]
 
 ### Changed
-- **Renamed to OwlInk** (`OwlInk.app`). The owl assistant is still Cedric, and the command is still `cedric`. The release download is now `OwlInk-<version>.zip`, and Help opens github.com/d4rkwyng/owlink (old Cedric Pad links redirect there).
+- **Renamed to OwlInk** (`OwlInk.app`). The owl assistant is still Cedric, and the command is still `cedric`. The release download is now `OwlInk-<version>.zip`, Help › OwlInk Help opens the manual (docs/MANUAL.md), and the repository is now github.com/d4rkwyng/owlink (old Cedric Pad links redirect there).
 - **Your settings, open tabs, closed tabs and downloaded models carry over** from Cedric Pad: the bundle identifier (`net.mindtricks.cedric`), the `cedric://` scheme and `~/Library/Application Support/Cedric` are unchanged.
 - **Homebrew users are moved automatically.** The cask is now `owlink`; `brew update` and `brew upgrade` replace Cedric Pad.app with OwlInk.app and relink `cedric`. New installs: `brew install --cask d4rkwyng/tap/owlink`.
 - **If you downloaded Cedric Pad directly,** delete the old `Cedric Pad.app` after installing OwlInk, so Open With and `cedric://` go to one copy.
