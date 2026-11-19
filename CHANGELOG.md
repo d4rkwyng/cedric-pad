@@ -9,8 +9,15 @@ are its section below (`Scripts/changelog-section.sh`).
 ### Added
 - **Preview bar.** A compact bar across the top of the preview (docked or detached) with Refresh, Sync Scrolling, Zoom − / +, Export ▸ HTML / PDF for Markdown, Allow JavaScript, Allow Network and Detach / Attach; for CSV, the row count and Unsort. The View menu items still work.
 - **PDF reader controls.** A floating capsule at the bottom of a PDF tab: previous / next page, an editable page number, zoom, actual size, fit width, fit page, thumbnails, find, rotate (the view only; the file is never changed) and Open in Preview. It fades when the mouse is still and comes back when it moves (no fade with Reduce Motion). ← / → and Page Up / Page Down turn the page.
+- **Script safety check.** Edit ▸ Is This Script Safe to Run? (also in the owl's menu) for shell, PowerShell, batch, .reg, Python and Ruby files. An offline scan runs first, with no AI and no network, and lists risky lines: downloaded code run directly, encoded or hidden commands, broad deletes, disk erasing, sudo, persistence, credential access, registry and security changes. With a local AI engine, Cedric then explains each finding and ends with a verdict; without one, the panel says it is the scan only and can't prove a script is safe.
+- **Explain Line** and **What Does It Do?** quick actions for the selection, the caret's line or a whole script.
+- **AI grammar check** in the owl's menu, using Ask Cedric's engine. The macOS spelling and grammar checker stays on.
+- **The owl uses tools with the built-in Qwen3 model** (it scored 0.90 on Cedric's tool test after a prompt rewrite). Apple Intelligence and Qwen2.5-Coder stay without tools.
+- More owl animations; idle CPU with the owl visible stays about the same.
 
 ### Changed
+- **Ask Cedric is on by default when a local AI engine is ready** (Apple Intelligence, the downloaded built-in model, or a local server you set up and turned on), and works even when automatic AI hints are off; a network server is still used only when AI is on. Your choice sticks once you change it. Clicking the owl offers "Ask about this file…" first, or "Set Up Ask Cedric…" when there is no engine, and a one-time owl bubble points it out.
+- **Long AI answers are no longer cut off.** The 120-second limit now covers only the wait for the first word; after that an answer may stream as long as words keep coming (30 seconds between them at most, 15 minutes in all).
 - **Closing the last tab no longer brings it back.** Closing the last document tab or window still quits Cedric Pad, but it is now a close like any other: the tab goes to File › Reopen Closed Tab (⇧⌘T) with any unsaved text kept, and the next launch opens an empty Untitled tab. Quit (⌘Q) still restores every open tab.
 
 ### Security
