@@ -256,6 +256,33 @@ bookmark, the outline or a caret that lands inside a fold opens it, and
 so does typing in it or pressing Return at the end of its first line.
 Folds are kept with the session. Large-document mode turns folding off.
 
+### Split view
+
+View › Split Editor (⌃⌘\\) shows the document in two panes, one above
+the other, so you can read one part while you edit another. Both panes
+are the same document: what you type in one shows in the other at once,
+and one ⌘Z undoes it from either pane. Each pane scrolls and keeps its own
+caret and selection.
+
+| To | Do |
+|---|---|
+| Split, or close the split | ⌃⌘\\ (View › Split Editor), or Split Editor / Close Split in the text's context menu |
+| Panes side by side, or back one above the other | View › Split Side by Side, or the context menu |
+| Go to the other pane | View › Move Focus to Other Pane, or click in it |
+| Resize the panes | Drag the line between them |
+
+Commands act on the pane you're in (the last one you clicked or typed
+in, also while the find bar has the focus): Find and Replace, Go to Line,
+multiple carets, bookmarks, folding, the Markdown and line commands, and
+the status bar's line and column. Folds are the document's, so folding in
+one pane folds in both. Spelling and grammar underlines and Cedric the
+owl stay with the top (or left) pane. The preview, Find in Files and the
+folder sidebar dock around both panes as they do around one.
+
+The split, its orientation and size, the second pane's place and which
+pane had the focus come back with the session. Closing the split frees
+the second pane; a tab you never split costs nothing extra.
+
 ### Highlight occurrences
 
 other occurrences of the selection, or of the
@@ -870,7 +897,7 @@ More in [docs/architecture.md](architecture.md).
 
 ## Not built yet
 
-Macros and automatic updates; split view (0.3.0); folding HTML and XML tags. See
+Macros and automatic updates; folding HTML and XML tags; per-pane folds in split view. See
 `docs/architecture.md` for where they plug in.
 
 ## Built with Claude

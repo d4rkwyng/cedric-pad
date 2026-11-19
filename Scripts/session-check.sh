@@ -330,5 +330,25 @@ cat "$W/dump.txt"
 check "folder: opened at launch, after the first frame" "^folder: path=$W/proj built=true shown=true .*before-first-frame=0"
 grep -q "^tab: .*file=$W/proj " "$W/dump.txt" && { echo "session-check: FAIL the folder opened as a tab" >&2; fail=1; } || echo "session-check: OK   folder: not opened as a tab"
 
+# 10. Split editor (View › Split Editor): side by side, 40 %, the second
+#     pane at line 120 and focused, then a normal quit. The next launch
+#     splits again after the first frame, as it was.
+export CEDRIC_SESSION_DIR="$W/session10"
+python3 -c 'import sys; open(sys.argv[1], "w").write("".join("line %d\n" % i for i in range(1, 301)))' "$W/split.txt"
+env -u CEDRIC_TEST_TYPE CEDRIC_OPEN="$W/split.txt" CEDRIC_TEST_SPLIT=120 "$BIN" -ApplePersistenceIgnoreState YES >/dev/null 2>&1 &
+pid=$!
+sleep 3
+quit_app $pid
+saved=$(python3 -c '
+import json,sys
+s=json.load(open(sys.argv[1])); t=[t for w in s["windows"] for t in w["tabs"] if (t.get("path") or "").endswith("split.txt")]
+sp=t[0].get("split") if t else None
+print("none" if not sp else "%s %.1f %d %s" % (sp["sideBySide"], sp["ratio"], sp["topLine"], sp.get("secondFocused")))' "$W/session10/session.json")
+[ "$saved" = "True 0.4 120 True" ] && echo "session-check: OK   split saved (side by side, ratio, second pane's line, focus)" \
+    || { echo "session-check: FAIL split saved as '$saved', want 'True 0.4 120 True'" >&2; fail=1; }
+dump
+check "split restored after the first frame, as it was" \
+    "^split: name=split.txt sideBySide=true ratio=0.40 top2=120 secondActive=true layoutManagers=2 before-first-frame=0"
+
 [ $fail = 0 ] && echo "session-check: all OK"
 exit $fail
