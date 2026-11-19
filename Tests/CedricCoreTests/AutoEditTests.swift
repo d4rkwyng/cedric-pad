@@ -94,4 +94,30 @@ import Testing
         #expect(AutoEdit.matchingBracket(in: far, caret: 1, limit: 10) == nil)
         #expect(AutoEdit.matchingBracket(in: far, caret: 1, limit: 100) != nil)
     }
+
+    // Per-caret edits (multiple carets): the same decisions as `typing`, as edits.
+
+    @Test func typingEditPairsSkipsAndWraps() {
+        let t = "f() x" as NSString
+        // "(" before a space pairs; the caret goes between.
+        #expect(AutoEdit.typingEdit(40, in: t, selection: NSRange(location: 3, length: 0), language: .swift)
+            == TextEdit(range: NSRange(location: 3, length: 0), replacement: "()", selection: NSRange(location: 4, length: 0)))
+        // ")" before ")" steps over it: nothing replaced, caret after.
+        #expect(AutoEdit.typingEdit(41, in: t, selection: NSRange(location: 2, length: 0), language: .swift)
+            == TextEdit(range: NSRange(location: 2, length: 0), replacement: "", selection: NSRange(location: 3, length: 0)))
+        // A selection is wrapped and stays selected.
+        #expect(AutoEdit.typingEdit(91, in: t, selection: NSRange(location: 4, length: 1), language: .swift)
+            == TextEdit(range: NSRange(location: 4, length: 1), replacement: "[x]", selection: NSRange(location: 5, length: 1)))
+        // A plain insert (a letter; or prose): nil.
+        #expect(AutoEdit.typingEdit(97, in: t, selection: NSRange(location: 0, length: 0), language: .swift) == nil)
+        #expect(AutoEdit.typingEdit(40, in: t, selection: NSRange(location: 3, length: 0), language: .plain) == nil)
+    }
+
+    @Test func newlineEditKeepsIndentPerCaret() {
+        let t = "    a {}\n\tb" as NSString
+        #expect(AutoEdit.newlineEdit(in: t, lineStart: 0, selection: NSRange(location: 7, length: 0), language: .swift)
+            == TextEdit(range: NSRange(location: 7, length: 0), replacement: "\n        \n    ", selection: NSRange(location: 16, length: 0)))
+        #expect(AutoEdit.newlineEdit(in: t, lineStart: 9, selection: NSRange(location: 11, length: 0), language: .swift)
+            == TextEdit(range: NSRange(location: 11, length: 0), replacement: "\n\t", selection: NSRange(location: 13, length: 0)))
+    }
 }

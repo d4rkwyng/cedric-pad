@@ -25,6 +25,23 @@ final class EditorTextView: NSTextView {
     var markRanges: [NSRange] = []
     var bracketRanges: [NSRange] = []
 
+    // MARK: Multiple carets (MultiCaretEditing.swift)
+
+    /// nil: one caret, NSTextView's own selection (the zero-cost path:
+    /// every override below checks only this). With 2 or more: every
+    /// caret, sorted; `multiPrimary`'s is also NSTextView's selection (IME,
+    /// accessibility, the status bar, the find bar use it), the others are
+    /// drawn here.
+    var multiCarets: [MultiCaret.Caret]?
+    var multiPrimary = 0
+    /// Set while the multi-caret layer sets NSTextView's selection or edits
+    /// the text: any other selection change collapses to one caret.
+    var multiOwnsSelection = false
+    var multiApplying = false
+    /// ⌘D's search text, and whether it matches whole words (it started
+    /// from a bare caret).
+    var multiNeedle: (text: String, wholeWord: Bool)?
+
     static func make() -> EditorTextView {
         let layoutManager = NSTextLayoutManager()
         let content = ChunkedContentStorage()
@@ -122,6 +139,7 @@ final class EditorTextView: NSTextView {
     /// Return: a newline with the line's indent (one step more after an
     /// opening bracket; between a pair, the closer on its own line).
     override func insertNewline(_ sender: Any?) {
+        if multiCarets != nil { multiCommand(#selector(insertNewline(_:))); return }
         guard isEditable, !hasMarkedText(), let lineStartFor else { super.insertNewline(sender); return }
         let sel = selectedRange()
         // YAML: "- " items carry on (MarkdownLists handles both).
@@ -158,6 +176,7 @@ final class EditorTextView: NSTextView {
     /// Tab: with a selection over several lines, indents them; else a tab,
     /// or where spaces were chosen, spaces up to the next tab stop.
     override func insertTab(_ sender: Any?) {
+        if multiCarets != nil { multiCommand(#selector(insertTab(_:))); return }
         guard isEditable, !hasMarkedText(), let indentation, let lineStartFor else { super.insertTab(sender); return }
         let sel = selectedRange()
         let ns = string as NSString
@@ -223,6 +242,7 @@ final class EditorTextView: NSTextView {
     /// already there, and with a selection both go around it. Only for
     /// single typed characters (not paste, not input methods).
     override func insertText(_ string: Any, replacementRange: NSRange) {
+        if multiCarets != nil { multiInsertText(string, replacementRange: replacementRange); return }
         if language == .python, isEditable, !hasMarkedText(), replacementRange.location == NSNotFound,
            (string as? String) == ":", realignPythonClause() { return }
         guard pairing, isEditable, !hasMarkedText(), replacementRange.location == NSNotFound,
@@ -255,11 +275,18 @@ final class EditorTextView: NSTextView {
     /// lines the clause up with its `if`/`try`/… (one undo step with the
     /// ":"). False when there's nothing to move.
     private func realignPythonClause() -> Bool {
-        let sel = selectedRange()
-        guard sel.length == 0, let lineStartFor else { return false }
+        guard let e = pythonClauseEdit(selectedRange()) else { return false }
+        super.insertText(e.replacement, replacementRange: e.range)
+        return true
+    }
+
+    /// The realignment as an edit (the clause line from its start to the
+    /// caret, re-indented, plus the ":"); nil when there's nothing to move.
+    func pythonClauseEdit(_ sel: NSRange) -> TextEdit? {
+        guard sel.length == 0, let lineStartFor else { return nil }
         let ns = self.string as NSString
         let start = lineStartFor(sel.location)
-        guard sel.location - start <= 512 else { return false }
+        guard sel.location - start <= 512 else { return nil }
         let head = ns.substring(with: NSRange(location: start, length: sel.location - start))
         var above: [String] = []
         var p = start
@@ -268,19 +295,23 @@ final class EditorTextView: NSTextView {
             above.append(r.length > 4096 ? "x" : ns.substring(with: r).trimmingCharacters(in: .newlines))
             p = r.location
         }
-        guard let indent = LanguageIndent.pythonClauseIndent(head: head, above: above, tabWidth: indentation?().width ?? 4) else { return false }
+        guard let indent = LanguageIndent.pythonClauseIndent(head: head, above: above, tabWidth: indentation?().width ?? 4) else { return nil }
         let body = head.drop { $0 == " " || $0 == "\t" }
-        super.insertText(indent + body + ":", replacementRange: NSRange(location: start, length: sel.location - start))
-        return true
+        let text = indent + body + ":"
+        return TextEdit(range: NSRange(location: start, length: sel.location - start), replacement: text,
+                        selection: NSRange(location: start + (text as NSString).length, length: 0))
     }
 
     /// Where closers that pairing typed are (a few, newest last): a quote
     /// steps over only one of these, not a quote that was already there.
-    private(set) var autoClosers: [Int] = []
+    var autoClosers: [Int] = []
 
     /// Every character edit (the window controller's storageEdited, undo
     /// included): closers after it shift, ones inside it are gone.
     func textEdited(oldRange: NSRange, newLength: Int) {
+        if let carets = multiCarets, !multiApplying {
+            multiCarets = MultiCaret.shift(carets, oldRange: oldRange, newLength: newLength)
+        }
         guard !autoClosers.isEmpty else { return }
         let delta = newLength - oldRange.length
         autoClosers = autoClosers.compactMap { k in
@@ -291,6 +322,7 @@ final class EditorTextView: NSTextView {
 
     /// Backspace between a pair ("(|)", "\"|\"") deletes both.
     override func deleteBackward(_ sender: Any?) {
+        if multiCarets != nil { multiCommand(#selector(deleteBackward(_:))); return }
         let sel = selectedRange()
         if pairing, isEditable, !hasMarkedText(), sel.length == 0,
            AutoEdit.deletesPair(before: unit(at: sel.location - 1), after: unit(at: sel.location), language: language) {
@@ -310,7 +342,7 @@ final class EditorTextView: NSTextView {
         // Markdown: image files or a bitmap become image links (the window
         // controller copies them next to the document); a URL pasted over
         // a selection makes a link.
-        if language == .markdown, isEditable, let onImages {
+        if language == .markdown, isEditable, multiCarets == nil, let onImages {
             let sel = selectedRange()
             let files = Self.imageFiles(pboard)
             if !files.isEmpty { onImages(files, nil, sel); return true }
@@ -325,6 +357,7 @@ final class EditorTextView: NSTextView {
             }
         }
         guard let s = pboard.string(forType: .string) else { return super.readSelection(from: pboard, type: type) }
+        if multiCarets != nil { multiPaste(TextCodec.normalizeLineEndings(s)); return true }
         let normalized = TextCodec.normalizeLineEndings(s)
         insertText(normalized, replacementRange: selectedRange())
         return true
@@ -408,8 +441,14 @@ final class EditorTextView: NSTextView {
     var onCutLine: (() -> Void)?
 
     override func cut(_ sender: Any?) {
+        if multiCarets != nil, multiCopy(cut: true) { return }
         if selectedRange().length == 0, let onCutLine { onCutLine(); return }
         super.cut(sender)
+    }
+
+    override func copy(_ sender: Any?) {
+        if multiCarets != nil, multiCopy(cut: false) { return }
+        super.copy(sender)
     }
 
     /// Cut stays enabled with an empty selection (it cuts the line).
@@ -420,9 +459,42 @@ final class EditorTextView: NSTextView {
         return super.validateUserInterfaceItem(item)
     }
 
+    // MARK: Multiple carets: the entry points (MultiCaretEditing.swift)
+
+    /// Key commands (arrows, Delete, Return, Esc…) at every caret.
+    override func doCommand(by selector: Selector) {
+        if multiCarets != nil, multiCommand(selector) { return }
+        super.doCommand(by: selector)
+    }
+
+    /// ⌥-drag: a column of carets or selections; ⌘-click: add or remove a caret.
+    override func mouseDown(with event: NSEvent) {
+        if !event.modifierFlags.isDisjoint(with: [.option, .command]), multiMouseDown(event) { return }
+        super.mouseDown(with: event)
+    }
+
+    /// An input method composes at the primary caret; the others wait for
+    /// the committed text (multiInsertText).
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        guard multiCarets != nil else { super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange); return }
+        multiOwnsSelection = true
+        defer { multiOwnsSelection = false }
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+    }
+
+    override func unmarkText() {
+        guard multiCarets != nil else { super.unmarkText(); return }
+        multiOwnsSelection = true
+        defer { multiOwnsSelection = false }
+        super.unmarkText()
+    }
+
     // MARK: Drawing
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        // A selection the multi-caret layer didn't make (a click, find, go
+        // to line, undo, a menu command) leaves one caret.
+        if multiCarets != nil, !multiOwnsSelection { endMultiCarets() }
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         needsDisplay = true
     }
@@ -447,6 +519,7 @@ final class EditorTextView: NSTextView {
         }
 
         drawHighlights(in: rect, layoutManager: tlm)
+        if let carets = multiCarets { drawMultiCarets(carets, in: rect, layoutManager: tlm) }
         drawGrammarMarks(in: rect, layoutManager: tlm)
         if showInvisibles { drawInvisibles(in: rect, layoutManager: tlm) }
     }
@@ -507,7 +580,7 @@ final class EditorTextView: NSTextView {
     /// laid-out text); anything else is skipped, so a stale or far-away
     /// range never makes TextKit lay out other parts of a big document.
     /// Locations are found from the viewport's start, not the document's.
-    private func forEachSegment(_ ranges: [NSRange], clip: NSRect, layoutManager tlm: NSTextLayoutManager, _ draw: (NSRect) -> Void) {
+    func forEachSegment(_ ranges: [NSRange], clip: NSRect, layoutManager tlm: NSTextLayoutManager, _ draw: (NSRect) -> Void) {
         guard !ranges.isEmpty, let tcm = tlm.textContentManager,
               let vp = tlm.textViewportLayoutController.viewportRange else { return }
         let vpStart = offset(of: vp.location)

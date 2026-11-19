@@ -108,6 +108,112 @@ the same reason. Line endings are normalised to LF on load and paste;
 `NSTextStorage` edit notifications (`editedRange`, `changeInLength`); the
 gutter, status bar, go-to-line and highlighter all use it.
 
+## Multiple carets
+
+| Action | Menu / gesture | Shortcut |
+|---|---|---|
+| Column selection (or a column of carets, dragging straight down) | ⌥-drag | |
+| Add or remove a caret | ⌘-click (⌘-drag adds a selection) | |
+| Add Caret Above / Below | Edit › Selection | ⌃⇧↑ / ⌃⇧↓ |
+| Add Next Occurrence (first press: the word at the caret) | Edit › Selection | ⌘D |
+| Select All Occurrences | Edit › Selection | ⌃⌘G |
+| Single Caret | Edit › Selection (no key in the menu) | ⎋ while there are several |
+
+**Why NSTextView's own multi-range editing isn't used.** Probed on TextKit 2
+with the app's exact stack (plan-0.2.0.md §0): `setSelectedRanges` keeps
+several *non-empty* ranges, but several empty ranges (carets) collapse to
+one, and setting `textLayoutManager.textSelections` directly is reset by the
+view. Typing over several ranges replaces only the first and drops the rest;
+pasting over two put the text in the first and deleted the second, and ⌘Z
+then restored the wrong text. Column *selection* drawing would have been
+free; carets and editing at each of them are not, and the built-in undo is
+unsafe. So OwlInk owns them.
+
+**Model.** `EditorTextView.multiCarets: [MultiCaret.Caret]?` is nil with one
+caret: NSTextView's own selection is the only state, and every override that
+the feature adds (`insertText`, `doCommand(by:)`, `deleteBackward`,
+`insertNewline`, `insertTab`, `setSelectedRanges`, `setMarkedText`,
+`mouseDown` with ⌥/⌘, paste, copy, cut, `drawBackground`, `textEdited`)
+checks only that, so a keystroke costs a nil check when the feature is
+unused. With 2 or more, the list is sorted and merged after every operation
+(`MultiCaret.normalize`: overlapping selections merge, a caret touching a
+selection joins it). The **primary** caret is also NSTextView's selection, so
+input methods, accessibility (VoiceOver sees the primary only), Services,
+the status bar's counts and the find bar keep working on it; the others are
+drawn by the editor. A caret has an anchor, a head and a goal column, so
+⇧-moves extend from the right end and ↑/↓ keep their column across short
+lines.
+
+**Leaving.** Any selection the layer didn't set itself (a click, find, go
+to line, a menu command such as Duplicate Line, undo) collapses to one caret:
+`setSelectedRanges` is overridden and the layer sets `multiOwnsSelection`
+around its own calls. Key commands it doesn't handle (page moves, transpose,
+⇧Tab…) collapse to the primary and run as usual. ⎋ (`cancelOperation:`,
+`complete:`) collapses only while there are several carets, so with one it
+keeps its meaning.
+
+**Editing.** `MultiCaretEditing.swift` works out one edit per caret with the
+same rules as one caret (`AutoEdit.typingEdit` for pairing, skip-over and
+wrapping; `AutoEdit.newlineEdit` for Return's indent; the Python clause
+realign; composed characters and surrogate pairs are never split), then
+`MultiCaret.resolve` sorts them and clips overlaps (two carets deleting the
+same character delete it once). They are applied **from the last caret to
+the first, each as its own storage edit** through
+`shouldChangeText(in:replacementString:)`, then one `didChangeText` for the
+lot, inside one undo group. `didChangeText` per caret ran the window's whole
+text-changed path (status, preview, outline, owl…) once per caret: 518 ms a
+key at 800 carets on a 400-line file, against 62 ms with one call (same
+machine, load ~5). Why not the alternatives:
+
+- not one `beginEditing`/`endEditing` bracket (27 ms in the same test),
+  because `storageEdited` then sees only the union `editedRange`: carets on
+  line 1 and line 200,000 would make the line index and the colouriser rescan
+  the whole span on every key, and bookmarks and git bars would follow the
+  union, not each edit;
+- not `shouldChangeText(inRanges:)`, whose multi-range undo corrupted text.
+
+The group also holds two caret records (the bookmarks' pattern): one made
+before the edits puts the carets back after the text's own undo, one made
+after them puts them back after redo. One ⌘Z undoes one multi-caret edit.
+
+**Input methods.** Marked text (a dead key's ´, Japanese) composes at the
+primary only; carets follow the composing text (`textEdited` shifts them for
+any edit the layer didn't make). On commit NSTextView puts the text in at the
+primary and the layer inserts it at every other caret, in one undo step.
+Spelling and Writing Tools replacements (an `insertText` with another range)
+act on the primary and collapse the rest.
+
+**Paste and copy.** A clipboard with exactly as many lines as carets (a
+trailing newline ignored) goes one line per caret; otherwise the whole text
+at each. Copy and cut join the selections with "\n" in document order, as
+AppKit does.
+
+**Column selection.** The ⌥-drag tracking loop is the editor's own (AppKit's
+can't give a zero-width column): one caret or selection per text row the
+rectangle crosses, from `characterIndexForInsertion` at the start's x to the
+current x, so a shorter row gets a caret at its end. Rows are TextKit line
+fragments, so a wrapped line gives one per row.
+
+**Drawing.** Extra selections and carets are drawn in `drawBackground`, for
+the viewport only (`forEachSegment`), in the theme's selection and caret
+colours. Extra carets don't blink. Occurrence highlighting pauses while
+there are several carets, and the status bar shows "N carets" in place of
+Ln/Col.
+
+**Limits.** At most 10,000 carets (1,000 in large-document mode), with a
+beep beyond. ⌃⇧↑/↓ and ↑/↓ step through logical lines (a wrapped line's
+rows aren't stepped through by the extra carets). Typing at many carets is
+one undo step per key, not one per typing run. Carets aren't saved in the
+session.
+
+**Checks.** `MultiCaretTests` (merging, overlap, ordering, deletes, goal
+columns, paste split, occurrences); `CEDRIC_CHECK=multicaret` drives ⌥-drag,
+⌘-click, ⌃⇧↓, ⌘D, ⌃⌘G, ⎋, typing, Backspace, Return, paste, copy, undo and
+redo, the dead key, IME and auto-close with real key and mouse events, checks
+the drawn glyphs and carets, and that ⌘D in a save alert is still Don't
+Save. `typing-check.sh` types at three carets in every theme and commits IME
+text at three carets.
+
 ## Highlighting: hand-written tokenizers vs tree-sitter
 
 Chosen for v0: hand-written, line-at-a-time tokenizers.
