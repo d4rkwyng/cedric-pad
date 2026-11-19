@@ -716,7 +716,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
             stack.addArrangedSubview(setup)
         }
         if let tab, tab.canCheckScriptSafety {
-            let safe = NSButton(title: String(localized: "Is This Script Safe to Run?"), target: self, action: #selector(scriptSafety))
+            let safe = NSButton(title: String(localized: "Check Script for Risks…"), target: self, action: #selector(scriptSafety))
             safe.toolTip = String(localized: "An offline scan for risky commands, then the AI’s review when Ask Cedric is on.")
             stack.addArrangedSubview(safe)
         }

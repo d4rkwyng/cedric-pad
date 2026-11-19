@@ -46,6 +46,13 @@ public protocol OwlChatEngine: Sendable {
     /// only to engines that run tools themselves (Apple).
     func turn(_ messages: [OwlChatMessage], tools: [OwlToolSpec], toolbox: OwlToolbox?, maxTokens: Int,
               onText: @escaping @Sendable (String) -> Void) async throws -> OwlTurn
+    /// The text goes to a server the user set up (LM Studio, Ollama,
+    /// another Mac), not a model running in Cedric or macOS.
+    var usesServer: Bool { get }
+}
+
+extension OwlChatEngine {
+    public var usesServer: Bool { false }
 }
 
 /// Runs tool calls against the frozen snapshot: the allowed subset only,
@@ -105,14 +112,31 @@ public struct OwlChatRequest: Sendable {
     public var prose: Bool
     public var maxTokens: Int
     /// The offline script scan's findings (`ScriptSafety.summary`), for
-    /// "Safe to Run?".
+    /// "Check Script for Risks…".
     public var scan: String?
+    /// The scan found a high-risk line, or read only part of the script:
+    /// the verdict is forced to "Don't run it" (`ScriptVerdict`).
+    public var scanHasHigh: Bool
+    public var scanTruncated: Bool
 
     public init(question: String, action: OwlQuickAction? = nil, context: OwlChatContext, snapshot: OwlDocumentSnapshot,
-                history: [OwlChatEntry] = [], useTools: Bool, prose: Bool, maxTokens: Int = 700, scan: String? = nil) {
+                history: [OwlChatEntry] = [], useTools: Bool, prose: Bool, maxTokens: Int = 700, scan: String? = nil,
+                scanHasHigh: Bool = false, scanTruncated: Bool = false) {
         self.question = question; self.action = action; self.context = context; self.snapshot = snapshot
         self.history = history; self.useTools = useTools; self.prose = prose; self.maxTokens = maxTokens
-        self.scan = scan
+        self.scan = scan; self.scanHasHigh = scanHasHigh; self.scanTruncated = scanTruncated
+    }
+
+    /// The model saw only part of the document (trimmed to fit, or not
+    /// from line 1 to the end).
+    public var contextIsPartial: Bool {
+        context.truncated || context.firstLine > 1 || context.lastLine < snapshot.lineCount
+    }
+
+    /// Why the script check's verdict is forced, if it is.
+    public var forcedVerdict: ScriptVerdict.Reason? {
+        guard action == .scriptSafety else { return nil }
+        return ScriptVerdict.forcedReason(scanHasHigh: scanHasHigh, truncated: scanTruncated || contextIsPartial)
     }
 
     /// The question text sent: a quick action's fixed instruction, else the user's words.
@@ -143,7 +167,7 @@ public enum OwlChatRunner {
         var messages = OwlPrompts.chatMessages(question: req.prompt, context: req.context,
                                                language: Language(rawValue: req.snapshot.language)?.displayName ?? req.snapshot.language,
                                                fileName: req.snapshot.fileName, history: req.history,
-                                               toolsOn: !specs.isEmpty, model: model)
+                                               toolsOn: !specs.isEmpty, model: model, server: engine.usesServer)
         onEvent(.phase(.thinking))
         let wrote = Flag()
         let onText: @Sendable (String) -> Void = { t in
@@ -181,7 +205,10 @@ public enum OwlChatRunner {
                                              reason: "", in: req.snapshot)
             if let proposal { onEvent(.proposal(proposal)) }
         }
-        return OwlChatOutcome(answer: stripThinking(answer), proposal: proposal, toolCalls: toolbox.callCount, rounds: rounds)
+        var shown = stripThinking(answer)
+        // The script check never says "safe" (`ScriptVerdict`), whatever the model wrote.
+        if req.action == .scriptSafety { shown = ScriptVerdict.clamp(shown, forced: req.forcedVerdict) }
+        return OwlChatOutcome(answer: shown, proposal: proposal, toolCalls: toolbox.callCount, rounds: rounds)
     }
 
     /// The first ``` block's body.
@@ -236,6 +263,7 @@ public struct ServerChatEngine: OwlChatEngine {
     public var scoreKey: String { "\(kind.rawValue):\(model)" }
     /// Servers have their own (usually larger) context; keep requests modest.
     public var contextBudget: Int { 12_000 }
+    public var usesServer: Bool { true }
 
     public func turn(_ messages: [OwlChatMessage], tools: [OwlToolSpec], toolbox: OwlToolbox?, maxTokens: Int,
                      onText: @escaping @Sendable (String) -> Void) async throws -> OwlTurn {

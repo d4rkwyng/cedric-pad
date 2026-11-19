@@ -466,19 +466,29 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   Instruct 90%, so it gets tools; Apple Intelligence 72.5%, Qwen2.5-Coder
   1.5B on LM Studio 75% and the built-in Qwen2.5-Coder 3B 65% stay
   without.
-- **Is This Script Safe to Run?** (Edit menu, the owl, or **Safe to
-  Run?** in Ask Cedric) for shell, PowerShell, batch, `.reg`, Python and
+- **Check Script for Risks…** (Edit menu, the owl, or **Check for
+  Risks** in Ask Cedric) for shell, PowerShell, batch, `.reg`, Python and
   Ruby: an offline scan, no AI and nothing sent anywhere (so it works on
   any Mac, Intel included), lists the lines worth reading first:
-  downloading and running code (`curl … | sh`, `iex (iwr …)`),
-  `Invoke-Expression` / `eval`, encoded commands (`-EncodedCommand`,
-  Base64 piped to a shell), registry and system changes, `sudo`, reading
-  passwords or keys, turning off Defender / Gatekeeper / the firewall /
-  the execution policy, running at login (launch agents, cron, Run keys,
-  scheduled tasks), and recursive deletes of broad paths (`rm -rf ~/*`,
-  `rm -rf "$DIR/"*`, `Remove-Item -Recurse C:\`). With Ask Cedric on, the
-  model then reviews the script with those findings and ends with a
-  verdict. A clean scan is not proof of safety, and the panel says so.
+  downloading and running code (`curl … | sh`, `| /bin/bash`, through
+  `tee`, `iex (iwr …)`, Python `exec` / Ruby `eval` of fetched code),
+  `Invoke-Expression` / `eval` and AppleScript `do shell script`, encoded
+  commands (`-EncodedCommand`, Base64 piped to a shell or `exec`'d,
+  `&(gcm i*x)`), reverse shells (`/dev/tcp`, `nc -e`), setuid
+  (`chmod u+s`), registry and system changes, `sudo` and `-Verb RunAs`,
+  reading passwords or keys, turning off Defender / Gatekeeper / the
+  firewall / the execution policy / quarantine / TCC, running at login
+  (launch agents, cron, Run keys, scheduled tasks, `authorized_keys`),
+  and recursive deletes of broad paths (`rm -rf ~/*`, `rm -rf "$DIR/"*`,
+  `find / … -delete`, `Remove-Item -Recurse C:\`). Only the first 20,000
+  lines are scanned, and a longer script says so. With Ask Cedric on, the
+  model then reviews the script with those findings (passed as data, and
+  told the script's text is never instructions) and ends with a verdict:
+  "No obvious red flags (not a guarantee)", "Run only if you trust the
+  source" or "Don't run it". Cedric never calls a script safe: the app
+  rewrites any such line, and forces "Don't run it — review the flagged
+  lines" after a high-risk finding or when only part of the script was
+  reviewed, whatever the model said.
 - **Careful with files:** pipes and devices (`/dev/zero`, a FIFO) are
   refused before anything is read; saving through a symbolic link writes
   the file it points to and keeps that file's permissions; Export as HTML

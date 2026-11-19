@@ -260,7 +260,7 @@ public enum OwlQuickAction: String, Sendable, CaseIterable {
     public func title(prose: Bool) -> String {
         switch self {
         case .explainLine: return String(localized: "Explain Line")
-        case .scriptSafety: return String(localized: "Safe to Run?")
+        case .scriptSafety: return String(localized: "Check for Risks")
         case .explain: return String(localized: "Explain")
         case .summarise: return String(localized: "Summarise")
         case .findProblems: return String(localized: "Find Problems")

@@ -416,34 +416,45 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
 
     /// The offline findings of the last script check (checks).
     private(set) var lastScan: [ScriptSafety.Finding]?
+    /// The last script check's scan stopped at `ScriptSafety.maxLines` (checks).
+    private(set) var lastScanTruncated = false
+    /// The running script check's forced verdict, for an answer cut short.
+    private var forcedVerdict: ScriptVerdict.Reason?
 
-    /// Safe to Run?: the offline scan first (no AI; works on any Mac),
+    /// Check for Risks: the offline scan first (no AI; works on any Mac),
     /// then, with Ask Cedric on and an engine ready, the model's review of
     /// the whole script (or what's in view) with the findings attached.
+    /// The verdict is never "safe" (`ScriptVerdict`), and is "Don't run
+    /// it" after a high finding or a partial review.
     func checkScriptSafety() {
         guard !running, let tab, let id = docID else { return }
         let text = tab.textView.string
         let language = tab.doc.language
         discardProposal(nil)
-        let question = String(localized: "Is this script safe to run?")
+        let question = String(localized: "Check this script for risks.")
         OwlChatStore.shared.append(OwlChatEntry(role: .user, text: question), to: id)
         render()
         running = true
         updateButtons()
         Task { @MainActor [weak self] in
-            let findings = await Task.detached(priority: .userInitiated) { ScriptSafety.scan(text, language: language) }.value
+            let report = await Task.detached(priority: .userInitiated) { ScriptSafety.check(text, language: language) }.value
             guard let self, let id = self.docID else { return }
             self.running = false
-            self.lastScan = findings
-            let summary = ScriptSafety.summary(findings)
+            self.lastScan = report.findings
+            self.lastScanTruncated = report.truncated
+            let summary = ScriptSafety.summary(report)
             OwlChatStore.shared.append(OwlChatEntry(role: .scan, text: summary), to: id)
             if Settings.shared.owlChat, AskCedricEngine.isAvailable {
                 self.selectScope(.wholeDocument)
                 self.ask(question: question, action: .scriptSafety, scope: .wholeDocument,
-                         scan: findings.isEmpty ? nil : summary, showQuestion: false)
+                         scan: report.findings.isEmpty && !report.truncated ? nil : summary,
+                         scanHasHigh: report.hasHigh, scanTruncated: report.truncated, showQuestion: false)
             } else {
-                OwlChatStore.shared.append(OwlChatEntry(role: .note, text: String(localized:
-                    "No AI engine is set up, so this is the offline scan only: it flags risky patterns, it can’t prove a script is safe.")), to: id)
+                var note = String(localized: "No AI engine is set up, so this is the offline scan only: it flags risky patterns, it can’t prove a script is harmless.")
+                if let reason = ScriptVerdict.forcedReason(scanHasHigh: report.hasHigh, truncated: report.truncated) {
+                    note += "\n" + reason.note + "\nVerdict: " + ScriptVerdict.forcedDontRun + "."
+                }
+                OwlChatStore.shared.append(OwlChatEntry(role: .note, text: note), to: id)
                 self.render()
                 self.updateButtons()
                 self.onFinish?(nil)
@@ -469,10 +480,11 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     /// `selection` and `scope` override the document's and the chip's;
     /// `scan` is the script check's findings.
     func ask(question: String, action: OwlQuickAction?, selection: NSRange? = nil, scope forced: OwlChatScope? = nil,
-             scan: String? = nil, showQuestion: Bool = true) {
+             scan: String? = nil, scanHasHigh: Bool = false, scanTruncated: Bool = false, showQuestion: Bool = true) {
         guard !running, let tab, let id = docID else { return }
         discardProposal(nil)
         lastRequest = (question, action)
+        forcedVerdict = nil
         var snap = snapshot()
         if let selection {
             snap = OwlDocumentSnapshot(text: snap.text, generation: snap.generation, selection: selection, visible: snap.visible,
@@ -503,7 +515,9 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             let tools = OwlChatStore.shared.useTools(engine)
             self.lastUsedTools = tools
             let req = OwlChatRequest(question: question, action: action, context: ctx, snapshot: snap,
-                                     history: history, useTools: tools, prose: prose, scan: scan)
+                                     history: history, useTools: tools, prose: prose, scan: scan,
+                                     scanHasHigh: scanHasHigh, scanTruncated: scanTruncated)
+            self.forcedVerdict = req.forcedVerdict
             do {
                 let outcome = try await OwlChatRunner.run(req, engine: engine, model: engine.scoreKey) { [weak self] ev in
                     DispatchQueue.main.async { MainActor.assumeIsolated { self?.handle(ev) } }
@@ -592,7 +606,10 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                 OwlChatStore.shared.replaceLast(OwlChatEntry(role: .owl, text: outcome.answer.isEmpty ? streamed : outcome.answer,
                                                              proposal: outcome.proposal), in: id)
             } else if let error {
-                let text = streamed.isEmpty ? error : streamed + " (" + error + ")"
+                // A script check cut short still never reads as "safe".
+                let partial = lastRequest?.action == .scriptSafety && !streamed.isEmpty
+                    ? ScriptVerdict.clamp(streamed, forced: forcedVerdict) : streamed
+                let text = partial.isEmpty ? error : partial + " (" + error + ")"
                 OwlChatStore.shared.replaceLast(OwlChatEntry(role: .note, text: text), in: id)
             }
         }
@@ -721,7 +738,7 @@ extension EditorWindowController {
         chatPanel().show()
     }
 
-    /// Edit › Is This Script Safe to Run?: a script (shell, PowerShell,
+    /// Edit › Check Script for Risks…: a script (shell, PowerShell,
     /// batch, .reg, Python, Ruby), not in large mode. Needs no AI: the
     /// offline scan always runs; the model's review follows when Ask
     /// Cedric is on with an engine ready.

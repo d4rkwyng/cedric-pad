@@ -12,17 +12,17 @@ public enum AIGrammar {
     /// Words that may differ between `find` and `replacement`.
     public static let maxWordChange = 4
 
-    public static func messages(text: String, model: String = "") -> [OwlChatMessage] {
+    public static func messages(text: String, model: String = "", server: Bool = false) -> [OwlChatMessage] {
         var user = "Prose:\n```\n\(text)\n```"
         if model.lowercased().contains("qwen3") { user += "\n/no_think" }
-        return [.system(OwlPrompts.persona + "\n\n" + OwlPrompts.grammarTask), .user(user)]
+        return [.system(OwlPrompts.persona(server: server) + "\n\n" + OwlPrompts.grammarTask + "\n\n" + OwlPrompts.untrustedDocument), .user(user)]
     }
 
     /// Asks `engine` about `text` (prose, already masked), capped to its budget.
     public static func check(_ text: String, engine: any OwlChatEngine) async throws -> [GrammarResult] {
         let ns = text as NSString
         let capped = ns.length > engine.contextBudget ? ns.substring(to: engine.contextBudget) : text
-        let turn = try await engine.turn(messages(text: capped, model: engine.scoreKey), tools: [], toolbox: nil, maxTokens: 500) { _ in }
+        let turn = try await engine.turn(messages(text: capped, model: engine.scoreKey, server: engine.usesServer), tools: [], toolbox: nil, maxTokens: 500) { _ in }
         guard case .answer(let raw) = turn else { return [] }
         return parse(raw, text: capped as NSString)
     }

@@ -62,7 +62,7 @@ env -u CEDRIC_OWL_CHAT CEDRIC_SESSION_DIR="$WORK/session-chat-on" CEDRIC_NO_REST
 CEDRIC_OPEN="$WORK/Sum.swift" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_ASK_HINT=1 CEDRIC_ASK_HINT_AFTER=0.5 \
 CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_OWL_CHAT_FAKE_DELAY=0.05 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
 CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/chat-on" CEDRIC_OWL_CHECK_CHAT=default "$BIN" || status=1
-# Is This Script Safe to Run? on a risky PowerShell script: with the fake
+# Check Script for Risks… on a risky PowerShell script: with the fake
 # AI, then with Ask Cedric off (the offline scan alone).
 cat > "$WORK/setup.ps1" <<'PS1'
 # Sets up the tools

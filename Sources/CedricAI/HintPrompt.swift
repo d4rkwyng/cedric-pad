@@ -29,8 +29,8 @@ public enum HintPrompt {
     /// The code-hints prompt (`OwlPrompts`: the owl's persona + the task).
     static var system: String { OwlPrompts.system(for: .codeHints) }
 
-    public static func messages(for context: OwlContext, text: String, model: String) -> [ChatMessage] {
-        OwlPrompts.messages(for: .codeHints, context: context, text: text, model: model)
+    public static func messages(for context: OwlContext, text: String, model: String, server: Bool = false) -> [ChatMessage] {
+        OwlPrompts.messages(for: .codeHints, context: context, text: text, model: model, server: server)
     }
 
     /// The json_schema sent as response_format.

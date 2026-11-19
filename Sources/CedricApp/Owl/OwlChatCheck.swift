@@ -103,14 +103,14 @@ enum OwlChatCheck {
                     let stack = first.superview as? NSStackView
                     check(stack?.arrangedSubviews.first === first, "Ask about this file… is the first item")
                     check(owl.popoverButton(String(localized: "Set Up Ask Cedric…")) == nil, "no Set Up item with an engine ready")
-                    check(owl.popoverButton(String(localized: "Is This Script Safe to Run?")) == nil, "no script check for a Swift file")
+                    check(owl.popoverButton(String(localized: "Check Script for Risks…")) == nil, "no script check for a Swift file")
                     OwlCheck.snapshot(first.window ?? window, "\(out)/owl-menu.png") {
                         OwlCheck.click(first)
                         after(0.3) {
                             check(tab.owlChat?.isShown == true, "Ask about this file… opens Ask Cedric")
                             if let chat = tab.owlChat {
                                 check(chat.actionButtons[.explainLine]?.isHidden == false, "Explain Line is offered for code")
-                                check(chat.actionButtons[.scriptSafety]?.isHidden == true, "Safe to Run? isn't, for Swift")
+                                check(chat.actionButtons[.scriptSafety]?.isHidden == true, "Check for Risks isn't, for Swift")
                                 check(chat.actionButtons[.summarise]?.isHidden == true, "Summarise isn't, for code")
                                 explainLine(tab, chat, out: out)
                             } else { OwlCheck.finish(out) }
@@ -145,10 +145,10 @@ enum OwlChatCheck {
         let aiOn = Settings.shared.owlChat
         OwlCheck.click(owl.owl)
         after(0.3) {
-            guard let b = owl.popoverButton(String(localized: "Is This Script Safe to Run?")) else {
-                check(false, "the owl offers Is This Script Safe to Run? for a .ps1"); OwlCheck.finish(out); return
+            guard let b = owl.popoverButton(String(localized: "Check Script for Risks…")) else {
+                check(false, "the owl offers Check Script for Risks… for a .ps1"); OwlCheck.finish(out); return
             }
-            check(true, "the owl offers Is This Script Safe to Run? for a .ps1")
+            check(true, "the owl offers Check Script for Risks… for a .ps1")
             OwlCheck.snapshot(b.window ?? window, "\(out)/owl-menu-script.png") { OwlCheck.click(b) }
             after(0.2) {
                 guard let chat = tab.owlChat, chat.isShown else { check(false, "the check opens the panel"); OwlCheck.finish(out); return }
@@ -159,6 +159,10 @@ enum OwlChatCheck {
                         check(cats.isSuperset(of: [.downloadAndRun, .encoded, .disablesSecurity, .broadDelete]),
                               "the offline scan flagged download-and-run, encoded, security off and a broad delete (\(scan.count) findings)")
                         check(chat.transcriptText.contains("Offline scan (no AI)"), "the scan's findings are in the transcript")
+                        check(chat.transcriptText.contains("Verdict: " + ScriptVerdict.forcedDontRun),
+                              "a high finding forces the verdict \"\(ScriptVerdict.forcedDontRun)\"")
+                        check(chat.transcriptText.range(of: "safe to run", options: .caseInsensitive) == nil,
+                              "the transcript never says \"safe to run\"")
                         if aiOn {
                             check(chat.transcriptText.contains("Verdict:"), "the model's review ends with a verdict")
                             if ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"] != nil {
