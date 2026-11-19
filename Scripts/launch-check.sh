@@ -1,5 +1,5 @@
 #!/bin/bash
-# Real-launch smoke test, after Tankard's: launches "Cedric Pad.app" the way a
+# Real-launch smoke test, after Tankard's: launches "OwlInk.app" the way a
 # user does (no CEDRIC_* switches, the real session restored), checks it is
 # still running after a while and left no new crash report, then quits it
 # with a Quit Apple event. Run it before every release. Needs a logged-in
@@ -8,7 +8,7 @@
 #   Scripts/launch-check.sh [--no-build] [--seconds N] [--runs N] [PATH.app]
 #
 #   PATH.app      an existing app to check (implies --no-build)
-#   --no-build    use the existing "dist/Cedric Pad.app"
+#   --no-build    use the existing "dist/OwlInk.app"
 #   --seconds N   how long it must stay up (default: 10)
 #   --runs N      launch it N times in a row (default: 3)
 #
@@ -17,7 +17,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP="dist/Cedric Pad.app"
+APP="dist/OwlInk.app"
 SECONDS_UP=10
 RUNS=3
 BUILD=1

@@ -9,7 +9,7 @@ static const cedric_llama_api *loaded;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 // The app's rpath (@executable_path/../Frameworks) finds it in
-// Cedric Pad.app/Contents/Frameworks; a test bundle that links it already has
+// OwlInk.app/Contents/Frameworks; a test bundle that links it already has
 // it loaded under this install name.
 static const char *const paths[] = {
     "@rpath/llama.framework/Versions/Current/llama",

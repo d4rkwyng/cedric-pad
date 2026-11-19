@@ -223,7 +223,7 @@ final class OfficeTabController: NSWindowController, NSWindowDelegate, NSMenuIte
                 }
             } else {
                 text = Self.plainText(url, format: format)
-                if text?.isEmpty != false { failure = String(localized: "“\(url.lastPathComponent)” has no text Cedric Pad can take out.") }
+                if text?.isEmpty != false { failure = String(localized: "“\(url.lastPathComponent)” has no text OwlInk can take out.") }
             }
             let result = text, title = name, file = asFile, err = failure
             Task { @MainActor [weak self] in

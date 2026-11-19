@@ -59,13 +59,13 @@ final class BinaryFileBar: NSView {
     func show(_ state: BinaryFileState) {
         switch state {
         case .held:
-            label.stringValue = String(localized: "This looks like a binary file, not text. Showing it as text won’t make sense, and saving it from Cedric Pad could damage it.")
+            label.stringValue = String(localized: "This looks like a binary file, not text. Showing it as text won’t make sense, and saving it from OwlInk could damage it.")
             button.title = String(localized: "Open Anyway")
             button.toolTip = String(localized: "Show the bytes as text, read-only.")
         case .readOnly:
             label.stringValue = String(localized: "Binary file, shown as text and read-only. Saving is off so it can’t be damaged.")
             button.title = String(localized: "Allow Editing")
-            button.toolTip = String(localized: "Edit and save it as text. Saving rewrites line endings and characters Cedric Pad can’t show.")
+            button.toolTip = String(localized: "Edit and save it as text. Saving rewrites line endings and characters OwlInk can’t show.")
         case .editable:
             break
         }

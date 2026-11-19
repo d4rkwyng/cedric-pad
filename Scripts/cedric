@@ -1,8 +1,8 @@
 #!/bin/bash
-# cedric: open files in Cedric Pad from the command line (the running app if
+# cedric: open files in OwlInk from the command line (the running app if
 # there is one). Install with:
 #
-#   ln -s "/Applications/Cedric Pad.app/Contents/Resources/cedric" /usr/local/bin/cedric
+#   ln -s "/Applications/OwlInk.app/Contents/Resources/cedric" /usr/local/bin/cedric
 #
 #   cedric file ...         open files (missing files open as new, empty tabs)
 #   cedric file:42          open at line 42 (also +42 before the file)
@@ -10,14 +10,14 @@
 #   cedric -w file ...      wait until each file's tab is closed (for
 #                           git and other tools: EDITOR="cedric -w")
 #   cedric -                read stdin into a new untitled tab
-#   cedric                  bring Cedric Pad forward
+#   cedric                  bring OwlInk forward
 #
 # CEDRIC_DRY_RUN=1 prints the cedric:// URLs instead of opening them (tests).
 set -euo pipefail
 
-# The app this script lives in ("Cedric Pad.app", or a pre-rename
-# "Cedric.app"), else CEDRIC_APP (a name or path), else whichever copy
-# Launch Services knows by the bundle id, which the rename kept.
+# The app this script lives in ("OwlInk.app", or a pre-rename
+# "Cedric Pad.app" or "Cedric.app"), else CEDRIC_APP (a name or path), else
+# whichever copy Launch Services knows by the bundle id, which the renames kept.
 here=$(cd "$(dirname "$(readlink "$0" 2>/dev/null || echo "$0")")" && pwd)
 case "$here" in
     *.app/Contents/Resources) TARGET=(-a "${here%/Contents/Resources}") ;;

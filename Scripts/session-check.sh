@@ -8,16 +8,16 @@
 # directory and file; never touches the real session. Needs a GUI session
 # (works with the screen locked).
 #
-#   Scripts/session-check.sh [--from OLD.app] [APP]     default "dist/Cedric Pad.app"
+#   Scripts/session-check.sh [--from OLD.app] [APP]     default "dist/OwlInk.app"
 #
-# --from OLD.app first has another build (say a pre-rename Cedric.app)
+# --from OLD.app first has another build (say a pre-rename "Cedric Pad.app")
 # save a session, by a normal quit and by a kill -9 after a hot close, and
 # checks that APP restores all of it, Reopen Closed Tab included.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 FROM=""
 if [ "${1:-}" = "--from" ]; then FROM=${2%/}; shift 2; fi
-APP="${1:-dist/Cedric Pad.app}"
+APP="${1:-dist/OwlInk.app}"
 BIN="$APP/Contents/MacOS/Cedric"
 [ -x "$BIN" ] || { echo "no app at $APP: run Scripts/bundle-app.sh first" >&2; exit 1; }
 W=$(mktemp -d)

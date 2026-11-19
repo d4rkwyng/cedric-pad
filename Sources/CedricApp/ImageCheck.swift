@@ -362,7 +362,7 @@ extension DevChecks {
                 var text = ""
                 @MainActor func walk(_ v: NSView) { if let f = v as? NSTextField { text += f.stringValue + " " }; v.subviews.forEach(walk) }
                 sheet?.contentView.map(walk)
-                expect(text.contains("isn’t an image Cedric Pad can show"), "it says the file is damaged", text)
+                expect(text.contains("isn’t an image OwlInk can show"), "it says the file is damaged", text)
                 if let sheet { pressReturn(in: sheet) }
                 next()
             },

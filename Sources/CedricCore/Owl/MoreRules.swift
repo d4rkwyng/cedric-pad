@@ -780,7 +780,7 @@ extension RulesHintProvider {
             if guess == .markdown || guess == .html || guess == .json {
                 hint(Self.languageGuessPrefix + guess.rawValue, .tip,
                      String(localized: "This looks like \(guess.displayName). Colour it that way?"),
-                     String(localized: "Only changes the colouring in Cedric Pad, not the file. The language menu in the status bar changes it back."),
+                     String(localized: "Only changes the colouring in OwlInk, not the file. The language menu in the status bar changes it back."),
                      nil, nil)
             }
         }

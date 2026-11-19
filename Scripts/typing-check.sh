@@ -12,7 +12,7 @@
 #   Scripts/typing-check.sh [APP] [SHOTS_DIR]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-APP="${1:-dist/Cedric Pad.app}"
+APP="${1:-dist/OwlInk.app}"
 BIN="$APP/Contents/MacOS/Cedric"
 [ -x "$BIN" ] || { echo "no app at $APP: run Scripts/bundle-app.sh first" >&2; exit 1; }
 W=$(mktemp -d)

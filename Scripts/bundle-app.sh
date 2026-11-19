@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "Cedric Pad.app" from the SwiftPM CedricApp target. Command Line Tools
+# Builds "OwlInk.app" from the SwiftPM CedricApp target. Command Line Tools
 # only: no Xcode project, no asset catalog, no actool. Same shape as
 # Tankard's bundle-app.sh.
 #
@@ -7,7 +7,7 @@
 #   Scripts/bundle-app.sh --universal     x86_64 + arm64 in one binary
 #   Scripts/bundle-app.sh --arch x86_64   one specific architecture
 #   Scripts/bundle-app.sh --no-sign       leave it unsigned
-#   Scripts/bundle-app.sh --out DIR       where "Cedric Pad.app" goes (default: dist)
+#   Scripts/bundle-app.sh --out DIR       where "OwlInk.app" goes (default: dist)
 #
 # --universal first tries one multi-arch `swift build`. SwiftPM 6.0 (the
 # macOS 14 Command Line Tools) hands multi-arch builds to xcbuild, which
@@ -19,12 +19,13 @@
 # version is written down. CFBundleVersion is the same string, as in
 # Tankard, so About shows "Version 0.1.0" with no "(N)" after it.
 #
-# Name: the app is "Cedric Pad" (bundle "Cedric Pad.app"); the owl is
+# Name: the app is "OwlInk" (bundle "OwlInk.app"); the owl is
 # Cedric. Everything a user's data hangs on keeps the old name: bundle id
 # net.mindtricks.cedric (UserDefaults domain), the cedric:// scheme,
 # ~/Library/Application Support/Cedric, and the executable Contents/MacOS/Cedric
 # (crash reports and `pgrep -x Cedric`). A pre-rename build left at
-# OUT/Cedric.app is unregistered and removed, so Launch Services sees one copy.
+# OUT/Cedric.app or "OUT/Cedric Pad.app" is unregistered and removed, so
+# Launch Services sees one copy.
 # The new bundle isn't force-registered: a dev build in dist shouldn't take
 # over Open With from an installed copy; Launch Services registers it (with
 # its new name) the first time it is opened.
@@ -71,14 +72,15 @@ else
     BIN=$(swift build -c release ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} --show-bin-path)
 fi
 
-APP="$OUT/Cedric Pad.app"
+APP="$OUT/OwlInk.app"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-OLD_APP="$OUT/Cedric.app"
-if [ -d "$OLD_APP" ]; then
-    [ -x "$LSREGISTER" ] && "$LSREGISTER" -u "$OLD_APP" 2>/dev/null || true
-    rm -rf "$OLD_APP"
-    echo "==> removed the pre-rename $OLD_APP"
-fi
+for OLD_APP in "$OUT/Cedric.app" "$OUT/Cedric Pad.app"; do
+    if [ -d "$OLD_APP" ]; then
+        [ -x "$LSREGISTER" ] && "$LSREGISTER" -u "$OLD_APP" 2>/dev/null || true
+        rm -rf "$OLD_APP"
+        echo "==> removed the pre-rename $OLD_APP"
+    fi
+done
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # The app icon (Finder, Dock, About). Made by tools/icon/cedric_icon.py, committed.
@@ -120,9 +122,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key>
     <string>net.mindtricks.cedric</string>
     <key>CFBundleName</key>
-    <string>Cedric Pad</string>
+    <string>OwlInk</string>
     <key>CFBundleDisplayName</key>
-    <string>Cedric Pad</string>
+    <string>OwlInk</string>
     <key>CFBundleExecutable</key>
     <string>Cedric</string>
     <key>CFBundleIconFile</key>

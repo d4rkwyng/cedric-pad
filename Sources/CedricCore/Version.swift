@@ -8,7 +8,7 @@ public enum CedricVersion {
     /// This tree's version.
     public static let source = "0.1.1"
 
-    /// Inside "Cedric Pad.app", the bundle's CFBundleShortVersionString (what
+    /// Inside "OwlInk.app", the bundle's CFBundleShortVersionString (what
     /// About shows); elsewhere (tests, `swift run`) `source`. A release's
     /// plist is required to equal `source`, so shipped builds get the same
     /// string either way.

@@ -38,11 +38,11 @@ enum MenuShortcuts {
     }
 }
 
-/// Help › Cedric Pad Help (the README on GitHub) and Help › Keyboard
+/// Help › OwlInk Help (the README on GitHub) and Help › Keyboard
 /// Shortcuts (a window listing every menu shortcut). NSApp.helpMenu is
 /// set, so macOS adds its menu search field to Help.
 extension AppDelegate {
-    static let helpURL = URL(string: "https://github.com/d4rkwyng/cedric-pad#readme")!
+    static let helpURL = URL(string: "https://github.com/d4rkwyng/owlink#readme")!
 
     @objc func showHelp(_ sender: Any?) {
         NSWorkspace.shared.open(Self.helpURL)

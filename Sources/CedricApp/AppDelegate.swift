@@ -208,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let a = NSAlert()
         // The full path, so a link to ~/.ssh/config reads as exactly that.
         a.messageText = String(localized: "Open “\(path)” requested by a link?")
-        a.informativeText = String(localized: "Another app or a web page asked Cedric Pad to open this file. Open it only if you expected this.")
+        a.informativeText = String(localized: "Another app or a web page asked OwlInk to open this file. Open it only if you expected this.")
         a.addButton(withTitle: String(localized: "Open"))
         a.addButton(withTitle: String(localized: "Cancel"))
         guard a.runModal() == .alertFirstButtonReturn else { refuseURL("declined: \(path)"); return }
@@ -336,7 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     static var lastSpecialRefusal: String?
 
     func refuseSpecialFile(_ url: URL, _ kind: String) {
-        let text = String(localized: "“\(url.lastPathComponent)” is \(kind), not a regular file, so Cedric Pad won’t open it.")
+        let text = String(localized: "“\(url.lastPathComponent)” is \(kind), not a regular file, so OwlInk won’t open it.")
         Self.lastSpecialRefusal = text
         if ProcessInfo.processInfo.environment["CEDRIC_CHECK"] != nil { print("check: note: \(text)"); return }
         let a = NSAlert()

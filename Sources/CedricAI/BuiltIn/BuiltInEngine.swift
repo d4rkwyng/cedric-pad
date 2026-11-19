@@ -20,7 +20,7 @@ public struct BuiltInEngine: AIEngine {
     public var kind: LocalAISettings.Backend { .builtIn }
     public var isAvailable: Bool { catalog != nil }
     public var unavailableReason: String? {
-        catalog == nil ? "This copy of Cedric Pad is missing its model list (Resources/AI/models.json)." : nil
+        catalog == nil ? "This copy of OwlInk is missing its model list (Resources/AI/models.json)." : nil
     }
     public var needsAddress: Bool { false }
     public var note: String? {

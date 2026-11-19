@@ -1,7 +1,7 @@
 import AppKit
 
 /// CEDRIC_CHECK=help (Scripts/tools-check.sh): the Help menu is the
-/// system's help menu (menu search), with Cedric Pad Help and Keyboard
+/// system's help menu (menu search), with OwlInk Help and Keyboard
 /// Shortcuts, and the shortcuts window lists the menus' shortcuts.
 @MainActor
 extension DevChecks {
@@ -13,9 +13,9 @@ extension DevChecks {
                 let help = NSApp.mainMenu?.items.last
                 expect(help?.title == "Help" && NSApp.helpMenu === help?.submenu, "Help is the last menu and the system's help menu")
                 let titles = help?.submenu?.items.map(\.title) ?? []
-                expect(titles.contains("Cedric Pad Help") && titles.contains("Keyboard Shortcuts"), "with Cedric Pad Help and Keyboard Shortcuts",
+                expect(titles.contains("OwlInk Help") && titles.contains("Keyboard Shortcuts"), "with OwlInk Help and Keyboard Shortcuts",
                        "\(titles)")
-                expect(AppDelegate.helpURL.absoluteString == "https://github.com/d4rkwyng/cedric-pad#readme", "Help opens the README")
+                expect(AppDelegate.helpURL.absoluteString == "https://github.com/d4rkwyng/owlink#readme", "Help opens the README")
                 if let i = help?.submenu?.items.firstIndex(where: { $0.title == "Keyboard Shortcuts" }) {
                     help?.submenu?.performActionForItem(at: i)
                 }

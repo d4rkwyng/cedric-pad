@@ -12,11 +12,11 @@
 # rotation, the auto-hide and Reduce Motion. Throwaway session; works
 # with the screen locked.
 #
-#   Scripts/pdf-check.sh [--out DIR] [APP]     default "dist/Cedric Pad.app"
+#   Scripts/pdf-check.sh [--out DIR] [APP]     default "dist/OwlInk.app"
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=${TMPDIR:-/tmp}/cedric-pdf-check
-APP="dist/Cedric Pad.app"
+APP="dist/OwlInk.app"
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT=$2; shift ;;
