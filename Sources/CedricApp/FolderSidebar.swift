@@ -48,7 +48,15 @@ extension AppDelegate {
     /// Opens `url` in the folder sidebar (replacing the folder open before)
     /// and shows it in the selected tab. `state`: restoring a session.
     func openFolder(_ url: URL, state: SessionFolder? = nil) {
-        guard let tab = currentTab ?? tabs.last else { return }
+        // At launch (a folder dropped on the Dock icon, CEDRIC_OPEN): after
+        // the first frame, once the window's tab exists.
+        guard AfterFirstFrame.passed, let tab = currentTab ?? tabs.last else {
+            AfterFirstFrame.run { [weak self] in
+                guard let self, AfterFirstFrame.passed, (self.currentTab ?? self.tabs.last) != nil else { return }
+                self.openFolder(url, state: state)
+            }
+            return
+        }
         FolderSidebar.shared?.close()
         FolderSidebar.pendingFolder = nil
         let s = FolderSidebar(root: url.standardizedFileURL, state: state)
@@ -154,6 +162,8 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     private(set) var width: CGFloat
     private(set) var showHidden: Bool
     private(set) var watcher: FolderWatcher?
+    /// Folders that changed while their listing was under way: listed again after it.
+    private var relistAfterLoad = Set<ObjectIdentifier>()
     /// Folders to expand once listed (restoring a session): relative paths.
     private var pendingExpand: [String]
     /// Width changes come from the user (divider drags) only once docked.
@@ -340,7 +350,8 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     /// Lists `node` off the main thread (again, if it was loaded: the rows
     /// that changed are inserted and removed in place).
     func load(_ node: FolderNode) {
-        guard node.isDirectory, !node.isLoading else { return }
+        guard node.isDirectory else { return }
+        if node.isLoading { relistAfterLoad.insert(ObjectIdentifier(node)); return }
         if node.entry.isSymlink, FolderTree.wouldLoop(node.url, ancestors: node.ancestors.map(\.url)) {
             // A link back up the tree: shown, never expanded into.
             node.loadError = String(localized: "Links to a folder above it")
@@ -400,6 +411,7 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
             }
         }
         onListed?(node)
+        if relistAfterLoad.remove(ObjectIdentifier(node)) != nil { load(node) }
     }
 
     func relativePath(_ node: FolderNode) -> String {

@@ -352,6 +352,7 @@ window); the app side is `EditorTools.swift`, `FindInFilesPanel.swift` and
 | Find in Files | Edit › Find in Files… | ⇧⌘F |
 | Compare two tabs | View › Compare With… (next/previous difference) | ⌥⌘C (⌥⌘↓ / ⌥⌘↑) |
 | Follow a log file | View › Follow File | ⌥⌘T |
+| Folder sidebar | File › Open Folder… / View › Show Folder Sidebar | ⇧⌘O / ⌃⌘1 |
 
 `CEDRIC_DUMP_SHORTCUTS=1` prints every key equivalent in the main menu and
 exits 1 on a clash with another item or with a system shortcut (Lock Screen
@@ -418,6 +419,77 @@ window and AppKit won't route a synthetic key equivalent or a click on a
 table: the check then sends the matching menu item's action along the front
 window's responder chain, and selects the clicked row and sends the table's
 action, and says so in its output.
+
+## Folder sidebar
+
+File › Open Folder… (⇧⌘O), a folder dropped on the Dock icon, or
+`cedric some/dir` (both reach `AppDelegate.open`, which routes a folder
+that isn't a package to `openFolder`) shows a folder tree at the left of
+the editor. View › Show Folder Sidebar (⌃⌘1) hides and shows it; it is
+disabled until a folder is open. The model is `CedricCore/FolderTree.swift`
+(tested in `FolderTreeTests.swift`); the app side is `FolderSidebar.swift`
+and `FolderWatcher.swift`.
+
+- **Invisible until used.** Nothing is built at launch: no view, no
+  listing, no FSEvents stream, no per-tab object. A session with a
+  folder whose sidebar was hidden only remembers it
+  (`FolderSidebar.pendingFolder`); the sidebar is built on the first
+  ⌃⌘1.
+- **One sidebar for the app**, like the Find in Files panel: every tab is
+  its own NSWindow, so the one `FolderSidebar` is docked at index 0 of the
+  selected tab's `split` (`EditorWindowController.dockLeftPanel`) and moved
+  on `tabBecameKey`. A re-dock is one remove + insert (5–13 ms in the
+  check, including the tab switch). The outline sidebar stays inside the
+  editor pane, so both can show: Folder | Outline | gutter | text, with the
+  preview and Find in Files still docked to the right (the split is
+  searched by identity, never by count).
+- **Width.** NSSplitView shares space out by proportion when the window
+  resizes or a panel docks, whatever the holding priorities, so the
+  sidebar puts its width back after any resize that isn't the user
+  dragging its divider (a mouse event in that window, not a live window
+  resize). A divider drag is kept and saved.
+- **Lazy listing.** Only expanded folders are listed: `FolderTree.list`
+  reads one level with `contentsOfDirectory` and the directory, hidden,
+  package and symlink keys, on a background queue. Folders first, then
+  Finder's order (`localizedStandardCompare`). `.git` and `.DS_Store`
+  never show; hidden files show with the context menu's Show Hidden Files.
+  Packages are files. A symbolic link to a folder can be expanded unless
+  its real path is that of a folder above it (`FolderTree.wouldLoop`). A
+  20,000-entry folder is a unit test (`twentyThousandEntriesListQuickly`).
+- **Updates.** `FolderWatcher` is an FSEvents stream on the root (no
+  per-file events, 0.3 s latency, its own utility queue), running only
+  while the sidebar shows; hiding stops it, showing again re-lists the
+  loaded folders once. An event re-lists the folder it names if that
+  folder is loaded (events under folders never expanded cost a path walk).
+  `FolderNode.apply` diffs the new listing against the old by name and
+  kind and keeps the nodes that stayed, so the outline gets
+  `removeItems`/`insertItems` and expansion and selection survive. A
+  dropped-events flag re-lists the loaded subtree; the root going away
+  closes the folder. FSEvents report real paths (`/private/var/…`), so
+  paths are matched against the root's `realpath` as well as the path
+  as opened.
+- **Opening.** A click on a file opens it through `AppDelegate.open`
+  (PDF, image, Office and binary files included) or selects its tab;
+  Return does the same; double-click, → and ← expand and collapse. The
+  selected tab's file is selected in the tree when its folder is
+  already expanded (nothing is expanded for it). Context menu: Reveal in
+  Finder, Copy Path, Find in Folder… (Find in Files on that folder), Show
+  Hidden Files, Close Folder.
+- **Session.** `Session.folder` (`SessionFolder`: path, visible, width,
+  expanded folders as relative paths, parents first, at most 200, show
+  hidden) is optional, so 0.1.x sessions decode. A visible sidebar is
+  rebuilt through `AfterFirstFrame`, a frame after the window, and its
+  expanded folders are expanded top-down as their parents are listed.
+
+Checks: `CEDRIC_CHECK=folder` (`FolderCheck.swift`) opens a temp tree the
+way a dropped folder arrives and drives it with a click on a disclosure
+triangle, → on a selected folder, clicks and Return on files, ⌃⌘1 twice
+and the × button; it creates, deletes and renames files on disk and waits
+for the rows, checks the loop guard, the layout with the preview and Find
+in Files docked too, the re-dock on a tab switch, that the stream stops
+while hidden, the session state, and snapshots light and dark.
+`render-check.sh` renders the sidebar beside typed text in a light and a
+dark theme; `session-check.sh` restores a saved folder after a kill -9.
 
 ## Git and GitHub links
 

@@ -8,7 +8,7 @@ are its section below (`Scripts/changelog-section.sh`).
 
 ### Added
 - **Replace in Files** (in progress).
-- **Folder sidebar** (in progress).
+- **Folder sidebar.** File › Open Folder… (⇧⌘O), or a folder dropped on the Dock icon, shows the folder as an expandable tree at the left of the editor; View › Show Folder Sidebar (⌃⌘1) hides and shows it. Hidden by default: nothing is loaded or watched until a folder is opened. Folders list only when expanded, folders first in Finder order, without `.git`, `.DS_Store` or hidden files (Show Hidden Files in the context menu). A click opens the file in a tab, or selects its tab if it is open. The tree follows files created, deleted and renamed on disk. Context menu: Reveal in Finder, Copy Path, Find in Folder…, Close Folder. The folder, its expanded folders and the sidebar's width come back with the session.
 - **Multiple carets and column selection** (in progress).
 
 ### Known gaps
