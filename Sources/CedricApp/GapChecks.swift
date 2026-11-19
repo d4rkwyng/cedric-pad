@@ -635,6 +635,7 @@ extension DevChecks {
         let dropped = write("dropped.swift", "let dropped = 1\n")
         sized(target)
         let pb = NSPasteboard(name: NSPasteboard.Name("cedric-check-drop-\(getpid())"))
+        var before = 0
         run([
             sync {
                 focus(target)
@@ -652,14 +653,55 @@ extension DevChecks {
                 // Text isn't taken over: it goes to NSTextView's own drop handling (not opened as a file).
                 pb.clearContents()
                 pb.setString("plain words", forType: .string)
-                let before = app.tabs.count
+                before = app.tabs.count
                 _ = drop(pb, on: target)
                 expect(app.tabs.count == before, "a text drop opens nothing")
-                // A folder isn't opened as a file.
+                // A folder isn't opened as a file: it opens in the folder sidebar.
+                let folder = dir.appendingPathComponent("dropped-folder", isDirectory: true)
+                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                _ = write("dropped-folder/inside.txt", "inside\n")
                 pb.clearContents()
-                pb.writeObjects([dir as NSURL])
-                _ = drop(pb, on: target)
-                expect(app.tabs.count == before, "a folder drop opens nothing")
+                pb.writeObjects([folder as NSURL])
+                let (op, ok) = drop(pb, on: target)
+                expect(op != [] && ok, "the text view takes a dropped folder", "op \(op.rawValue) ok \(ok)")
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { next() } },
+            sync {
+                expect(app.tabs.count == before, "a folder drop opens no tab")
+                expect(FolderSidebar.shared?.rootURL.standardizedFileURL.path == dir.appendingPathComponent("dropped-folder").standardizedFileURL.path,
+                       "a folder dropped on the text opens in the folder sidebar", FolderSidebar.shared?.rootURL.path ?? "none")
+                expect(FolderSidebar.shared?.isShown == true && app.tabs.contains { FolderSidebar.shared?.superview === $0.split }, "and shown, docked in a tab")
+                app.closeFolder()
+                // Beside the text (the window's content view: gutter, status bar).
+                guard let stack = target.stack as? FileDropStackView else { expect(false, "the window's content view takes drops"); return }
+                let info = FakeDrag(pb, window: target.window, point: target.statusBar.convert(NSPoint(x: 5, y: 5), to: nil))
+                let op = stack.draggingEntered(info)
+                let ok = op != [] && stack.prepareForDragOperation(info) && stack.performDragOperation(info)
+                expect(op == .copy && ok, "the window takes a dropped folder beside the text", "op \(op.rawValue) ok \(ok)")
+                // Plain text dropped there is refused, not opened.
+                let tpb = NSPasteboard(name: NSPasteboard.Name("cedric-check-drop-text-\(getpid())"))
+                tpb.clearContents()
+                tpb.setString("words", forType: .string)
+                expect(stack.draggingEntered(FakeDrag(tpb, window: target.window, point: .zero)) == [], "the window refuses a text drop")
+                tpb.releaseGlobally()
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { next() } },
+            sync {
+                expect(app.tabs.count == before, "a folder dropped on the window opens no tab")
+                expect(FolderSidebar.shared?.rootURL.lastPathComponent == "dropped-folder", "a folder dropped on the window opens in the folder sidebar")
+                // A file dropped on the window still opens in a tab.
+                let another = write("dropped-beside.txt", "beside\n")
+                pb.clearContents()
+                pb.writeObjects([another as NSURL])
+                if let stack = target.stack as? FileDropStackView {
+                    let info = FakeDrag(pb, window: target.window, point: .zero)
+                    _ = stack.draggingEntered(info) != [] && stack.performDragOperation(info)
+                }
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { next() } },
+            sync {
+                expect(app.tabs.contains { $0.doc.fileURL?.lastPathComponent == "dropped-beside.txt" }, "a file dropped on the window opens in a tab")
+                app.closeFolder()
                 pb.releaseGlobally()
             },
         ])

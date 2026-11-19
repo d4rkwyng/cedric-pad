@@ -203,9 +203,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             return self.fences.isInFence(self.textView.string as NSString, index: index, line: index.line(containing: offset))
         }
         textView.onImages = { [weak self] files, bitmap, at in self?.insertImages(files, bitmap: bitmap, at: at) }
-        textView.onDropFiles = { urls in
-            for u in urls { (NSApp.delegate as? AppDelegate)?.open(u) }
-        }
+        textView.onDropFiles = { urls in FileDrop.open(urls) }
         textView.lineStartFor = { [weak self] offset in
             guard let index = self?.lineIndex, index.lineCount > 0 else { return 0 }
             return index.starts[index.line(containing: offset)]
@@ -230,7 +228,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
         largeBar.isHidden = true
         largeBar.onTurnOn = { [weak self] in self?.turnOnExtras() }
-        let stack = NSStackView(views: [largeBar, split, statusBar])
+        let stack = FileDropStackView(views: [largeBar, split, statusBar])
+        // A file or folder dropped beside the text (gutter, status bar) opens too.
+        stack.onDropFiles = { urls in FileDrop.open(urls) }
+        stack.acceptFileDrops()
         self.stack = stack
         stack.orientation = .vertical
         stack.spacing = 0
@@ -909,6 +910,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         textView.onShiftLines = nil
         textView.tabInsertsSpaces = nil
         textView.onDropFiles = nil
+        (stack as? FileDropStackView)?.onDropFiles = nil
         textView.lineStartFor = nil
         textView.contentStorage?.lineRange = nil
         colorizer.lineIndexProvider = { LineIndex() }

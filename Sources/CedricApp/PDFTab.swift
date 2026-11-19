@@ -39,11 +39,8 @@ final class CedricPDFView: PDFView {
     }
 
     private func fileURLs(_ info: NSDraggingInfo) -> [URL] {
-        let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        return urls.filter { u in
-            var dir: ObjCBool = false
-            return FileManager.default.fileExists(atPath: u.path, isDirectory: &dir) && !dir.boolValue
-        }
+        // Files open in tabs, folders in the folder sidebar.
+        FileDrop.urls(info)
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {

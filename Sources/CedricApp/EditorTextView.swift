@@ -389,12 +389,12 @@ final class EditorTextView: NSTextView {
         return types
     }
 
-    /// The file URLs a drag carries (none for text, or for a drag that
-    /// started in this text view).
+    /// The file and folder URLs a drag carries (none for text, or for a
+    /// drag that started in this text view). A folder opens in the folder
+    /// sidebar, as on the Dock icon (`AppDelegate.open`).
     private func droppedFiles(_ info: NSDraggingInfo) -> [URL] {
         guard onDropFiles != nil, (info.draggingSource as? NSView) !== self else { return [] }
-        let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        return urls.filter { u in var dir: ObjCBool = false; return FileManager.default.fileExists(atPath: u.path, isDirectory: &dir) && !dir.boolValue }
+        return FileDrop.urls(info)
     }
 
     override func draggingEntered(_ info: NSDraggingInfo) -> NSDragOperation {
