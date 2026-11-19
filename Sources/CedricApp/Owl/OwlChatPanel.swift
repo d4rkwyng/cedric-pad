@@ -529,7 +529,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         case LocalAIError.http(let c): return String(localized: "The AI server answered with an error (\(c)).")
         case BuiltInError.promptTooLong: return String(localized: "Too much text for this model: select less and ask again.")
         case BuiltInError.notInstalled: return String(localized: "No model downloaded yet: download one in Cedric AI Settings.")
-        default: return String(localized: "Something went wrong: \(String(describing: e).prefix(160))")
+        default: return String(localized: "Something went wrong: \(String(String(describing: e).prefix(160)))")
         }
     }
 

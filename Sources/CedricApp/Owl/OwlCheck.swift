@@ -62,7 +62,7 @@ enum OwlCheck {
         func wait() {
             if OwlHub.shared.onPresent == nil { return }
             if Date() > deadline { check(false, "a hint appeared within 20 s"); finish(out) ; return }
-            after(0.25, wait)
+            after(0.25) { wait() }
         }
         wait()
     }
@@ -102,7 +102,7 @@ enum OwlCheck {
                 return
             }
             for _ in 0..<5 { key(window, "x", code: 7, []); typed += 1 }
-            after(0.02, type)
+            after(0.02) { type() }
         }
         type()
     }
