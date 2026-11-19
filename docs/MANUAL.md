@@ -220,6 +220,42 @@ of carets. One ⌘Z undoes one edit at all of them.
 Input methods and dead keys (⌥E then E for é) compose at the main caret,
 and the result goes in at every caret. VoiceOver follows the main caret.
 
+### Code folding
+
+Hover over the line numbers: a ▾ appears beside each line that starts a
+block. Click it to fold the block; the line shows ▸ and a "⋯ 12 lines"
+pill, and the numbers of the hidden lines are skipped. Click the ▸ or the
+pill to unfold.
+
+| To | Do |
+|---|---|
+| Fold the block at (or around) the caret | ⌥⌘← (View › Folding › Fold) |
+| Unfold the caret line's block | ⌥⌘→ |
+| Fold every block | ⌥⇧⌘← |
+| Unfold everything | ⌥⇧⌘→ |
+| Show only the outer levels | View › Folding › Fold to Level 1, 2 or 3 |
+
+What folds:
+
+- **Brackets** `{ }`, `[ ]`, `( )` in Swift, JavaScript, TypeScript, C,
+  CSS, JSON and PowerShell, from the line that opens to the line that
+  closes (the closing line stays). Brackets inside strings and comments
+  don't count.
+- **Block comments** (`/* … */`) over several lines.
+- **Indentation** in Python, YAML, shell scripts, Ruby and SQL: a line and
+  the deeper-indented lines under it.
+- **Sections** in INI and TOML: each `[section]` to the next.
+- **Headings** in Markdown: each heading down to the next heading of the
+  same or a higher level. A `#` line in fenced code isn't a heading.
+- Plain text, CSV, diffs, batch files and .reg files don't fold.
+
+Folded text is only hidden: the file is unchanged, and save, undo,
+print, export and copy see all of it (copying across a fold copies the
+hidden lines). The arrow keys step over a fold. Find, Go to Line, a
+bookmark, the outline or a caret that lands inside a fold opens it, and
+so does typing in it or pressing Return at the end of its first line.
+Folds are kept with the session. Large-document mode turns folding off.
+
 ### Highlight occurrences
 
 other occurrences of the selection, or of the
@@ -834,7 +870,7 @@ More in [docs/architecture.md](architecture.md).
 
 ## Not built yet
 
-Macros and automatic updates; code folding and split view (0.3.0). See
+Macros and automatic updates; split view (0.3.0); folding HTML and XML tags. See
 `docs/architecture.md` for where they plug in.
 
 ## Built with Claude

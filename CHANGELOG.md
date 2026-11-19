@@ -4,6 +4,14 @@ All notable changes to OwlInk. The format follows [Keep a Changelog](https://kee
 and OwlInk uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
+## [0.3.0]
+
+### Added
+- **Code folding.** Triangles beside the line numbers (shown while the pointer is over the gutter, and always on a folded line) fold and unfold a block; a folded block shows a "⋯ N lines" pill after its first line (click it to unfold) and its line numbers skip. View › Folding: Fold (⌥⌘←), Unfold (⌥⌘→), Fold All (⌥⇧⌘←), Unfold All (⌥⇧⌘→), Fold to Level 1–3. Brackets fold in Swift, JavaScript, TypeScript, C, CSS, JSON and PowerShell (braces in strings and comments don't count), multi-line block comments fold, indentation folds in Python, YAML, shell, Ruby and SQL, `[sections]` in INI/TOML, and headings in Markdown (a `#` in fenced code isn't one). The arrow keys step over folded lines; Find, Go to Line, bookmarks, the outline and multiple carets open a fold they land in; typing in or into a fold opens it; copy takes the hidden lines too, and save, undo and print always see the whole text. Folds come back with the session. Off in large-document mode.
+
+### Known gaps
+- Folding: HTML/XML tags don't fold yet; a JavaScript regex literal's brackets count as brackets; a region whose end is more than 50,000 lines below its start doesn't fold; git change bars on folded lines aren't summarised on the header line.
+
 ## [0.2.0]
 
 ### Added

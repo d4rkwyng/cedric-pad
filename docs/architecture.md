@@ -214,6 +214,100 @@ the drawn glyphs and carets, and that ⌘D in a save alert is still Don't
 Save. `typing-check.sh` types at three carets in every theme and commits IME
 text at three carets.
 
+## Code folding
+
+| Action | Menu / gesture | Shortcut |
+|---|---|---|
+| Fold the region at or around the caret | View › Folding › Fold | ⌥⌘← |
+| Unfold the caret line's folds | View › Folding › Unfold | ⌥⌘→ |
+| Fold All / Unfold All | View › Folding | ⌥⇧⌘← / ⌥⇧⌘→ |
+| Fold to Level 1–3 | View › Folding | |
+| Fold or unfold one region | a click on the gutter's triangle, or on the "⋯" pill | |
+
+**Regions (CedricCore/Folding.swift, `FoldScanner`).** `Language.foldKind`:
+brackets (Swift, JS, TS, C, CSS, JSON, PowerShell; plus multi-line block
+comments), indentation (Python, YAML, shell, Ruby, SQL), sections (INI/TOML
+`[section]`), headings (Markdown ATX headings outside fences, via
+`FenceIndex`), none (plain, CSV, diff, batch, .reg, HTML/XML). Nothing is
+precomputed. "Does line L start a region?" reads line L only (brackets:
+the line's tokens from the tab's `HighlightEngine`, whose start states are
+already cached for the visible lines, so a brace in a string or comment
+never counts; indentation: the next non-blank line). The region's end is
+found only when it is folded, by a forward scan bounded to 50,000 lines
+(past that, the fold is refused rather than moved off the main thread: a
+simplification of the plan's async scan). A bracket region hides the lines
+after its header up to the line before the closing bracket; a block
+comment hides through its closing line when nothing else follows the
+`*/`. Fold All and Fold to Level use `allRegions`, one linear pass
+(brackets with a stack; headings with a level stack) that also gives each
+region's depth. `lineTokens(_:)` was added to `HighlightEngine` for one
+line's tokens and its start/end states.
+
+**State (`FoldState`).** The folded regions as character ranges (start of
+the line after the header to the end of the last hidden line, newline
+included), sorted; folds nest (an inner fold stays folded inside an outer
+one), and `hidden` is their merged union for a binary search. An edit
+(`adjust`) shifts folds after it and opens a fold it touches: inside it,
+over its header's newline, a line break typed at the end of its header,
+or text appended after a fold that runs to the end of the document.
+
+**Hiding (CedricApp/Folding.swift, `FoldingController`).** Made on a
+tab's first fold (`EditorWindowController.folding`, `EditorTextView.folding`
+are nil until then). It sets itself as the `ChunkedContentStorage`'s
+`NSTextContentStorageDelegate` and returns false from
+`textContentManager(_:shouldEnumerate:options:)` for paragraphs that start
+in hidden text, then invalidates the layout from the fold to the end of
+the document and lays out the viewport. TextKit 2 neither lays out nor
+returns layout fragments for those paragraphs, so the gutter (which
+numbers fragments) skips their numbers, and the find highlight, spelling
+and grammar marks there draw nothing. The text storage never changes:
+there is no attachment, so save, undo, copy, print, export and the
+preview see the whole text. With nothing folded the delegate is removed.
+Large mode turns folding off (the chunked storage builds its own elements
+and would show hidden lines), as do held binary files.
+
+**Selection.** The window controller implements
+`textView(_:willChangeSelectionFromCharacterRanges:toCharacterRanges:)`
+(a nil check while nothing is folded). `EditorTextView.doCommand(by:)` sets
+`keyNavigating` around AppKit's key commands: a key move (→, ←, word
+moves, ⌘→…) that would land in hidden text skips past it in the direction
+it moved (the line after the fold, or the end of the header line). Every
+other selection change (find, Go to Line, F2 bookmarks, the outline,
+`reveal(_:)`) opens the folds holding an end of the new selection; a
+selection that covers a whole fold leaves it folded. ↑/↓ already step over
+hidden paragraphs in TextKit. Multiple carets: a caret set in hidden text
+opens its fold on the next turn (`multiCarets` didSet, a nil check while
+nothing is folded). `scrollToLine` maps a hidden line to its header and
+never opens a fold, so the scroll anchor (`keepAnchor`, which also keeps
+the top line steady when a fold above changes the height) can't open one.
+
+**Drawing.** The gutter has a 12 pt fold column between the numbers and
+the git bars, only for languages that fold (`GutterView.foldColumn`);
+triangles are drawn while the pointer is over the gutter (a tracking area
+for those languages) and always on folded lines. The "⋯ N lines" pill is
+drawn in `EditorTextView.drawBackground` after the header line's end, for
+the viewport only; a click on it unfolds the outermost fold there.
+
+**Session.** `SessionTab.folds: [Int]?` (header lines, optional so old
+sessions decode); re-applied after the first frame, region by region.
+
+**Checks.** `FoldingTests` (kinds, brackets with strings and comments,
+`} else {` chains, Allman braces, JSON/CSS, block comments, Python with
+blank lines, comments and triple-quoted strings, YAML block scalars and
+lists, shell, INI, Markdown with fences, `allRegions` against `region(at:)`,
+the 50k bound, `FoldState` edits, nesting, caret skipping and opening).
+`CEDRIC_CHECK=folding` (tools-check.sh) clicks the triangles and the pill,
+sends ⌥⌘←/→, ⌥⇧⌘←/→ and arrow keys, and checks the laid-out lines, the
+unchanged storage, typing at and in a fold, undo, Find, Go to Line, F2,
+⌃⌘G, copy, Fold All (timed), Fold to Level 2, the session round trip,
+Markdown, Python, plain text and large mode, with snapshots in dark and
+light.
+
+**Not done.** Split view will share folds between panes (hiding is per
+content storage). HTML/XML tag folding; JavaScript regex literals aren't
+tokenized, so their brackets count; git change bars on hidden lines
+aren't summarised on the header.
+
 ## Highlighting: hand-written tokenizers vs tree-sitter
 
 Chosen for v0: hand-written, line-at-a-time tokenizers.
