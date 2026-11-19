@@ -28,6 +28,16 @@ extension DevChecks {
                        "listing the menus' shortcuts", String(text.prefix(120)))
                 expect(text.split(separator: "\n").count == MenuShortcuts.list().count + MenuShortcuts.extraRows.count,
                        "every one of them, and the non-menu ones (⌥-drag, ⌘-click, ⎋)")
+                // The 0.2.0 keys, each on its own row with its item.
+                let lines = text.split(separator: "\n").map(String.init)
+                let wanted: [(String, String)] = [
+                    ("⇧⌘O", "Open Folder"), ("⌃⌘1", "Show Folder Sidebar"), ("⌥⇧⌘F", "Replace in Files"),
+                    ("⌘D", "Add Next Occurrence"), ("⌃⌘G", "Select All Occurrences"), ("⌃⇧↑", "Add Caret Above"),
+                    ("⌃⇧↓", "Add Caret Below"), ("⌥-drag", "column selection"), ("⌘-click", "add or remove a caret"), ("⎋", "Single Caret"),
+                ]
+                let missing = wanted.filter { k, name in !lines.contains { $0.hasPrefix(k + " ") && $0.contains(name) } }
+                expect(missing.isEmpty, "the 0.2.0 keys are listed: ⇧⌘O ⌃⌘1 ⌥⇧⌘F ⌘D ⌃⌘G ⌃⇧↑ ⌃⇧↓ ⌥-drag ⌘-click ⎋",
+                       "missing \(missing.map(\.0)) in \(lines.filter { $0.contains("Caret") || $0.contains("Folder") || $0.contains("Occurrence") })")
             },
             { next in snapshot("keyboard-shortcuts.png", window: ShortcutsWindow.shared)(next) },
         ])
