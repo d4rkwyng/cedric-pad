@@ -68,6 +68,30 @@ public final class HighlightEngine {
         return out
     }
 
+    /// One line's tokens (offsets relative to the line start) and the
+    /// state at its start and end, for code folding. Walks from the last
+    /// known state like `tokens(forLines:)` and extends the cache.
+    public func lineTokens(_ line: Int, in text: NSString, index: LineIndex, into out: inout [Token]) -> (start: UInt32, end: UInt32) {
+        out.removeAll(keepingCapacity: true)
+        guard line >= 0, line < index.lineCount else { return (0, 0) }
+        var state: UInt32 = 0
+        if tokenizer.carriesState {
+            var l = states.count - 1
+            state = states[l]
+            while l < line {
+                scratch.removeAll(keepingCapacity: true)
+                scan(line: l, text: text, index: index, state: &state, into: &scratch)
+                l += 1
+                states.append(state)
+            }
+            state = states[line]
+        }
+        let start = state
+        scan(line: line, text: text, index: index, state: &state, into: &out)
+        if tokenizer.carriesState, line + 1 == states.count, line + 1 < index.lineCount { states.append(state) }
+        return (start, state)
+    }
+
     private func scan(line: Int, text: NSString, index: LineIndex, state: inout UInt32, into tokens: inout [Token]) {
         let r = index.contentRange(ofLine: line)
         // Very long lines (minified JSON, logs): colour the first 20k
