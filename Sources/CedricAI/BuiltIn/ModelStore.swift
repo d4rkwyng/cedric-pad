@@ -47,24 +47,41 @@ public struct ModelStore: Sendable {
     /// the file inside Owlink's process, so before a load its SHA-256 is
     /// checked against the catalog's (bundled, signed) value. Hashing a
     /// model takes a few seconds, so it is done once and remembered with
-    /// the file's device, inode, size and modification time: the first
-    /// load after an install, or after the file changed or was replaced,
-    /// hashes again. A symbolic link or a mismatch is refused. Blocking:
-    /// call it off the main thread.
+    /// the file's device, inode, size, modification time and status-change
+    /// time (ctime): the first load after an install, or after the file
+    /// changed or was replaced, hashes again. A symbolic link or a mismatch
+    /// is refused. Blocking: call it off the main thread.
+    ///
+    /// The mtime can be set back by any process of the user (utimensat),
+    /// so on its own it would let a rewritten file keep its old stamp; the
+    /// ctime can't be set from user space and moves on any write, chmod or
+    /// utimensat. A stamp written before ctime was in it (0.2.1 betas)
+    /// doesn't match and just hashes once more.
+    ///
+    /// This is defence in depth, not a seal: the check is by path and
+    /// LlamaRuntime.load then opens the file again by path, so a process
+    /// running as the user that swaps the file between the two is not
+    /// caught (a known gap, see docs/architecture.md).
     public func verifiedForLoad(_ model: BuiltInModel) -> Bool {
         let url = fileURL(for: model)
         var st = stat()
         guard lstat(url.path, &st) == 0, st.st_mode & S_IFMT == S_IFREG, Int64(st.st_size) == model.sizeBytes else { return false }
-        let stamp = "\(st.st_dev) \(st.st_ino) \(st.st_size) \(st.st_mtimespec.tv_sec).\(st.st_mtimespec.tv_nsec) \(model.sha256)"
+        let stamp = Self.loadStamp(st, sha256: model.sha256)
         if let saved = try? String(contentsOf: stampURL(for: model), encoding: .utf8),
            saved.trimmingCharacters(in: .whitespacesAndNewlines) == stamp { return true }
         guard let digest = Self.sha256Hex(ofFileAt: url), digest == model.sha256.lowercased() else { return false }
         // Hashed what was there at the stat above only if it is still the same file.
         var after = stat()
-        guard lstat(url.path, &after) == 0, after.st_ino == st.st_ino, after.st_dev == st.st_dev,
-              after.st_mtimespec.tv_sec == st.st_mtimespec.tv_sec, after.st_mtimespec.tv_nsec == st.st_mtimespec.tv_nsec else { return false }
+        guard lstat(url.path, &after) == 0, Self.loadStamp(after, sha256: model.sha256) == stamp else { return false }
         try? PrivateDirectory.writePrivateFile(Data((stamp + "\n").utf8), to: stampURL(for: model))
         return true
+    }
+
+    /// The .loadcheck line: device, inode, size, mtime, ctime and the
+    /// catalog hash the file was checked against.
+    static func loadStamp(_ st: stat, sha256: String) -> String {
+        "\(st.st_dev) \(st.st_ino) \(st.st_size) \(st.st_mtimespec.tv_sec).\(st.st_mtimespec.tv_nsec)"
+            + " c\(st.st_ctimespec.tv_sec).\(st.st_ctimespec.tv_nsec) \(sha256)"
     }
 
     /// The file's SHA-256 (lowercase hex), read in 4 MB pieces without

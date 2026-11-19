@@ -1173,6 +1173,19 @@ deletes the file and reports the error; a verified file is moved to
 (installed = right size + marker matches the catalog) and excluded from
 Time Machine. Delete removes the file, marker and partial.
 
+**Security notes (loading a model).** llama.cpp parses the GGUF inside
+Owlink's process, so before each load `ModelStore.verifiedForLoad` checks
+the file's SHA-256 against the bundled catalog (a symbolic link is
+refused). Hashing gigabytes every launch is too slow, so a passed check is
+remembered in `<file>.loadcheck`, keyed on device, inode, size, mtime and
+ctime; any change to those hashes again. The ctime is in the key because
+the user's own processes can set the mtime back (`utimensat`) but not the
+ctime; a stamp written without it just hashes once more. This is
+defence in depth against a model file changed on disk, not a seal: the
+check is by path and `LlamaRuntime.load` then opens the file by path
+again, so a process running as the user that swaps the file in between is
+not caught. That check-then-open gap is a known one.
+
 **Privacy.** The only network traffic is the model download itself, from
 huggingface.co (and the CDN it redirects to): an ephemeral URLSession, no
 cookies, no cache, no identifiers, User-Agent `Cedric`. Nothing is sent

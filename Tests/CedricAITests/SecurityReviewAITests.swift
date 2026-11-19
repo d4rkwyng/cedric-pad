@@ -77,4 +77,58 @@ import CedricCore
         try store.delete(model)
         #expect(!FileManager.default.fileExists(atPath: store.stampURL(for: model).path))
     }
+
+    /// The remembered check includes the ctime, which user space can't set:
+    /// bytes rewritten in place with the old mtime put back (utimensat) are
+    /// still hashed again, and so is a chmod round trip.
+    @Test func modelRehashIsKeyedOnCtime() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let body = Data((0..<10_000).map { UInt8($0 % 251) })
+        let model = testModel(body: body)
+        let store = ModelStore(directory: dir)
+        let file = store.fileURL(for: model)
+        let stampFile = store.stampURL(for: model)
+        try body.write(to: file)
+        #expect(store.verifiedForLoad(model))
+        let first = try String(contentsOf: stampFile, encoding: .utf8)
+        func times() -> stat { var st = stat(); _ = lstat(file.path, &st); return st }
+
+        // chmod round trip: same bytes, mode and mtime, new ctime: hashed
+        // again (and accepted), so the stamp is rewritten.
+        usleep(20_000)
+        let pre = times()
+        #expect(chmod(file.path, 0o400) == 0 && chmod(file.path, pre.st_mode & 0o7777) == 0)
+        let post = times()
+        #expect(post.st_mtimespec.tv_sec == pre.st_mtimespec.tv_sec && post.st_mtimespec.tv_nsec == pre.st_mtimespec.tv_nsec
+                 && post.st_mode == pre.st_mode, "only the ctime moved")
+        #expect(store.verifiedForLoad(model))
+        let second = try String(contentsOf: stampFile, encoding: .utf8)
+        #expect(second != first, "a new ctime forces a re-hash")
+
+        // Same size, other bytes, the old mtime put back: refused.
+        let before = times()
+        usleep(20_000)
+        var evil = body
+        evil[5000] ^= 0xff
+        let h = try FileHandle(forWritingTo: file)
+        try h.seek(toOffset: 5000)
+        try h.write(contentsOf: evil[5000..<5001])
+        try h.close()
+        var ts = [before.st_atimespec, before.st_mtimespec]
+        #expect(utimensat(AT_FDCWD, file.path, &ts, 0) == 0)
+        let after = times()
+        #expect(after.st_mtimespec.tv_sec == before.st_mtimespec.tv_sec && after.st_mtimespec.tv_nsec == before.st_mtimespec.tv_nsec)
+        #expect(!store.verifiedForLoad(model), "mtime set back doesn't hide a rewrite")
+
+        // A stamp from before ctime was in it (no "c" field): hashed once, then rewritten.
+        try body.write(to: file)
+        #expect(store.verifiedForLoad(model))
+        let st = times()
+        let old = "\(st.st_dev) \(st.st_ino) \(st.st_size) \(st.st_mtimespec.tv_sec).\(st.st_mtimespec.tv_nsec) \(model.sha256)\n"
+        try Data(old.utf8).write(to: stampFile)
+        #expect(store.verifiedForLoad(model))
+        let upgraded = try String(contentsOf: stampFile, encoding: .utf8)
+        #expect(upgraded != old && upgraded.contains(" c"), "an old stamp is replaced after one re-hash")
+    }
 }
