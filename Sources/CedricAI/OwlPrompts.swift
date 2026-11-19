@@ -180,15 +180,21 @@ public enum OwlPrompts {
             s += "- \(t.name.rawValue)(\(params.joined(separator: ", "))): \(t.description)\n"
         }
         s += """
-        You were shown only some lines of the document. Call a tool first when the question needs lines \
-        you were not shown (get_lines), a search (search_document), the headings or structure (get_outline), \
-        counts or the file name (document_stats), the user's selection (get_selection) or a change to the \
-        text (propose_edit). Otherwise answer directly.
+        You were shown only some lines of the document: the "Shown: … lines A-B" line says which. Rules, in order:
+        - The question names a line number outside A-B, or asks to read lines: call get_lines for those lines.
+        - It says "selected", "selection" or "my selection": call get_selection (you were not shown the selection).
+        - It asks to find, search, or where or how often a word appears: call search_document with that word.
+        - It asks for headings, sections, structure, keys or which functions exist: call get_outline.
+        - It asks how many words, lines or characters, or the file name or language: call document_stats.
+        - It asks to change, rename, rewrite or propose an edit: call propose_edit (or get_lines first).
+        - Otherwise, when the answer is in lines A-B or needs no document: answer directly.
+
         Reply with JSON only. To call a tool: {"tool":"get_lines","args":{"start":40,"end":44}}. \
         To answer: {"answer":"your answer"}.
-        Examples: "What does line 80 say?" → {"tool":"get_lines","args":{"start":80,"end":80}}. \
+        Examples (shown lines 1-12): "What does line 80 say?" → {"tool":"get_lines","args":{"start":80,"end":80}}. \
         "Where is foo used?" → {"tool":"search_document","args":{"query":"foo"}}. \
-        "What is 2 + 2?" → {"answer":"4"}.
+        "Explain what I selected." → {"tool":"get_selection","args":{}}. \
+        "What is on line 2?" → {"answer":"…"}. "What is 2 + 2?" → {"answer":"4"}.
         """
         return s
     }

@@ -447,9 +447,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   models that score at least 80% on a fixed 40-prompt set
   (`Scripts/owl-tools-eval.sh`, scores in
   `Resources/AI/owl-tool-scores.json`). Other models get the quick
-  actions without tools. Measured 2026-11-18: Apple Intelligence 70%,
-  Qwen2.5-Coder 1.5B on LM Studio 75%, the built-in Qwen2.5-Coder 3B 60%.
-  None is over the bar yet, so tools are off for all three.
+  actions without tools. Measured 2026-11-18: the built-in Qwen3 4B
+  Instruct 90%, so it gets tools; Apple Intelligence 72.5%, Qwen2.5-Coder
+  1.5B on LM Studio 75% and the built-in Qwen2.5-Coder 3B 65% stay
+  without.
 - **Is This Script Safe to Run?** (Edit menu, the owl, or **Safe to
   Run?** in Ask Cedric) for shell, PowerShell, batch, `.reg`, Python and
   Ruby: an offline scan, no AI and nothing sent anywhere (so it works on
