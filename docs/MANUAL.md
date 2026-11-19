@@ -23,6 +23,7 @@ The short version is the [README](../README.md).
 - [Cedric the owl](#cedric-the-owl)
 - [Help menu](#help-menu)
 - [The cedric command](#the-cedric-command)
+- [Privacy and what stays on this Mac](#privacy-and-what-stays-on-this-mac)
 - [Building from source](#building-from-source)
 - [Releases](#releases)
 - [Design notes](#design-notes)
@@ -57,7 +58,9 @@ doesn't ask either (hot close): its unsaved text is written to the
 session first, and **File › Reopen Closed Tab** (⇧⌘T) brings it back,
 unsaved changes and all, even after a quit or a crash. The last 50
 closed tabs are remembered (tabs without unsaved text are forgotten
-first; a closed tab with unsaved text is never forgotten).
+first). A closed tab's unsaved text is kept for 30 days after you close
+it, and for at most the 100 most recent such tabs; then it is deleted
+(see [Privacy](#privacy-and-what-stays-on-this-mac)).
 The first time in a launch that a file tab with unsaved edits is closed,
 the tab in front says the file wasn't written, with **Save Now**.
 Closing the last document window (text, PDF, image or Office tab) quits OwlInk.
@@ -385,7 +388,12 @@ menu toggles still work and the window follows them).
 
 **Live preview** for Markdown and HTML, side by side (View › Show Preview,
 ⌥⌘P). JavaScript and network access in the preview are **off** by default
-and can be turned on per tab (View menu, or the preview bar). A compact
+and can be turned on per tab (View menu, or the preview bar). Turn them on
+only for pages you trust: with both on, the page's script can send what it
+shows anywhere. With JavaScript on, the page can load only images, fonts
+and CSS from the document's folder, never other files or hidden ones
+(`.env`, `.git`). Both switch off again when the file is reloaded from
+disk (say after a `git pull`), so new content never inherits them. A compact
 **preview bar** across the top of the preview (and of a detached
 preview's window) has Refresh, Sync Scrolling on/off, Zoom − / +,
 Export ▸ HTML / PDF (Markdown), Allow JavaScript, Allow Network and
@@ -525,7 +533,10 @@ fit width, fit page, thumbnails, find, rotate left / right (the view
 only; the file is never changed) and Open in Default App. It fades after
 about 2 seconds without a mouse move or scroll and comes back on the
 next one (no fade with Reduce Motion), and stays while the pointer is
-on it. ← / → and Page Up / Page Down turn the page. **File › Open as Text** puts the PDF's
+on it. ← / → and Page Up / Page Down turn the page. A link in a PDF
+never opens in one click: a web or mail link asks first and shows the
+whole address, a link to a file only shows it in Finder, and any other
+kind of link is ignored. **File › Open as Text** puts the PDF's
 text in a new untitled tab to edit (extracted in the background). Saving
 and editing commands are off in a PDF tab, and OwlInk never writes to a
 PDF. A password-protected PDF asks for its password; a damaged one says
@@ -756,25 +767,59 @@ cedric ~/src/project            # a folder opens in the folder sidebar (-w retur
 ```
 
 It talks to the app through a `cedric://open?path=…&line=…&col=…` URL. Any
-app or web page can send such a URL, so each one the script sends carries a
-secret token (`~/Library/Application Support/Cedric/cli-token`, readable only
-by you; the `Cedric` folder itself is owner-only, 0700, and the script writes
-a new token to a temp file and links it into place, so it is never read
-half-written). A link without it can't hand over stdin or `-w` files, and opening a
-file from it asks first. The app deletes only the script's own temp files
-(`cedric-stdin.*`, `cedric-wait.*` in your temp folder), checked after `..`
-and symlinks are resolved.
+app or web page can send such a URL, so each one the script sends proves it
+comes from you with a secret token (`~/Library/Application Support/Cedric/cli-token`,
+readable only by you; the `Cedric` folder itself is owner-only, 0700, and the
+token is written to a temp file and moved into place, so it is never read
+half-written). OwlInk makes a new token every time it starts. The token is
+never on a command line, where other users of the Mac could see it: the
+script writes it to a `cedric-auth.*` file in your temp folder (readable
+only by you), passes that file's name, and OwlInk reads it once and deletes
+it. A link without it can't hand over stdin or `-w` files, and opening a
+file from it asks first, showing the full path (hidden or direction-changing
+characters are shown as `<U+202E>`-style codes). The app deletes only the
+script's own temp files (`cedric-stdin.*`, `cedric-wait.*`, `cedric-auth.*`
+in your temp folder), checked after `..` and symlinks are resolved.
 With `-w` the script makes a `cedric-wait.*` marker file in the temp
 folder and passes it along; OwlInk deletes it when that file's tab closes
 (or when OwlInk quits), and the script returns.
+
+## Privacy and what stays on this Mac
+
+The AI engines run on this Mac or a server on your own network, never
+the cloud. What OwlInk keeps on this Mac, all under
+`~/Library/Application Support/Cedric/` (owner-only, 0700; files 0600):
+
+- **`Session/`**: the open tabs and the **unsaved text** of open and
+  closed tabs, in plain text, so tabs come back after a quit or a crash.
+  Anything you type or paste into a tab, a password included, is written
+  here until you save or close it and it expires. A closed tab's text is
+  kept for 30 days after closing (at most 100 such tabs), then deleted.
+  This folder is **excluded from Time Machine**: it is working state for
+  this Mac, so backups don't keep copies of unsaved text.
+- **`ReplaceUndo/`**: the original of every file Replace in Files
+  changed, for Undo Replace in Files: the last 5 replaces, at most 7
+  days. Also excluded from Time Machine (the files themselves are backed
+  up as usual).
+- **`Models/`**: downloaded AI models (excluded from Time Machine; they can
+  be downloaded again). A model's checksum is checked again before it is
+  first loaded and whenever the file changes; a model that doesn't match
+  isn't loaded.
+- **`cli-token`**: the `cedric` command's secret, new at every launch.
+
+A release build of OwlInk ignores the `CEDRIC_*` developer and test
+switches (they could make it open files or load a model at another
+program's request); only the few that open nothing, such as the launch
+check's, are left.
 
 ## Building from source
 
 Needs the Command Line Tools or Xcode 26 (Swift 6.3 or later, macOS 26 SDK); Xcode itself is not required. Swift 6.1 / 6.2 with an older SDK still compiles and passes the unit tests, but the app it builds draws no editor text, so never ship or test the app from an older toolchain. Releases are built on GitHub's macos-26 runner.
 
 ```sh
-Scripts/bundle-app.sh               # "dist/OwlInk.app" for this Mac, ad-hoc signed
+Scripts/bundle-app.sh               # "dist/OwlInk.app" for this Mac, ad-hoc signed, a CHECK build
 Scripts/bundle-app.sh --universal   # arm64 + x86_64
+Scripts/bundle-app.sh --release     # as shipped: without the CEDRIC_* test switches
 open "dist/OwlInk.app"
 ```
 
@@ -791,6 +836,9 @@ Scripts/launch-speed-check.sh       # launch phase medians: empty, 8-tab session
 swift Scripts/launch-time.swift "dist/OwlInk.app" /System/Applications/TextEdit.app
 ```
 
+`bundle-app.sh` makes a check build by default: the check scripts drive it
+with `CEDRIC_*` switches (open files, take snapshots), so don't use it as
+your everyday copy. `Scripts/release.sh` builds with `--release`.
 A local build is ad-hoc signed, not notarized. If macOS refuses to open a
 copied build, remove the quarantine flag: `xattr -dr com.apple.quarantine "OwlInk.app"`.
 
