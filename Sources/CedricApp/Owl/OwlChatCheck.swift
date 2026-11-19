@@ -318,7 +318,7 @@ enum OwlChatCheck {
                 return
             }
             if Date() > deadline { check(false, "the text was found to be prose"); OwlCheck.finish(out); return }
-            after(0.2, waitProse)
+            after(0.2) { waitProse() }
         }
         func waitBubble(_ original: String) {
             if let b = tab.owl?.bubble, GrammarMap.isGrammarHint(b.hint.id) {
