@@ -402,6 +402,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if d.looksBinary { tab.holdBinary(d.text) }
             blank?.window?.close()
             OwlHub.shared.activity(in: tab)
+            tab.readQuarantineForOwl()
             noteRecent(std)
             // A certificate file (or PEM text): the Certificate panel beside it, a turn later.
             if Certificates.isCertificateText(d.text, fileName: std.lastPathComponent), !CertificatePanel.closedByUser {

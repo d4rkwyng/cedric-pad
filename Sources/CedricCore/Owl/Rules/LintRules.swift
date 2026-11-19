@@ -103,6 +103,8 @@ extension RulesHintProvider {
 
     /// The rules for 0.3.0's language packs, most serious first.
     static let languageRules: [LintRule] = [
+        // An offer when a downloaded script opens: before its own hints.
+        SafetyRules.downloadedScript,
         // Data loss.
         ShellRules.cdUnchecked,
         ShellRules.unquotedVariable,
@@ -151,16 +153,18 @@ extension RulesHintProvider {
         let lang = c.language, name = c.fileName
         // Minified or generated code (a line of thousands of characters): a
         // window may start anywhere in it, so the lexer can't be trusted.
-        if ["javascript", "typescript", "python", "shell"].contains(lang), lines.contains(where: { $0.length > 2000 }) { return }
-        if lang == "shell", ShellRules.looksGenerated(c.text) { return }
+        // (The downloaded-script offer is about the file, not its code: it still runs.)
+        var codeRulesOff = ["javascript", "typescript", "python", "shell"].contains(lang) && lines.contains(where: { $0.length > 2000 })
+            || lang == "shell" && ShellRules.looksGenerated(c.text)
         var input: LintInput?
         for rule in rules where rule.applies(lang, name) {
             if rule.tier == .style, !facts.styleTips { continue }
             if rule.wholeDocument, !facts.isWholeDocument { continue }
+            if codeRulesOff, rule.id != SafetyRules.downloadedScriptID { continue }
             let i = input ?? LintInput(context: c, facts: facts, text: text, lines: lines)
             input = i
             // A window of Python that may sit wholly inside a long docstring.
-            if lang == "python", i.proseInCode { return }
+            if lang == "python", rule.id != SafetyRules.downloadedScriptID, i.proseInCode { codeRulesOff = true; continue }
             if let f = rule.check(i) { hint(rule.id, f.kind, f.title, f.detail, f.range, f.replacement) }
         }
     }

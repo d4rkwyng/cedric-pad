@@ -38,14 +38,16 @@ import Testing
         #expect(find(RulesHintProvider.conflictID, "a <<<<<<< b\n=======\n>>>>>>> c\n") == nil)
     }
 
-    @Test func secretsWarnWithoutAFix() throws {
+    @Test func secretsWarnWithAPlaceholderFix() throws {
         // Obviously fake, and built in pieces so no scanner mistakes this file for a leak.
         let aws = "AK" + "IA" + String(repeating: "FAKE", count: 4)
         let gh = "gh" + "p_" + String(repeating: "x", count: 36)
         let key = String(repeating: "-", count: 5) + "BEGIN RSA " + "PRIVATE KEY" + String(repeating: "-", count: 5)
         for (s, kind) in [(aws, "an AWS access key"), (gh, "a GitHub token"), (key, "a private key")] {
             let h = try #require(find(RulesHintProvider.secretID, "config:\n  token = \(s)\n"), "\(kind)")
-            #expect(h.kind == .warning && h.replacement == nil)
+            #expect(h.kind == .warning)
+            // 0.3.0: Fix it puts a placeholder in; a private key needs its END line in view for that.
+            #expect(h.replacement == (kind == "a private key" ? nil : "<REDACTED>"))
             #expect(h.detail?.contains(kind) == true)
             #expect(h.detail?.contains("line 2") == true)
         }

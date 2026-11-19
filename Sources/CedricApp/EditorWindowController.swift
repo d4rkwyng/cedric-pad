@@ -144,6 +144,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     let outline = OutlineState()
     /// The owl's disk facts (OwlFacts.swift), made when first asked.
     var fileProbe: FileProbe?
+    /// The file has the quarantine attribute (read after open, OwlFacts.swift).
+    var quarantined = false
     var editorContainer: EditorContainer { container }
 
     init(doc: EditorDocument, text: String) {
@@ -881,7 +883,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         OwlDocumentFacts(isWholeDocument: wholeDocument, changedOnDisk: doc.changedOnDisk,
                          unsavedSince: doc.isDirty ? doc.unsavedSince : nil, lineEnding: doc.lineEnding,
                          mixedLineEndings: doc.mixedLineEndings, languageIsManual: doc.languageIsManual,
-                         styleTips: Settings.shared.owlStyleTips, fileExists: owlFileProbe())
+                         styleTips: Settings.shared.owlStyleTips, fileExists: owlFileProbe(),
+                         isQuarantined: owlQuarantined)
     }
 
     // MARK: Closing

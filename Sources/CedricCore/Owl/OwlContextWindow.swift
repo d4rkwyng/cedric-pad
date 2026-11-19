@@ -89,11 +89,16 @@ public struct OwlDocumentFacts: Sendable, Equatable {
     /// rule is skipped. The probe answers nil while it doesn't know yet:
     /// the app checks off the main thread and the next query has the answer.
     public var fileExists: OwlFileProbe?
+    /// A script that came from the internet (it has the
+    /// com.apple.quarantine attribute) and hasn't had the offer to check it
+    /// yet: the owl offers Check Script for Risks, once per file.
+    public var isQuarantined: Bool
 
     public init(isWholeDocument: Bool = true, changedOnDisk: Bool = false, unsavedSince: Date? = nil, lineEnding: LineEnding = .lf,
                 mixedLineEndings: Bool = false, languageIsManual: Bool = false, now: Date? = nil, styleTips: Bool = false,
-                fileExists: OwlFileProbe? = nil) {
+                fileExists: OwlFileProbe? = nil, isQuarantined: Bool = false) {
         self.fileExists = fileExists
+        self.isQuarantined = isQuarantined
         self.now = now
         self.styleTips = styleTips
         self.isWholeDocument = isWholeDocument

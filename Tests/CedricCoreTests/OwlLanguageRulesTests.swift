@@ -97,9 +97,9 @@ import Testing
         let ids = RulesHintProvider.languageRules.map(\.id)
         #expect(Set(ids).count == ids.count)
         #expect(ids.allSatisfy { $0.hasPrefix("rules.") })
-        // Data loss first, tidy last.
-        #expect(ids.first == ShellRules.cdID && ids.last == ShellRules.shebangID)
-        // Packs 1–4 are all correctness rules: on by default.
+        // The downloaded-script offer, then data loss first, tidy last.
+        #expect(ids.first == SafetyRules.downloadedScriptID && ids[1] == ShellRules.cdID && ids.last == ShellRules.shebangID)
+        // Packs 1–7 are all correctness rules: on by default.
         #expect(RulesHintProvider.languageRules.allSatisfy { $0.tier == .correctness })
     }
 
@@ -244,7 +244,7 @@ import Testing
         for url in files {
             let text = try String(contentsOf: url, encoding: .utf8)
             let lang = Self.language(for: url)
-            let ids = Set(RulesHintProvider.languageRules.map(\.id))
+            let ids = Set(RulesHintProvider.languageRules.map(\.id) + [RulesHintProvider.secretID])
             // Every window the owl could be handed, a few KB apart.
             let length = (text as NSString).length
             for at in stride(from: 0, to: max(length, 1), by: 3000) {
@@ -274,7 +274,8 @@ import Testing
         let maxPerLanguage = Int(ProcessInfo.processInfo.environment["CEDRIC_OWL_CORPUS_MAX"] ?? "") ?? 4000
         // CEDRIC_OWL_CORPUS_LANGS=markdown,csv: only those (a quicker run).
         let only = ProcessInfo.processInfo.environment["CEDRIC_OWL_CORPUS_LANGS"].map { Set($0.split(separator: ",").map(String.init)) }
-        let ids = Set(RulesHintProvider.languageRules.map(\.id))
+        // The language rules, and the secrets (0.3.0 added shapes to it).
+        let ids = Set(RulesHintProvider.languageRules.map(\.id) + [RulesHintProvider.secretID])
         let rules = RulesHintProvider()
         var rows: [String] = [], perRule: [String: Int] = [:], linesPerLanguage: [String: Int] = [:], filesPerLanguage: [String: Int] = [:]
         let fm = FileManager.default
@@ -311,7 +312,8 @@ import Testing
                     let line = RulesHintProvider.lineNumber(ns, at: loc)
                     let lr = ns.lineRange(for: NSRange(location: min(loc, max(0, ns.length - 1)), length: 0))
                     let snippet = ns.substring(with: lr).trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\t", with: " ")
-                    rows.append([h.id, url.path, "\(line)", h.title, String(snippet.prefix(160))].joined(separator: "\t"))
+                    let title = h.id == RulesHintProvider.secretID ? h.title + " [" + (h.detail ?? "").prefix(60) + "]" : h.title
+                    rows.append([h.id, url.path, "\(line)", title, String(snippet.prefix(160))].joined(separator: "\t"))
                 }
             }
         }

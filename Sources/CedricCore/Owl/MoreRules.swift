@@ -77,11 +77,37 @@ extension RulesHintProvider {
             // for a random-looking mix below (not "sk-learn-model-…").
             (Self.apiKeyKind, "\\bsk-(ant|proj|svcacct|admin)-[A-Za-z0-9_-]{32,}"),
             (Self.apiKeyKind, "\\bsk-[A-Za-z0-9]{32,}\\b"),
+            // 0.3.0, from gitleaks' default rules: a fixed prefix and length.
+            (String(localized: "a Google API key"), "\\bAI" + "za[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])"),
+            (String(localized: "a GitLab token"), "\\bgl" + "pat-[0-9A-Za-z_-]{20,}(?![0-9A-Za-z_-])"),
+            (String(localized: "an npm token"), "\\bnp" + "m_[A-Za-z0-9]{36}\\b"),
+            (String(localized: "a Slack webhook"), "https://hooks\\.sl" + "ack\\.com/(services|workflows|triggers)/[A-Za-z0-9+/_-]{30,}"),
+            (Self.urlPasswordKind, "\\b[A-Za-z][A-Za-z0-9+.-]{1,20}://([^\\s:/?#@'\"`<>]{1,64}):([^\\s/?#@'\"`<>]{1,128})@[A-Za-z0-9_.-]+"),
         ]
         return raw.compactMap { name, p in (try? NSRegularExpression(pattern: p)).map { (name, $0) } }
     }()
 
     static let apiKeyKind = String(localized: "an OpenAI or Anthropic API key")
+    static let urlPasswordKind = String(localized: "a password in a URL")
+
+    /// Placeholder passwords in docs and samples: `user:password@`,
+    /// `${DB_PASS}`, `<pass>`, `****`, `%s`, `changeme`; or the user name
+    /// again (`postgres:postgres@`, a local default).
+    static let placeholderPasswords: Set<String> = ["password", "passwd", "pass", "pw", "pwd", "secret", "changeme", "change_me", "example",
+                                                    "xxx", "xxxx", "xxxxx", "xxxxxx", "test", "testing", "foo", "bar", "baz", "token", "apikey",
+                                                    "api_key", "your_password", "yourpassword", "mypassword", "my_password", "<password>",
+                                                    "redacted", "hidden", "dummy", "fake", "sample", "placeholder", "admin", "root", "guest",
+                                                    "anonymous", "user", "username", "secretpassword", "p@ssw0rd", "s3cret", "pa55word"]
+
+    static func isRealURLPassword(user: String, password: String) -> Bool {
+        let p = password.lowercased()
+        if p.count < 4 || p == user.lowercased() || placeholderPasswords.contains(p) { return false }
+        if p.contains("$") || p.contains("{") || p.contains("%") || p.contains("*") || p.contains("<") || p.contains("[") || p.contains("…") { return false }
+        if Set(p).count <= 2 { return false }   // xxxx, ****, 1111
+        if p.hasPrefix("your") || p.hasPrefix("my") || p.hasSuffix("password") || p.hasSuffix("pass") || p.hasSuffix("secret") { return false }
+        if ["user", "username", "login", "name", "u", "x"].contains(user.lowercased()) { return false }
+        return true
+    }
 
     /// A generated key mixes upper case, lower case and digits; a slug or
     /// a sentence of words doesn't.
@@ -100,11 +126,34 @@ extension RulesHintProvider {
         for (name, re) in secretPatterns {
             for m in re.matches(in: s, range: all) {
                 if name == apiKeyKind, !looksRandom(ns.substring(with: m.range).dropFirst(3)) { continue }
+                if name == urlPasswordKind {
+                    guard isRealURLPassword(user: ns.substring(with: m.range(at: 1)), password: ns.substring(with: m.range(at: 2))) else { continue }
+                    // Only the password is the secret.
+                    if best == nil || m.range.location < best!.1.location { best = (name, m.range(at: 2)) }
+                    break
+                }
                 if best == nil || m.range.location < best!.1.location { best = (name, m.range) }
                 break
             }
         }
         return best
+    }
+
+    /// Fix it for a secret (0.3.0): the secret replaced with a placeholder,
+    /// one undo step. A private key goes from its BEGIN line to its END
+    /// line (nil when the END isn't in the text); a password in a URL is
+    /// only the password.
+    static func secretPlaceholder(_ s: NSString, kind: String, range: NSRange) -> (range: NSRange, replacement: String)? {
+        if kind == String(localized: "a private key") {
+            let after = NSRange(location: NSMaxRange(range), length: s.length - NSMaxRange(range))
+            let end = s.range(of: PEM.dashes + "END ", options: [], range: after)
+            guard end.location != NSNotFound else { return nil }
+            let close = s.range(of: PEM.dashes, options: [], range: NSRange(location: NSMaxRange(end), length: s.length - NSMaxRange(end)))
+            guard close.location != NSNotFound, s.substring(with: NSRange(location: end.location, length: NSMaxRange(close) - end.location)).contains("PRIVATE") else { return nil }
+            return (NSRange(location: range.location, length: NSMaxRange(close) - range.location), "<private key removed>")
+        }
+        if kind == urlPasswordKind { return (range, "<password>") }
+        return (range, "<REDACTED>")
     }
 
     // MARK: Certificates about to expire
@@ -726,9 +775,11 @@ extension RulesHintProvider {
                  r, nil)
         }
         if let found = Self.secret(c.text) {
+            let fix = Self.secretPlaceholder(text, kind: found.kind, range: found.range)
             hint(Self.secretID, .warning, String(localized: "That looks like a secret key. Careful where it goes."),
-                 String(localized: "This looks like \(found.kind) \(Self.whereText(text, found.range.location, whole: whole)). Don’t share, paste or commit this file with it in."),
-                 found.range, nil)
+                 String(localized: "This looks like \(found.kind) \(Self.whereText(text, found.range.location, whole: whole)). Don’t share, paste or commit this file with it in.")
+                    + (fix == nil ? "" : " " + String(localized: "Fix it replaces it with a placeholder (one undo).")),
+                 fix?.range ?? found.range, fix?.replacement)
         }
         if let r = Self.certificateExpiry(c.text, now: facts.now ?? Date()) {
             hint(Self.certificateExpiryID, .warning, r.title, r.detail, r.range, nil)

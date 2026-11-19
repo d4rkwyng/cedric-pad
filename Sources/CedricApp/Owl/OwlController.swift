@@ -504,6 +504,8 @@ final class OwlController: NSObject, NSPopoverDelegate {
             expected = ctx.substring(with: r)
         }
         presented = (hint, docRange, expected)
+        // Offered once per file, ever.
+        if hint.id == SafetyRules.downloadedScriptID, let path = tab.doc.fileURL?.path { DownloadedScriptOffers.note(path) }
         showBubble(hint, buttons: buttons(for: hint, tab: tab))
     }
 
@@ -602,6 +604,11 @@ final class OwlController: NSObject, NSPopoverDelegate {
                 // Where it is, before fixing blind: selects the doubled words.
                 out.append(.init(title: String(localized: "Show Me"), isDefault: false) { [weak self] in self?.showPresented() })
             }
+        } else if hint.id == SafetyRules.downloadedScriptID {
+            // A downloaded script: the offline check (then the AI's, when on).
+            out.append(.init(title: String(localized: "Check Script for Risks…"), isDefault: true) { [weak self, weak tab] in
+                self?.hideBubble(); tab?.checkScriptSafety()
+            })
         } else if let le = RulesHintProvider.lineEndingFix(hint) {
             // A shell script with CRLF: switch the file's line endings.
             out.append(.init(title: String(localized: "Use \(le.displayName)"), isDefault: true) { [weak self, weak tab] in

@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import CedricCore
 
 /// The owl's facts that need the disk, read lazily and off the main thread.
@@ -51,5 +51,57 @@ extension EditorWindowController {
         let p = FileProbe(folder: folder)
         fileProbe = p
         return p.rulesProbe
+    }
+}
+
+/// Downloaded scripts: the offer to check one is made once per file, ever
+/// (a short list of paths in UserDefaults, newest last).
+enum DownloadedScriptOffers {
+    static let key = "owlDownloadedScriptOffered"
+    static let limit = 200
+
+    static func offered(_ path: String) -> Bool {
+        (UserDefaults.standard.stringArray(forKey: key) ?? []).contains(path)
+    }
+
+    static func note(_ path: String) {
+        var list = UserDefaults.standard.stringArray(forKey: key) ?? []
+        list.removeAll { $0 == path }
+        list.append(path)
+        if list.count > limit { list.removeFirst(list.count - limit) }
+        UserDefaults.standard.set(list, forKey: key)
+    }
+
+    /// Whether the file has the quarantine attribute (it was downloaded).
+    static func isQuarantined(_ url: URL) -> Bool {
+        getxattr(url.path, "com.apple.quarantine", nil, 0, 0, 0) >= 0
+    }
+}
+
+extension EditorWindowController {
+    /// A script was opened: after the first frame, the quarantine attribute
+    /// is read off the main thread; if it's there (and the offer wasn't made
+    /// for this file before) the owl gets to offer the check.
+    func readQuarantineForOwl() {
+        guard ScriptSafety.isScript(doc.language), let url = doc.fileURL, !DownloadedScriptOffers.offered(url.path) else { return }
+        AfterFirstFrame.run { [weak self] in
+            DispatchQueue.global(qos: .utility).async {
+                let q = DownloadedScriptOffers.isQuarantined(url)
+                guard q else { return }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self, self.doc.fileURL == url else { return }
+                        self.quarantined = true
+                        if self.owl != nil { OwlHub.shared.activity(in: self) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The fact for the rules: downloaded, and not offered for this file yet.
+    var owlQuarantined: Bool {
+        guard quarantined, let path = doc.fileURL?.path else { return false }
+        return !DownloadedScriptOffers.offered(path)
     }
 }
