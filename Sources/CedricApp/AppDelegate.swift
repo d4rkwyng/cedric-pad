@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var officeTabs: [OfficeTabController] = []
     var certificateTabs: [CertificateTabController] = []
     let store = SessionStore(directory: SessionStore.defaultDirectory())
-    private let env = ProcessInfo.processInfo.environment
+    private let env = DevEnvironment.values
     private var sessionTimer: Timer?
     private var appearanceObservation: NSKeyValueObservation?
     /// Files handed over before launch finished (Finder, `open`).
@@ -355,7 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func refuseSpecialFile(_ url: URL, _ kind: String) {
         let text = String(localized: "“\(url.lastPathComponent)” is \(kind), not a regular file, so OwlInk won’t open it.")
         Self.lastSpecialRefusal = text
-        if ProcessInfo.processInfo.environment["CEDRIC_CHECK"] != nil { print("check: note: \(text)"); return }
+        if DevEnvironment.values["CEDRIC_CHECK"] != nil { print("check: note: \(text)"); return }
         let a = NSAlert()
         a.messageText = text
         if let w = NSApp.keyWindow, w.attachedSheet == nil { a.beginSheetModal(for: w) } else { a.runModal() }
@@ -586,7 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// a human reaction time, so a keystroke right after the window shows
     /// doesn't wait behind them). CEDRIC_RESTORE_DELAY overrides it (session-check).
     static let pendingRestoreDelay: TimeInterval =
-        ProcessInfo.processInfo.environment["CEDRIC_RESTORE_DELAY"].flatMap(Double.init) ?? 0.25
+        DevEnvironment.values["CEDRIC_RESTORE_DELAY"].flatMap(Double.init) ?? 0.25
 
     private func restoreSession() {
         guard let session = store.load() else { return }
@@ -845,5 +845,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 }
 
 func trace(_ s: String) {
-    if ProcessInfo.processInfo.environment["CEDRIC_TRACE"] == "1" { FileHandle.standardError.write(Data("trace: \(s)\n".utf8)) }
+    if DevEnvironment.values["CEDRIC_TRACE"] == "1" { FileHandle.standardError.write(Data("trace: \(s)\n".utf8)) }
 }

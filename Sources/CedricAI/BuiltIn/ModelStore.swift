@@ -17,7 +17,7 @@ public struct ModelStore: Sendable {
 
     /// CEDRIC_MODELS_DIR=/dir overrides it (the app checks use a temp dir).
     public static var defaultDirectory: URL {
-        if let dir = ProcessInfo.processInfo.environment["CEDRIC_MODELS_DIR"], !dir.isEmpty {
+        if let dir = DevEnvironment.values["CEDRIC_MODELS_DIR"], !dir.isEmpty {
             return URL(fileURLWithPath: dir, isDirectory: true)
         }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first

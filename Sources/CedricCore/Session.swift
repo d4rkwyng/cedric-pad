@@ -143,7 +143,7 @@ public final class SessionStore: @unchecked Sendable {
     }
 
     /// ~/Library/Application Support/Cedric/Session (or `CEDRIC_SESSION_DIR`).
-    public static func defaultDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+    public static func defaultDirectory(environment: [String: String] = DevEnvironment.values) -> URL {
         if let custom = environment["CEDRIC_SESSION_DIR"], !custom.isEmpty { return URL(fileURLWithPath: custom, isDirectory: true) }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support")

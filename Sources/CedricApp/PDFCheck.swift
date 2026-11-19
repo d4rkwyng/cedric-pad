@@ -25,7 +25,7 @@ extension DevChecks {
     }
 
     static var pdfDir: URL {
-        ProcessInfo.processInfo.environment["CEDRIC_PDF_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? dir
+        DevEnvironment.values["CEDRIC_PDF_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? dir
     }
 
     /// A PDF of `pages` pages, each with "Page N" and a needle word, drawn

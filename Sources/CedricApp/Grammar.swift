@@ -122,12 +122,12 @@ final class EditorGrammar {
     private var running = false
     private var rerun = false
 
-    static var checker: GrammarChecking = ProcessInfo.processInfo.environment["CEDRIC_GRAMMAR_FAKE"] == "1"
+    static var checker: GrammarChecking = DevEnvironment.values["CEDRIC_GRAMMAR_FAKE"] == "1"
         ? FakeGrammarChecker() : SystemGrammarChecker()
-    static let pause: TimeInterval = ProcessInfo.processInfo.environment["CEDRIC_GRAMMAR_PAUSE"].flatMap(Double.init) ?? 3
+    static let pause: TimeInterval = DevEnvironment.values["CEDRIC_GRAMMAR_PAUSE"].flatMap(Double.init) ?? 3
     /// One bubble per 10 minutes across the app (CEDRIC_GRAMMAR_INTERVAL for the checks).
     static var policy = GrammarPopupPolicy(
-        minInterval: ProcessInfo.processInfo.environment["CEDRIC_GRAMMAR_INTERVAL"].flatMap(Double.init) ?? 600,
+        minInterval: DevEnvironment.values["CEDRIC_GRAMMAR_INTERVAL"].flatMap(Double.init) ?? 600,
         typingPause: 3)
 
     init(tab: EditorWindowController) {

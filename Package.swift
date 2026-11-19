@@ -3,6 +3,8 @@
 // Tools (Swift 6.0.x) understand. CI builds with Swift 6.1.
 import PackageDescription
 
+let checks: [SwiftSetting] = [.define("CEDRIC_CHECKS", .when(configuration: .debug))]
+
 let package = Package(
     name: "cedric",
     defaultLocalization: "en",
@@ -18,7 +20,11 @@ let package = Package(
         // renderer, encoding and line-ending detection, find/replace, the
         // line index, the session store and the theme palettes. Foundation
         // only; no AppKit.
-        .target(name: "CedricCore"),
+        // CEDRIC_CHECKS compiles in the dev/check switches
+        // (DevEnvironment.swift): on in debug builds; a release-config
+        // build gets it only from Scripts/bundle-app.sh's dev default
+        // (-Xswiftc -DCEDRIC_CHECKS), never from release.sh.
+        .target(name: "CedricCore", swiftSettings: checks),
 
         // The owl's optional AI hints: Cedric's built-in engine (llama.cpp
         // + in-app model downloads from Hugging Face), Apple Intelligence's

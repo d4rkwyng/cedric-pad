@@ -35,7 +35,7 @@ enum ReplaceInFiles {
     /// the undo manifest is saved once they are done).
     static func waitForWrites() { queue.sync {} }
     /// Where originals go before a write. The check points it at its temp folder.
-    static var store = ReplaceUndoStore(root: ProcessInfo.processInfo.environment["CEDRIC_REPLACE_UNDO_DIR"].map { URL(fileURLWithPath: $0) }
+    static var store = ReplaceUndoStore(root: DevEnvironment.values["CEDRIC_REPLACE_UNDO_DIR"].map { URL(fileURLWithPath: $0) }
         ?? ReplaceUndoStore.defaultRoot)
     static let actionName = String(localized: "Replace in Files")
 
@@ -67,7 +67,7 @@ extension AppDelegate {
             return
         }
         undoLastReplace { message in
-            guard !message.isEmpty, ProcessInfo.processInfo.environment["CEDRIC_CHECK"] == nil else { return }
+            guard !message.isEmpty, DevEnvironment.values["CEDRIC_CHECK"] == nil else { return }
             let a = NSAlert()
             a.messageText = ReplaceInFiles.actionName
             a.informativeText = message

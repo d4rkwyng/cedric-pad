@@ -59,7 +59,7 @@ final class EditorSpelling {
     /// had nothing to say. Never while typing, and at most one typo bubble
     /// per `policy.minInterval` (10 min, like grammar) across the app.
     static var policy = GrammarPopupPolicy(
-        minInterval: ProcessInfo.processInfo.environment["CEDRIC_TYPO_INTERVAL"].flatMap(Double.init) ?? 600,
+        minInterval: DevEnvironment.values["CEDRIC_TYPO_INTERVAL"].flatMap(Double.init) ?? 600,
         typingPause: 3)
 
     /// Whether the typo offer may look at this tab at all (cheap, no text read).

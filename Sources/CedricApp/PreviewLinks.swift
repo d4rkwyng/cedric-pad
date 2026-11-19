@@ -8,7 +8,7 @@ import CedricCore
 /// Checks run with the system calls recorded, not made (nothing opens Finder or a browser).
 @MainActor
 enum PreviewLinkLog {
-    static let dryRun = ProcessInfo.processInfo.environment["CEDRIC_CHECK"] != nil
+    static let dryRun = DevEnvironment.values["CEDRIC_CHECK"] != nil
     static var revealed: [URL] = []
     static var opened: [URL] = []
     static func reveal(_ u: URL) { if dryRun { revealed.append(u) } else { NSWorkspace.shared.activateFileViewerSelecting([u]) } }

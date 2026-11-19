@@ -20,7 +20,7 @@ enum RenderDump {
         guard let tab = app.currentTab ?? app.tabs.last, let window = tab.window else { print("layerdump: no tab"); exit(1) }
         window.makeKeyAndOrderFront(nil)
         TypingCheck.settle(0.2)
-        if ProcessInfo.processInfo.environment["CEDRIC_LAYER_DUMP_OWL"] == "1", !Settings.shared.showOwl {
+        if DevEnvironment.values["CEDRIC_LAYER_DUMP_OWL"] == "1", !Settings.shared.showOwl {
             NSApp.sendAction(#selector(AppDelegate.toggleOwl(_:)), to: nil, from: nil)
             TypingCheck.settle(0.2)
         }

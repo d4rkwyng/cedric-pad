@@ -36,7 +36,7 @@ enum OwlChatCheck {
     /// nothing, and the owl offers Set Up Ask Cedric… first.
     static func runDefaultOff(_ tab: EditorWindowController, out: String) {
         guard let window = tab.window, let app = NSApp.delegate as? AppDelegate else { OwlCheck.finish(out); return }
-        check(ProcessInfo.processInfo.environment["CEDRIC_OWL_CHAT"] == nil, "no CEDRIC_OWL_CHAT override")
+        check(DevEnvironment.values["CEDRIC_OWL_CHAT"] == nil, "no CEDRIC_OWL_CHAT override")
         check(UserDefaults.standard.object(forKey: "owlChat") == nil, "fresh defaults: owlChat was never set")
         check(!AskCedricEngine.isAvailable, "no engine ready (CEDRIC_ASK_ENGINE=0)")
         check(!Settings.shared.owlChat, "Ask Cedric is off with no engine ready")
@@ -171,7 +171,7 @@ enum OwlChatCheck {
                                 r.range(of: "safe to run", options: .caseInsensitive) == nil && r.hasSuffix("Verdict: " + ScriptVerdict.forcedDontRun + ".")
                                     && !r.contains(ScriptVerdict.trustSource)
                             }, "every streamed render is clamped: the forced verdict only, never the model's (\(renders.count) renders)")
-                            if ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"] != nil {
+                            if DevEnvironment.values["CEDRIC_AI_FAKE"] != nil {
                                 check(chat.transcriptText.contains("Line \(scan.first?.line ?? 0): risky"), "the model was given the scan's findings")
                             } else {
                                 print("owlcheck: live answer: \(chat.transcriptText.components(separatedBy: "Cedric\n").last ?? "")")
