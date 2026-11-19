@@ -7,7 +7,7 @@ are its section below (`Scripts/changelog-section.sh`).
 ## [0.2.1]
 
 ### Added
-- **Cedric in Ask Cedric.** The owl now sits in the Ask Cedric panel's header and reacts to the conversation: a wave when it opens, a glance at the question field while you type, thinking (and searching) while the model works, talking while the answer streams, a nod when it's done, a wing flap on Apply, and a sleepy look after an error or with no engine. He blinks when idle, stops entirely while the panel is closed, and under Reduce Motion shows still poses only.
+- **Cedric follows Ask Cedric.** The editor's owl, wherever you put him, reacts to the conversation (there is no second owl in the panel): a wave when it opens, a glance toward the panel while you type, thinking (and searching) while the model works, talking while the answer streams, writing while he proposes an edit, a nod when it's done, a wing flap on Apply, and a sleepy look after an error or with no engine. While the chat is busy his own idle animations and hints wait; under Reduce Motion he shows still poses only. The panel opens beside him, on the side of the screen with room, and still floats free; once you move it, it reopens where you left it until you quit. With Cedric hidden, the chat works as before and opens at the window's bottom-right corner.
 - **Image tabs have a right-click menu:** Zoom In, Zoom Out, Actual Size, Zoom to Fit, Rotate Left and Right (the view only; the file is never changed), Copy Image, Copy Path, Reveal in Finder, Open in the default app and Show Info (dimensions, file size, format, colour space).
 
 ### Changed

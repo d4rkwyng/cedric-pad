@@ -735,15 +735,22 @@ Instruct 90%, so it gets tools; Apple Intelligence 72.5%, Qwen2.5-Coder
 1.5B on LM Studio 75% and the built-in Qwen2.5-Coder 3B 65% stay
 without.
 
-Cedric sits in the panel's top right corner and follows the
-conversation: he waves when the panel opens, glances at the question
-field while you type, thinks while the model works (with a magnifier
-while he searches the document), talks while the answer streams in,
-nods when it's done and flaps his wings when you Apply an edit. After
-an error, or with no AI engine set up, he looks sleepy. Idle, he blinks
-now and then. Nothing animates while the panel is closed or hidden, and
-with Reduce Motion on (System Settings › Accessibility › Display) he
-only changes between still poses.
+The owl in the editor follows the conversation (the panel has no owl
+of its own): he waves when the panel opens, glances toward it while you
+type, thinks while the model works (with a magnifier while he searches
+the document), talks while the answer streams in, writes while he
+proposes an edit, nods when it's done and flaps his wings when you
+Apply it. After an error, or with no AI engine set up, he looks sleepy.
+While he is busy with the chat, his own blinks and hints wait; they
+come back when the chat is idle or closed. With Reduce Motion on
+(System Settings › Accessibility › Display) he only changes between
+still poses.
+
+The panel opens beside the owl, wherever you have put him, on the side
+of the screen with more room. Drag it anywhere: once you have moved it,
+it opens where you left it until you quit OwlInk. With Cedric hidden
+(**Hide Cedric**), Ask Cedric works the same and the panel opens at the
+window's bottom-right corner; opening it doesn't bring him back.
 
 ### Check Script for Risks…
 

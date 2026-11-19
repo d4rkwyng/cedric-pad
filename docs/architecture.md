@@ -842,17 +842,35 @@ offers hints in a speech bubble.
   OwlInk.app/Contents/Resources/Owl by `bundle-app.sh`; `swift run` loads it
   from the source tree. On dark themes a faint disc behind the navy owl
   keeps it readable.
-- `OwlChatFace` is Cedric in the Ask Cedric panel's header (64 pt, the
-  art's empty left margin cropped). `OwlChatPanel` sends it cues (asked,
-  searching, streaming, proposing, answered, stopped, failed, applied,
-  typed); `OwlChatMood` (CedricCore, `OwlChatMoodTests`) maps each cue to
-  a mood and each mood to a gesture, a loop or a still, with Reduce
-  Motion giving stills only. Typing listens at most every 1.5 s and the
-  opening wave at most once a minute (the panel hides whenever the app
-  is in the background). It watches its own window (occlusion, key,
-  close, app hide/active) rather than hooks in the panel's show and
-  close, so how the panel is attached to the editor window doesn't
-  matter to it; off screen it holds no timer at all.
+- Ask Cedric drives the editor's owl; the panel has no owl of its own.
+  `OwlChatPanel` sends `OwlController.chatCue` its events (opened, typed,
+  asked, searching, streaming, proposing, answered, stopped, failed,
+  applied, closed); `OwlChatMood` (CedricCore, `OwlChatMoodTests`) maps
+  each to a mood and each mood to a gesture, a loop or a still, drawn
+  with `OwlView`'s own gesture/loop (a gesture's `done` cues `settled`).
+  Reduce Motion, or the window not on screen: stills only. Typing
+  listens at most every 1.5 s (a glance toward the panel) and opening
+  waves at most once a minute. While `chatBusy` (a working mood, or a
+  chat gesture still playing) the chat wins: the idle tick's blink,
+  polish and glance, the save flap, the launch wave, hint pointing and
+  the talking pose, `nod`/`shake`/`setThinking`, and unasked-for hints
+  (`OwlHub.fire`, AI hints, the typo and grammar offers, the Ask Cedric
+  intro) wait; hints the user asks for still show, without the pose.
+  The chat adds no timer: gestures and loops use the owl view's frame
+  timer while they play, and closing the panel cues `closed`, which
+  hands him back.
+- Where the panel opens (`OwlChatPanel.place`, geometry in
+  `OwlChatPlacement`, `OwlChatPlacementTests`): beside the owl's frame
+  on screen, `gap` 8 pt away on the side (left or right) with more
+  room, bottom level with his feet when he's in the lower half of the
+  screen, top level with his head otherwise; above or below him when
+  neither side fits; clamped inside the screen's visible frame. Every
+  open uses his current position, unless the user has moved that
+  panel (a `windowDidMove` not from `place`): then it keeps their
+  place for the rest of the run. No owl on screen (Hide Cedric, a tab
+  without one): the window's bottom-right corner, as before; the owl
+  is never shown for it. The panel stays a free-floating panel, not a
+  child window.
 
 **Checks.** `OwlTests` (throttle, pause, dedupe, snooze, never-again,
 quiet, once-ever letter, textStart/generation dropping, every rule,
