@@ -611,7 +611,10 @@ public final class ReplaceUndoStore: @unchecked Sendable {
         let id = UUID()
         let dir = root.appendingPathComponent(id.uuidString, isDirectory: true)
         try PrivateDirectory.make(dir, root: root)
-        let op = Operation(dir: dir, manifest: Manifest(id: id, date: now, query: query, entries: []))
+        // The originals of replaced files: kept 7 days for Undo, not backed up.
+        PrivateDirectory.excludeFromBackup(root)
+        let op = Operation(dir: dir, manifest: Manifest(id: id, date: now, query: query, entries: [],
+                                                        root: folder?.standardizedFileURL.path))
         try op.save()
         // After the new folder exists, so the 5 kept include it.
         prune(now: now, keeping: id)

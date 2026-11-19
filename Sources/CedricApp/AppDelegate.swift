@@ -592,7 +592,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func restoreSession() {
         guard let session = store.load() else { return }
-        closedTabs = session.closedTabs ?? []
+        // Closed tabs past ClosedTabs.keepDays go, with their unsaved text.
+        let kept = ClosedTabs.expire(session.closedTabs ?? [])
+        closedTabs = kept.list
+        for gone in kept.dropped where gone.hasBuffer { store.removeBuffer(gone.id) }
         restoreFolder(session.folder)
         for w in session.windows {
             // The selected tab first (it is what shows); if its file has
