@@ -271,6 +271,39 @@ extension DevChecks {
                 }
                 expect(!panel.replaceMode && panel.replaceField.superview?.isHidden == true, "turning Replace off hides the Replace row")
             },
+            // 0.2.1: Edit › Undo Replace in Files with the panel hidden shows
+            // its progress and its result in the tab.
+            sync {
+                app.hideFindInFiles()
+                expect(app.findInFiles?.isShown != true, "panel hidden")
+                let files = ["partial.txt", "unchecked.txt"].compactMap { url[$0] }
+                let cands = files.map { FileReplace.Candidate(url: $0, relativePath: $0.lastPathComponent, searchStamp: DiskStamp.of($0)) }
+                guard let plan = try? FileReplace.plan(ReplaceQuery(query: "owl", template: "OWL"), root: root, candidates: cands) else {
+                    expect(false, "hidden panel: plan"); return
+                }
+                app.applyReplace(plan) { _ in }
+            },
+            until("hidden panel: the replace lands", timeout: 10) { !ReplaceInFiles.writing && ReplaceInFiles.last != nil },
+            sync {
+                expect(bytes("partial.txt") == Data("OWL A OWL B\n".utf8), "hidden panel: replaced on disk")
+                ReplaceInFiles.writeDelayForChecks = 0.4
+                expect(choose(#selector(AppDelegate.undoReplaceInFilesMenu(_:))), "hidden panel: Edit › Undo Replace in Files runs")
+                expect(tab.noticeBar?.isHidden == false && tab.noticeBar?.label.stringValue.hasPrefix("Undoing Replace in Files…") == true,
+                       "hidden panel: the tab says the undo is under way", tab.noticeBar?.label.stringValue ?? "-")
+            },
+            until("hidden panel: progress per file", timeout: 5) { tab.noticeBar?.label.stringValue.contains(" of 2 files") == true },
+            snapshot("replaceinfiles-undo-hidden-progress.png"),
+            until("hidden panel: the undo lands", timeout: 10) { !ReplaceInFiles.writing },
+            sync {
+                ReplaceInFiles.writeDelayForChecks = 0
+                let text = tab.noticeBar?.label.stringValue ?? "-"
+                expect(tab.noticeBar?.isHidden == false && text.hasPrefix("Undid Replace in Files in 2 files"), "hidden panel: then the result", text)
+                expect(bytes("partial.txt") == originals["partial.txt"] && bytes("unchecked.txt") == originals["unchecked.txt"],
+                       "hidden panel: the files are back")
+                expect(tab.noticeBar?.button("Dismiss") != nil, "hidden panel: with Dismiss")
+                tab.noticeBar?.button("Dismiss")?.performClick(nil)
+                expect(tab.noticeBar?.isHidden == true, "hidden panel: Dismiss closes it")
+            },
         ])
     }
 

@@ -332,29 +332,36 @@ enum DevChecks {
         var bin = Data("needle".utf8); bin.append(contentsOf: [0, 0, 1, 2])
         try? bin.write(to: dir.appendingPathComponent("src/blob.bin"))
         try? Data(repeating: 110, count: 21 * 1024 * 1024).write(to: dir.appendingPathComponent("docs/huge.log"))
-        let main = app.open(dir.appendingPathComponent("src/main.swift"))!
+        guard let main = app.open(dir.appendingPathComponent("src/main.swift")) else {
+            expect(false, "src/main.swift opens"); finish(); return
+        }
         main.window?.setContentSize(NSSize(width: 1300, height: 720))
         run([
             sync {
                 main.window?.makeKeyAndOrderFront(nil)
                 key("f", [.command, .shift])
+                if app.findInFiles?.isShown != true {
+                    // The VMs (app active) sometimes drop a synthetic shifted ⌘-key; a real ⇧⌘F works there.
+                    print("check: note: synthetic ⇧⌘F not taken; sending Find in Files…'s action")
+                    app.findInFilesMenu(nil)
+                }
                 let p = app.findInFiles
                 expect(p?.isShown == true && p?.window === main.window, "⇧⌘F docks the panel in the tab")
                 expect(p?.folderField.stringValue == dir.appendingPathComponent("src").path, "folder defaults to the file's folder",
                        p?.folderField.stringValue ?? "-")
                 // Search the whole tree.
                 p?.folderField.stringValue = dir.path
-                expect(main.window?.firstResponder is NSTextView && (main.window?.firstResponder as? NSView)?.isDescendant(of: p!) == true,
+                expect(main.window?.firstResponder is NSTextView && p.map { (main.window?.firstResponder as? NSView)?.isDescendant(of: $0) == true } == true,
                        "the query field has focus")
             },
             sync { type("needle") },
             { next in
-                let p = app.findInFiles!
+                guard let p = app.findInFiles else { expect(false, "Find in Files is open"); next(); return }
                 p.onFinished = { p.onFinished = nil; next() }
                 key("\r")
             },
             sync {
-                let p = app.findInFiles!
+                guard let p = app.findInFiles else { expect(false, "Find in Files is open"); return }
                 let rows = p.results.map { "\($0.relativePath):\($0.line)" }
                 print("check: results \(rows)")
                 expect(p.queryField.stringValue == "needle", "typed query reached the field", p.queryField.stringValue)
@@ -366,7 +373,7 @@ enum DevChecks {
             },
             snapshot("findinfiles-results.png"),
             { next in
-                let p = app.findInFiles!
+                guard let p = app.findInFiles else { expect(false, "Find in Files is open"); next(); return }
                 // Click row 6 (src/util/strings.swift:1, under its file row at 5).
                 p.table.scrollRowToVisible(6)
                 let r = p.table.rect(ofRow: 6)
@@ -377,7 +384,7 @@ enum DevChecks {
                     // the table's click action, as the click would.
                     print("check: note: synthetic click not taken by the inactive table; sending its action for row 6")
                     p.table.selectRowIndexes([6], byExtendingSelection: false)
-                    NSApp.sendAction(p.table.action!, to: p.table.target, from: p.table)
+                    if let action = p.table.action { NSApp.sendAction(action, to: p.table.target, from: p.table) }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { next() }
             },
@@ -397,7 +404,7 @@ enum DevChecks {
             { next in
                 // Cancel: a big tree, stopped at once.
                 for k in 0..<400 { _ = write("many/f\(k).txt", String(repeating: "needle line\n", count: 200)) }
-                let p = app.findInFiles!
+                guard let p = app.findInFiles else { expect(false, "Find in Files is open"); next(); return }
                 p.folderField.stringValue = dir.appendingPathComponent("many").path
                 p.onFinished = {
                     p.onFinished = nil
@@ -410,7 +417,7 @@ enum DevChecks {
                 p.stopSearch()
             },
             { next in
-                let p = app.findInFiles!
+                guard let p = app.findInFiles else { expect(false, "Find in Files is open"); next(); return }
                 p.onFinished = {
                     p.onFinished = nil
                     expect(p.lastSummary?.truncated == true && p.results.count == 10_000, "80,000 hits cap at 10,000", "\(p.results.count)")

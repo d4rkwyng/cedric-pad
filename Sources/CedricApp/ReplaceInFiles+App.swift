@@ -66,13 +66,30 @@ extension AppDelegate {
             p.undoReplace()
             return
         }
-        undoLastReplace { message in
-            guard !message.isEmpty, ProcessInfo.processInfo.environment["CEDRIC_CHECK"] == nil else { return }
-            let a = NSAlert()
-            a.messageText = ReplaceInFiles.actionName
-            a.informativeText = message
-            if let w = NSApp.keyWindow, w.attachedSheet == nil { a.beginSheetModal(for: w) } else { a.runModal() }
+        // Panel hidden: a notice bar in the front tab shows the progress,
+        // then the result (with Dismiss), so the undo is never silent.
+        guard let tab = currentTab ?? tabs.last else {
+            undoLastReplace { message in
+                guard !message.isEmpty, ProcessInfo.processInfo.environment["CEDRIC_CHECK"] == nil else { return }
+                let a = NSAlert()
+                a.messageText = ReplaceInFiles.actionName
+                a.informativeText = message
+                if let w = NSApp.keyWindow, w.attachedSheet == nil { a.beginSheetModal(for: w) } else { a.runModal() }
+            }
+            return
         }
+        weak var notified = tab
+        tab.showNotice(String(localized: "Undoing Replace in Files…"), buttons: [])
+        undoLastReplace(progress: { p in
+            guard p.total > 0, let bar = notified?.noticeBar, !bar.isHidden else { return }
+            bar.label.stringValue = String(localized: "Undoing Replace in Files… \(p.done) of \(p.total) files")
+        }, done: { message in
+            guard let t = notified else { return }
+            if message.isEmpty { t.noticeBar?.isHidden = true; return }
+            t.showNotice(message, buttons: [])
+            NSAccessibility.post(element: t.noticeBar as Any, notification: .announcementRequested,
+                                 userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        })
     }
 
     func validateReplaceInFilesItem(_ item: NSMenuItem) -> Bool? {
