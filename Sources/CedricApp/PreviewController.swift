@@ -164,6 +164,7 @@ final class PreviewController: NSObject, WKNavigationDelegate {
             ucc.removeAllContentRuleLists()
             if !self.allowNetwork, let rules = Self.blockRules { ucc.add(rules) }
             self.webView.configuration.defaultWebpagePreferences.allowsContentJavaScript = self.allowJavaScript
+            self.folderFiles.scriptOn = self.allowJavaScript
             self.shellKey = key
             self.loadingShell = true
             self.pageLoads += 1
@@ -418,6 +419,8 @@ private final class ScrollMessages: NSObject, WKScriptMessageHandler {
 final class DocumentFolderFiles: NSObject, WKURLSchemeHandler {
     nonisolated static let scheme = PreviewFolder.scheme
     var folder: URL?
+    /// The page may run JavaScript: serve only images, fonts and CSS.
+    var scriptOn = false
     private var stopped: Set<ObjectIdentifier> = []
 
     nonisolated static func pageURL(for folder: URL) -> URL? { PreviewFolder.pageURL(for: folder) }
@@ -426,7 +429,9 @@ final class DocumentFolderFiles: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         let id = ObjectIdentifier(task)
         stopped.remove(id)
-        guard let url = task.request.url, let folder, let file = PreviewFolder.file(for: url, in: folder) else {
+        // With JavaScript on, only images, fonts and CSS (no dotfiles):
+        // page script must not be able to read the folder's other files.
+        guard let url = task.request.url, let folder, let file = PreviewFolder.file(for: url, in: folder, scriptOn: scriptOn) else {
             task.didFailWithError(URLError(.noPermissionsToReadFile))
             return
         }

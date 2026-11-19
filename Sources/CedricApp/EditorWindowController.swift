@@ -783,6 +783,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         doc.markSaved()
         let len = (textView.string as NSString).length
         textView.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
+        resetPreviewTrust()
         if previewVisible { renderPreview() }
     }
 
@@ -802,6 +803,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             doc.apply(d)
             doc.fileModified = mod
             doc.markSaved()
+            resetPreviewTrust()
+            if previewVisible { renderPreview() }
             hideDiskBar()
             updateTitle()
             updateStatus()
@@ -1306,6 +1309,16 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var previewAllowsNetwork: Bool {
         get { preview?.allowNetwork ?? false }
         set { preview?.allowNetwork = newValue; renderPreview() }
+    }
+
+    /// The file was reloaded from disk (a `git pull`, another editor):
+    /// JavaScript and Network go back off, so new content never inherits
+    /// a choice made for the old one.
+    func resetPreviewTrust() {
+        guard let p = preview, p.allowJavaScript || p.allowNetwork else { return }
+        p.allowJavaScript = false
+        p.allowNetwork = false
+        updatePreviewBar()
     }
 
     private func schedulePreview() {

@@ -32,6 +32,36 @@ public enum PreviewFolder {
         return target.hasPrefix(root.hasSuffix("/") ? root : root + "/") ? file : nil
     }
 
+    /// What a page with JavaScript on may still load from its folder:
+    /// images, fonts and style sheets. Script could otherwise read any
+    /// file next to the document (a `.env`, `.git/config`, `~/.ssh` for a
+    /// file in home) and, with Network on, send it out.
+    public static let scriptSafeExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "webp", "avif", "heic", "heif", "bmp", "ico", "tif", "tiff", "svg",
+        "woff", "woff2", "ttf", "otf",
+        "css",
+    ]
+
+    /// `url`'s file, as `file(for:in:)`, and with `scriptOn` only an image,
+    /// font or CSS file, never a dotfile or anything under a dot folder
+    /// (`.git`, `.ssh`), judged on both the path asked for and the path
+    /// its symbolic links lead to.
+    public static func file(for url: URL, in folder: URL, scriptOn: Bool) -> URL? {
+        guard let file = file(for: url, in: folder) else { return nil }
+        guard scriptOn else { return file }
+        let root = resolved(folder.standardizedFileURL).path
+        let target = resolved(file).path
+        let folderPath = folder.standardizedFileURL.path
+        func ok(_ path: String, under base: String) -> Bool {
+            let rel = path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path
+            let parts = rel.split(separator: "/")
+            guard let last = parts.last, !parts.contains(where: { $0.hasPrefix(".") }) else { return false }
+            let ext = (String(last) as NSString).pathExtension.lowercased()
+            return scriptSafeExtensions.contains(ext)
+        }
+        return ok(file.path, under: folderPath) && ok(target, under: root) ? file : nil
+    }
+
     /// `url` with symbolic links resolved, also when its last parts don't
     /// exist (resolvingSymlinksInPath leaves such a path as it is).
     static func resolved(_ url: URL) -> URL {
