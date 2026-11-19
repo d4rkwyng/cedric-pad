@@ -1,33 +1,106 @@
 import AppKit
 import CedricCore
 
-/// Find in Files (⇧⌘F): a side panel docked at the right of the selected
-/// tab. The search runs on a background queue (`FileSearch`); results
-/// stream into the list as `path:line: text`; clicking one opens the file
-/// at that line.
+/// One row of the Find in Files results: a file (its matches below it), a
+/// match, or, in the replace preview, the "Skipped" group and its files.
 @MainActor
-final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+final class ResultNode: NSObject {
+    enum Kind { case file, match, skippedGroup, skipped }
+    let kind: Kind
+    let url: URL?
+    let relativePath: String
+    var children: [ResultNode] = []
+    weak var parent: ResultNode?
+    /// A match row in find mode.
+    var result: FileSearchResult?
+    /// A match row in the replace preview.
+    var edit: ReplaceEdit?
+    /// The replace preview: the file's index in the plan.
+    var fileIndex = -1
+    var skip: ReplaceSkip?
+    var checked = true
+
+    init(_ kind: Kind, url: URL?, relativePath: String) {
+        self.kind = kind
+        self.url = url
+        self.relativePath = relativePath
+    }
+
+    /// A file row's box: on, off or mixed from its matches.
+    var fileState: NSControl.StateValue {
+        let on = children.filter(\.checked).count
+        return on == 0 ? .off : on == children.count ? .on : .mixed
+    }
+}
+
+/// Find in Files (⇧⌘F) and Replace in Files (⌥⇧⌘F): a side panel docked
+/// at the right of the selected tab. The search runs on a background
+/// queue (`FileSearch`); results stream into a two-level list (file, then
+/// `line: text`); clicking a match opens the file at that line.
+///
+/// Replace mode adds a Replace field and **Preview Replace…**, which plans
+/// the replace off the main thread (`FileReplace.plan`) and turns the list
+/// into a preview: a box per file and per match (`before → after`), the
+/// skipped files listed with why. **Replace All** acts on the checked
+/// matches only (`onReplace`); **Undo Replace** puts the last one back.
+/// Nothing here costs anything until the panel is first opened.
+@MainActor
+final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
     let queryField = NSTextField()
+    let replaceField = NSTextField()
     let folderField = NSTextField()
     let includeField = NSTextField()
     let excludeField = NSTextField()
     let regexBox = NSButton(checkboxWithTitle: String(localized: "Regex"), target: nil, action: nil)
     let caseBox = NSButton(checkboxWithTitle: String(localized: "Match case"), target: nil, action: nil)
+    let replaceBox = NSButton(checkboxWithTitle: String(localized: "Replace"), target: nil, action: nil)
+    let gitIgnoreBox = NSButton(checkboxWithTitle: String(localized: "Respect .gitignore"), target: nil, action: nil)
     let findButton = NSButton(title: String(localized: "Find"), target: nil, action: nil)
     let stopButton = NSButton(title: String(localized: "Stop"), target: nil, action: nil)
+    let previewButton = NSButton(title: String(localized: "Preview Replace…"), target: nil, action: nil)
+    let replaceAllButton = NSButton(title: String(localized: "Replace All"), target: nil, action: nil)
+    let cancelPreviewButton = NSButton(title: String(localized: "Cancel"), target: nil, action: nil)
+    let undoButton = NSButton(title: String(localized: "Undo Replace"), target: nil, action: nil)
     let status = NSTextField(labelWithString: "")
-    let table = NSTableView()
+    /// The replace preview's summary (and the result of a replace or undo).
+    let summary = NSTextField(wrappingLabelWithString: "")
+    let table = NSOutlineView()
     private let tableScroll = NSScrollView()
+    private var replaceRow: NSView!
+    private var replaceButtons: NSView!
 
     var isShown = false
     var onOpen: ((FileSearchResult) -> Void)?
     var onClose: (() -> Void)?
+    /// Replace All: the plan with only the checked matches. Returns what to show.
+    var onReplace: ((ReplacePlan) -> String)?
+    /// Undo Replace: what to show.
+    var onUndo: (() -> String)?
+    /// Whether there is a replace to undo.
+    var canUndo: (() -> Bool)?
+    /// The text of files open in a tab, by standardized path, for these files.
+    var buffers: (([URL]) -> [String: String])?
     private(set) var results: [FileSearchResult] = []
+    private(set) var nodes: [ResultNode] = []
     private(set) var running: FileSearch?
     private(set) var lastSummary: FileSearchSummary?
+    /// The options of the search `results` came from.
+    private(set) var lastOptions: FileSearchOptions?
     /// Called when a search finishes (the in-process check waits on it).
     var onFinished: (() -> Void)?
-    private var pendingRows = 0
+    /// Called when a preview is ready (or failed).
+    var onPreviewReady: (() -> Void)?
+    /// The replace preview, while it is shown.
+    private(set) var plan: ReplacePlan?
+    private var planning: PlanJob?
+    var previewing: Bool { plan != nil }
+
+    final class PlanJob: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _cancelled = false
+        var cancelled: Bool { lock.lock(); defer { lock.unlock() }; return _cancelled }
+        func cancel() { lock.lock(); _cancelled = true; lock.unlock() }
+    }
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 420, height: 600))
@@ -70,7 +143,7 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
         close.isBordered = false
         let chooser = NSButton(title: String(localized: "Choose…"), target: self, action: #selector(chooseFolder))
         chooser.controlSize = .small
-        for f in [queryField, folderField, includeField, excludeField] {
+        for f in [queryField, replaceField, folderField, includeField, excludeField] {
             f.controlSize = .small
             f.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             f.lineBreakMode = .byTruncatingHead
@@ -79,29 +152,50 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
             f.action = #selector(startSearch)
             f.setContentHuggingPriority(.defaultLow, for: .horizontal)
         }
+        replaceField.action = #selector(previewReplace)
         queryField.placeholderString = String(localized: "Text or regular expression")
+        replaceField.placeholderString = String(localized: "Replacement ($1 for a regex group)")
         includeField.placeholderString = String(localized: "All files (e.g. *.swift, *.md)")
         excludeField.stringValue = FileSearchOptions.defaultExclude.joined(separator: ", ")
-        for b in [regexBox, caseBox] { b.controlSize = .small; b.font = .systemFont(ofSize: NSFont.smallSystemFontSize) }
+        for b in [regexBox, caseBox, replaceBox, gitIgnoreBox] { b.controlSize = .small; b.font = .systemFont(ofSize: NSFont.smallSystemFontSize) }
+        gitIgnoreBox.state = .on
+        gitIgnoreBox.toolTip = String(localized: "Skip what the folder’s .gitignore files and .git/info/exclude ignore")
+        replaceBox.target = self; replaceBox.action = #selector(replaceToggled)
         findButton.target = self; findButton.action = #selector(startSearch)
         stopButton.target = self; stopButton.action = #selector(stopSearch)
+        previewButton.target = self; previewButton.action = #selector(previewReplace)
+        replaceAllButton.target = self; replaceAllButton.action = #selector(replaceAll)
+        cancelPreviewButton.target = self; cancelPreviewButton.action = #selector(cancelPreview)
+        undoButton.target = self; undoButton.action = #selector(undoReplace)
         stopButton.isEnabled = false
-        for b in [findButton, stopButton] { b.controlSize = .small; b.bezelStyle = .rounded }
+        for b in [findButton, stopButton, previewButton, replaceAllButton, cancelPreviewButton, undoButton] {
+            b.controlSize = .small; b.bezelStyle = .rounded
+        }
         status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingTail
         status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        summary.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        summary.textColor = .labelColor
+        summary.isHidden = true
+        summary.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        replaceRow = row([label(String(localized: "Replace")), replaceField])
+        replaceButtons = row([label(""), previewButton, replaceAllButton, cancelPreviewButton, undoButton])
         let form = NSStackView(views: [
             row([title, spacer, close]),
             row([label(String(localized: "Find")), queryField]),
-            row([label(""), regexBox, caseBox]),
+            replaceRow,
+            row([label(""), regexBox, caseBox, replaceBox]),
             row([label(String(localized: "Folder")), folderField, chooser]),
             row([label(String(localized: "Include")), includeField]),
             row([label(String(localized: "Exclude")), excludeField]),
+            row([label(""), gitIgnoreBox]),
             row([label(""), findButton, stopButton, status]),
+            replaceButtons,
+            summary,
         ])
         form.orientation = .vertical
         form.alignment = .leading
@@ -112,9 +206,11 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
         let col = NSTableColumn(identifier: .init("result"))
         col.resizingMask = .autoresizingMask
         table.addTableColumn(col)
+        table.outlineTableColumn = col
         table.headerView = nil
         table.rowHeight = 18
         table.style = .plain
+        table.indentationPerLevel = 12
         table.usesAlternatingRowBackgroundColors = true
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.dataSource = self
@@ -138,11 +234,255 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
             stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(greaterThanOrEqualToConstant: 280),
         ])
+        updateReplaceControls()
+    }
+
+    // MARK: Replace mode
+
+    var replaceMode: Bool {
+        get { replaceBox.state == .on }
+        set { replaceBox.state = newValue ? .on : .off; updateReplaceControls() }
+    }
+
+    @objc func replaceToggled() {
+        if !replaceMode { cancelPreview() }
+        updateReplaceControls()
+    }
+
+    /// Shows the replace row and buttons in replace mode; enables what applies now.
+    func updateReplaceControls() {
+        let on = replaceMode
+        replaceRow.isHidden = !on
+        replaceButtons.isHidden = !on
+        let idle = running == nil && planning == nil
+        let capped = lastSummary?.truncated == true
+        previewButton.isHidden = previewing
+        previewButton.isEnabled = idle && !queryField.stringValue.isEmpty
+        replaceAllButton.isHidden = !previewing
+        cancelPreviewButton.isHidden = !previewing
+        replaceAllButton.isEnabled = previewing && !capped && checkedCount > 0
+        undoButton.isHidden = !(canUndo?() ?? false) || previewing
+        summary.isHidden = !on || summary.stringValue.isEmpty
+        // A preview is tied to the fields it was made from.
+        for f in [queryField, replaceField, folderField, includeField, excludeField] { f.isEnabled = !previewing }
+        for b in [regexBox, caseBox, gitIgnoreBox, findButton] { b.isEnabled = !previewing }
+    }
+
+    /// The options the fields describe now.
+    func currentOptions() -> FileSearchOptions? {
+        let path = (folderField.stringValue as NSString).expandingTildeInPath
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { return nil }
+        return FileSearchOptions(root: URL(fileURLWithPath: path), query: queryField.stringValue,
+                                 regex: regexBox.state == .on, caseSensitive: caseBox.state == .on,
+                                 include: FileSearchOptions.globs(includeField.stringValue),
+                                 exclude: FileSearchOptions.globs(excludeField.stringValue),
+                                 respectGitIgnore: gitIgnoreBox.state == .on)
+    }
+
+    static func same(_ a: FileSearchOptions?, _ b: FileSearchOptions?) -> Bool {
+        guard let a, let b else { return false }
+        return a.root.standardizedFileURL == b.root.standardizedFileURL && a.query == b.query && a.regex == b.regex
+            && a.caseSensitive == b.caseSensitive && a.include == b.include && a.exclude == b.exclude
+            && a.respectGitIgnore == b.respectGitIgnore
+    }
+
+    /// Preview Replace…: searches first if the fields changed since the
+    /// last search, then plans the replace off the main thread.
+    @objc func previewReplace() {
+        guard replaceMode, !previewing, planning == nil else { return }
+        guard !queryField.stringValue.isEmpty else { status.stringValue = String(localized: "Type something to find."); return }
+        if running != nil { return }
+        guard Self.same(lastOptions, currentOptions()), lastSummary != nil, lastSummary?.cancelled != true else {
+            let previous = onFinished
+            onFinished = { [weak self] in
+                self?.onFinished = previous
+                previous?()
+                if self?.lastSummary != nil { self?.previewReplace() } else { self?.onPreviewReady?() }
+            }
+            startSearch()
+            return
+        }
+        if lastSummary?.truncated == true {
+            summary.stringValue = String(localized: "Too many matches: narrow the search.")
+            updateReplaceControls()
+            onPreviewReady?()
+            return
+        }
+        guard let root = lastOptions?.root, !results.isEmpty else {
+            summary.stringValue = String(localized: "Nothing to replace.")
+            updateReplaceControls()
+            onPreviewReady?()
+            return
+        }
+        var seen = Set<URL>()
+        var candidates: [FileReplace.Candidate] = []
+        for r in results where seen.insert(r.url).inserted {
+            candidates.append(.init(url: r.url, relativePath: r.relativePath, searchStamp: r.stamp))
+        }
+        let skippedBinary = lastSummary?.skippedBinary ?? 0, skippedLarge = lastSummary?.skippedLarge ?? 0
+        let query = ReplaceQuery(query: queryField.stringValue, template: replaceField.stringValue,
+                                 regex: regexBox.state == .on, caseSensitive: caseBox.state == .on)
+        let bufs = buffers?(candidates.map(\.url)) ?? [:]
+        let job = PlanJob()
+        planning = job
+        status.stringValue = String(localized: "Preparing preview…")
+        updateReplaceControls()
+        let me = WeakRef(self)
+        let input = MainBox(value: (candidates, bufs))
+        DispatchQueue.global(qos: .userInitiated).async {
+            let r = Result { try FileReplace.plan(query, root: root, candidates: input.value.0, buffers: input.value.1,
+                                                  isCancelled: { job.cancelled }) }
+            let out = MainBox(value: r)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let p = me.value, p.planning === job else { return }
+                    p.planning = nil
+                    switch out.value {
+                    case .success(let plan) where !plan.cancelled:
+                        p.showPreview(plan, searchSkippedBinary: skippedBinary, searchSkippedLarge: skippedLarge)
+                    case .success:
+                        p.status.stringValue = String(localized: "stopped")
+                    case .failure(let e):
+                        p.status.stringValue = e.localizedDescription
+                    }
+                    p.updateReplaceControls()
+                    p.onPreviewReady?()
+                }
+            }
+        }
+    }
+
+    private var searchSkipped = (binary: 0, large: 0)
+
+    func showPreview(_ plan: ReplacePlan, searchSkippedBinary: Int, searchSkippedLarge: Int) {
+        self.plan = plan
+        searchSkipped = (searchSkippedBinary, searchSkippedLarge)
+        var out: [ResultNode] = []
+        for (k, f) in plan.files.enumerated() {
+            let file = ResultNode(.file, url: f.url, relativePath: f.relativePath)
+            file.fileIndex = k
+            file.children = f.edits.map { e in
+                let n = ResultNode(.match, url: f.url, relativePath: f.relativePath)
+                n.edit = e
+                n.fileIndex = k
+                n.parent = file
+                return n
+            }
+            out.append(file)
+        }
+        if !plan.skipped.isEmpty {
+            let g = ResultNode(.skippedGroup, url: nil, relativePath: String(localized: "Skipped (\(plan.skipped.count))"))
+            g.children = plan.skipped.map { s in
+                let n = ResultNode(.skipped, url: s.url, relativePath: s.relativePath)
+                n.skip = s.reason
+                n.parent = g
+                return n
+            }
+            out.append(g)
+        }
+        nodes = out
+        table.reloadData()
+        table.expandItem(nil, expandChildren: true)
+        refreshSummary()
+        status.stringValue = String(localized: "Preview: nothing is changed until Replace All.")
+    }
+
+    var checkedCount: Int {
+        nodes.filter { $0.kind == .file }.reduce(0) { $0 + $1.children.filter(\.checked).count }
+    }
+
+    /// "N replacements in M files. Skipped: x binary, …".
+    func refreshSummary() {
+        guard let plan else { return }
+        let files = nodes.filter { $0.kind == .file && $0.children.contains(where: \.checked) }.count
+        let n = checkedCount
+        var s = n == 1 ? String(localized: "1 replacement in \(files) file.") : String(localized: "\(n) replacements in \(files) files.")
+        if n != plan.replacementCount { s += " " + String(localized: "(\(plan.replacementCount - n) unchecked)") }
+        var skipped: [String] = []
+        let binary = searchSkipped.binary + plan.skippedCount(.binary), large = searchSkipped.large + plan.skippedCount(.tooLarge)
+        if binary > 0 { skipped.append(String(localized: "\(binary) binary")) }
+        if large > 0 { skipped.append(String(localized: "\(large) over 20 MB")) }
+        for r in ReplaceSkip.allCases where r != .binary && r != .tooLarge {
+            let c = plan.skippedCount(r)
+            if c > 0 { skipped.append("\(c) \(r.summary)") }
+        }
+        if !skipped.isEmpty { s += " " + String(localized: "Skipped: \(skipped.joined(separator: ", ")).") }
+        summary.stringValue = s
+        summary.toolTip = s
+        updateReplaceControls()
+    }
+
+    /// The plan with only the checked matches.
+    func checkedPlan() -> ReplacePlan? {
+        guard var p = plan else { return nil }
+        var files: [ReplaceFile] = []
+        for node in nodes where node.kind == .file {
+            var f = p.files[node.fileIndex]
+            f.edits = node.children.filter(\.checked).compactMap(\.edit)
+            if !f.edits.isEmpty { files.append(f) }
+        }
+        p.files = files
+        return p
+    }
+
+    @objc func replaceAll() {
+        guard previewing, lastSummary?.truncated != true, let p = checkedPlan(), !p.files.isEmpty else { NSSound.beep(); return }
+        let message = onReplace?(p) ?? ""
+        endPreview()
+        summary.stringValue = message
+        status.stringValue = String(localized: "Replaced.")
+        updateReplaceControls()
+    }
+
+    @objc func undoReplace() {
+        let message = onUndo?() ?? ""
+        summary.stringValue = message
+        updateReplaceControls()
+    }
+
+    @objc func cancelPreview() {
+        planning?.cancel()
+        planning = nil
+        guard previewing else { updateReplaceControls(); return }
+        endPreview()
+        summary.stringValue = ""
+        updateReplaceControls()
+    }
+
+    /// Back to the search results.
+    private func endPreview() {
+        plan = nil
+        nodes = Self.group(results)
+        table.reloadData()
+        table.expandItem(nil, expandChildren: true)
+    }
+
+    @objc func toggleChecked(_ sender: NSButton) {
+        let row = table.row(for: sender)
+        guard row >= 0, let node = table.item(atRow: row) as? ResultNode else { return }
+        setChecked(node, sender.state != .off)
+    }
+
+    /// Checks or unchecks a match, or a file with all its matches.
+    func setChecked(_ node: ResultNode, _ on: Bool) {
+        switch node.kind {
+        case .file:
+            node.children.forEach { $0.checked = on }
+            table.reloadItem(node, reloadChildren: true)
+        case .match:
+            node.checked = on
+            if let p = node.parent { table.reloadItem(p, reloadChildren: false) }
+            table.reloadItem(node)
+        default: return
+        }
+        refreshSummary()
     }
 
     // MARK: Search
 
     @objc func chooseFolder() {
+        guard !previewing else { NSSound.beep(); return }
         let p = NSOpenPanel()
         p.canChooseDirectories = true
         p.canChooseFiles = false
@@ -154,25 +494,32 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
     }
 
     @objc func startSearch() {
+        if previewing { return }
         cancel()
         results = []
+        nodes = []
+        lastSummary = nil
+        lastOptions = nil
+        summary.stringValue = ""
         table.reloadData()
-        let path = (folderField.stringValue as NSString).expandingTildeInPath
-        var isDir: ObjCBool = false
-        guard !queryField.stringValue.isEmpty else { status.stringValue = String(localized: "Type something to find."); return }
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
-            status.stringValue = String(localized: "No such folder.")
+        guard !queryField.stringValue.isEmpty else {
+            status.stringValue = String(localized: "Type something to find.")
+            updateReplaceControls()
+            onFinished?()
             return
         }
-        let o = FileSearchOptions(root: URL(fileURLWithPath: path), query: queryField.stringValue,
-                                  regex: regexBox.state == .on, caseSensitive: caseBox.state == .on,
-                                  include: FileSearchOptions.globs(includeField.stringValue),
-                                  exclude: FileSearchOptions.globs(excludeField.stringValue))
+        guard let o = currentOptions() else {
+            status.stringValue = String(localized: "No such folder.")
+            updateReplaceControls()
+            onFinished?()
+            return
+        }
         let search = FileSearch(o)
         running = search
-        lastSummary = nil
+        lastOptions = o
         stopButton.isEnabled = true
         status.stringValue = String(localized: "Searching…")
+        updateReplaceControls()
         let me = WeakRef(self)
         search.start(batch: { b in
             MainActor.assumeIsolated {
@@ -194,13 +541,51 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
     func cancel() {
         running?.cancel()
         running = nil
+        planning?.cancel()
+        planning = nil
         stopButton.isEnabled = false
     }
 
+    /// File rows with their match rows, in result order.
+    static func group(_ rs: [FileSearchResult]) -> [ResultNode] {
+        var out: [ResultNode] = []
+        for r in rs { add(r, to: &out) }
+        return out
+    }
+
+    @discardableResult
+    private static func add(_ r: FileSearchResult, to nodes: inout [ResultNode]) -> (ResultNode, Bool) {
+        var isNew = false
+        let file: ResultNode
+        if let last = nodes.last, last.url == r.url {
+            file = last
+        } else {
+            file = ResultNode(.file, url: r.url, relativePath: r.relativePath)
+            nodes.append(file)
+            isNew = true
+        }
+        let m = ResultNode(.match, url: r.url, relativePath: r.relativePath)
+        m.result = r
+        m.parent = file
+        file.children.append(m)
+        return (file, isNew)
+    }
+
     private func append(_ b: [FileSearchResult]) {
-        let start = results.count
         results += b
-        table.insertRows(at: IndexSet(start..<results.count), withAnimation: [])
+        // Results come sorted by file: a batch continues the last file, then adds new ones.
+        let oldCount = nodes.count
+        let last = nodes.last
+        let lastChildren = last?.children.count ?? 0
+        for r in b { Self.add(r, to: &nodes) }
+        table.beginUpdates()
+        if let last, last.children.count > lastChildren {
+            table.insertItems(at: IndexSet(lastChildren..<last.children.count), inParent: last, withAnimation: [])
+        }
+        if nodes.count > oldCount { table.insertItems(at: IndexSet(oldCount..<nodes.count), inParent: nil, withAnimation: []) }
+        table.endUpdates()
+        if let last, last.children.count > lastChildren { table.reloadItem(last) }
+        for f in nodes[oldCount...] { table.expandItem(f) }
         status.stringValue = String(localized: "Searching… \(results.count) matching lines")
     }
 
@@ -218,13 +603,16 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
             if s.skippedLarge > 0 { parts.append(String(localized: "\(s.skippedLarge) over 20 MB skipped")) }
             status.stringValue = parts.joined(separator: ", ")
             status.toolTip = status.stringValue
+            if s.truncated, replaceMode { summary.stringValue = String(localized: "Too many matches: narrow the search.") }
         case .failure(let e):
+            lastOptions = nil
             if case FindEngine.FindError.invalidPattern = e {
                 status.stringValue = String(localized: "Invalid regular expression")
             } else {
                 status.stringValue = e.localizedDescription
             }
         }
+        updateReplaceControls()
         onFinished?()
     }
 
@@ -233,36 +621,95 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
     @objc func rowClicked() {
         trace("find in files: clicked row \(table.clickedRow)")
         let r = table.clickedRow >= 0 ? table.clickedRow : table.selectedRow
-        guard r >= 0, r < results.count else { return }
-        let result = results[r]
-        // After the click finishes: opening may move this panel to another tab.
-        DispatchQueue.main.async { [weak self] in self?.onOpen?(result) }
-    }
-
-    // MARK: Table
-
-    func numberOfRows(in tableView: NSTableView) -> Int { results.count }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let id = NSUserInterfaceItemIdentifier("cell")
-        let field: NSTextField
-        if let f = tableView.makeView(withIdentifier: id, owner: self) as? NSTextField {
-            field = f
-        } else {
-            field = ResultLabel(labelWithString: "")
-            field.identifier = id
-            field.lineBreakMode = .byTruncatingTail
-            field.cell?.truncatesLastVisibleLine = true
+        guard r >= 0, let node = table.item(atRow: r) as? ResultNode else { return }
+        let target: FileSearchResult?
+        switch node.kind {
+        case .match:
+            if let res = node.result {
+                target = res
+            } else if let e = node.edit, let url = node.url {
+                target = FileSearchResult(url: url, relativePath: node.relativePath, line: e.line, column: e.lineRange.location + 1,
+                                          text: e.lineText, ranges: [e.lineRange])
+            } else {
+                target = nil
+            }
+        case .file:
+            target = node.children.first?.result
+        default:
+            target = nil
         }
-        field.attributedStringValue = Self.format(results[row])
-        field.toolTip = "\(results[row].url.path):\(results[row].line)"
-        return field
+        guard let target else { return }
+        // After the click finishes: opening may move this panel to another tab.
+        DispatchQueue.main.async { [weak self] in self?.onOpen?(target) }
     }
 
-    /// `path:line: text`, matches in bold on a highlight.
-    static func format(_ r: FileSearchResult) -> NSAttributedString {
-        let mono = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        let out = NSMutableAttributedString(string: "\(r.relativePath):\(r.line): ",
+    // MARK: Outline
+
+    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+        guard let n = item as? ResultNode else { return nodes.count }
+        return n.children.count
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+        guard let n = item as? ResultNode else { return nodes[index] }
+        return n.children[index]
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+        (item as? ResultNode).map { !$0.children.isEmpty } ?? false
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
+        guard let node = item as? ResultNode else { return nil }
+        let checkable = previewing && (node.kind == .file || node.kind == .match)
+        let id = NSUserInterfaceItemIdentifier(checkable ? "check" : "cell")
+        let cell: ResultCell
+        if let c = outlineView.makeView(withIdentifier: id, owner: self) as? ResultCell {
+            cell = c
+        } else {
+            cell = ResultCell(checkable: checkable)
+            cell.identifier = id
+            cell.box?.target = self
+            cell.box?.action = #selector(toggleChecked(_:))
+        }
+        if let box = cell.box {
+            box.allowsMixedState = node.kind == .file
+            box.state = node.kind == .file ? node.fileState : (node.checked ? .on : .off)
+        }
+        cell.label.attributedStringValue = Self.format(node)
+        cell.label.toolTip = node.url.map { u in node.result.map { "\(u.path):\($0.line)" } ?? node.edit.map { "\(u.path):\($0.line)" } ?? u.path }
+            ?? node.relativePath
+        return cell
+    }
+
+    static var mono: NSFont { NSFont.monospacedSystemFont(ofSize: 11, weight: .regular) }
+
+    static func format(_ node: ResultNode) -> NSAttributedString {
+        switch node.kind {
+        case .file:
+            let out = NSMutableAttributedString(string: node.relativePath, attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+                                                                                        .foregroundColor: NSColor.labelColor])
+            out.append(NSAttributedString(string: "  \(node.children.count)", attributes: [.font: NSFont.systemFont(ofSize: 11),
+                                                                                          .foregroundColor: NSColor.secondaryLabelColor]))
+            return out
+        case .match:
+            if let r = node.result { return format(r, withPath: false) }
+            if let e = node.edit { return formatEdit(e) }
+            return NSAttributedString()
+        case .skippedGroup:
+            return NSAttributedString(string: node.relativePath, attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+                                                                             .foregroundColor: NSColor.secondaryLabelColor])
+        case .skipped:
+            let out = NSMutableAttributedString(string: node.relativePath, attributes: [.font: mono, .foregroundColor: NSColor.labelColor])
+            out.append(NSAttributedString(string: " · \(node.skip?.summary ?? "")", attributes: [.font: NSFont.systemFont(ofSize: 11),
+                                                                                                .foregroundColor: NSColor.secondaryLabelColor]))
+            return out
+        }
+    }
+
+    /// `line: text` (with `path:` first if asked), matches in bold on a highlight.
+    static func format(_ r: FileSearchResult, withPath: Bool = true) -> NSAttributedString {
+        let out = NSMutableAttributedString(string: withPath ? "\(r.relativePath):\(r.line): " : "\(r.line): ",
                                             attributes: [.font: mono, .foregroundColor: NSColor.secondaryLabelColor])
         let text = r.text.replacingOccurrences(of: "\t", with: " ")
         let lead = text.prefix { $0 == " " }.utf16.count
@@ -278,6 +725,63 @@ final class FindInFilesPanel: NSView, NSTableViewDataSource, NSTableViewDelegate
         out.append(body)
         return out
     }
+
+    /// `line: before → after`: the match struck through, the replacement
+    /// highlighted in its place.
+    static func formatEdit(_ e: ReplaceEdit) -> NSAttributedString {
+        let out = NSMutableAttributedString(string: "\(e.line): ", attributes: [.font: mono, .foregroundColor: NSColor.secondaryLabelColor])
+        let ns = e.lineText.replacingOccurrences(of: "\t", with: " ") as NSString
+        let r = NSRange(location: min(e.lineRange.location, ns.length), length: min(e.lineRange.length, max(0, ns.length - e.lineRange.location)))
+        let head = ns.substring(to: r.location)
+        let trimmed = head.drop { $0 == " " }
+        out.append(NSAttributedString(string: String(trimmed), attributes: [.font: mono, .foregroundColor: NSColor.labelColor]))
+        out.append(NSAttributedString(string: ns.substring(with: r), attributes: [
+            .font: mono, .foregroundColor: NSColor.secondaryLabelColor,
+            .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+            .backgroundColor: NSColor.systemRed.withAlphaComponent(0.18),
+        ]))
+        out.append(NSAttributedString(string: e.replacement.replacingOccurrences(of: "\n", with: "⏎"), attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold), .foregroundColor: NSColor.labelColor,
+            .backgroundColor: NSColor.systemGreen.withAlphaComponent(0.28),
+        ]))
+        out.append(NSAttributedString(string: ns.substring(from: NSMaxRange(r)), attributes: [.font: mono, .foregroundColor: NSColor.labelColor]))
+        return out
+    }
+}
+
+/// A results row: an optional check box (replace preview), then the text.
+/// Clicks on the text go to the outline (one click opens the result).
+final class ResultCell: NSTableCellView {
+    let box: NSButton?
+    let label = ResultLabel(labelWithString: "")
+
+    init(checkable: Bool) {
+        box = checkable ? NSButton(checkboxWithTitle: "", target: nil, action: nil) : nil
+        super.init(frame: .zero)
+        label.lineBreakMode = .byTruncatingTail
+        label.cell?.truncatesLastVisibleLine = true
+        label.alignment = .natural
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        textField = label
+        var cs = [label.trailingAnchor.constraint(equalTo: trailingAnchor), label.centerYAnchor.constraint(equalTo: centerYAnchor)]
+        if let box {
+            box.controlSize = .small
+            box.imagePosition = .imageOnly
+            box.setContentHuggingPriority(.required, for: .horizontal)
+            box.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(box)
+            cs += [box.leadingAnchor.constraint(equalTo: leadingAnchor), box.centerYAnchor.constraint(equalTo: centerYAnchor),
+                   label.leadingAnchor.constraint(equalTo: box.trailingAnchor, constant: 2)]
+        } else {
+            cs.append(label.leadingAnchor.constraint(equalTo: leadingAnchor))
+        }
+        NSLayoutConstraint.activate(cs)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
 }
 
 /// A result row's text: clicks go to the table (one click opens the result).

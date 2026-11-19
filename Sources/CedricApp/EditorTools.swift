@@ -95,20 +95,35 @@ extension AppDelegate: NSMenuDelegate {
     // MARK: Find in Files
 
     @objc func findInFilesMenu(_ sender: Any?) {
+        showFindInFiles(replace: false)
+    }
+
+    /// Opens (or moves here) the Find in Files panel; `replace`: in replace
+    /// mode (Edit › Replace in Files…), else it keeps its mode.
+    func showFindInFiles(replace: Bool) {
         let panel = findInFiles ?? FindInFilesPanel()
         findInFiles = panel
         panel.onOpen = { [weak self] result in self?.openResult(result) }
         panel.onClose = { [weak self] in self?.hideFindInFiles() }
+        panel.onReplace = { [weak self] plan in self?.applyReplace(plan) ?? "" }
+        panel.onUndo = { [weak self] in self?.undoLastReplace() ?? "" }
+        panel.canUndo = { ReplaceInFiles.last != nil }
+        panel.buffers = { [weak self] urls in self?.openBuffers(for: urls) ?? [:] }
+        if replace { panel.replaceMode = true }
         guard let tab = currentTab ?? tabs.last else { return }
-        if let dir = tab.doc.fileURL?.deletingLastPathComponent() {
-            panel.folderField.stringValue = dir.path
-        } else if panel.folderField.stringValue.isEmpty {
-            panel.folderField.stringValue = FileManager.default.homeDirectoryForCurrentUser.path
+        // A replace preview keeps the fields it was made from.
+        if !panel.previewing {
+            if let dir = tab.doc.fileURL?.deletingLastPathComponent() {
+                panel.folderField.stringValue = dir.path
+            } else if panel.folderField.stringValue.isEmpty {
+                panel.folderField.stringValue = FileManager.default.homeDirectoryForCurrentUser.path
+            }
+            let sel = tab.textView.selectedRange()
+            if sel.length > 0, sel.length < 200 {
+                panel.queryField.stringValue = (tab.text as NSString).substring(with: sel)
+            }
         }
-        let sel = tab.textView.selectedRange()
-        if sel.length > 0, sel.length < 200 {
-            panel.queryField.stringValue = (tab.text as NSString).substring(with: sel)
-        }
+        panel.updateReplaceControls()
         panel.isShown = true
         tab.dockSidePanel(panel)
         tab.window?.makeFirstResponder(panel.queryField)

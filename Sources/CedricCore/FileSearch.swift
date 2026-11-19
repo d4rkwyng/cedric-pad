@@ -57,6 +57,18 @@ public struct FileSearchResult: Sendable, Equatable {
     public var matchRanges: [NSRange] = []
     /// The file's modification date and size when it was searched.
     public var stamp: DiskStamp?
+
+    public init(url: URL, relativePath: String, line: Int, column: Int, text: String, ranges: [NSRange],
+                matchRanges: [NSRange] = [], stamp: DiskStamp? = nil) {
+        self.url = url
+        self.relativePath = relativePath
+        self.line = line
+        self.column = column
+        self.text = text
+        self.ranges = ranges
+        self.matchRanges = matchRanges
+        self.stamp = stamp
+    }
 }
 
 public struct FileSearchSummary: Sendable, Equatable {

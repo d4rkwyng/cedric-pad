@@ -360,21 +360,22 @@ enum DevChecks {
                 expect(rows == ["docs/notes.md:3", "src/main.swift:3", "src/main.swift:4", "src/util/strings.swift:1", "src/util/strings.swift:2"],
                        "results skip .git, node_modules, build, the binary and the 21 MB file", "\(rows)")
                 expect(p.lastSummary?.skippedBinary == 1 && p.lastSummary?.skippedLarge == 1, "binary and big file counted as skipped")
-                expect(p.table.numberOfRows == 5, "five rows in the list")
+                // Three file rows, each followed by its matches.
+                expect(p.table.numberOfRows == 8, "three files and five matches in the list", "\(p.table.numberOfRows)")
             },
             snapshot("findinfiles-results.png"),
             { next in
                 let p = app.findInFiles!
-                // Click the 4th row (src/util/strings.swift:1).
-                p.table.scrollRowToVisible(3)
-                let r = p.table.rect(ofRow: 3)
+                // Click row 6 (src/util/strings.swift:1, under its file row at 5).
+                p.table.scrollRowToVisible(6)
+                let r = p.table.rect(ofRow: 6)
                 click(p.table, at: NSPoint(x: r.midX, y: r.midY))
-                if p.table.selectedRow != 3 {
+                if p.table.selectedRow != 6 {
                     // NSTableView ignores a synthetic click in a window that
                     // can't become key (app inactive): select the row and send
                     // the table's click action, as the click would.
-                    print("check: note: synthetic click not taken by the inactive table; sending its action for row 3")
-                    p.table.selectRowIndexes([3], byExtendingSelection: false)
+                    print("check: note: synthetic click not taken by the inactive table; sending its action for row 6")
+                    p.table.selectRowIndexes([6], byExtendingSelection: false)
                     NSApp.sendAction(p.table.action!, to: p.table.target, from: p.table)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { next() }
