@@ -7,7 +7,8 @@
 # typo offer on the owl's pause (OwlTypoCheck.swift: an opened diary, a
 # log that gets none, an email typed key by key); and,
 # with a fake AI and automatic checks off (Intel's default), checks that
-# typing never asks the AI and "Ask AI Now" does. Snapshots go to the
+# typing never asks the AI and "Ask AI Now" does; and that files opened
+# while Ask Cedric is key never become tabs of the panel. Snapshots go to the
 # directory given (default: a temp dir) for a look.
 #
 #   Scripts/owl-check.sh [out-dir]
@@ -79,6 +80,15 @@ for chat in 1 0; do
     CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_OWL_CHAT_FAKE_DELAY=0.05 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
     CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/script-$chat" CEDRIC_OWL_CHECK_CHAT=script "$BIN" || status=1
 done
+# Files opened while Ask Cedric (then Settings) is the key window land in
+# the document window's tab group, never as tabs of the panel
+# (PanelTabsCheck.swift): a text file, a PDF and a .md through
+# application(_:open:), Reopen Closed Tab, and with every document window
+# minimized.
+CEDRIC_SESSION_DIR="$WORK/session-panel-tabs" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
+CEDRIC_OPEN="$WORK/Sum.swift" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=1 \
+CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
+CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/panel-tabs" CEDRIC_OWL_CHECK_CHAT=panel-tabs "$BIN" || status=1
 # Check Grammar with AI (fake engine) on a letter.
 printf 'Dear Sam,\n\nThe trip took longer then I expected, but the weather was kind to us and the views were lovely. We will send photos when we are home again next week.\n\nBest wishes,\nAlex\n' > "$WORK/letter.txt"
 CEDRIC_SESSION_DIR="$WORK/session-grammar-ai" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \

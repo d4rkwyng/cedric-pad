@@ -146,6 +146,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         self.tab = tab
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 460),
                         styleMask: [.titled, .closable, .resizable, .utilityWindow], backing: .buffered, defer: true)
+        panel.tabbingMode = .disallowed
         super.init()
         build()
     }

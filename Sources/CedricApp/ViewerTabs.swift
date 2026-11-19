@@ -58,7 +58,7 @@ extension AppDelegate {
     /// Puts a viewer tab's window in the tab bar (in `group` at
     /// `tabIndex` when restoring), as makePDFTab does.
     func placeViewerWindow(_ window: NSWindow, in group: NSWindow?, newWindow: Bool, show: Bool, tabIndex: Int?) {
-        let host = newWindow ? nil : group ?? NSApp.keyWindow ?? (tabs.last?.window ?? viewerTabs.last { $0.window !== window }?.window)
+        let host = newWindow ? nil : group ?? AppDelegate.documentKeyWindow ?? (tabs.last?.window ?? viewerTabs.last { $0.window !== window }?.window)
         if let tabIndex, let host = group, host !== window, let tg = host.tabGroup {
             tg.insertWindow(window, at: min(tabIndex, tg.windows.count))
         } else if let host, host !== window, host.isVisible {

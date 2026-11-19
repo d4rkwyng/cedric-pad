@@ -897,7 +897,7 @@ extension AppDelegate {
         }
         pdfTabs.append(tab)
         guard let window = tab.window else { return tab }
-        let host = newWindow ? nil : group ?? NSApp.keyWindow ?? (tabs.last?.window ?? viewerTabs.last { $0.window !== window }?.window)
+        let host = newWindow ? nil : group ?? AppDelegate.documentKeyWindow ?? (tabs.last?.window ?? viewerTabs.last { $0.window !== window }?.window)
         if let tabIndex, let host = group, host !== window, let tg = host.tabGroup {
             tg.insertWindow(window, at: min(tabIndex, tg.windows.count))
         } else if let host, host !== window, host.isVisible {

@@ -3,6 +3,15 @@ import CedricCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+    /// The key window when it can host a new document tab: never a panel
+    /// (Ask Cedric, Find), Settings, a detached preview or any other window
+    /// that doesn't tab. 0.1.1 (rc1 VM): a file opened while Ask Cedric was
+    /// key became a tab inside the panel.
+    static var documentKeyWindow: NSWindow? {
+        guard let w = NSApp.keyWindow, !(w is NSPanel), w.tabbingMode != .disallowed else { return nil }
+        return w
+    }
+
     private(set) var tabs: [EditorWindowController] = []
     /// PDF viewer tabs (PDFTab.swift), in the same windows' tab groups.
     var pdfTabs: [PDFTabController] = []
@@ -267,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         tabs.append(tab)
         guard let window = tab.window else { return tab }
-        let host = newWindow ? nil : group ?? NSApp.keyWindow ?? tabs.dropLast().last?.window
+        let host = newWindow ? nil : group ?? Self.documentKeyWindow ?? tabs.dropLast().last?.window
         if let tabIndex, let host = group, host !== window, let tg = host.tabGroup {
             // A restored tab built after launch: its saved place in the tab bar.
             tg.insertWindow(window, at: min(tabIndex, tg.windows.count))
