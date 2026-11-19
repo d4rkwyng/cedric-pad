@@ -234,12 +234,14 @@ import Testing
 
     @Test func authHandoffIsReadOnceAndMustBePrivate() throws {
         let tmp = NSTemporaryDirectory()
-        let good = tmp + "cedric-auth.t\(UUID().uuidString.prefix(8).filter(\.isLetter))A1"
+        // inspect() wants 6+ letters/digits after the prefix: fixed letters
+        // (a random hex slice can have too few) plus the pid for uniqueness.
+        let good = tmp + "cedric-auth.tGoodAuthA\(getpid())"
         try PrivateDirectory.writePrivateFile(Data("0123456789abcdef0123456789abcdef\n".utf8), to: URL(fileURLWithPath: good))
         #expect(CLIHandoff.takeAuth(good) == "0123456789abcdef0123456789abcdef")
         #expect(!fm.fileExists(atPath: good), "deleted once read")
         #expect(CLIHandoff.takeAuth(good) == nil, "and good once only")
-        let loose = tmp + "cedric-auth.L\(UUID().uuidString.prefix(8).filter(\.isLetter))B2"
+        let loose = tmp + "cedric-auth.LLooseAuthB\(getpid())"
         fm.createFile(atPath: loose, contents: Data("0123456789abcdef0123456789abcdef\n".utf8), attributes: [.posixPermissions: 0o644])
         #expect(CLIHandoff.takeAuth(loose) == nil, "a file others can read is refused")
         try? fm.removeItem(atPath: loose)
