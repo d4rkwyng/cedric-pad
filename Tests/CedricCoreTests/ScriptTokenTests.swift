@@ -100,4 +100,30 @@ import Testing
         #expect(mode(cedricDir(h)) == 0o700)
         #expect(mode(cedricDir(h) + "/cli-token") == 0o600)
     }
+
+    /// An empty token older than about 5 s (a run died before filling it)
+    /// is replaced; no temp file is left.
+    @Test func staleEmptyTokenIsReplaced() throws {
+        let h = try home(); defer { try? fm.removeItem(atPath: h) }
+        let f = cedricDir(h) + "/cli-token"
+        try fm.createDirectory(atPath: cedricDir(h), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        #expect(fm.createFile(atPath: f, contents: Data(), attributes: [.posixPermissions: 0o600]))
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-60)], ofItemAtPath: f)
+        let t = try bash("token", home: h)
+        #expect(t.count == 32 && t.allSatisfy(\.isHexDigit))
+        #expect(mode(f) == 0o600)
+        #expect(try fm.contentsOfDirectory(atPath: cedricDir(h)) == ["cli-token"])
+        #expect(CLIToken.read(URL(fileURLWithPath: f)) == t)
+    }
+
+    /// The temp file goes even if the run is killed while making it.
+    @Test func trapRemovesTheTempFile() throws {
+        let h = try home(); defer { try? fm.removeItem(atPath: h) }
+        try fm.createDirectory(atPath: cedricDir(h), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        _ = try bash("""
+            token_tmp=$(mktemp "$(dirname "$token_file")/.cli-token.XXXXXX")
+            exit 0
+            """, home: h)
+        #expect(try fm.contentsOfDirectory(atPath: cedricDir(h)).isEmpty)
+    }
 }

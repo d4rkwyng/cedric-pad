@@ -102,20 +102,49 @@ public enum CLIToken {
         return base.appendingPathComponent("Cedric/cli-token")
     }
 
+    /// An empty token file older than this was left by a run that died
+    /// between making and filling it: it is replaced.
+    public static let staleEmptyAge: TimeInterval = 5
+
     /// The token, created if missing; nil if it can't be read or made, or
-    /// if the file isn't this user's own private regular file.
+    /// if the file isn't this user's own private regular file. Written to
+    /// a private temp file and hard-linked into place (as the `cedric`
+    /// script does), so nobody reads a half-written token and a token
+    /// already there is never replaced, except a stale empty one.
     public static func ensure(at url: URL = defaultURL) -> String? {
         if let t = read(url) { return t }
-        try? PrivateDirectory.make(url.deletingLastPathComponent())
+        let dir = url.deletingLastPathComponent()
+        try? PrivateDirectory.make(dir)
         var bytes = [UInt8](repeating: 0, count: 16)
         arc4random_buf(&bytes, bytes.count)
         let token = bytes.map { String(format: "%02x", $0) }.joined()
-        let fd = Darwin.open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        if fd >= 0 {
-            _ = (token + "\n").withCString { write(fd, $0, strlen($0)) }
-            close(fd)
+        var template = Array((dir.path + "/.cli-token.XXXXXX").utf8CString)
+        let fd = mkstemp(&template)
+        guard fd >= 0 else { return read(url) }
+        let tmp = String(cString: template)
+        defer { unlink(tmp) }
+        let line = token + "\n"
+        let wrote = line.withCString { write(fd, $0, strlen($0)) } == line.utf8.count
+        close(fd)
+        guard wrote else { return read(url) }
+        // link() never replaces: a stale empty file goes first, only if it
+        // is still empty and still the same file.
+        if let stale = staleEmpty(url) {
+            var st = stat()
+            if lstat(url.path, &st) == 0, st.st_size == 0, st.st_ino == stale.ino, st.st_dev == stale.dev { unlink(url.path) }
         }
+        _ = link(tmp, url.path)
         return read(url)
+    }
+
+    /// `url` is this user's empty regular file, last changed more than
+    /// `staleEmptyAge` ago.
+    static func staleEmpty(_ url: URL) -> (ino: ino_t, dev: dev_t)? {
+        var st = stat()
+        guard lstat(url.path, &st) == 0, st.st_mode & S_IFMT == S_IFREG, st.st_uid == getuid(), st.st_size == 0 else { return nil }
+        let mtime = Double(st.st_mtimespec.tv_sec) + Double(st.st_mtimespec.tv_nsec) / 1e9
+        guard Date().timeIntervalSince1970 - mtime > staleEmptyAge else { return nil }
+        return (st.st_ino, st.st_dev)
     }
 
     static func read(_ url: URL) -> String? {

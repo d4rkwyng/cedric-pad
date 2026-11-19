@@ -34,12 +34,22 @@ tmpdir=${tmpdir%/}
 # a random token in a file only this user can read. Made here if the app
 # hasn't made it yet: written to a private temp file in the same folder,
 # then hard-linked into place, so nobody ever reads a half-written token and
-# a token already there (the app's, another run's) is never replaced. The
-# app writes its own straight into the file, so an empty read gets one
-# retry 50 ms later. The folder is owner-only (0700).
+# a token already there (the app's, another run's) is never replaced,
+# except an empty one older than about 5 s. An empty read (an older app
+# writing straight into the file) gets one retry 50 ms later. The folder is
+# owner-only (0700).
 token_file="$HOME/Library/Application Support/Cedric/cli-token"
+# The token's temp file, removed however the script exits (and the -w markers).
+token_tmp=""
+cleanup() {
+    [ -z "$token_tmp" ] || rm -f "$token_tmp"
+    [ -z "${markers+x}" ] || [ ${#markers[@]} -eq 0 ] || rm -f "${markers[@]}"
+}
+trap cleanup EXIT
 token() {
-    local dir t tmp
+    local dir t ino=""
+    # Run as $(token), a subshell: its own exit removes the temp file.
+    if [ "${BASH_SUBSHELL:-0}" -gt 0 ]; then trap '[ -z "$token_tmp" ] || rm -f "$token_tmp"' EXIT; fi
     dir=$(dirname "$token_file")
     if [ ! -s "$token_file" ]; then
         mkdir -p -m 700 "$dir"
@@ -47,10 +57,25 @@ token() {
         if [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] && [ "$(stat -f %Lp "$dir")" != 700 ]; then
             chmod 700 "$dir" 2>/dev/null || true
         fi
-        if tmp=$(umask 077; mktemp "$dir/.cli-token.XXXXXX" 2>/dev/null); then
-            { head -c 16 /dev/urandom | xxd -p | tr -d '\n'; echo; } > "$tmp" 2>/dev/null &&
-                ln "$tmp" "$token_file" 2>/dev/null || true
-            rm -f "$tmp"
+        # An empty token older than about 5 s was left by a run that died
+        # before filling it: it is replaced below.
+        if [ -f "$token_file" ] && [ ! -L "$token_file" ] && [ -O "$token_file" ] && [ ! -s "$token_file" ] &&
+            [ $(( $(date +%s) - $(stat -f %m "$token_file") )) -gt 5 ]; then
+            ino=$(stat -f %i "$token_file")
+        fi
+        if token_tmp=$(umask 077; mktemp "$dir/.cli-token.XXXXXX" 2>/dev/null); then
+            if { head -c 16 /dev/urandom | xxd -p | tr -d '\n'; echo; } > "$token_tmp" 2>/dev/null; then
+                # ln never replaces: the stale empty file goes first, only
+                # if it is still empty and still the same file.
+                if [ -n "$ino" ] && [ ! -s "$token_file" ] && [ "$(stat -f %i "$token_file" 2>/dev/null)" = "$ino" ]; then
+                    rm -f "$token_file"
+                fi
+                ln "$token_tmp" "$token_file" 2>/dev/null || true
+            fi
+            rm -f "$token_tmp"
+            token_tmp=""
+        else
+            token_tmp=""
         fi
     fi
     t=$(tr -d '\n' < "$token_file" 2>/dev/null || true)
@@ -127,7 +152,6 @@ done
 # Wait for every marker to go (or for the app to quit; its executable is
 # still named Cedric).
 if [ -n "$wait" ] && [ -z "$DRY" ] && [ ${#markers[@]} -gt 0 ]; then
-    trap 'rm -f "${markers[@]}"' EXIT
     while :; do
         left=0
         for m in "${markers[@]}"; do [ -e "$m" ] && left=1; done
