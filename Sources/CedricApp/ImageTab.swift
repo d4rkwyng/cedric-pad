@@ -158,7 +158,7 @@ struct ImageFileInfo: @unchecked Sendable {
 /// One image tab: a read-only view of an image file, in a window tabbed
 /// with the editor's. Fit to the window, zoom (⌘= ⌘- ⌘0 ⌘9, pinch), pan,
 /// a checkerboard behind transparency, animated GIFs play (Pause), Copy,
-/// Open in Preview, Print. Never writes to the file: there is no save path.
+/// Open in Default App, Print. Never writes to the file: there is no save path.
 ///
 /// Launch speed: the window is cheap; the image is read and decoded (off
 /// the main thread, downsampled when big) only when the tab is first shown.

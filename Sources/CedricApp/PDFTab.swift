@@ -346,7 +346,7 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
         case .find: showFindBar()
         case .rotateLeft: rotateView(by: -90)
         case .rotateRight: rotateView(by: 90)
-        case .openInPreview: openInDefaultApp(nil)
+        case .openInDefaultApp: openInDefaultApp(nil)
         }
     }
 
@@ -743,7 +743,7 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
 
     // MARK: Printing, closing
 
-    /// File › Open in Preview (the file's default app other than Cedric).
+    /// File › Open in Default App (the file's default app other than Cedric).
     @objc func openInDefaultApp(_ sender: Any?) { AppDelegate.openInDefaultApp(fileURL) }
 
     @objc func printDocument(_ sender: Any?) {

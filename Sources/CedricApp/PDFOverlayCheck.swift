@@ -114,8 +114,10 @@ extension DevChecks {
                 press(.rotateRight)
                 expect(tab?.viewRotation == 0, "and back", "\(tab?.viewRotation ?? -1)")
                 expect((try? Data(contentsOf: url)) == bytes, "rotating never writes the file")
-                let open = o?.buttons[.openInPreview]
-                expect(open?.target === o && open?.action != nil, "Open in Preview is wired (not pressed: it would launch Preview)")
+                let open = o?.buttons[.openInDefaultApp]
+                expect(open?.target === o && open?.action != nil, "Open in Default App is wired (not pressed: it would launch another app)")
+                expect(open?.accessibilityLabel() == String(localized: "Open in Default App") && open?.toolTip == String(localized: "Open the PDF in its default app"),
+                       "it is labelled Open in Default App (tooltip and VoiceOver), not Preview")
                 o?.noteActivity()
             },
             // Idle past the delay: it fades and stops taking clicks.

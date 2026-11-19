@@ -5,7 +5,7 @@ import CedricCore
 /// of the pages, as in Preview. Previous / next page, "page N of M" (an
 /// editable field: Return jumps), zoom out / in, actual size, fit width,
 /// fit page, the thumbnails sidebar, find, rotate left / right (the view
-/// only: the file is never written) and Open in Preview.
+/// only: the file is never written) and Open in Default App.
 ///
 /// It fades out `PDFReader.AutoHide.delay` seconds after the last mouse
 /// move or scroll and comes back on the next one; it stays while the
@@ -15,7 +15,7 @@ import CedricCore
 @MainActor
 final class PDFOverlay: NSView {
     enum Control: String, CaseIterable {
-        case previous, next, zoomOut, zoomIn, actualSize, fitWidth, fitPage, thumbnails, find, rotateLeft, rotateRight, openInPreview
+        case previous, next, zoomOut, zoomIn, actualSize, fitWidth, fitPage, thumbnails, find, rotateLeft, rotateRight, openInDefaultApp
     }
 
     private(set) var buttons: [Control: NSButton] = [:]
@@ -97,7 +97,7 @@ final class PDFOverlay: NSView {
             ([b(.actualSize), b(.fitWidth), b(.fitPage)], 3),
             ([b(.thumbnails), b(.find)], 2),
             ([b(.rotateLeft), b(.rotateRight)], 4),
-            ([b(.openInPreview)], 5),
+            ([b(.openInDefaultApp)], 5),
         ]
         groupShown = groups.map { _ in true }
     }
@@ -117,7 +117,7 @@ final class PDFOverlay: NSView {
         case .find: return ("magnifyingglass", String(localized: "Find"), String(localized: "Find in the PDF (⌘F)"))
         case .rotateLeft: return ("rotate.left", String(localized: "Rotate Left"), String(localized: "Rotate the view left (the file isn’t changed)"))
         case .rotateRight: return ("rotate.right", String(localized: "Rotate Right"), String(localized: "Rotate the view right (the file isn’t changed)"))
-        case .openInPreview: return ("arrow.up.forward.app", String(localized: "Open in Preview"), String(localized: "Open the PDF in Preview"))
+        case .openInDefaultApp: return ("arrow.up.forward.app", String(localized: "Open in Default App"), String(localized: "Open the PDF in its default app"))
         }
     }
 

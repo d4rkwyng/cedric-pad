@@ -133,7 +133,7 @@ extension AppDelegate {
     }
 
     /// The app that opens this file by default, other than Cedric (for
-    /// "Open in Preview"): nil if there is none.
+    /// "Open in Default App"): nil if there is none.
     static func defaultApp(for url: URL) -> URL? {
         let me = Bundle.main.bundleURL.standardizedFileURL
         if let d = NSWorkspace.shared.urlForApplication(toOpen: url), d.standardizedFileURL != me { return d }

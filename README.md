@@ -290,7 +290,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   bottom of the page (as in Preview) has previous / next page, an
   editable "page N of M" field (Return jumps), zoom out / in, actual size,
   fit width, fit page, thumbnails, find, rotate left / right (the view
-  only; the file is never changed) and Open in Preview. It fades after
+  only; the file is never changed) and Open in Default App. It fades after
   about 2 seconds without a mouse move or scroll and comes back on the
   next one (no fade with Reduce Motion), and stays while the pointer is
   on it. ← / → and Page Up / Page Down turn the page. **File › Open as Text** puts the PDF's

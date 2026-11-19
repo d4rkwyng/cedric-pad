@@ -1246,7 +1246,7 @@ controller answers (as nothing, disabled) the few that don't check
   `AfterFirstFrame` so nothing of it is on the launch path. Previous/next,
   an editable page field (`PageNumberInput`), zoom, actual size, fit width
   (`autoScales`), fit page (`PDFReader.fitPageScale`, rotation-aware),
-  thumbnails, find, rotate left/right and Open in Preview. Rotation sets
+  thumbnails, find, rotate left/right and Open in Default App. Rotation sets
   `PDFPage.rotation` on the in-memory document only; the tab has no save
   path, so the file is never written (pdfoverlay compares its bytes).
   ←/→ and Page Up/Down page (`CedricPDFView.onPageKey`); ←/→ still scroll
