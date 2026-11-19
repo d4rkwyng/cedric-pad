@@ -69,7 +69,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private var findBarBuilt = false
     private(set) var stack: NSStackView!
     let statusBar = StatusBar()
-    let split = NSSplitView()
+    let split = PaneSplitView()
     private var container: EditorContainer!
     /// The gutter and text: the pane in `split` the side panels dock around.
     var editorArea: NSView { container }
@@ -1221,10 +1221,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         pane.setDetached(false)
         split.addArrangedSubview(pane)
         split.adjustSubviews()
-        // Half the window: the divider right after the editor (a folder
-        // sidebar may sit before it).
+        FolderSidebar.keepWidth(in: split)
+        // Half the room right of a folder sidebar: the divider right after
+        // the editor (the sidebar may sit before it).
         let w = split.bounds.width
-        if w > 0, let i = split.arrangedSubviews.firstIndex(of: container) { split.setPosition(w / 2, ofDividerAt: i) }
+        if w > 0, let i = split.arrangedSubviews.firstIndex(of: container) {
+            let left = container.frame.minX
+            split.setPosition(left + (w - left) / 2, ofDividerAt: i)
+        }
     }
 
     func closePreview() {
@@ -1233,8 +1237,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             previewWindow = nil
             pw.closeReleasingPane()
         }
+        let docked = previewPane?.superview === split
         previewPane?.removeFromSuperview()
         previewPane = nil
+        if docked { FolderSidebar.keepWidth(in: split) }
         onChange?(self)
     }
 
@@ -1245,7 +1251,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         guard !previewDetached else { return }
         guard previewApplies else { NSSound.beep(); return }
         let pane = previewPane ?? makePreviewPane()
+        let docked = pane.superview === split
         pane.removeFromSuperview()
+        if docked { FolderSidebar.keepWidth(in: split) }
         let pw = PreviewWindowController(tab: self, pane: pane, frame: frame)
         previewWindow = pw
         pw.window?.orderFront(nil)
@@ -1342,4 +1350,27 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposed: CGFloat, ofSubviewAt i: Int) -> CGFloat { max(proposed, 200) }
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposed: CGFloat, ofSubviewAt i: Int) -> CGFloat { min(proposed, splitView.bounds.width - 200) }
+}
+
+/// The tab's split view (folder sidebar | editor | preview | Find in
+/// Files). It knows when the user is dragging one of its dividers: a
+/// mouse-down on the split itself (its subviews take every other click)
+/// starts a drag that lasts until the button is up. A click elsewhere in
+/// the window that docks or closes a panel (the × of Find in Files) is not
+/// a drag, though its mouse events are the current event while the panes
+/// are resized.
+final class PaneSplitView: NSSplitView {
+    private(set) var isDraggingDivider = false
+
+    override func mouseDown(with event: NSEvent) {
+        isDraggingDivider = true
+        super.mouseDown(with: event)
+        // NSSplitView tracks the drag in its own loop: the button is up when it returns.
+        if NSEvent.pressedMouseButtons & 1 == 0 { isDraggingDivider = false }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        isDraggingDivider = false
+        super.mouseUp(with: event)
+    }
 }

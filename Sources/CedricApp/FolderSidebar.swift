@@ -260,20 +260,35 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     }
 
     /// The split it is docked in resized its panes. The user dragging a
-    /// divider (a mouse event in this window, not a live window resize):
-    /// the new width is kept and saved. Anything else (the window
-    /// resized, a panel docked or closed: NSSplitView shares the space out
-    /// by proportion, whatever the holding priorities): our width back,
-    /// the editor takes the difference.
+    /// divider of that split (not a live window resize): the new width is
+    /// kept and saved. Anything else (the window resized, a panel docked
+    /// or closed, even by a click like the × of Find in Files: NSSplitView
+    /// shares the space out by proportion, whatever the holding
+    /// priorities): our width back, the editor takes the difference.
     private func splitResized() {
         guard let split = superview as? NSSplitView, let w = window, !enforcingWidth, tracksWidth else { return }
         guard abs(frame.width - width) >= 1 else { return }
-        let e = NSApp.currentEvent
-        let dragging = e.map { [.leftMouseDragged, .leftMouseUp, .leftMouseDown].contains($0.type) && $0.window === w } ?? false
+        let dragging = (split as? PaneSplitView)?.isDraggingDivider == true
         if dragging && !w.inLiveResize {
             if frame.width >= 120 { width = frame.width; onChange?() }
             return
         }
+        restoreWidth()
+    }
+
+    /// A pane right of the sidebar docked in or left `split`: if the
+    /// sidebar is docked there, the panes are laid out again and it gets
+    /// its width back (NSSplitView would share the change by proportion).
+    static func keepWidth(in split: NSSplitView?) {
+        guard let split, let s = shared, s.superview === split else { return }
+        split.adjustSubviews()
+        s.restoreWidth()
+    }
+
+    /// Back to the width the user chose (a right-side panel docked or
+    /// closed, the window resized): the editor takes the difference.
+    func restoreWidth() {
+        guard let split = superview as? NSSplitView, !enforcingWidth, abs(frame.width - width) >= 1 else { return }
         guard split.bounds.width > width + 200 else { return }
         enforcingWidth = true
         split.setPosition(width, ofDividerAt: 0)

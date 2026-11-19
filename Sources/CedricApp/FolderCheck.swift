@@ -65,6 +65,7 @@ extension DevChecks {
             w.makeFirstResponder(view)
             w.sendEvent(down)
         }
+        func allSubviews(_ v: NSView) -> [NSView] { v.subviews + v.subviews.flatMap(allSubviews) }
         let right = String(UnicodeScalar(UInt16(NSRightArrowFunctionKey))!)
         var tabsBefore = 0
         var redockMs = 0.0
@@ -201,7 +202,11 @@ extension DevChecks {
                 t.window?.layoutIfNeeded()
                 let subs = t.split.arrangedSubviews
                 let order = subs.map { $0 === sidebar ? "folder" : $0 === t.editorArea ? "editor" : $0 === t.previewPane ? "preview" : $0 === app.findInFiles ? "find" : "?" }
-                expect(order == ["folder", "editor", "preview", "find"], "folder | editor | preview | find in files", "\(order)")
+                // Where the panel is, if not here (the 0.2.0 VM run saw it missing from this split).
+                let fif = app.findInFiles
+                let fifTab = app.tabs.first { fif?.superview === $0.split }?.doc.displayName ?? "none"
+                expect(order == ["folder", "editor", "preview", "find"], "folder | editor | preview | find in files",
+                       "\(order); find in files shown=\(fif?.isShown ?? false) in tab \(fifTab), key=\(NSApp.keyWindow?.title ?? "-")")
                 let widths = subs.map { Int($0.frame.width) }
                 expect(widths.allSatisfy { $0 >= 150 }, "no pane collapsed", "\(widths)")
                 expect(t.previewVisible, "previewVisible with the folder sidebar docked")
@@ -224,6 +229,61 @@ extension DevChecks {
                 expect(t.split.arrangedSubviews.count == 1 && t.split.arrangedSubviews.first === t.editorArea, "…and gone from the other tab's split")
                 expect(t.split.holdingPriorityForSubview(at: 0) == .defaultLow, "the other tab's editor keeps the default holding priority",
                        "\(t.split.holdingPriorityForSubview(at: 0).rawValue)")
+            },
+            sync {
+                // At the 0.2.0 VM's window size (900 wide): Find in Files docks
+                // right of the editor and its × gives its room back to the
+                // editor, never to the sidebar (which kept ~490 px and left
+                // the editor 0 wide when Find in Files opened again).
+                let a = tab(named: "a.swift")!
+                focus(a)
+                a.window?.setContentSize(NSSize(width: 900, height: 670))
+                a.window?.layoutIfNeeded()
+                expect(abs(sidebar.frame.width - FolderSidebar.defaultWidth) <= 2, "900 wide: the sidebar keeps its width", "\(sidebar.frame.width)")
+                key("f", [.command, .shift])
+                a.window?.layoutIfNeeded()
+                let subs = a.split.arrangedSubviews
+                let widths = subs.map { Int($0.frame.width) }
+                expect(subs.count == 3 && subs.first === sidebar && subs[1] === a.editorArea && subs[2] === app.findInFiles,
+                       "900 wide: folder | editor | find in files", "\(widths)")
+                expect(abs(sidebar.frame.width - FolderSidebar.defaultWidth) <= 2 && a.editorArea.frame.width >= 250,
+                       "900 wide: Find in Files takes its room from the editor, which stays usable", "\(widths)")
+            },
+            sync {
+                // The panel's ×, a real click: its mouse events are not a divider drag.
+                let a = tab(named: "a.swift")!
+                guard let p = app.findInFiles,
+                      let close = allSubviews(p).first(where: { ($0 as? NSButton)?.action == #selector(FindInFilesPanel.closePanel) }) as? NSButton else {
+                    expect(false, "Find in Files has its × button"); return
+                }
+                click(close, at: NSPoint(x: close.bounds.midX, y: close.bounds.midY))
+                if p.isShown {
+                    print("check: note: synthetic click on Find in Files' × not taken; pressing it")
+                    close.performClick(nil)
+                }
+                a.window?.layoutIfNeeded()
+                let subs = a.split.arrangedSubviews
+                expect(!p.isShown && subs.count == 2, "× closes Find in Files", "\(subs.count)")
+                expect(abs(sidebar.frame.width - FolderSidebar.defaultWidth) <= 2, "…the sidebar keeps its width", "\(sidebar.frame.width)")
+                expect(abs(sidebar.width - FolderSidebar.defaultWidth) <= 2 && app.folderSessionState?.width.map { abs($0 - Double(FolderSidebar.defaultWidth)) <= 2 } == true,
+                       "…and that width is what the session saves", "\(sidebar.width) \(app.folderSessionState?.width ?? -1)")
+                expect(abs(a.editorArea.frame.maxX - a.split.bounds.width) <= 1 && a.editorArea.frame.width >= a.split.bounds.width - FolderSidebar.defaultWidth - 4,
+                       "…the editor gets the room back", "\(Int(a.editorArea.frame.width)) of \(Int(a.split.bounds.width))")
+            },
+            sync {
+                // Opened again: the editor isn't squeezed to nothing.
+                let a = tab(named: "a.swift")!
+                focus(a)
+                key("f", [.command, .shift])
+                a.window?.layoutIfNeeded()
+                let widths = a.split.arrangedSubviews.map { Int($0.frame.width) }
+                expect(a.split.arrangedSubviews.count == 3 && abs(sidebar.frame.width - FolderSidebar.defaultWidth) <= 2 && a.editorArea.frame.width >= 250,
+                       "Find in Files opened again: the sidebar and the editor keep their room", "\(widths)")
+                app.hideFindInFiles()
+                a.window?.layoutIfNeeded()
+                expect(abs(sidebar.frame.width - FolderSidebar.defaultWidth) <= 2 && a.split.arrangedSubviews.count == 2,
+                       "closed again (Find in Files' close path): the sidebar keeps its width", "\(sidebar.frame.width)")
+                a.window?.setContentSize(NSSize(width: 1200, height: 720))
             },
             sync {
                 // ⌃⌘1: hidden, the stream stopped.

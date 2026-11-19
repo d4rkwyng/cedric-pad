@@ -137,7 +137,10 @@ extension AppDelegate: NSMenuDelegate {
         guard let p = findInFiles else { return }
         p.cancel()
         p.isShown = false
+        let split = p.superview as? NSSplitView
         p.removeFromSuperview()
+        // The editor gets the panel's room back, not the folder sidebar.
+        FolderSidebar.keepWidth(in: split)
         if let t = currentTab { t.window?.makeFirstResponder(t.textView) }
     }
 
@@ -249,10 +252,16 @@ extension EditorWindowController {
         panel.removeFromSuperview()
         split.addArrangedSubview(panel)
         split.adjustSubviews()
-        // The divider just before the panel (found by identity: other panes may dock in the split too).
+        // A folder sidebar keeps its width; the panes right of it share the rest.
+        FolderSidebar.keepWidth(in: split)
+        // The divider just before the panel (found by identity: other panes
+        // may dock in the split too), placed in the room right of the pane
+        // before it, so a sidebar on the left doesn't leave the editor 0 wide.
         let w = split.bounds.width
         if w > 0, let i = split.arrangedSubviews.firstIndex(of: panel), i > 0 {
-            split.setPosition(max(w * 0.45, w - 460), ofDividerAt: i - 1)
+            let left = split.arrangedSubviews[i - 1].frame.minX
+            let room = w - left
+            split.setPosition(left + max(room * 0.45, room - 460), ofDividerAt: i - 1)
         }
     }
 
