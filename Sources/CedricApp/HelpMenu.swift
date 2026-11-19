@@ -1,4 +1,5 @@
 import AppKit
+import CedricCore
 
 /// Every key equivalent in the main menu, as "⇧⌘T" and its menu path
 /// ("File › Reopen Closed Tab"). Used by Help › Keyboard Shortcuts and by
@@ -47,14 +48,27 @@ enum MenuShortcuts {
     ]
 }
 
-/// Help › OwlInk Help (the manual, docs/MANUAL.md on GitHub) and Help › Keyboard
-/// Shortcuts (a window listing every menu shortcut). NSApp.helpMenu is
+/// Help › OwlInk Help (the manual, docs/MANUAL.md on GitHub, at this
+/// version's release tag), Keyboard Shortcuts (a window listing every menu
+/// shortcut), OwlInk on GitHub and Report an Issue…. NSApp.helpMenu is
 /// set, so macOS adds its menu search field to Help.
 extension AppDelegate {
-    static let helpURL = URL(string: "https://github.com/d4rkwyng/owlink/blob/main/docs/MANUAL.md")!
+    static var helpURL: URL { AboutInfo.help }
 
     @objc func showHelp(_ sender: Any?) {
         NSWorkspace.shared.open(Self.helpURL)
+    }
+
+    @objc func showGitHub(_ sender: Any?) {
+        NSWorkspace.shared.open(AboutInfo.repository)
+    }
+
+    @objc func reportIssue(_ sender: Any?) {
+        NSWorkspace.shared.open(AboutInfo.newIssue)
+    }
+
+    @objc func showAbout(_ sender: Any?) {
+        AboutPanel.show()
     }
 
     @objc func showKeyboardShortcuts(_ sender: Any?) {
@@ -86,4 +100,52 @@ extension AppDelegate {
 @MainActor
 enum ShortcutsWindow {
     static var shared: NSWindow?
+}
+
+/// OwlInk › About OwlInk: the standard panel with Tankard's layout:
+/// "Version X" (no build number), the author, the repository, the licence
+/// on one line, the credits, a short tribute line and the copyright.
+@MainActor
+enum AboutPanel {
+    static func show() {
+        let versions = AboutInfo.panelVersions(bundle: Bundle.main.infoDictionary)
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: options(versions))
+    }
+
+    static func options(_ versions: (application: String, build: String)) -> [NSApplication.AboutPanelOptionKey: Any] {
+        [
+            .applicationName: "OwlInk",
+            .applicationVersion: versions.application,
+            .version: versions.build,
+            .credits: credits(),
+            NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): AboutInfo.copyright,
+        ]
+    }
+
+    static func credits() -> NSAttributedString {
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        para.paragraphSpacing = 3
+        let base: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor, .paragraphStyle: para,
+        ]
+        let s = NSMutableAttributedString(string: AboutInfo.author + "\n", attributes: base)
+        var a = base
+        a[.link] = AboutInfo.repository
+        s.append(NSAttributedString(string: "github.com/d4rkwyng/owlink", attributes: a))
+        s.append(NSAttributedString(string: "\n", attributes: base))
+        var dim = base
+        dim[.foregroundColor] = NSColor.secondaryLabelColor
+        s.append(NSAttributedString(string: AboutInfo.licence + "\n", attributes: dim))
+        var small = dim
+        small[.font] = NSFont.systemFont(ofSize: 10)
+        let llama = NSMutableAttributedString(string: AboutInfo.llamaCredit + "\n", attributes: small)
+        if let r = AboutInfo.llamaCredit.range(of: "llama.cpp") {
+            llama.addAttribute(.link, value: AboutInfo.llamaCpp, range: NSRange(r, in: AboutInfo.llamaCredit))
+        }
+        s.append(llama)
+        s.append(NSAttributedString(string: AboutInfo.modelsCredit + "\n" + AboutInfo.tribute, attributes: small))
+        return s
+    }
 }

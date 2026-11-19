@@ -75,7 +75,7 @@ func buildMainMenu() -> NSMenu {
     // Filled by AppKit with the system's services (Cedric vends none).
     let services = submenu(String(localized: "Services"), [])
     main.addItem(submenu(app, [
-        item(String(localized: "About OwlInk"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
+        item(String(localized: "About OwlInk"), #selector(AppDelegate.showAbout(_:)), ""),
         .separator(),
         item(String(localized: "Settings…"), #selector(AppDelegate.showSettings(_:)), ","),
         .separator(),
@@ -286,6 +286,9 @@ func buildMainMenu() -> NSMenu {
     let help = submenu(String(localized: "Help"), [
         item(String(localized: "OwlInk Help"), #selector(AppDelegate.showHelp(_:)), "?"),
         item(String(localized: "Keyboard Shortcuts"), #selector(AppDelegate.showKeyboardShortcuts(_:))),
+        .separator(),
+        item(String(localized: "OwlInk on GitHub"), #selector(AppDelegate.showGitHub(_:))),
+        item(String(localized: "Report an Issue…"), #selector(AppDelegate.reportIssue(_:))),
     ])
     main.addItem(help)
     NSApp.helpMenu = help.submenu
