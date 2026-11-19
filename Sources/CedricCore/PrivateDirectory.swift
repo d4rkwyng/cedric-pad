@@ -12,16 +12,67 @@ public enum PrivateDirectory {
         return base.appendingPathComponent("Cedric", isDirectory: true)
     }
 
+    public enum Failure: Error, Equatable {
+        /// `path` can't be used as a private folder: `why` says what it is.
+        case notPrivate(path: String, why: String)
+    }
+
     /// Makes `dir` and any missing parents 0700. `dir`, and `root` when
     /// `dir` is inside it, are tightened to 0700 if they already exist
     /// wider (made by an older version); only this user's own real folders,
-    /// never through a symbolic link.
+    /// never through a symbolic link. Then each must be a real folder (not
+    /// a link), owned by this user, exactly 0700, or this throws.
     public static func make(_ dir: URL, root: URL = supportRoot) throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         tighten(dir.path)
+        try verify(dir.path)
         let r = root.standardizedFileURL.path, d = dir.standardizedFileURL.path
-        if d != r, d.hasPrefix(r.hasSuffix("/") ? r : r + "/") { tighten(r) }
+        if d != r, d.hasPrefix(r.hasSuffix("/") ? r : r + "/") {
+            tighten(r)
+            try verify(r)
+        }
+    }
+
+    /// Throws unless `path` (not followed if it is a link) is this user's
+    /// own folder with mode 0700.
+    static func verify(_ path: String) throws {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { throw Failure.notPrivate(path: path, why: "missing") }
+        if st.st_mode & S_IFMT == S_IFLNK { throw Failure.notPrivate(path: path, why: "a symbolic link") }
+        guard st.st_mode & S_IFMT == S_IFDIR else { throw Failure.notPrivate(path: path, why: "not a folder") }
+        guard st.st_uid == getuid() else { throw Failure.notPrivate(path: path, why: "owned by another user") }
+        guard st.st_mode & 0o7777 == 0o700 else {
+            throw Failure.notPrivate(path: path, why: "mode \(String(st.st_mode & 0o7777, radix: 8))")
+        }
+    }
+
+    /// Writes `data` to `url` as a 0600 file, replacing it atomically: a
+    /// temp file made 0600 by mkstemp in the same folder, then renamed over
+    /// `url`, so the contents are never readable by others, even briefly.
+    public static func writePrivateFile(_ data: Data, to url: URL) throws {
+        let dir = url.deletingLastPathComponent().path
+        var template = Array((dir + "/." + url.lastPathComponent + ".XXXXXX").utf8CString)
+        let fd = mkstemp(&template)
+        guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        let tmp = String(cString: template)
+        var ok = fchmod(fd, 0o600) == 0
+        if ok {
+            ok = data.withUnsafeBytes { buf -> Bool in
+                var off = 0
+                while off < buf.count {
+                    let n = Darwin.write(fd, buf.baseAddress! + off, buf.count - off)
+                    if n < 0 { if errno == EINTR { continue }; return false }
+                    off += n
+                }
+                return true
+            }
+        }
+        close(fd)
+        guard ok, rename(tmp, url.path) == 0 else {
+            unlink(tmp)
+            throw CocoaError(.fileWriteUnknown)
+        }
     }
 
     /// chmod 0700 if `path` is this user's own folder (not a link) that
@@ -30,7 +81,7 @@ public enum PrivateDirectory {
     static func tighten(_ path: String) -> Bool {
         var st = stat()
         guard lstat(path, &st) == 0, st.st_mode & S_IFMT == S_IFDIR, st.st_uid == getuid() else { return false }
-        if st.st_mode & 0o077 == 0 { return true }
+        if st.st_mode & 0o7777 == 0o700 { return true }
         return chmod(path, 0o700) == 0
     }
 }

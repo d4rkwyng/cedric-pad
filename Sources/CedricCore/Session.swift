@@ -153,13 +153,13 @@ public final class SessionStore: @unchecked Sendable {
         try ensureDirectory()
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try enc.encode(session).write(to: sessionFile, options: .atomic)
+        try PrivateDirectory.writePrivateFile(enc.encode(session), to: sessionFile)
     }
 
     public func writeBuffer(_ id: UUID, text: String) throws {
         lock.lock(); defer { lock.unlock() }
         try ensureDirectory()
-        try Data(text.utf8).write(to: bufferURL(id), options: .atomic)
+        try PrivateDirectory.writePrivateFile(Data(text.utf8), to: bufferURL(id))
     }
 
     public func readBuffer(_ id: UUID) -> String? {
