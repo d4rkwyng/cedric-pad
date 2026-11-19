@@ -1052,7 +1052,10 @@ public enum HTMLScrub {
     /// An `on…=` handler inside a tag: after whitespace, a `/` (`<svg/onload=…>`)
     /// or a closing quote (`<a href="x"onclick=…>`), as browsers read them.
     nonisolated(unsafe) static let handlers = regex(#"(?<=[\s/"'])on[a-z0-9_-]*\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)"#)
-    nonisolated(unsafe) static let jsURL = regex(#"(\s(?:href|src|action|formaction|xlink:href)\s*=\s*)("\s*(?:javascript|vbscript):[^"]*"|'\s*(?:javascript|vbscript):[^']*'|(?:javascript|vbscript):[^\s>]*)"#)
+    /// A URL attribute inside a tag, after whitespace, a `/` (`<a/href=…>`)
+    /// or a closing quote, as browsers read them. Group 1 is everything up
+    /// to the value, group 2 the value with its quotes.
+    nonisolated(unsafe) static let urlAttr = regex(#"((?<=[\s/"'])(?:href|src|action|formaction|xlink:href)\s*=\s*)("[^"]*"|'[^']*'|[^\s>]*)"#)
     nonisolated(unsafe) static let remoteAttr = regex(#"\s(?:src|href|srcset|background|poster|data|xlink:href)\s*=\s*("\s*(?:https?:|ftp:|//)[^"]*"|'\s*(?:https?:|ftp:|//)[^']*'|(?:https?:|ftp:|//)[^\s>]*)"#)
     nonisolated(unsafe) static let links = regex(#"<link\b[^>]*>"#)
     nonisolated(unsafe) static let remoteCSS = regex(#"(@import\s+)?url\(\s*["']?\s*(?:https?:|ftp:|//)[^)]*\)|@import\s+["']\s*(?:https?:|ftp:|//)[^"']*["']"#)
@@ -1067,19 +1070,88 @@ public enum HTMLScrub {
         s = replace(singles, in: s, with: "")
         s = replace(refresh, in: s, with: "")
         s = noHandlers(s)
-        s = replace(jsURL, in: s, with: "$1\"#\"")
         return s
     }
 
-    /// Every start tag without its event-handler attributes (text between
-    /// tags is left alone).
+    /// Every start tag without its event-handler attributes, and with any
+    /// script URL replaced by `"#"` (text between tags is left alone).
     static func noHandlers(_ html: String) -> String {
         let ns = html as NSString
         var out = ""
         var last = 0
         for m in tags.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
             out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
-            out += replace(handlers, in: ns.substring(with: m.range), with: "")
+            out += noScriptURLs(replace(handlers, in: ns.substring(with: m.range), with: ""))
+            last = m.range.location + m.range.length
+        }
+        out += ns.substring(from: last)
+        return out
+    }
+
+    /// One tag with each `javascript:` / `vbscript:` URL attribute value
+    /// replaced by `"#"`. The value is read the way a browser reads it
+    /// before the scheme check: character references decoded, then every
+    /// whitespace and control character dropped (`java&#9;script:`,
+    /// `&#x6a;avascript:`, `javascript&colon;` are all caught).
+    static func noScriptURLs(_ tag: String) -> String {
+        let ns = tag as NSString
+        var out = ""
+        var last = 0
+        for m in urlAttr.matches(in: tag, range: NSRange(location: 0, length: ns.length)) {
+            let valueRange = m.range(at: 2)
+            var value = ns.substring(with: valueRange)
+            if let q = value.first, q == "\"" || q == "'" { value = String(value.dropFirst().dropLast()) }
+            guard isScriptURL(value) else { continue }
+            out += ns.substring(with: NSRange(location: last, length: valueRange.location - last)) + "\"#\""
+            last = valueRange.location + valueRange.length
+        }
+        out += ns.substring(from: last)
+        return out
+    }
+
+    /// Whether an attribute value (still entity-encoded) is a script URL.
+    static func isScriptURL(_ value: String) -> Bool {
+        let drop = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)
+        let scalars = decodeCharacterReferences(value).unicodeScalars.filter { !drop.contains($0) }
+        let plain = String(String.UnicodeScalarView(scalars)).lowercased()
+        return plain.hasPrefix("javascript:") || plain.hasPrefix("vbscript:")
+    }
+
+    /// Named references a browser would turn into a character that matters
+    /// for a URL scheme (letters have no named references in ASCII).
+    static let namedReferences: [String: String] = [
+        "Tab": "\t", "NewLine": "\n", "nbsp": "\u{A0}", "colon": ":", "sol": "/", "bsol": "\\",
+        "lpar": "(", "rpar": ")", "period": ".", "comma": ",", "semi": ";", "excl": "!",
+        "quot": "\"", "QUOT": "\"", "apos": "'", "amp": "&", "AMP": "&", "lt": "<", "LT": "<", "gt": ">", "GT": ">",
+        "num": "#", "equals": "=", "plus": "+", "lowbar": "_", "UnderBar": "_", "percnt": "%",
+    ]
+    nonisolated(unsafe) static let characterReference = try! NSRegularExpression(pattern: #"&(?:#[xX]([0-9a-fA-F]+);?|#([0-9]+);?|([A-Za-z][A-Za-z0-9]*);)"#)
+
+    /// `&#106;`, `&#x6A;` (the `;` optional, as browsers allow in
+    /// attributes) and the named references above, decoded once.
+    static func decodeCharacterReferences(_ s: String) -> String {
+        guard s.contains("&") else { return s }
+        let ns = s as NSString
+        var out = ""
+        var last = 0
+        for m in characterReference.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            var decoded: String?
+            // Leading zeros are allowed (`&#0000106;`); a number too big is U+FFFD.
+            func scalar(_ digits: String, _ radix: Int) -> String? {
+                let d = digits.drop { $0 == "0" }
+                guard d.count <= 8 else { return nil }
+                return UInt32(d.isEmpty ? "0" : String(d), radix: radix).flatMap(Unicode.Scalar.init).map { String($0) }
+            }
+            if m.range(at: 1).location != NSNotFound {
+                decoded = scalar(ns.substring(with: m.range(at: 1)), 16)
+            } else if m.range(at: 2).location != NSNotFound {
+                decoded = scalar(ns.substring(with: m.range(at: 2)), 10)
+            } else {
+                decoded = namedReferences[ns.substring(with: m.range(at: 3))]
+            }
+            // Out of range or unknown: U+FFFD for numbers (as browsers do), else kept as written.
+            out += decoded ?? (m.range(at: 3).location == NSNotFound ? "\u{FFFD}" : ns.substring(with: m.range))
             last = m.range.location + m.range.length
         }
         out += ns.substring(from: last)
