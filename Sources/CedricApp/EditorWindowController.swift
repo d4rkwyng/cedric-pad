@@ -1126,11 +1126,54 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private func makePreviewPane() -> PreviewPane {
         let pane = PreviewPane(renderer: makeRenderer(for: doc.language))
         pane.titleLabel.stringValue = pane.renderer is CertificatePanel ? String(localized: "Certificate") : String(localized: "Preview")
-        pane.detachButton.target = self
-        pane.detachButton.action = #selector(toggleDetachPreviewAction(_:))
+        pane.bar.onAction = { [weak self] item in self?.previewBarAction(item) }
+        pane.bar.onExport = { [weak self] html in html ? self?.exportHTML() : self?.exportPDF() }
         pane.applyPalette(palette)
         previewPane = pane
+        updatePreviewBar()
         return pane
+    }
+
+    /// The preview bar scrolls the preview in step with the text (both ways, Markdown; the grid follows, CSV).
+    private(set) var previewSyncsScroll = true
+
+    /// The preview bar's state from the tab and its renderer.
+    func updatePreviewBar() {
+        guard let pane = previewPane else { return }
+        let r = pane.renderer
+        let csv = r as? CSVPreview, web = r as? PreviewController
+        var s = PreviewBarState()
+        s.items = PreviewBarItem.items(for: doc.language, certificate: r is CertificatePanel)
+        s.syncScroll = previewSyncsScroll
+        s.zoom = r.zoom
+        s.allowJavaScript = web?.allowJavaScript ?? false
+        s.allowNetwork = web?.allowNetwork ?? false
+        s.detached = previewDetached
+        s.sorted = csv?.isSorted ?? false
+        s.rowCount = csv?.rowCountText ?? ""
+        // Called after every render: a no-op unless something changed.
+        if pane.bar.apply(s) { pane.needsLayout = true }
+    }
+
+    /// A preview bar button.
+    func previewBarAction(_ item: PreviewBarItem) {
+        guard let pane = previewPane else { return }
+        switch item {
+        case .refresh:
+            pane.renderer.refresh()
+            renderPreview()
+        case .syncScroll:
+            previewSyncsScroll.toggle()
+            if previewSyncsScroll { syncPreviewScroll() }
+        case .zoomIn, .zoomOut:
+            pane.renderer.zoom = PreviewZoom.step(pane.renderer.zoom, in: item == .zoomIn)
+        case .allowJavaScript: previewAllowsJavaScript.toggle()
+        case .allowNetwork: previewAllowsNetwork.toggle()
+        case .detach: toggleDetachPreviewAction(nil)
+        case .sortReset: (pane.renderer as? CSVPreview)?.resetSort()
+        case .export, .rowCount: break
+        }
+        updatePreviewBar()
     }
 
     private func makeRenderer(for language: Language) -> PreviewRenderer {
@@ -1143,6 +1186,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             let g = CSVPreview()
             g.isLarge = { [weak self] in self?.extrasPaused ?? false }
             g.currentText = { [weak self] in (self?.textView.string ?? "") as NSString }
+            g.onApplied = { [weak self] in self?.updatePreviewBar() }
             g.onSelectField = { [weak self] offset in
                 guard let self else { return }
                 self.window?.makeKeyAndOrderFront(nil)
@@ -1191,6 +1235,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         pw.window?.orderFront(nil)
         if activate { window?.makeKeyAndOrderFront(nil) }
         renderPreview()
+        updatePreviewBar()
         onChange?(self)
     }
 
@@ -1202,6 +1247,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         dock(pane)
         window?.makeKeyAndOrderFront(nil)
         renderPreview()
+        updatePreviewBar()
         onChange?(self)
     }
 
@@ -1257,6 +1303,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         pane.renderer.render(text: textView.string, language: doc.language, palette: palette,
                              baseURL: doc.fileURL?.deletingLastPathComponent(), fileName: doc.fileURL?.lastPathComponent)
         (pane.renderer as? PreviewController)?.noteMainThread(start)
+        updatePreviewBar()
     }
 
     /// The user scrolled the preview: the editor follows (Markdown), and
@@ -1264,14 +1311,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private var followingPreviewUntil = Date.distantPast
 
     private func previewScrolled(toLine line: Double) {
-        guard previewVisible, doc.language == .markdown, lineIndex.lineCount > 0 else { return }
+        guard previewVisible, previewSyncsScroll, doc.language == .markdown, lineIndex.lineCount > 0 else { return }
         followingPreviewUntil = Date().addingTimeInterval(0.3)
         let target = max(0, min(Int(line.rounded()), lineIndex.lineCount - 1))
         if target != topLine { scrollToLine(target) }
     }
 
     private func syncPreviewScroll() {
-        guard let pane = previewPane, previewVisible, Date() >= followingPreviewUntil else { return }
+        guard let pane = previewPane, previewVisible, previewSyncsScroll, Date() >= followingPreviewUntil else { return }
         let top = topLine
         let fraction = lineIndex.lineCount > 1 ? Double(top) / Double(lineIndex.lineCount - 1) : 0
         pane.renderer.sync(line: top, fraction: fraction, language: doc.language)

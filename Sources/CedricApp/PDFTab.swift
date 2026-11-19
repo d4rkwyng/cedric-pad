@@ -12,6 +12,32 @@ final class CedricPDFView: PDFView {
     override func zoomIn(_ sender: Any?) { if let onZoom { onZoom(true) } else { super.zoomIn(sender) } }
     override func zoomOut(_ sender: Any?) { if let onZoom { onZoom(false) } else { super.zoomOut(sender) } }
 
+    /// ← / → and Page Up / Page Down: a page back or on (true if handled).
+    var onPageKey: ((_ forward: Bool) -> Bool)?
+
+    override func keyDown(with event: NSEvent) {
+        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if mods.isEmpty, let ch = event.charactersIgnoringModifiers?.unicodeScalars.first.map({ Int($0.value) }) {
+            var forward: Bool?
+            switch ch {
+            case NSPageDownFunctionKey: forward = true
+            case NSPageUpFunctionKey: forward = false
+            // ← / →: pages, unless the page is wider than the view (then they scroll it sideways).
+            case NSRightArrowFunctionKey where !scrollsSideways: forward = true
+            case NSLeftArrowFunctionKey where !scrollsSideways: forward = false
+            default: break
+            }
+            if let forward, onPageKey?(forward) == true { return }
+        }
+        super.keyDown(with: event)
+    }
+
+    private var scrollsSideways: Bool {
+        // Fitted to the width: nothing to scroll sideways.
+        guard !autoScales, let doc = documentView, let clip = doc.enclosingScrollView?.contentView else { return false }
+        return doc.frame.width > clip.bounds.width + 1
+    }
+
     private func fileURLs(_ info: NSDraggingInfo) -> [URL] {
         let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         return urls.filter { u in
@@ -39,14 +65,51 @@ final class CedricPDFView: PDFView {
 /// The thumbnails sidebar (when shown, a fixed width) beside the pages.
 final class PDFPagesView: NSView {
     var thumbnails: NSView? { didSet { oldValue?.removeFromSuperview(); thumbnails.map(addSubview); needsLayout = true } }
-    var pages: NSView? { didSet { oldValue?.removeFromSuperview(); pages.map(addSubview); needsLayout = true } }
+    var pages: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let pages { addSubview(pages, positioned: .below, relativeTo: overlay) }
+            needsLayout = true
+        }
+    }
+    /// The reader controls, floating over the bottom of the pages.
+    var overlay: PDFOverlay? {
+        didSet { oldValue?.removeFromSuperview(); overlay.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true }
+    }
     static let sidebarWidth: CGFloat = 150
+    private var tracking: NSTrackingArea?
 
     override func layout() {
         super.layout()
         let side = thumbnails.map { $0.isHidden ? 0 : Self.sidebarWidth } ?? 0
         thumbnails?.frame = NSRect(x: 0, y: 0, width: side, height: bounds.height)
-        pages?.frame = NSRect(x: side, y: 0, width: max(0, bounds.width - side), height: bounds.height)
+        let pagesFrame = NSRect(x: side, y: 0, width: max(0, bounds.width - side), height: bounds.height)
+        pages?.frame = pagesFrame
+        if let o = overlay {
+            // Bottom centre of the pages, inside them (clear of the scroller).
+            let w = min(o.fit(available: pagesFrame.width - 32), pagesFrame.width - 16)
+            let h = PDFOverlay.height
+            o.frame = NSRect(x: (pagesFrame.midX - w / 2).rounded(), y: isFlipped ? bounds.height - h - 16 : 16, width: max(0, w), height: h)
+            o.needsLayout = true
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let t = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(t)
+        tracking = t
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        overlay?.noteActivity()
+        super.mouseMoved(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        overlay?.noteActivity()
+        super.scrollWheel(with: event)
     }
 }
 
@@ -165,6 +228,7 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
         statusBar.background = NSColor(hex: p.statusBar)
         pdfView?.backgroundColor = NSColor(hex: p.gutterBackground)
         thumbnails?.backgroundColor = NSColor(hex: p.gutterBackground)
+        overlay?.applyPalette(p)
         messageView?.needsDisplay = true
     }
 
@@ -237,6 +301,96 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
             MainActor.assumeIsolated { self?.findEnded() }
         })
         window?.makeFirstResponder(v)
+        v.onPageKey = { [weak self] forward in self?.stepPage(forward) ?? false }
+        if let clip = v.documentView?.enclosingScrollView?.contentView {
+            clip.postsBoundsChangedNotifications = true
+            observers.append(nc.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.overlay?.noteActivity() }
+            })
+        }
+        updateStatus()
+        // Not before the first frame: the controls aren't needed to draw the page.
+        AfterFirstFrame.run { [weak self] in self?.buildOverlay() }
+    }
+
+    // MARK: Reader controls (PDFOverlay)
+
+    private(set) var overlay: PDFOverlay?
+    /// The view's rotation in degrees (0, 90, 180, 270): the pages are turned
+    /// in memory only; nothing is ever written to the file.
+    private(set) var viewRotation = 0
+
+    private func buildOverlay() {
+        guard overlay == nil, pdfView != nil else { return }
+        let o = PDFOverlay()
+        o.onControl = { [weak self] c in self?.overlayControl(c) }
+        o.onPageEntered = { [weak self] text in self?.overlayPage(text) }
+        split.overlay = o
+        overlay = o
+        o.applyPalette(palette)
+        updateStatus()
+        o.setThumbnailsOn(thumbnails.map { !$0.isHidden } ?? false)
+        o.noteActivity()
+    }
+
+    func overlayControl(_ c: PDFOverlay.Control) {
+        switch c {
+        case .previous: _ = stepPage(false)
+        case .next: _ = stepPage(true)
+        case .zoomOut: zoomOut(nil)
+        case .zoomIn: zoomIn(nil)
+        case .actualSize: zoomReset(nil)
+        case .fitWidth: zoomToFit(nil)
+        case .fitPage: fitPage()
+        case .thumbnails: togglePDFThumbnails(nil)
+        case .find: showFindBar()
+        case .rotateLeft: rotateView(by: -90)
+        case .rotateRight: rotateView(by: 90)
+        case .openInPreview: openInDefaultApp(nil)
+        }
+    }
+
+    private func overlayPage(_ text: String) {
+        guard let doc = pdfDocument else { return }
+        if let i = PageNumberInput.parse(text, pageCount: doc.pageCount) {
+            goToPage(i)
+            if let v = pdfView { window?.makeFirstResponder(v) }
+        } else {
+            NSSound.beep()
+            updateStatus()
+        }
+    }
+
+    /// A page on or back; false at either end.
+    @discardableResult
+    func stepPage(_ forward: Bool) -> Bool {
+        guard let doc = pdfDocument, let i = currentPageIndex,
+              let n = PDFReader.page(i, moving: forward ? 1 : -1, pageCount: doc.pageCount) else { return false }
+        goToPage(n)
+        overlay?.noteActivity()
+        return true
+    }
+
+    /// Fit Page: the whole current page in the view.
+    func fitPage() {
+        guard let v = pdfView, let page = v.currentPage else { return }
+        let b = page.bounds(for: v.displayBox)
+        setScale(CGFloat(PDFReader.fitPageScale(pageWidth: Double(b.width), pageHeight: Double(b.height),
+                                                viewWidth: Double(v.bounds.width), viewHeight: Double(v.bounds.height),
+                                                margin: 8, rotation: page.rotation)))
+    }
+
+    /// Rotate Left / Right: every page turned in memory, for viewing. The
+    /// tab has no save path, so the file itself never changes.
+    func rotateView(by delta: Int) {
+        guard let v = pdfView, let doc = pdfDocument else { return }
+        let keep = v.currentPage
+        for i in 0..<doc.pageCount {
+            if let p = doc.page(at: i) { p.rotation = PDFReader.rotated(p.rotation, by: delta) }
+        }
+        viewRotation = PDFReader.rotated(viewRotation, by: delta)
+        v.layoutDocumentView()
+        if let keep { v.go(to: keep) }
         updateStatus()
     }
 
@@ -363,6 +517,10 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         pdfDocument?.cancelFindString()
+        overlay?.stop()
+        split.overlay = nil
+        overlay = nil
+        viewRotation = 0
         split.thumbnails = nil
         split.pages = nil
         pdfView = nil
@@ -383,6 +541,7 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
         let i = (currentPageIndex ?? 0) + 1
         statusBar.position.stringValue = String(localized: "Page \(i) of \(n)")
         statusBar.zoom.stringValue = "\(Int((v.scaleFactor * 100).rounded()))%"
+        overlay?.update(page: i - 1, pageCount: n)
     }
 
     /// What the session keeps: the page and zoom shown (or still to show,
@@ -449,6 +608,7 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
     @objc func togglePDFThumbnails(_ sender: Any?) {
         guard let t = thumbnails else { return }
         t.isHidden.toggle()
+        overlay?.setThumbnailsOn(!t.isHidden)
         layoutSidebar()
         onChange?(self)
     }
@@ -593,7 +753,6 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
     /// File › Close Window (⇧⌘W): every tab in this window.
     @objc func closeWindow(_ sender: Any?) {
         guard let w = window else { return }
-        if (NSApp.delegate as? AppDelegate)?.quitIfClosingLastWindow(w) == true { return }
         for win in w.tabbedWindows ?? [w] { win.performClose(nil) }
     }
 
@@ -614,6 +773,8 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
     private func detachViews() {
         pdfView?.onZoom = nil
         pdfView?.onDropFiles = nil
+        pdfView?.onPageKey = nil
+        overlay?.stop()
         if findBarBuilt {
             findBar.onChange = nil
             findBar.onFind = nil
@@ -729,9 +890,10 @@ extension AppDelegate {
         tab.onClose = { [weak self] t in
             self?.releaseWaiters(for: t.id)
             guard let self, !self.terminating else { return }
-            if self.quitIfLastDocument(closing: t.window) { return }
+            let last = self.isClosingLastDocument(t.window)
             self.pdfTabs.removeAll { $0 === t }
             self.rememberClosedViewer(t)
+            if last { self.quitAfterLastClose() }
         }
         pdfTabs.append(tab)
         guard let window = tab.window else { return tab }

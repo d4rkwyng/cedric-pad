@@ -272,6 +272,22 @@ first shown (no WebKit work at launch). Markdown goes through
   Content-Security-Policy meta tag is injected as a second layer.
 - Non-persistent website data store; clicked links open in the browser.
 
+The preview bar (`PreviewBar` in `PreviewPane.swift`) sits in the pane's
+24 pt header, docked or detached. Which controls a preview gets is
+`PreviewBarItem.items(for:certificate:)` in CedricCore (Markdown: refresh,
+sync, zoom −/+, export, JavaScript, network, detach; HTML the same without
+export; CSV: row count, Unsort, refresh, sync, zoom, detach; the
+Certificate panel: refresh, detach). The tab recomputes a
+`PreviewBarState` after each render, toggle, detach/attach and CSV sort
+(`updatePreviewBar`, a no-op when nothing changed). Buttons are fixed-size
+SF Symbols laid out from the right edge, so toggles and a changing row count
+never move anything. Zoom steps through `PreviewZoom.ladder`
+(`WKWebView.pageZoom` for the web preview, the grid's font and row height
+for CSV). Refresh drops the loaded page (`forceReload`) so the next render
+is a whole load. Sync off stops scroll sync both ways until it is on again.
+The View menu's JavaScript/Network items still work; the bar follows them.
+Nothing of it exists until a preview is first shown.
+
 Scroll sync: Markdown blocks carry `data-line`; the app scrolls the preview to
 the last block at or above the editor's top line (in the app's own content
 world, so it works with page JavaScript off). HTML scrolls by fraction.
@@ -302,16 +318,21 @@ one) and `edgeDelimiters` (every line a `| … |` pipe row). The parser and
 `fieldOffset` both follow it, so a click still lands in the right field.
 Table-driven samples in `CSVDialectTests`.
 
-**Closing the last window** (`AppDelegate.quitIfLastDocument`): a text or
-PDF tab's `onClose`, when no other document tab exists and no restored tab
-is still pending, runs the quit path (`prepareToQuit`: synchronous session
-save, waiters released) with the closing tab still listed, so it is saved
-as an open tab, then `NSApp.terminate` on the next turn. Other windows
+**Closing the last window** (`AppDelegate.isClosingLastDocument`,
+`quitAfterLastClose`): a document tab's `onClose` (text, PDF, image,
+Office, certificate) asks, before the tab leaves its list, whether no other
+document tab exists and no restored tab is still pending. The tab is then
+hot-closed like any other (`rememberClosed`/`rememberClosedViewer`: in the
+closed list, unsaved text in its buffer), and only then does the quit path
+run (`prepareToQuit`: synchronous session save, waiters released) and
+`NSApp.terminate` on the next turn. So the next launch has no open tab
+(an empty Untitled one) and ⇧⌘T brings the closed one back; Quit (⌘Q)
+alone keeps every open tab open. Other windows
 (detached previews, Settings, panels, the owl) don't count.
 `applicationShouldTerminateAfterLastWindowClosed` gives the same answer
 for AppKit's own case (e.g. Settings closed last). Off before launch has
 finished, under the dev hooks (unless `CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1`)
-and with the setting off. File › Close Window on the only window is Quit.
+and with the setting off. File › Close Window on the only window hot-closes each tab, then quits.
 
 ## Editor tools
 
@@ -1218,6 +1239,25 @@ beside `tabs`; `currentTab` is nil while a PDF tab is in front, so every
 editor command that checks it is off without more code, and the PDF
 controller answers (as nothing, disabled) the few that don't check
 (Format menus, Show Preview, Find and Replace, Save, Find in Files).
+
+- **Reader controls** (`PDFOverlay.swift`): a capsule floating at the
+  bottom centre of the pages (a subview of `PDFPagesView`, laid out over
+  the `PDFView`, clear of the thumbnails sidebar), built with
+  `AfterFirstFrame` so nothing of it is on the launch path. Previous/next,
+  an editable page field (`PageNumberInput`), zoom, actual size, fit width
+  (`autoScales`), fit page (`PDFReader.fitPageScale`, rotation-aware),
+  thumbnails, find, rotate left/right and Open in Preview. Rotation sets
+  `PDFPage.rotation` on the in-memory document only; the tab has no save
+  path, so the file is never written (pdfoverlay compares its bytes).
+  ←/→ and Page Up/Down page (`CedricPDFView.onPageKey`); ←/→ still scroll
+  sideways when the page is wider than the view. Narrow windows drop the
+  lowest-priority groups (`PDFReader.visibleGroups`); page stepping always
+  stays. Auto-hide (`PDFReader.AutoHide`, 2 s): mouse moves (a tracking
+  area on `PDFPagesView`), scrolling (the clip view's bounds) and page
+  changes show it; hovering or editing the page field keep it; hidden it
+  returns nil from `hitTest`, so the page gets every click. Reduce Motion:
+  no fade, it just appears and disappears. Drawn with a plain layer in the
+  status bar's colour (rounded, `masksToBounds`), not a vibrancy material.
 
 - **Which files:** `DocumentKind.detect(url:)` (CedricCore, tested) reads
   the first 8 bytes: `%PDF-` at the start, or a `.pdf` name (so a damaged

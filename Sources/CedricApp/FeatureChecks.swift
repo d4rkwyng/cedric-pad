@@ -229,7 +229,8 @@ extension DevChecks {
                 focus(a)
                 key("p", [.command, .option])
                 expect(a.previewVisible && !a.previewDetached && a.previewPane?.superview === a.split, "⌥⌘P docks the preview beside the text")
-                expect(a.previewPane?.detachButton.title == "Detach", "its header has Detach", a.previewPane?.detachButton.title ?? "-")
+                expect(a.previewPane?.detachButton.accessibilityLabel() == "Detach", "its header has Detach",
+                       a.previewPane?.detachButton.accessibilityLabel() ?? "-")
                 if let i = item() { _ = app.validateMenuItem(i); expect(i.title == "Detach Preview", "View › Detach Preview", i.title) }
             },
             waitForPreview(a, contains: "hello", "the docked preview shows the document"),
@@ -240,7 +241,8 @@ extension DevChecks {
                 expect(pw?.title == "first.md — Preview", "titled after its document", pw?.title ?? "-")
                 expect(a.split.subviews.count == 1, "the editor has the whole window")
                 expect(pw.map { $0.styleMask.contains(.resizable) } == true, "the window is resizable")
-                expect(a.previewPane?.detachButton.title == "Attach", "its header now has Attach", a.previewPane?.detachButton.title ?? "-")
+                expect(a.previewPane?.detachButton.accessibilityLabel() == "Attach", "its header now has Attach",
+                       a.previewPane?.detachButton.accessibilityLabel() ?? "-")
                 if let i = item() { _ = app.validateMenuItem(i); expect(i.title == "Attach Preview", "the menu says Attach Preview", i.title) }
                 expect(app.currentTab === a, "the editor keeps the focus")
                 focus(a)

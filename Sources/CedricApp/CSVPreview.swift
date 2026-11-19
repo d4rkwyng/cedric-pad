@@ -36,6 +36,27 @@ final class CSVPreview: NSObject, PreviewRenderer, NSTableViewDataSource, NSTabl
     var onSelectField: ((Int) -> Void)?
     /// Renders applied (the checks wait for one).
     private(set) var renders = 0
+    /// After each render or sort: the preview bar's row count and Unsort.
+    var onApplied: (() -> Void)?
+    /// The preview bar's zoom: the grid's font and row height.
+    var zoom: Double = 1 {
+        didSet {
+            guard zoom != oldValue else { return }
+            font = NSFont(name: font.fontName, size: 12 * zoom) ?? .monospacedSystemFont(ofSize: 12 * zoom, weight: .regular)
+            table.rowHeight = (18 * zoom).rounded()
+            for (i, c) in table.tableColumns.enumerated() { c.width = width(column: i, rows: data.rows) }
+            table.reloadData()
+        }
+    }
+    /// Sorted by a column header (not in file order).
+    var isSorted: Bool { !table.sortDescriptors.isEmpty }
+    /// The row count for the bar.
+    var rowCountText: String {
+        PreviewBarItem.rowCountText(rows: min(order.count, Self.maxRows), capped: data.truncated || order.count > Self.maxRows)
+    }
+
+    /// The preview bar's Unsort: back to file order.
+    func resetSort() { table.sortDescriptors = [] }
 
     var view: NSView { container }
 
@@ -151,6 +172,7 @@ final class CSVPreview: NSObject, PreviewRenderer, NSTableViewDataSource, NSTabl
         note.isHidden = notes.isEmpty
         container.needsLayout = true
         renders += 1
+        onApplied?()
     }
 
     /// From the widest of the first 200 cells, in characters.
@@ -163,7 +185,7 @@ final class CSVPreview: NSObject, PreviewRenderer, NSTableViewDataSource, NSTabl
 
     private func applyPalette(_ p: EditorPalette) {
         let editor = Settings.shared.font
-        font = NSFont(name: editor.fontName, size: 12) ?? .monospacedSystemFont(ofSize: 12, weight: .regular)
+        font = NSFont(name: editor.fontName, size: 12 * zoom) ?? .monospacedSystemFont(ofSize: 12 * zoom, weight: .regular)
         textColor = NSColor(hex: p.foreground)
         table.backgroundColor = NSColor(hex: p.background)
         table.gridColor = NSColor(hex: p.currentLine)

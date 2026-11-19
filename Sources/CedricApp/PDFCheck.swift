@@ -18,6 +18,7 @@ extension DevChecks {
         switch name {
         case "pdf": pdf(app)
         case "pdfrestore": pdfRestore(app)
+        case "pdfoverlay": pdfOverlayCheck(app)
         default: return false
         }
         return true

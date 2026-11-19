@@ -21,8 +21,10 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   first; a closed tab with unsaved text is never forgotten).
   The first time in a launch that a file tab with unsaved edits is closed,
   the tab in front says the file wasn't written, with **Save Now**.
-  Closing the last document window (text, PDF, image or Office tab) quits Cedric Pad, as
-  Quit does: that tab, unsaved text and all, is open again next launch.
+  Closing the last document window (text, PDF, image or Office tab) quits Cedric Pad.
+  It is a close like any other: the tab goes to Reopen Closed Tab (⇧⌘T) with
+  its unsaved text kept, and the next launch opens an empty Untitled tab.
+  Quit (⌘Q) with tabs open brings them all back next launch.
   Detached previews, Settings and panels don't keep Cedric Pad running.
   Settings › "Quit when the last window closes" turns this off.
 - **Fast to open.** TextKit 2 lays out only what is on screen; a 10 MB JSON
@@ -43,7 +45,13 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   menu overrides it.
 - **Live preview** for Markdown and HTML, side by side (View › Show Preview,
   ⌥⌘P). JavaScript and network access in the preview are **off** by default
-  and can be turned on per tab (View menu). A link in the preview never
+  and can be turned on per tab (View menu, or the preview bar). A compact
+  **preview bar** across the top of the preview (and of a detached
+  preview's window) has Refresh, Sync Scrolling on/off, Zoom − / +,
+  Export ▸ HTML / PDF (Markdown), Allow JavaScript, Allow Network and
+  Detach / Attach; for CSV, the row count and Unsort (back to file order).
+  It follows the theme; every button has a tooltip and a VoiceOver label.
+  A link in the preview never
   launches anything: web and mail links open only after you confirm the
   full URL, a text file in the document's folder opens in a tab, any
   other file (or one outside the folder) is shown in Finder, and other
@@ -63,7 +71,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   coloured by their language (```` ```swift ````, `py`, `js`, `bash`, …)
   both in the editor and in the preview, by Cedric Pad's own tokenizers and
   the theme's colours (no JavaScript highlighter). **Detach Preview** (View menu, ⇧⌥⌘P,
-  or Detach in the preview's header) moves it into its own resizable
+  or Detach on the preview bar) moves it into its own resizable
   window, "notes.md — Preview", still updating as you type; it stays
   with its own document whichever tab is in front, and closes with that
   tab. Attach Preview docks it again; closing its window closes the
@@ -156,7 +164,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   last window quits, in one window (the
   menu toggles still work and the window follows them).
 - **Mac file basics:** Save All (⌥⌘S), Revert to Saved (undoable with ⌘Z),
-  Close Window (⇧⌘W: every tab in the window, each hot-closed; on the last window, Quit), and the
+  Close Window (⇧⌘W: every tab in the window, each hot-closed; on the last window, then quits, ⇧⌘T has the tabs), and the
   system Services in the app menu.
 - **Find and replace** in the current document, with regular expressions
   (ICU syntax, `$1` in replacements), match case and whole word; ⌘F, ⌥⌘F,
@@ -272,7 +280,14 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   scroll; ⌘+ / ⌘− zoom, ⌘0 actual size, ⌘9 fit to the window; View › Show
   Page Thumbnails (⌥⌘B); ⌘F finds in the PDF with the find bar (⌘G / ⇧⌘G,
   Match Case); select and ⌘C copies text; ⌘L is Go to Page; the status bar
-  shows page N of M and the zoom. **File › Open as Text** puts the PDF's
+  shows page N of M and the zoom. A **floating control capsule** at the
+  bottom of the page (as in Preview) has previous / next page, an
+  editable "page N of M" field (Return jumps), zoom out / in, actual size,
+  fit width, fit page, thumbnails, find, rotate left / right (the view
+  only; the file is never changed) and Open in Preview. It fades after
+  about 2 seconds without a mouse move or scroll and comes back on the
+  next one (no fade with Reduce Motion), and stays while the pointer is
+  on it. ← / → and Page Up / Page Down turn the page. **File › Open as Text** puts the PDF's
   text in a new untitled tab to edit (extracted in the background). Saving
   and editing commands are off in a PDF tab, and Cedric Pad never writes to a
   PDF. A password-protected PDF asks for its password; a damaged one says
