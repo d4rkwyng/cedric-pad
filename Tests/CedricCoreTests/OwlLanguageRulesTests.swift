@@ -132,6 +132,9 @@ import Testing
         let py = "if x == None:\n    pass\n"
         #expect(!Self.languageIDs(py, language: "python").isEmpty)
         #expect(Self.languageIDs(py, language: "javascript").isEmpty)
+        // .env and TOML rules need their file names: INI files allow both.
+        #expect(!Self.languageIDs("A = b\n", language: "ini", fileName: ".env").isEmpty)
+        #expect(Self.languageIDs("A = b\n", language: "ini", fileName: "setup.cfg").isEmpty)
     }
 
     @Test func titlesFitTheBubble() {
@@ -139,6 +142,10 @@ import Testing
             ("cd build\nrm -rf *\nNAME = x\necho $NAME\nif [$a = b]; then rm -rf $DIR/out; fi\necho “hi” –la\n", "shell", "a.sh"),
             ("print \"x\"\ndef f(a=[]): pass\nif x == None or y is \"a\": re.compile(\"\\d\")\n", "python", "a.py"),
             ("debugger;\nif (x === NaN || typeof y === \"undefnied\") {}\n", "javascript", "a.js"),
+            ("python-version: 3.10\na: 1\na: 2\n", "yaml", "ci.yml"),
+            ("<a><b></a>", "xml", "a.xml"),
+            ("[a]\nx = word\n[a]\n", "ini", "a.toml"),
+            ("A = 1\nA=2\n", "ini", ".env"),
         ]
         for (text, lang, name) in samples {
             let hints = Self.check(text, language: lang, fileName: name)
