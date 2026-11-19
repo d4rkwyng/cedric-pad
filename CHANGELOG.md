@@ -4,6 +4,17 @@ All notable changes to OwlInk. The format follows [Keep a Changelog](https://kee
 and OwlInk uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
+## [0.2.1]
+
+### Fixed
+- **Undo Replace in Files can always be tried again.** If the backup copy of a file couldn't be read (missing, no permission, or not matching the original), Undo used to mark the replace as undone and offer no retry. Now the file is left as the replace wrote it, the message names it and says why ("backup copy unreadable: permission denied"), and Edit › Undo Replace in Files stays available.
+- **Undo Replace in Files from the Edit menu with the Find in Files panel hidden** now shows its progress and then its result in a bar at the top of the tab.
+
+### Changed
+- **About OwlInk** shows the version (without a build number), who made it, a link to github.com/d4rkwyng/owlink, the BSD-2-Clause licence, credits for llama.cpp (MIT) and the AI models (downloaded on request, each under its own licence), a note that Cedric the owl is a fan's tribute and OwlInk is not affiliated with or endorsed by Sierra or its successors, and © 2026 d4rkwyng.
+- **Help menu:** OwlInk Help opens the manual for the version you have (a release opens it at its tag), and there are new OwlInk on GitHub and Report an Issue… items.
+- **Status bar zoom** ("110%") is a menu: Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 and 75 % to 200 %. With the preview docked, the editor's status items stay under the editor instead of running under the preview.
+
 ## [0.2.0]
 
 ### Added

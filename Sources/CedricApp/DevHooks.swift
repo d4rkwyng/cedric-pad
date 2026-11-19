@@ -24,6 +24,7 @@ import WebKit
 ///   CEDRIC_SNAPSHOT_DELAY=2       seconds after launch (default 2)
 ///   CEDRIC_SNAPSHOT_SIZE=1100x700 window content size first
 ///   CEDRIC_SNAPSHOT_QUIT=1        quit after writing
+///   CEDRIC_TEST_ZOOM_MENU=3       open the front tab's status-bar zoom pop-up after 3 s (screenshots)
 ///   CEDRIC_TEST_TYPE=text         type this at the end of the frontmost tab (session tests)
 ///   CEDRIC_TEST_TYPE_UNTITLED=t   open a new untitled tab and type this
 ///   CEDRIC_TEST_DETACH_PREVIEW=x,y,w,h  detach the front tab's preview to this frame (session tests)
@@ -154,6 +155,9 @@ enum DevHooks {
            let tab = app.currentTab ?? app.tabs.last {
             tab.detachPreview()
             tab.previewWindow?.window?.setFrame(NSRect(x: f[0], y: f[1], width: f[2], height: f[3]), display: true)
+        }
+        if let delay = env["CEDRIC_TEST_ZOOM_MENU"].flatMap(Double.init), let tab = app.currentTab ?? app.tabs.last {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak tab] in tab?.statusBar.zoom.performClick(nil) }
         }
         if env["CEDRIC_TEST_CLOSE_LAST"] == "1", let tab = app.tabs.last { tab.window?.performClose(nil) }
         if env["CEDRIC_TEST_SHOW_SETTINGS"] == "1" { SettingsWindowController.show() }

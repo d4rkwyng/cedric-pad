@@ -175,9 +175,13 @@ Replace field (`$1` for a regex group, as in the find bar):
    encoding and line endings and keeping its permissions.
 3. **Undo Replace** in the panel, or **Edit › Undo Replace in Files**,
    puts the last replace back byte for byte. A file edited since is left
-   alone and listed, and so is one that has become read-only (Undo stays
-   available to try again once you can write it). The command undoes
-   only the most recent replace, and only until you quit OwlInk.
+   alone and listed, and so is one that has become read-only or whose
+   backup copy can't be read (the reason is given: missing, permission
+   denied, or not matching the original); those files stay as the
+   replace left them and Undo stays available to try again. With the
+   panel hidden, the undo's progress and result show in a bar at the top
+   of the tab. The command undoes only the most recent replace, and only
+   until you quit OwlInk.
 
 Replace All never writes read-only files, anything inside a `.git`
 folder (or a `.git` file), whatever the Exclude field says, or a file
@@ -369,7 +373,10 @@ menu overrides it.
 System (light or dark with macOS), Light, Dark, Tankard (deep
 purple and amber) and Dracula, the same set as Tankard. Every theme's text
 colours meet WCAG AA contrast (4.5:1), checked by a test. SF Mono by
-default, or any installed fixed-pitch font; ⌘+ / ⌘− / ⌘0 zoom.
+default, or any installed fixed-pitch font; ⌘+ / ⌘− / ⌘0 zoom. The zoom
+in the status bar ("110%") is a menu too: Zoom In, Zoom Out, Actual Size
+and 75 % to 200 %. With the preview docked beside the editor, the status
+bar's items stay under the editor.
 
 ### Settings
 
@@ -734,9 +741,13 @@ reviewed, whatever the model said.
 
 ## Help menu
 
-**OwlInk Help** (⌘?, this manual), **Keyboard
-Shortcuts** (every menu shortcut in one window) and the system's menu
-search.
+**OwlInk Help** (⌘?, this manual, as of the version you have: a
+release opens the manual at its own tag on GitHub), **Keyboard
+Shortcuts** (every menu shortcut in one window), **OwlInk on GitHub**,
+**Report an Issue…** and the system's menu search. OwlInk › About
+OwlInk shows the version, the author, the licence (BSD-2-Clause) and
+the credits: llama.cpp (MIT) for the built-in AI, and each AI model,
+downloaded only on request, under its own licence.
 
 ## The cedric command
 
