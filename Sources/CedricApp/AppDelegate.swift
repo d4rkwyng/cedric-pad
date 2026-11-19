@@ -45,7 +45,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSWindow.allowsAutomaticWindowTabbing = true
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+        rotateCLIToken()
     }
+
+    /// A fresh `cedric` script token every launch (the old one counts for
+    /// CLIToken.rotationGrace more, for a script that started this launch).
+    /// Not for a test run with its own session folder: that leaves the
+    /// user's token alone.
+    private func rotateCLIToken() {
+        guard DevEnvironment.values["CEDRIC_SESSION_DIR"] == nil else { return }
+        Self.previousCLIToken = CLIToken.read(CLIToken.defaultURL)
+        Self.cliTokenRotated = Date()
+        CLIToken.rotate()
+        DispatchQueue.global(qos: .utility).async { CLIHandoff.sweepAuth() }
+    }
+
+    nonisolated(unsafe) static var previousCLIToken: String?
+    nonisolated(unsafe) static var cliTokenRotated = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LaunchTrace.mark("did_finish")
@@ -162,8 +178,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// untitled tab, then the temp file is deleted).
     ///
     /// Any app or web page can send a cedric:// URL, so (CLIHandoff,
-    /// CLIToken in CedricCore): the `cedric` script adds `token=`, a secret
-    /// only this user can read. Without it, `untitled=` and `wait=` are
+    /// CLIToken in CedricCore): the `cedric` script adds `auth=`, a 0600
+    /// temp file holding a secret only this user can read (rotated at
+    /// every launch). Without it, `untitled=` and `wait=` are
     /// refused and `path=` asks first ("Open … requested by a link?", one
     /// question at a time). A file is deleted only if it is the script's
     /// own temp file (cedric-stdin.* / cedric-wait.* in the user's temp
@@ -174,7 +191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let comps = URLComponents(string: s), comps.scheme == "cedric" else { return }
         let q = Dictionary((comps.queryItems ?? []).compactMap { i in i.value.map { (i.name, $0) } }, uniquingKeysWith: { a, _ in a })
-        let trusted = CLIToken.matches(q["token"], CLIToken.ensure())
+        // The script's token comes in a hand-off file (`auth=`), read once
+        // and deleted; never on the command line (`token=` is ignored).
+        let given = q["auth"].flatMap { CLIHandoff.takeAuth($0) }
+        let trusted = CLIToken.matches(given, CLIToken.ensure())
+            || (Date().timeIntervalSince(Self.cliTokenRotated) < CLIToken.rotationGrace && CLIToken.matches(given, Self.previousCLIToken))
         if let raw = q["path"] {
             guard raw.hasPrefix("/") else { refuseURL("path isn’t absolute"); return }
             let path = (raw as NSString).standardizingPath

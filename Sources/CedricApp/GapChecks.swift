@@ -501,7 +501,13 @@ extension DevChecks {
     static func openURL(_ app: AppDelegate, _ url: String, token: Bool = true) {
         // The checks' own token file, not the user's (set in-process; release builds ignore the env hook).
         if CLIToken.overrideURL == nil { CLIToken.overrideURL = dir.appendingPathComponent("cli-token") }
-        let url = token ? url + "&token=" + (CLIToken.ensure() ?? "") : url
+        // The token in a 0600 hand-off file, as the script sends it (never on the command line).
+        var url = url
+        if token {
+            let auth = NSTemporaryDirectory() + "cedric-auth.chk\(getpid())\(Int.random(in: 100_000...999_999))"
+            try? PrivateDirectory.writePrivateFile(Data(((CLIToken.ensure() ?? "") + "\n").utf8), to: URL(fileURLWithPath: auth))
+            url += "&auth=" + (auth.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? auth)
+        }
         let e = NSAppleEventDescriptor(eventClass: AEEventClass(kInternetEventClass), eventID: AEEventID(kAEGetURL),
                                        targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
         e.setParam(NSAppleEventDescriptor(string: url), forKeyword: keyDirectObject)
@@ -596,6 +602,38 @@ extension DevChecks {
                 expect(app.tabs.last?.text == "piped in\n" && app.tabs.last?.doc.fileURL == nil, "cedric - still opens stdin in an untitled tab",
                        app.tabs.last?.text ?? "-")
                 expect(!FileManager.default.fileExists(atPath: tmp), "and deletes its temp file")
+            },
+            sync {
+                // The token travels in a 0600 hand-off file, never on argv
+                // (security review 0.2.1), and rotates.
+                let victim = dir.appendingPathComponent("victim.txt")
+                let enc2 = { (s: String) in s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
+                AppDelegate.linkAnswerForChecks = false
+                // The old way, token= on the URL: no longer trusted (asked, declined here).
+                openURL(app, "cedric://open?path=" + enc(victim.path) + "&token=" + (CLIToken.ensure() ?? ""), token: false)
+                expect(!app.tabs.contains { $0.doc.fileURL?.lastPathComponent == "victim.txt" }, "token= on the command line is not trusted")
+                // A hand-off file others can read: refused, and deleted.
+                let loose = NSTemporaryDirectory() + "cedric-auth.loose\(getpid())"
+                FileManager.default.createFile(atPath: loose, contents: Data(((CLIToken.ensure() ?? "") + "\n").utf8),
+                                               attributes: [.posixPermissions: 0o644])
+                openURL(app, "cedric://open?path=" + enc(victim.path) + "&auth=" + enc2(loose), token: false)
+                expect(!app.tabs.contains { $0.doc.fileURL?.lastPathComponent == "victim.txt" }, "a world-readable auth file is not trusted")
+                AppDelegate.linkAnswerForChecks = nil
+                try? FileManager.default.removeItem(atPath: loose)
+                // The real hand-off: trusted, used once (deleted).
+                let before = Set(((try? FileManager.default.contentsOfDirectory(atPath: NSTemporaryDirectory())) ?? []).filter { $0.hasPrefix("cedric-auth.") })
+                openURL(app, "cedric://open?path=" + enc(victim.path))
+                let t = app.tabs.first { $0.doc.fileURL?.lastPathComponent == "victim.txt" }
+                expect(t != nil, "auth= with the token opens without asking")
+                let after = Set(((try? FileManager.default.contentsOfDirectory(atPath: NSTemporaryDirectory())) ?? []).filter { $0.hasPrefix("cedric-auth.") })
+                expect(after.isSubset(of: before), "the auth file is deleted once read", "\(after.subtracting(before))")
+                t?.window?.performClose(nil)
+                // Rotation: a new token each launch, the file stays 0600.
+                let old = CLIToken.ensure()
+                let new = CLIToken.rotate(at: CLIToken.defaultURL)
+                var st = stat()
+                expect(new != nil && new != old && CLIToken.ensure() == new && stat(CLIToken.defaultURL.path, &st) == 0 && st.st_mode & 0o777 == 0o600,
+                       "the token rotates (new value, still 0600)")
             },
         ])
     }

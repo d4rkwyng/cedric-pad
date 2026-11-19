@@ -89,11 +89,18 @@ token() {
 TOKEN=""
 
 urlencode() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe="/"))' "$1"; }
-# Every URL carries the token (shown as TOKEN in a dry run).
+# Every URL carries the token, in a hand-off file the app reads once and
+# deletes: auth=<file>. Not on open's command line, where other users on
+# this Mac could read it with ps. The file is 0600 in the user's own temp
+# folder (shown as AUTH in a dry run). The app makes a new token at every
+# launch.
 send() {
-    if [ -n "$DRY" ]; then echo "$1&token=TOKEN"; return; fi
+    if [ -n "$DRY" ]; then echo "$1&auth=AUTH"; return; fi
     [ -n "$TOKEN" ] || TOKEN=$(token)
-    open "${TARGET[@]}" "$1&token=$TOKEN"
+    local auth
+    auth=$(umask 077; mktemp "$tmpdir/cedric-auth.XXXXXX")
+    printf '%s\n' "$TOKEN" > "$auth"
+    open "${TARGET[@]}" "$1&auth=$(urlencode "$auth")"
 }
 
 if [ $# -eq 0 ]; then

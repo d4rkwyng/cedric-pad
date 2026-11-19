@@ -15,8 +15,17 @@ import Foundation
 /// Anything else is refused: not read, never deleted.
 public enum CLIHandoff {
     public enum Kind: Sendable {
-        case stdin, wait
-        public var prefix: String { self == .stdin ? "cedric-stdin." : "cedric-wait." }
+        /// `cedric -`: stdin. `cedric -w`: the marker. `auth`: the token,
+        /// handed over in a 0600 file (not on `open`'s command line, which
+        /// other users can read with ps).
+        case stdin, wait, auth
+        public var prefix: String {
+            switch self {
+            case .stdin: return "cedric-stdin."
+            case .wait: return "cedric-wait."
+            case .auth: return "cedric-auth."
+            }
+        }
     }
 
     /// A file that passed: where it is, which inode it was, and (for
@@ -72,6 +81,32 @@ public enum CLIHandoff {
         return unlink(h.url.path) == 0
     }
 
+    /// The token in the script's `auth=` hand-off file, which is then
+    /// deleted (used once). Nil when the file isn't the script's (same
+    /// checks as stdin: the user's temp folder, regular, one link, owned),
+    /// or it is readable by others.
+    public static func takeAuth(_ path: String, tempDirs: [String] = [NSTemporaryDirectory()], uid: uid_t = getuid()) -> String? {
+        guard let h = inspect(path, kind: .auth, tempDirs: tempDirs, uid: uid, read: true, maxBytes: 256), let data = h.data else { return nil }
+        var st = stat()
+        let privateFile = lstat(h.url.path, &st) == 0 && st.st_mode & 0o077 == 0
+        remove(h, uid: uid)
+        guard privateFile else { return nil }
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Removes `cedric-auth.*` files older than `age` seconds left in the
+    /// temp folder by a URL that never reached the app.
+    public static func sweepAuth(tempDir: String = NSTemporaryDirectory(), age: TimeInterval = 60, now: Date = Date()) {
+        guard let dir = realpath(tempDir), let items = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return }
+        for item in items where item.hasPrefix(Kind.auth.prefix) {
+            let path = dir + "/" + item
+            var st = stat()
+            guard lstat(path, &st) == 0, st.st_mode & S_IFMT == S_IFREG, st.st_uid == getuid(),
+                  now.timeIntervalSince1970 - Double(st.st_mtimespec.tv_sec) > age else { continue }
+            unlink(path)
+        }
+    }
+
     /// The path with `..` and every symlink resolved; nil if it doesn't exist.
     public static func realpath(_ path: String) -> String? {
         guard let r = Darwin.realpath(path, nil) else { return nil }
@@ -101,6 +136,25 @@ public enum CLIToken {
             ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support")
         return base.appendingPathComponent("Cedric/cli-token")
     }
+
+    /// A new token in place of the old one, at every launch, so one seen
+    /// once is not good for ever. Written to a private temp file and
+    /// renamed over the old one (atomic: a reader sees the old token or
+    /// the new one, never half). Nil if it couldn't be written.
+    @discardableResult
+    public static func rotate(at url: URL = defaultURL) -> String? {
+        let dir = url.deletingLastPathComponent()
+        guard (try? PrivateDirectory.make(dir)) != nil else { return nil }
+        var bytes = [UInt8](repeating: 0, count: 16)
+        arc4random_buf(&bytes, bytes.count)
+        let token = bytes.map { String(format: "%02x", $0) }.joined()
+        guard (try? PrivateDirectory.writePrivateFile(Data((token + "\n").utf8), to: url)) != nil else { return nil }
+        return read(url) == token ? token : nil
+    }
+
+    /// After a rotation, the token before it still counts this long: a
+    /// `cedric` run that started the app may have read it just before.
+    public static let rotationGrace: TimeInterval = 30
 
     /// An empty token file older than this was left by a run that died
     /// between making and filling it: it is replaced.
@@ -147,7 +201,7 @@ public enum CLIToken {
         return (st.st_ino, st.st_dev)
     }
 
-    static func read(_ url: URL) -> String? {
+    public static func read(_ url: URL) -> String? {
         let fd = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
