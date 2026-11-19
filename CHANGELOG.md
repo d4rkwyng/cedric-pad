@@ -4,7 +4,7 @@ All notable changes to Cedric Pad. The format follows [Keep a Changelog](https:/
 and Cedric Pad uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
-## [Unreleased]
+## [0.1.1]
 
 ### Added
 - **Preview bar.** A compact bar across the top of the preview (docked or detached) with Refresh, Sync Scrolling, Zoom − / +, Export ▸ HTML / PDF for Markdown, Allow JavaScript, Allow Network and Detach / Attach; for CSV, the row count and Unsort. The View menu items still work.

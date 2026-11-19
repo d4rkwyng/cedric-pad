@@ -6,7 +6,7 @@ import Foundation
 /// Info.plist, CEDRIC_VERSION or tag says anything else.
 public enum CedricVersion {
     /// This tree's version.
-    public static let source = "0.1.0"
+    public static let source = "0.1.1"
 
     /// Inside "Cedric Pad.app", the bundle's CFBundleShortVersionString (what
     /// About shows); elsewhere (tests, `swift run`) `source`. A release's
