@@ -105,6 +105,35 @@ public enum AutoEdit {
         return .pair(String(utf16CodeUnits: [c, close], count: 2))
     }
 
+    /// `typing`'s decision as an edit of `text`: the range replaced, its
+    /// replacement and the selection after it (in the edited text's
+    /// offsets). Nil: a plain insert. One per caret with several carets
+    /// (MultiCaret); `afterIsAutoClosed` as for `typing`.
+    public static func typingEdit(_ c: unichar, in text: NSString, selection sel: NSRange, language: Language,
+                                  afterIsAutoClosed: Bool = true) -> TextEdit? {
+        let before: unichar? = sel.location > 0 && sel.location - 1 < text.length ? text.character(at: sel.location - 1) : nil
+        let after: unichar? = NSMaxRange(sel) < text.length ? text.character(at: NSMaxRange(sel)) : nil
+        switch typing(c, before: before, after: after, hasSelection: sel.length > 0, language: language, afterIsAutoClosed: afterIsAutoClosed) {
+        case .skip?:
+            return TextEdit(range: NSRange(location: sel.location, length: 0), replacement: "", selection: NSRange(location: sel.location + 1, length: 0))
+        case .pair(let pair)?:
+            return TextEdit(range: sel, replacement: pair, selection: NSRange(location: sel.location + 1, length: 0))
+        case .wrap(let open, let close)?:
+            return TextEdit(range: sel, replacement: open + text.substring(with: sel) + close,
+                            selection: NSRange(location: sel.location + 1, length: sel.length))
+        case nil:
+            return nil
+        }
+    }
+
+    /// `newline` as an edit of `text` at the selection `sel` (its caret goes
+    /// where `newline` says).
+    public static func newlineEdit(in text: NSString, lineStart: Int, selection sel: NSRange, language: Language,
+                                   unit: String? = nil) -> TextEdit {
+        let r = newline(in: text, lineStart: lineStart, caret: sel.location, after: NSMaxRange(sel), language: language, unit: unit)
+        return TextEdit(range: sel, replacement: r.text, selection: NSRange(location: sel.location + r.caret, length: 0))
+    }
+
     /// Backspace between a just-paired opener and its closer deletes both.
     public static func deletesPair(before: unichar?, after: unichar?, language: Language) -> Bool {
         guard pairs(in: language), let before, let after else { return false }
