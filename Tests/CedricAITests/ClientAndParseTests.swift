@@ -313,6 +313,25 @@ import CedricCore
         #expect(acc.content.hasPrefix("w0 w1 ") && acc.content.hasSuffix("w11 "))
     }
 
+    /// A plain JSON body dribbled a few bytes at a time with no newline,
+    /// each chunk well inside the idle limit, for far longer than it: every
+    /// chunk keeps the stream alive.
+    @Test func chatStreamNewlineFreeDribbleDoesNotTimeOut() async throws {
+        let body = Data(#"{"choices":[{"message":{"role":"assistant","content":"slow and steady"}}]}"#.utf8)
+        let chunks = stride(from: 0, to: body.count, by: 6).map { body.subdata(in: $0..<min(body.count, $0 + 6)) }
+        let server = StubServer()
+        server.route("/v1/chat/completions") { _, _ in
+            StubServer.Response(body: Data(), delay: 0.05, chunks: chunks, every: 0.12)
+        }
+        var client = LocalModelClient(baseURL: server.baseURL, timeout: 2.0, session: server.session)
+        client.streamIdleLimit = 0.8
+        let start = Date()
+        let acc = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 8) { _ in }
+        #expect(chunks.count >= 12)
+        #expect(Date().timeIntervalSince(start) > 1.2, "ran well past the idle limit")
+        #expect(acc.content == "slow and steady")
+    }
+
     /// Data started, then stopped: the idle limit ends it, with the text so
     /// far shown and `.timedOut` thrown.
     @Test func chatStreamStallAfterFirstByteHitsTheIdleLimit() async {

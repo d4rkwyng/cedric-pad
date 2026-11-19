@@ -365,6 +365,10 @@ extension LocalModelClient {
             }
             var plain = ""
             var total = 0
+            // The watch is touched on every chunk that arrives: a byte read
+            // after a gap of more than `touchGap` (a commpage clock read per
+            // byte, no lock), so a slow dribble with no newline stays alive.
+            var lastTouch: UInt64 = 0
             var pending: [UInt8] = []
             var done = false
             // One line (SSE `data:` or a plain JSON body); true at "[DONE]".
@@ -384,8 +388,10 @@ extension LocalModelClient {
             // including one endless line that would never reach a newline.
             for try await b in bytes {
                 total += 1
-                // Not on every byte: a lock per byte of a 2 MB answer adds up.
-                if b == 0x0A || total & 0xFF == 1 { watch.touch() }
+                // Not a lock per byte (a 2 MB answer adds up): bytes of one
+                // chunk arrive together, a new chunk comes after a gap.
+                let tick = mach_absolute_time()
+                if tick &- lastTouch > StreamWatch.touchGapTicks { lastTouch = tick; watch.touch() }
                 if total > Self.maxResponseBytes {
                     bytes.task.cancel()
                     throw LocalAIError.transport("response too large")
@@ -434,6 +440,13 @@ final class StreamWatch: @unchecked Sendable {
         start = now()
         self.firstByte = firstByte; self.idle = idle; self.cap = cap
     }
+
+    /// Bytes this close together (10 ms) are one chunk: one touch.
+    static let touchGapTicks: UInt64 = {
+        var tb = mach_timebase_info_data_t()
+        mach_timebase_info(&tb)
+        return 10_000_000 * UInt64(tb.denom) / UInt64(max(1, tb.numer))
+    }()
 
     /// Data arrived.
     func touch() {
