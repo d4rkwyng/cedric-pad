@@ -135,6 +135,11 @@ final class ZoomPopUp: NSPopUpButton {
         setAccessibilityLabel(String(localized: "Zoom"))
         toolTip = String(localized: "Zoom")
         let menu = NSMenu()
+        // Always enabled (the pop-up is hidden where there is no zoom).
+        // Auto-enabling validated these nil-target items up the responder
+        // chain after every event (NSWindow update): ~6 ms a keystroke in
+        // a 100,000-line file.
+        menu.autoenablesItems = false
         menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
         func add(_ title: String, _ action: Selector, _ key: String = "", tag: Int = 0) {
             let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
