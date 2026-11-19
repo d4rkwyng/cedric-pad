@@ -98,6 +98,14 @@ if [ ${#LIPO_FROM[@]} -gt 0 ]; then
 else
     cp "$BIN/CedricApp" "$APP/Contents/MacOS/Cedric"
 fi
+# SwiftPM adds an @executable_path/../lib rpath that nothing uses (the
+# bundle has no lib folder; llama.framework is found through ../Frameworks).
+# Dropped, so the loader never searches there first.
+# (Captured first: `grep -q` on a pipe would SIGPIPE otool under pipefail.)
+load_cmds=$(otool -l "$APP/Contents/MacOS/Cedric")
+if grep -q "path @executable_path/../lib " <<<"$load_cmds"; then
+    install_name_tool -delete_rpath "@executable_path/../lib" "$APP/Contents/MacOS/Cedric"
+fi
 # llama.cpp for the built-in AI engine: the pinned XCFramework's macOS
 # slice is already universal, so either architecture's copy will do. The
 # executable finds it through its @executable_path/../Frameworks rpath.
