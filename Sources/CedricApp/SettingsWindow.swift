@@ -162,7 +162,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         quitOnLastClose.state = s.quitWhenLastWindowCloses ? .on : .off
         grammar.state = s.checkGrammar ? .on : .off
         owlChat.state = s.owlChat ? .on : .off
-        owlChat.toolTip = String(localized: "Ask Cedric… (⌥⌘/, or click the owl): questions, quick actions and proposed edits from a local AI engine (Apple Intelligence, the built-in model, or your LM Studio / Ollama). On by default when one is ready. Nothing is sent until you ask.")
+        let autoGrammar = s.checkGrammar && OwlHub.shared.ai.isActive && OwlHub.shared.ai.isAutomatic
+        owlChat.toolTip = String(localized: "Ask Cedric… (⌥⌘/, or click the owl): questions, quick actions and proposed edits from a local AI engine (Apple Intelligence, the built-in model, or your LM Studio / Ollama). On by default when one is ready.")
+            + " " + AskCedricEngine.privacy(autoGrammar: autoGrammar).settingsSentence
         grammar.toolTip = String(localized: "Plain Text and Markdown that reads as sentences: emails, letters, notes. Never code, data or logs.")
         let ind = s.defaultIndentation
         indentKind.selectItem(at: ind.usesTabs ? 1 : 0)

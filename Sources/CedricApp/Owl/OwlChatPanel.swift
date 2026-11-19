@@ -80,6 +80,18 @@ enum AskCedricEngine {
 
     static var isAvailable: Bool { settings() != nil }
 
+    /// Where Ask Cedric's text goes, for the wording that says so.
+    static func privacy(autoGrammar: Bool) -> AIPrivacyWording {
+        let engine: AIPrivacyWording.Engine
+        if let s = settings() {
+            engine = s.backend.usesServer && ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"] == nil
+                ? .server(host: s.baseURL.host) : .local
+        } else {
+            engine = .none
+        }
+        return AIPrivacyWording(engine: engine, autoGrammar: autoGrammar)
+    }
+
     static func invalidate() { cache = nil }
 }
 

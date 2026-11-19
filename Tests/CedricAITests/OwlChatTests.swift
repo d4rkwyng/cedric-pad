@@ -315,3 +315,23 @@ import CedricCore
         #expect(req.forcedVerdict == nil)
     }
 }
+
+/// The persona says where the text goes, from the engine in use.
+@Suite struct PersonaPrivacyTests {
+    @Test func personaFollowsTheEngine() throws {
+        #expect(OwlPrompts.persona(server: false).hasSuffix("What you are shown never leaves this Mac."))
+        let server = OwlPrompts.persona(server: true)
+        #expect(server.hasSuffix("What you are shown is sent only to the AI server the user set up."))
+        #expect(!server.contains("never leaves"))
+        let client = LocalModelClient(baseURL: URL(string: "http://localhost:1234/v1")!)
+        #expect(ServerChatEngine(client: client, model: "m", kind: .lmStudio).usesServer)
+        #expect(!FakeChatEngine().usesServer)
+        guard case .system(let sys)? = AIGrammar.messages(text: "x", server: true).first else { Issue.record("system"); return }
+        #expect(sys.contains("sent only to the AI server") && !sys.contains("never leaves"))
+        let s = OwlDocumentSnapshot(text: "a", generation: 1)
+        let ctx = OwlChatContext.build(s, scope: .visible, budget: 100)!
+        guard case .system(let chat)? = OwlPrompts.chatMessages(question: "q", context: ctx, language: "Plain", fileName: nil, history: [],
+                                                                toolsOn: false, model: "", server: true).first else { Issue.record("chat"); return }
+        #expect(chat.contains("sent only to the AI server"))
+    }
+}

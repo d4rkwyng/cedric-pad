@@ -353,7 +353,8 @@ final class OwlController: NSObject, NSPopoverDelegate {
         Self.introduced = true
         defaults.set(true, forKey: Self.askIntroKey)
         let hint = OwlHint(id: Self.askIntroID, kind: .tip, title: String(localized: "You can ask me about this file"),
-                           detail: String(localized: "Click me or press ⌥⌘/ to ask a question, explain a line or check a script. It stays on this Mac."),
+                           detail: String(localized: "Click me or press ⌥⌘/ to ask a question, explain a line or check a script.")
+                               + " " + AskCedricEngine.privacy(autoGrammar: false).introSentence,
                            source: "rules")
         present(hint, context: tab.owlContextWindow().context)
         return true
