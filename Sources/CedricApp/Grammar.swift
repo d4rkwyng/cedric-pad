@@ -276,7 +276,7 @@ final class EditorGrammar {
     /// may be prose (not already found not to be).
     var mayCheckWithAI: Bool {
         guard mayCheck, Settings.shared.owlChat, lastSawProse != false, !aiRunning else { return false }
-        return OwlHub.shared.ai.isActive || ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"] != nil
+        return AskCedricEngine.isAvailable
     }
 
     /// Asks the AI engine about the prose in the owl's window (masked like

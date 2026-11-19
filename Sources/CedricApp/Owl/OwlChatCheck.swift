@@ -31,31 +31,146 @@ enum OwlChatCheck {
     }
 
     /// CEDRIC_OWL_CHECK_CHAT_OFF=1, no CEDRIC_OWL_CHAT, a fresh defaults
-    /// domain: the "Owl chat (beta)" switch is off by default, so Ask Cedric
-    /// and Check Grammar with AI are disabled and ⌥⌘/ opens nothing.
+    /// domain and no engine ready (CEDRIC_ASK_ENGINE=0): Ask Cedric is off,
+    /// Ask Cedric and Check Grammar with AI are disabled, ⌥⌘/ opens
+    /// nothing, and the owl offers Set Up Ask Cedric… first.
     static func runDefaultOff(_ tab: EditorWindowController, out: String) {
         guard let window = tab.window, let app = NSApp.delegate as? AppDelegate else { OwlCheck.finish(out); return }
         check(ProcessInfo.processInfo.environment["CEDRIC_OWL_CHAT"] == nil, "no CEDRIC_OWL_CHAT override")
         check(UserDefaults.standard.object(forKey: "owlChat") == nil, "fresh defaults: owlChat was never set")
-        check(!Settings.shared.owlChat, "Owl chat (beta) is off by default")
+        check(!AskCedricEngine.isAvailable, "no engine ready (CEDRIC_ASK_ENGINE=0)")
+        check(!Settings.shared.owlChat, "Ask Cedric is off with no engine ready")
         check(!tab.canAskCedric, "the tab can't Ask Cedric")
-        func item(_ action: Selector, in menu: NSMenu?) -> NSMenuItem? {
-            for i in menu?.items ?? [] {
-                if i.action == action { return i }
-                if let found = item(action, in: i.submenu) { return found }
-            }
-            return nil
-        }
-        if let ask = item(#selector(AppDelegate.askCedricMenu(_:)), in: NSApp.mainMenu) {
+        if let ask = menuItem(#selector(AppDelegate.askCedricMenu(_:))) {
             check(!app.validateMenuItem(ask), "Edit › Ask Cedric… is disabled")
         } else { check(false, "Edit › Ask Cedric… is in the menu") }
-        if let grammar = item(#selector(AppDelegate.checkGrammarWithAIMenu(_:)), in: NSApp.mainMenu) {
+        if let grammar = menuItem(#selector(AppDelegate.checkGrammarWithAIMenu(_:))) {
             check(!app.validateMenuItem(grammar), "Check Grammar with AI is disabled")
         } else { check(false, "Check Grammar with AI is in the menu") }
         OwlCheck.key(window, "/", code: 44, [.command, .option])
         after(0.4) {
             check(tab.owlChat == nil, "⌥⌘/ opens no chat panel")
+            guard let owl = tab.owl else { OwlCheck.finish(out); return }
+            OwlCheck.click(owl.owl)
+            after(0.3) {
+                check(owl.popoverButton(String(localized: "Set Up Ask Cedric…")) != nil, "the owl offers Set Up Ask Cedric…")
+                check(owl.popoverButton(String(localized: "Ask about this file…")) == nil, "and no Ask about this file…")
+                owl.closePopover()
+                OwlCheck.finish(out)
+            }
+        }
+    }
+
+    static func menuItem(_ action: Selector) -> NSMenuItem? {
+        func find(_ menu: NSMenu?) -> NSMenuItem? {
+            for i in menu?.items ?? [] {
+                if i.action == action { return i }
+                if let found = find(i.submenu) { return found }
+            }
+            return nil
+        }
+        return find(NSApp.mainMenu)
+    }
+
+    /// CEDRIC_OWL_CHECK_CHAT=default, fresh defaults, no CEDRIC_OWL_CHAT,
+    /// an engine ready (the fake): Ask Cedric is on by default; the owl's
+    /// first item is Ask about this file…, which opens the panel; and the
+    /// one-time hint (CEDRIC_ASK_HINT=1) shows once and is remembered.
+    static func runDefaultOn(_ tab: EditorWindowController, out: String) {
+        guard let window = tab.window, let owl = tab.owl else { OwlCheck.finish(out); return }
+        check(UserDefaults.standard.object(forKey: "owlChat") == nil, "fresh defaults: owlChat was never set")
+        check(AskCedricEngine.isAvailable, "an engine is ready (the fake)")
+        check(Settings.shared.owlChat, "Ask Cedric is on by default when an engine is ready")
+        UserDefaults.standard.removeObject(forKey: OwlController.askIntroKey)
+        // The one-time hint.
+        after(0.8) {
+            owl.introduceAskCedric()   // what the idle tick does
+            let b = owl.bubble
+            check(b?.hint.id == OwlController.askIntroID, "the owl introduces Ask Cedric once (\(b?.hint.title ?? "no bubble"))")
+            check(UserDefaults.standard.bool(forKey: OwlController.askIntroKey), "and remembers that it did")
+            OwlCheck.snapshot(window, "\(out)/ask-intro.png") {
+                if let got = b?.buttons.first(where: { $0.title == String(localized: "Got it") }) { OwlCheck.click(got) }
+                check(owl.bubble == nil, "Got it closes it")
+                check(!owl.introduceAskCedric() && owl.bubble == nil, "it doesn't come back")
+                OwlCheck.click(owl.owl)
+                after(0.3) {
+                    guard let first = owl.popoverButton(String(localized: "Ask about this file…")) else {
+                        check(false, "the owl offers Ask about this file…"); OwlCheck.finish(out); return
+                    }
+                    let stack = first.superview as? NSStackView
+                    check(stack?.arrangedSubviews.first === first, "Ask about this file… is the first item")
+                    check(owl.popoverButton(String(localized: "Set Up Ask Cedric…")) == nil, "no Set Up item with an engine ready")
+                    check(owl.popoverButton(String(localized: "Is This Script Safe to Run?")) == nil, "no script check for a Swift file")
+                    OwlCheck.snapshot(window, "\(out)/owl-menu.png") {
+                        OwlCheck.click(first)
+                        after(0.3) {
+                            check(tab.owlChat?.isShown == true, "Ask about this file… opens Ask Cedric")
+                            if let chat = tab.owlChat {
+                                check(chat.actionButtons[.explainLine]?.isHidden == false, "Explain Line is offered for code")
+                                check(chat.actionButtons[.scriptSafety]?.isHidden == true, "Safe to Run? isn't, for Swift")
+                                check(chat.actionButtons[.summarise]?.isHidden == true, "Summarise isn't, for code")
+                                explainLine(tab, chat, out: out)
+                            } else { OwlCheck.finish(out) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Explain Line with only a caret: the caret's line is what is asked about.
+    static func explainLine(_ tab: EditorWindowController, _ chat: OwlChatPanel, out: String) {
+        let ns = tab.text as NSString
+        let line3 = ns.lineRange(for: NSRange(location: ns.range(of: "for ").location, length: 0))
+        tab.textView.setSelectedRange(NSRange(location: line3.location + 2, length: 0))
+        chat.refresh()
+        OwlCheck.click(chat.actionButtons[.explainLine]!)
+        waitDone(chat) { _ in
+            check(chat.transcriptText.contains("Lines 3–3 look fine"), "Explain Line asked about the caret's line only (line 3)")
+            check(tab.textView.selectedRange().length == 0, "the caret is left alone")
+            chat.close()
             OwlCheck.finish(out)
+        }
+    }
+
+    /// CEDRIC_OWL_CHECK_CHAT=script: a risky PowerShell script. The owl
+    /// offers the check; the offline scan's findings show first; then the
+    /// (fake) model's review with a verdict. CEDRIC_OWL_CHAT=0 too: the
+    /// scan alone, with a note that no AI was asked.
+    static func runScript(_ tab: EditorWindowController, out: String) {
+        guard let window = tab.window, let owl = tab.owl else { OwlCheck.finish(out); return }
+        let aiOn = Settings.shared.owlChat
+        OwlCheck.click(owl.owl)
+        after(0.3) {
+            guard let b = owl.popoverButton(String(localized: "Is This Script Safe to Run?")) else {
+                check(false, "the owl offers Is This Script Safe to Run? for a .ps1"); OwlCheck.finish(out); return
+            }
+            check(true, "the owl offers Is This Script Safe to Run? for a .ps1")
+            OwlCheck.click(b)
+            after(0.2) {
+                guard let chat = tab.owlChat, chat.isShown else { check(false, "the check opens the panel"); OwlCheck.finish(out); return }
+                waitDone(chat, timeout: 20) { _ in
+                    after(0.3) {
+                        let scan = chat.lastScan ?? []
+                        let cats = Set(scan.map(\.category))
+                        check(cats.isSuperset(of: [.downloadAndRun, .encoded, .disablesSecurity, .broadDelete]),
+                              "the offline scan flagged download-and-run, encoded, security off and a broad delete (\(scan.count) findings)")
+                        check(chat.transcriptText.contains("Offline scan (no AI)"), "the scan's findings are in the transcript")
+                        if aiOn {
+                            check(chat.transcriptText.contains("Verdict:"), "the model's review ends with a verdict")
+                            check(chat.transcriptText.contains("Line \(scan.first?.line ?? 0): risky"), "the model was given the scan's findings")
+                        } else {
+                            check(chat.transcriptText.contains("offline scan only"), "with Ask Cedric off, the scan alone, saying so")
+                            check(chat.asks == 0, "and no AI request")
+                        }
+                        OwlCheck.snapshot(chat.panel, "\(out)/script-safety\(aiOn ? "" : "-offline").png") {
+                            chat.close()
+                            _ = window
+                            OwlCheck.finish(out)
+                        }
+                    }
+                }
+            }
         }
     }
 

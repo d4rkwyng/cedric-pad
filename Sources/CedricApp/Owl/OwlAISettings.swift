@@ -34,7 +34,10 @@ enum AIStore {
         return s
     }
 
-    static func save(_ s: LocalAISettings) { s.save(to: defaults) }
+    static func save(_ s: LocalAISettings) {
+        s.save(to: defaults)
+        MainActor.assumeIsolated { AskCedricEngine.invalidate() }
+    }
 
     /// The real provider, or the fake one under CEDRIC_AI_FAKE.
     static func makeProvider(_ s: LocalAISettings) async -> (any OwlHintProvider)? {

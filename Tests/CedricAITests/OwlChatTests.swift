@@ -205,3 +205,38 @@ import CedricCore
         #expect(o.rounds == OwlTools.maxRounds && o.answer == "done" && o.toolCalls == 3)
     }
 }
+
+@Suite struct OwlChatSetupTests {
+    @Test func nothingReadyMeansNoEngine() {
+        #expect(OwlChatSetup.chatSettings(LocalAISettings(), appleAvailable: false, builtInInstalled: false) == nil)
+    }
+
+    @Test func appleOrBuiltInWorkWithHintsOff() throws {
+        let off = LocalAISettings(enabled: false, backend: .builtIn)
+        let apple = try #require(OwlChatSetup.chatSettings(off, appleAvailable: true, builtInInstalled: false))
+        #expect(apple.backend == .apple && apple.enabled)
+        let built = try #require(OwlChatSetup.chatSettings(off, appleAvailable: false, builtInInstalled: true))
+        #expect(built.backend == .builtIn && built.enabled)
+        // The saved engine first, when it is ready.
+        let both = try #require(OwlChatSetup.chatSettings(off, appleAvailable: true, builtInInstalled: true))
+        #expect(both.backend == .builtIn)
+    }
+
+    @Test func aServerOnlyWhenTurnedOn() throws {
+        var lm = LocalAISettings(enabled: true, backend: .lmStudio)
+        lm.model = "qwen3-4b"
+        let on = try #require(OwlChatSetup.chatSettings(lm, appleAvailable: true, builtInInstalled: true))
+        #expect(on.backend == .lmStudio && on.model == "qwen3-4b")
+        lm.enabled = false
+        #expect(OwlChatSetup.chatSettings(lm, appleAvailable: false, builtInInstalled: false) == nil,
+                "a server the user turned off is never used: the text would leave this Mac")
+        let local = try #require(OwlChatSetup.chatSettings(lm, appleAvailable: false, builtInInstalled: true))
+        #expect(local.backend == .builtIn && local.model == nil && local.baseURL == LocalAISettings.Backend.builtIn.defaultBaseURL)
+    }
+
+    @Test func aPublicServerIsNeverChosen() {
+        var s = LocalAISettings(enabled: true, backend: .custom)
+        s.baseURL = URL(string: "http://example.com:1234/v1")!
+        #expect(OwlChatSetup.chatSettings(s, appleAvailable: false, builtInInstalled: false) == nil)
+    }
+}

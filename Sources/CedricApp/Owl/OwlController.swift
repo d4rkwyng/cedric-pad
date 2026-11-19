@@ -101,6 +101,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
                 self?.reduceMotionChanged()
             }
         })
+        if Self.firstOwlAt == nil { Self.firstOwlAt = Date() }
         updateTimer()
         scheduleWave()
     }
@@ -302,6 +303,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
         idleTimer = nil
         idleTicks += 1
         guard canAnimate else { return }
+        if introduceAskCedric() { scheduleIdle(); return }
         if Date().timeIntervalSince(lastTyping) >= sleepAfter {
             if bubble == nil { owl.setPose(.sleepy) }
             return // asleep: no timer until typing wakes it
@@ -321,6 +323,40 @@ final class OwlController: NSObject, NSPopoverDelegate {
             }
         }
         scheduleIdle()
+    }
+
+    // MARK: Ask Cedric, introduced once
+
+    static let askIntroID = "askCedric.intro"
+    static let askIntroKey = "askCedricIntroShown"
+    private static var introduced = false
+    private static var firstOwlAt: Date?
+
+    /// Once per user (ever): when Ask Cedric is on, a while after launch
+    /// and after typing has paused, the owl says he can be asked. Closing
+    /// the bubble is enough; it never comes back. Not in large documents,
+    /// over another bubble, or while quiet. Off in the checks
+    /// (CEDRIC_NO_SESSION_SAVE) unless CEDRIC_ASK_HINT=1, which also
+    /// ignores the saved "shown" flag; CEDRIC_ASK_HINT_AFTER sets the wait
+    /// (default 45 s from the first owl).
+    @discardableResult
+    func introduceAskCedric() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        let forced = env["CEDRIC_ASK_HINT"] == "1"
+        guard !Self.introduced, env["CEDRIC_ASK_HINT"] != "0", forced || env["CEDRIC_NO_SESSION_SAVE"] == nil,
+              let tab, bubble == nil, !popoverShown, !OwlHub.shared.coordinator.isQuiet, !tab.extrasPaused else { return false }
+        let after = env["CEDRIC_ASK_HINT_AFTER"].flatMap(Double.init) ?? 45
+        guard Date().timeIntervalSince(Self.firstOwlAt ?? Date()) >= after, Date().timeIntervalSince(lastTyping) >= min(3, after) else { return false }
+        let defaults = UserDefaults.standard
+        if !forced, defaults.bool(forKey: Self.askIntroKey) { Self.introduced = true; return false }
+        guard tab.canAskCedric else { return false }
+        Self.introduced = true
+        defaults.set(true, forKey: Self.askIntroKey)
+        let hint = OwlHint(id: Self.askIntroID, kind: .tip, title: String(localized: "You can ask me about this file"),
+                           detail: String(localized: "Click me or press ⌥⌘/ to ask a question, explain a line or check a script. It stays on this Mac."),
+                           source: "rules")
+        present(hint, context: tab.owlContextWindow().context)
+        return true
     }
 
     /// The user typed since the owl last looked at the caret.
@@ -511,6 +547,11 @@ final class OwlController: NSObject, NSPopoverDelegate {
         if hint.id == RulesHintProvider.letterID {
             return [.init(title: String(localized: "No thanks, I’m an owl"), isDefault: false) { [weak self] in self?.hideBubble() }]
         }
+        if hint.id == Self.askIntroID {
+            return [.init(title: String(localized: "Ask Cedric…"), isDefault: true) { [weak self, weak tab] in
+                        self?.hideBubble(); tab?.openAskCedric() },
+                    .init(title: String(localized: "Got it"), isDefault: false) { [weak self] in self?.hideBubble() }]
+        }
         if GrammarMap.isGrammarHint(hint.id) {
             // Grammar (Grammar.swift): Fix it (one undo step), the
             // step-through, and off for this file or everywhere. The close
@@ -663,6 +704,23 @@ final class OwlController: NSObject, NSPopoverDelegate {
         stack.alignment = .leading
         stack.spacing = 6
         stack.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+        // Ask Cedric first: what clicking the owl is most often for.
+        if let tab, tab.canAskCedric {
+            let chat = NSButton(title: String(localized: "Ask about this file…"), target: self, action: #selector(askCedric))
+            chat.bezelColor = .controlAccentColor
+            chat.toolTip = String(localized: "Questions, quick actions and proposed edits about this text (⌥⌘/).")
+            stack.addArrangedSubview(chat)
+        } else if let tab, !tab.extrasPaused, !Settings.shared.owlChatTurnedOff, !AskCedricEngine.isAvailable {
+            let setup = NSButton(title: String(localized: "Set Up Ask Cedric…"), target: self, action: #selector(setUpAskCedric))
+            setup.toolTip = String(localized: "Ask Cedric needs a local AI engine: Apple Intelligence, the built-in model, or LM Studio / Ollama.")
+            stack.addArrangedSubview(setup)
+        }
+        if let tab, tab.canCheckScriptSafety {
+            let safe = NSButton(title: String(localized: "Is This Script Safe to Run?"), target: self, action: #selector(scriptSafety))
+            safe.toolTip = String(localized: "An offline scan for risky commands, then the AI’s review when Ask Cedric is on.")
+            stack.addArrangedSubview(safe)
+        }
+        if stack.arrangedSubviews.count > 0 { stack.setCustomSpacing(10, after: stack.arrangedSubviews.last!) }
         let head = NSTextField(labelWithString: String(localized: "Recent hints"))
         head.font = .systemFont(ofSize: 12, weight: .semibold)
         stack.addArrangedSubview(head)
@@ -713,12 +771,6 @@ final class OwlController: NSObject, NSPopoverDelegate {
             g.controlSize = .small
             g.toolTip = String(localized: "Asks the AI engine about the grammar of the prose in view; the macOS checker stays on too.")
             stack.addArrangedSubview(g)
-        }
-        if let tab, tab.canAskCedric {
-            let chat = NSButton(title: String(localized: "Ask Cedric…"), target: self, action: #selector(askCedric))
-            chat.controlSize = .small
-            chat.toolTip = String(localized: "Questions, quick actions and proposed edits about this text (⌥⌘/).")
-            stack.addArrangedSubview(chat)
         }
         let hide = NSButton(title: String(localized: "Hide Cedric"), target: self, action: #selector(hideOwl))
         hide.controlSize = .small
@@ -782,6 +834,16 @@ final class OwlController: NSObject, NSPopoverDelegate {
     @objc func askCedric() {
         closePopover()
         tab?.openAskCedric()
+    }
+
+    @objc func scriptSafety() {
+        closePopover()
+        tab?.checkScriptSafety()
+    }
+
+    @objc func setUpAskCedric() {
+        closePopover()
+        (NSApp.delegate as? AppDelegate)?.showAISettings(nil)
     }
 
     @objc func grammarHintNow() {

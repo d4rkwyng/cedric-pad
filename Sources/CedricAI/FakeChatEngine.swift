@@ -62,6 +62,14 @@ public struct FakeChatEngine: OwlChatEngine {
             let block = Self.numberedBody(question).first.map { Self.commented($0.text, question: question) } ?? ""
             let rest = Self.numberedBody(question).dropFirst().map(\.text)
             answer = "```\n" + ([block] + rest).joined(separator: "\n") + "\n```\nI added a short comment above line \(first)."
+        } else if asked.contains("safe to run?") {
+            // The script check: confirms each line the scan flagged.
+            let re = try? NSRegularExpression(pattern: #"- line (\d+)"#)
+            let ns = asked as NSString
+            let flagged = (re?.matches(in: asked, range: NSRange(location: 0, length: ns.length)) ?? []).map { ns.substring(with: $0.range(at: 1)) }
+            answer = flagged.isEmpty ? "Nothing risky that I can see.\nVerdict: safe to run."
+                : flagged.map { "Line \($0): risky, as the scan says (test engine)." }.joined(separator: "\n")
+                    + "\nVerdict: don't run it unless you trust where it came from."
         } else {
             answer = "Lines \(first)–\(last) look fine to me. This is a fake answer from the test engine, streamed in pieces so you can watch it arrive."
         }

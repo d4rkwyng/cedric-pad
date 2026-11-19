@@ -247,7 +247,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   catches only what macOS's catches ("a elephant", doubled words, some
   agreement errors); it misses many others, such as "Their going too the
   store".
-  With Owl chat (beta) on and an AI engine set up, **Check Grammar with
+  With Ask Cedric on and an AI engine ready, **Check Grammar with
   AI** (Edit › Spelling and Grammar, or the owl's popover) asks the model
   about the prose in view; what it finds (only exact words from the text,
   a few words at a time) gets the same underline, **Fix it** and **Fix
@@ -421,15 +421,22 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   In very large documents the owl only looks when clicked.
   A network endpoint must resolve to a private address (loopback, LAN,
   Tailscale); redirects to another host are refused.
-- **Ask Cedric** (beta; Settings › "Owl chat (beta)", off by default):
-  Edit › Ask Cedric… (⌥⌘/) or the owl's **Ask Cedric…** opens a small
-  panel about the current document, made on first use. A chip picks what
-  Cedric sees (Selection, Visible text, or the Whole document when it fits
-  the model); quick actions **Explain**, **Summarise**, **Find Problems**,
-  **Rewrite** (prose) / **Simplify** (code) and **Add Comments**, or type a
-  question. Answers stream in from the engine in Cedric AI Settings
-  (built-in, Apple Intelligence, or LM Studio / Ollama on this Mac or the
-  local network, never the cloud); **Stop** cancels. An edit is never
+- **Ask Cedric** (Settings › "Ask Cedric"; on by default when a local
+  engine is ready: Apple Intelligence, a downloaded built-in model, or an
+  LM Studio / Ollama / other-Mac server you set up and turned on; with
+  none, clicking the owl offers **Set Up Ask Cedric…**). Click the owl:
+  **Ask about this file…** is the first item; Edit › Ask Cedric… (⌥⌘/)
+  does the same, and the owl says so once, a while after a new user's
+  first launch. A small panel about the current document opens. A chip
+  picks what Cedric sees (Selection, Visible text, or the Whole document
+  when it fits the model); quick actions **Explain** (**What Does It
+  Do?** for scripts), **Explain Line** (the selection or the caret's
+  line), **Find Problems**, **Summarise** / **Rewrite** (prose),
+  **Simplify** and **Add Comments** (code), or type a question. Answers
+  stream in (built-in, Apple Intelligence, or LM Studio / Ollama on this
+  Mac or the local network, never the cloud; a slow model gets 2 minutes
+  for its first word, then 30 s between words, up to 15 minutes in all);
+  **Stop** cancels. An edit is never
   made by the model: it comes back as a diff with **Apply** / **Discard**,
   applied as one undo step only if the document hasn't changed since you
   asked (otherwise **Ask Again**). History is per document, in memory
@@ -443,6 +450,19 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   actions without tools. Measured 2026-11-18: Apple Intelligence 70%,
   Qwen2.5-Coder 1.5B on LM Studio 75%, the built-in Qwen2.5-Coder 3B 60%.
   None is over the bar yet, so tools are off for all three.
+- **Is This Script Safe to Run?** (Edit menu, the owl, or **Safe to
+  Run?** in Ask Cedric) for shell, PowerShell, batch, `.reg`, Python and
+  Ruby: an offline scan, no AI and nothing sent anywhere (so it works on
+  any Mac, Intel included), lists the lines worth reading first:
+  downloading and running code (`curl … | sh`, `iex (iwr …)`),
+  `Invoke-Expression` / `eval`, encoded commands (`-EncodedCommand`,
+  Base64 piped to a shell), registry and system changes, `sudo`, reading
+  passwords or keys, turning off Defender / Gatekeeper / the firewall /
+  the execution policy, running at login (launch agents, cron, Run keys,
+  scheduled tasks), and recursive deletes of broad paths (`rm -rf ~/*`,
+  `rm -rf "$DIR/"*`, `Remove-Item -Recurse C:\`). With Ask Cedric on, the
+  model then reviews the script with those findings and ends with a
+  verdict. A clean scan is not proof of safety, and the panel says so.
 - **Careful with files:** pipes and devices (`/dev/zero`, a FIFO) are
   refused before anything is read; saving through a symbolic link writes
   the file it points to and keeps that file's permissions; Export as HTML

@@ -729,6 +729,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func toggleOwl(_ sender: Any?) { Settings.shared.showOwl.toggle() }
     @objc func askCedricMenu(_ sender: Any?) { currentTab?.openAskCedric() }
     @objc func checkGrammarWithAIMenu(_ sender: Any?) { currentTab?.checkGrammarWithAI() }
+    @objc func scriptSafetyMenu(_ sender: Any?) { currentTab?.checkScriptSafety() }
     @objc func showAISettings(_ sender: Any?) { AISettingsSheet.show(on: currentTab?.window) }
     @objc func pickOwlHintSource(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let src = OwlHintSource(rawValue: raw) { Settings.shared.owlHintSource = src }
@@ -766,6 +767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleOwl(_:)): item.state = s.showOwl ? .on : .off
         case #selector(askCedricMenu(_:)): return s.owlChat && tab?.canAskCedric == true
         case #selector(checkGrammarWithAIMenu(_:)): return s.owlChat && tab?.canCheckGrammarWithAI == true
+        case #selector(scriptSafetyMenu(_:)): return tab?.canCheckScriptSafety == true
         case #selector(pickOwlHintSource(_:)):
             // "Rules + AI" stays off until an AI provider registers.
             let ai = OwlHub.shared.registry.hasAIProvider

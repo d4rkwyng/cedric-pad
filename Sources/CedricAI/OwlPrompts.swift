@@ -98,7 +98,8 @@ public enum OwlPrompts {
     }
 
     /// The fixed instruction behind a quick action.
-    public static func quickInstruction(_ action: OwlQuickAction, prose: Bool, toolsOn: Bool, context: OwlChatContext) -> String {
+    public static func quickInstruction(_ action: OwlQuickAction, prose: Bool, toolsOn: Bool, context: OwlChatContext,
+                                        scan: String? = nil) -> String {
         let lines = "lines \(context.firstLine)-\(context.lastLine)"
         let what = prose ? "text" : "code"
         let edit = toolsOn
@@ -119,7 +120,26 @@ public enum OwlPrompts {
                 : "Simplify the code in \(lines) without changing what it does. ") + edit
         case .addComments:
             return "Add short, useful comments to the code in \(lines) (in the language's comment syntax), changing nothing else. " + edit
+        case .explainLine:
+            return (context.firstLine == context.lastLine ? "Explain line \(context.firstLine)" : "Explain \(lines)")
+                + " in plain words: what it does, what each part of the command or expression means, and anything surprising or risky. At most 6 sentences."
+        case .scriptSafety:
+            return safetyInstruction(lines: lines, scan: scan)
         }
+    }
+
+    /// "Is this script safe to run?", with the offline scan's findings.
+    static func safetyInstruction(lines: String, scan: String?) -> String {
+        var s = "Is this script (\(lines)) safe to run? Review it as a careful system administrator would. "
+        if let scan {
+            s += "An offline pattern scan flagged:\n\(scan)\n"
+                + "For each flagged line, say in one line whether it is really risky here and why. "
+        }
+        s += "Then name anything else risky it does: downloading and running code, Invoke-Expression or eval, "
+            + "encoded commands, registry or system changes, reading passwords or keys, turning off security, "
+            + "deleting broadly, or running at login. Cite line numbers. Don't invent problems; if it looks harmless, say so. "
+            + "End with one line starting \"Verdict:\": safe to run, run only if you trust where it came from, or don't run it."
+        return s
     }
 
     /// The first messages of a chat request: system, the last two turns

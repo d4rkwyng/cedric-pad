@@ -104,16 +104,20 @@ public struct OwlChatRequest: Sendable {
     public var useTools: Bool
     public var prose: Bool
     public var maxTokens: Int
+    /// The offline script scan's findings (`ScriptSafety.summary`), for
+    /// "Safe to Run?".
+    public var scan: String?
 
     public init(question: String, action: OwlQuickAction? = nil, context: OwlChatContext, snapshot: OwlDocumentSnapshot,
-                history: [OwlChatEntry] = [], useTools: Bool, prose: Bool, maxTokens: Int = 700) {
+                history: [OwlChatEntry] = [], useTools: Bool, prose: Bool, maxTokens: Int = 700, scan: String? = nil) {
         self.question = question; self.action = action; self.context = context; self.snapshot = snapshot
         self.history = history; self.useTools = useTools; self.prose = prose; self.maxTokens = maxTokens
+        self.scan = scan
     }
 
     /// The question text sent: a quick action's fixed instruction, else the user's words.
     public var prompt: String {
-        if let action { return OwlPrompts.quickInstruction(action, prose: prose, toolsOn: useTools, context: context) }
+        if let action { return OwlPrompts.quickInstruction(action, prose: prose, toolsOn: useTools, context: context, scan: scan) }
         return question
     }
 
@@ -503,6 +507,42 @@ public enum OwlChatEngines {
             guard let models = try? await client.listModels(), let pick = ModelPicker.pickSmallQwen(models) else { return nil }
             return ServerChatEngine(client: client, model: pick.id, kind: settings.backend)
         }
+    }
+}
+
+// MARK: - Which engine Ask Cedric uses
+
+/// Ask Cedric is on by default only when a local engine is ready, and it
+/// doesn't need the owl's background hints (`enabled`) to be on: a
+/// question is something the user asked for.
+public enum OwlChatSetup {
+    /// The settings Ask Cedric runs on, nil when nothing is ready:
+    ///
+    /// - an LM Studio / Ollama / other-Mac server the user set up and
+    ///   turned on (a server is never used while Cedric AI is off: the
+    ///   text would leave this Mac);
+    /// - else the saved engine, if it is Apple Intelligence (available
+    ///   here) or the built-in engine with a model downloaded;
+    /// - else Apple Intelligence, else the built-in engine (downloaded).
+    public static func chatSettings(_ saved: LocalAISettings, appleAvailable: Bool,
+                                    builtInInstalled: Bool) -> LocalAISettings? {
+        var s = saved
+        s.enabled = true
+        switch saved.backend {
+        case .lmStudio, .ollama, .custom:
+            if saved.enabled, LocalEndpointPolicy.isAllowed(saved.baseURL) { return s }
+        case .apple:
+            if appleAvailable { return s }
+        case .builtIn:
+            if builtInInstalled { return s }
+        }
+        for (b, ready) in [(LocalAISettings.Backend.apple, appleAvailable), (.builtIn, builtInInstalled)] where ready {
+            s = saved
+            s.enabled = true
+            s.selectBackend(b)
+            return s
+        }
+        return nil
     }
 }
 
