@@ -70,7 +70,7 @@ extension AppDelegate {
                                selectionLocation: sel.location, selectionLength: sel.length, topLine: t.topLine,
                                fileModified: d.fileModified,
                                bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines,
-                               indentation: d.indentation)
+                               indentation: d.indentation, folds: t.sessionFolds)
         let r = ClosedTabs.push(entry, onto: closedTabs)
         closedTabs = r.list
         for gone in r.dropped {
@@ -144,6 +144,7 @@ extension AppDelegate {
         tab.updateTitle()
         let top = st.topLine
         DispatchQueue.main.async { tab.scrollToLine(top) }
+        if let folds = st.folds { tab.restoreFolds(folds) }
         saveSession()
     }
 }

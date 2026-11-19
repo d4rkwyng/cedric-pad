@@ -15,6 +15,8 @@ enum MenuShortcuts {
         switch i.keyEquivalent.unicodeScalars.first.map({ Int($0.value) }) {
         case NSUpArrowFunctionKey?: s += "↑"
         case NSDownArrowFunctionKey?: s += "↓"
+        case NSLeftArrowFunctionKey?: s += "←"
+        case NSRightArrowFunctionKey?: s += "→"
         case 32?: s += "␣"
         case NSF2FunctionKey?: s += "F2"
         default: s += i.keyEquivalent.uppercased()
@@ -44,6 +46,7 @@ enum MenuShortcuts {
         ("⌥-drag", String(localized: "Edit › Selection: column selection")),
         ("⌘-click", String(localized: "Edit › Selection: add or remove a caret")),
         ("⎋", String(localized: "Edit › Selection › Single Caret (with several carets)")),
+        ("click ▾ / ▸", String(localized: "View › Folding: fold or unfold (the triangles beside the line numbers)")),
     ]
 }
 

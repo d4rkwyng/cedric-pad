@@ -513,7 +513,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                               bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines,
                                               indentation: d.indentation,
                                               previewDetached: t.previewDetached ? true : nil,
-                                              previewFrame: t.previewWindow?.window?.frameDescriptor))
+                                              previewFrame: t.previewWindow?.window?.frameDescriptor,
+                                              folds: t.sessionFolds))
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
             }
             if !sessionTabs.isEmpty {
@@ -660,6 +661,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let top = st.topLine
         DispatchQueue.main.async { tab.scrollToLine(top) }
+        // Folds come back after the first frame (Folding.swift).
+        if let folds = st.folds { tab.restoreFolds(folds) }
         // A detached preview comes back in its window, after the first
         // frame: no preview work on the launch path.
         if st.previewDetached == true {
@@ -838,7 +841,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(useSelectionForFind(_:)),
              #selector(printDocument(_:)):
             return tab != nil
-        default: return validateReplaceInFilesItem(item) ?? validateFolderItem(item) ?? validateMultiCaretItem(item) ?? validateGitItem(item) ?? validateMarkdownItem(item) ?? validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
+        default: return validateReplaceInFilesItem(item) ?? validateFolderItem(item) ?? validateMultiCaretItem(item) ?? validateFoldingItem(item) ?? validateGitItem(item) ?? validateMarkdownItem(item) ?? validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
         }
         return true
     }

@@ -143,6 +143,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// The Markdown outline sidebar (OutlineSidebar.swift).
     let outline = OutlineState()
     var editorContainer: EditorContainer { container }
+    /// Code folding (Folding.swift): nil until the first fold.
+    var folding: FoldingController?
+    /// How long the last Fold All / Fold to Level took (the folding check logs it).
+    var lastFoldAllMs: Double = 0
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -215,6 +219,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gutter.lineIndex = { [weak self] in self?.lineIndex ?? LineIndex() }
         gutter.bookmarks = { [weak self] in self?.editing.bookmarks ?? Bookmarks() }
         gutter.onClickLine = { [weak self] line in self?.toggleBookmark(line: line) }
+        gutter.onClickFold = { [weak self] line in self?.toggleFold(line: line) ?? false }
+        gutter.foldMarks = { [weak self] hovering in self?.foldMarks(hovering: hovering) }
         gutter.gitChanges = { [weak self] in
             guard let git = self?.gitState, git.showsGutter else { return nil }
             return git.changes
@@ -305,6 +311,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         PerfTrace.mark("set_text_storage")
         lineIndex = LineIndex(storage.string as NSString)
         fences.invalidateAll()
+        folding?.reset()
         PerfTrace.mark("line_index")
         editing.bookmarks.clamp(lineCount: lineIndex.lineCount)
         textView.typingAttributes = attrs
@@ -367,6 +374,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             bookmarkEdit = (a, b - a, lineIndex.starts[a] == oldRange.location && lineIndex.starts[b] == NSMaxRange(oldRange))
         }
         textView.textEdited(oldRange: oldRange, newLength: edited.length)
+        if let folding, !loading { folding.textEdited(oldRange: oldRange, newLength: edited.length, storage: storage) }
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: storage.string as NSString)
         fences.invalidate(fromLine: first)
         if loading { return }
@@ -430,6 +438,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         grammar.schedule()
         onChange?(self)
+    }
+
+    /// Folding: a key move skips hidden text, anything else opens it (Folding.swift).
+    func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRanges oldSelectedCharRanges: [NSValue],
+                  toCharacterRanges newSelectedCharRanges: [NSValue]) -> [NSValue] {
+        guard let folding else { return newSelectedCharRanges }
+        return folding.selectionWillChange(from: oldSelectedCharRanges, to: newSelectedCharRanges, byKey: self.textView.keyNavigating)
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -541,7 +556,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
     }
 
-    private func updateGutterWidth() {
+    func updateGutterWidth() {
+        gutter.foldColumn = foldingAvailable ? GutterView.foldColumnWidth : 0
         container.gutterWidth = gutter.requiredWidth(lines: lineIndex.lineCount, font: Settings.shared.font)
         gutter.needsDisplay = true
     }
@@ -629,6 +645,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let l = doc.language
         colorizer.setLanguage(l)
         textView.language = l
+        foldingContextChanged()
+        updateGutterWidth()
         // What counts as a word changed (code vs prose): check again
         // (or not at all: data such as JSON isn't checked).
         if textView.isContinuousSpellCheckingEnabled { textView.isContinuousSpellCheckingEnabled = false }
@@ -918,6 +936,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gutter.bookmarks = { Bookmarks() }
         gutter.gitChanges = { nil }
         gutter.onClickLine = nil
+        gutter.onClickFold = nil
+        gutter.foldMarks = { _ in nil }
         gutter.textView = nil
         if textView.delegate === self { textView.delegate = nil }
         window?.delegate = nil
@@ -949,7 +969,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     }
 
     func scrollToLine(_ line: Int) {
-        let l = max(0, min(line, lineIndex.lineCount - 1))
+        let l = visibleLine(max(0, min(line, lineIndex.lineCount - 1)))
         reveal(NSRange(location: lineIndex.starts[l], length: 0), position: .top)
     }
 
@@ -962,6 +982,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// to the target's current frame, lays out the viewport, and repeats
     /// until the target is where it should be (a few passes at most).
     func reveal(_ range: NSRange, position: RevealPosition = .center) {
+        folding?.reveal(range)
         guard let tlm = textView.textLayoutManager, let r = textView.textRange(for: range) else {
             textView.scrollRangeToVisible(range)
             return

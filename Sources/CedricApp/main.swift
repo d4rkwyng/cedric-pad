@@ -218,6 +218,8 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
         item(String(localized: "Show Line Numbers"), #selector(AppDelegate.toggleLineNumbers(_:))),
         item(String(localized: "Highlight Occurrences"), #selector(AppDelegate.toggleHighlightOccurrences(_:))),
+        // Code folding (Folding.swift).
+        foldingMenu(),
         .separator(),
         item(String(localized: "Show Cedric the Owl"), #selector(AppDelegate.toggleOwl(_:))),
         submenu(String(localized: "Owl Hint Source"), OwlHintSource.allCases.map {
