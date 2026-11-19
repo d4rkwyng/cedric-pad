@@ -48,6 +48,13 @@ extension EditorWindowController {
     /// typing or caret moves costs one search of the visible text.
     func scheduleHighlights() {
         editing.highlightTimer?.invalidate()
+        // Several carets (MultiCaretEditing.swift): occurrence highlighting
+        // pauses, and the status bar counts carets.
+        if textView.multiCarets != nil {
+            editing.highlightTimer = nil
+            showMultiCaretStatus()
+            return
+        }
         let t = Timer(timeInterval: 0.12, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshHighlights() }
         }
@@ -73,7 +80,7 @@ extension EditorWindowController {
         var occ: [NSRange] = []
         var marks: [NSRange] = []
         if let range = highlightRange {
-            if Settings.shared.highlightOccurrences, !textView.hasMarkedText(),
+            if Settings.shared.highlightOccurrences, !textView.hasMarkedText(), textView.multiCarets == nil,
                let needle = Occurrences.needle(selection: sel, in: ns) {
                 occ = Occurrences.find(needle, in: ns, range: range)
                 // Only worth tinting if it occurs somewhere else too.

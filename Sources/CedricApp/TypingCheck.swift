@@ -248,6 +248,7 @@ enum TypingCheck {
                 report(selC >= 1.25 && visible(selInk), "\(c.name)/\(kind)/selection",
                        String(format: "band %.2f:1, ", selC) + describe(selInk))
 
+                if kind == "untitled" { multiCaretCase(c, tab, window, ime: c.name == "dark") }
                 if c.name == "dark" && kind == "untitled" { extraChecks(app, tab, window) }
                 // Leave the tab without a save prompt.
                 tab.doc.markSaved()
@@ -338,6 +339,75 @@ enum TypingCheck {
         report(tv.string.isEmpty, "extra/select-all-delete", "length=\((tv.string as NSString).length)")
         type(window, "fresh")
         lastVisible("after-delete-visible", 5)
+    }
+
+    /// Multiple carets (MultiCaretEditing.swift): three carets added with
+    /// ⌃⇧↓, then typed at with key events; the text must land at every
+    /// caret and stand out, immediately and after highlighting, and the
+    /// extra carets must be drawn. With `ime`, also an input method's
+    /// marked text at the primary, committed at every caret.
+    static func multiCaretCase(_ c: ThemeCase, _ tab: EditorWindowController, _ window: NSWindow, ime: Bool) {
+        let tv = tab.textView
+        let name = "\(c.name)/multicaret"
+        window.makeFirstResponder(tv)
+        let base = (tv.string as NSString).length
+        tv.setSelectedRange(NSRange(location: base, length: 0))
+        // The lines as one insert (Return would carry the previous line's indent).
+        tv.insertText("\nmc\nmc\nmc", replacementRange: NSRange(location: base, length: 0))
+        tv.setSelectedRange(NSRange(location: base + 3, length: 0))
+        let down = String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!)
+        DevChecks.key(down, [.control, .shift])
+        DevChecks.key(down, [.control, .shift])
+        let carets = tv.multiCarets?.map(\.head) ?? []
+        report(carets == [base + 3, base + 6, base + 9], "\(name)/carets-added", "carets=\(carets)")
+        type(window, "Q7")
+        let ns = tv.string as NSString
+        let tail = ns.substring(from: base)
+        report(tail == "\nmcQ7\nmcQ7\nmcQ7", "\(name)/keys-inserted-at-every-caret", "tail=\(tail.debugDescription)")
+        let typed = (0..<3).map { NSRange(location: base + 3 + $0 * 5, length: 2) }
+        let rects = typed.flatMap { glyphRects(tv, $0) }
+        let p = tab.palette
+        let bgs = [p.background, p.currentLine]
+        let now = ink(tv, rects, backgrounds: bgs)
+        report(visible(now, minPixels: 24), "\(name)/typed-visible-immediately", describe(now))
+        settle()
+        let later = ink(tv, rects, backgrounds: bgs)
+        report(visible(later, minPixels: 24), "\(name)/typed-visible-after-highlight", describe(later))
+        settle(0.2)
+        let sp = screenPath(tv, rects)
+        report(sp.ok, "\(name)/typed-screen-layers", sp.detail)
+        // The extra carets (not the primary, drawn by NSTextView): caret-coloured pixels just before each.
+        var drawn = 0
+        let caretL = luminance(tv.insertionPointColor)
+        for (i, k) in (tv.multiCarets ?? []).enumerated() where i != tv.multiPrimary {
+            let r = glyphRects(tv, NSRange(location: k.head - 1, length: 1))
+            guard let g = r.first else { continue }
+            let box = NSRect(x: g.maxX - 0.5, y: g.minY + 2, width: 2.5, height: max(2, g.height - 4))
+            if let rep = DevHooks.render(tv, box) {
+                var hit = false
+                for y in 0..<rep.pixelsHigh where !hit {
+                    for x in 0..<rep.pixelsWide where contrast(luminance(rep.colorAt(x: x, y: y) ?? .clear), caretL) < 1.1 { hit = true; break }
+                }
+                if hit { drawn += 1 }
+            }
+        }
+        report(drawn == 2, "\(name)/extra-carets-drawn", "\(drawn)/2")
+        if ime {
+            // An input method composes at the primary; the commit goes in at every caret.
+            tv.setMarkedText("にほ", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+            report(tv.hasMarkedText() && tv.multiCarets?.count == 3, "\(name)/ime-marked-keeps-carets", "")
+            tv.insertText("日本", replacementRange: tv.markedRange())
+            let t2 = (tv.string as NSString).substring(from: base)
+            report(t2 == "\nmcQ7日本\nmcQ7日本\nmcQ7日本", "\(name)/ime-commit-at-every-caret", "tail=\(t2.debugDescription)")
+            let r2 = (0..<3).map { NSRange(location: base + 5 + $0 * 7, length: 2) }
+            settle()
+            let i2 = ink(tv, r2.flatMap { glyphRects(tv, $0) }, backgrounds: bgs)
+            report(visible(i2, minPixels: 24), "\(name)/ime-committed-visible", describe(i2))
+        }
+        // ⎋: back to one caret.
+        key(window, "\u{1b}", keyCode: 53)
+        report(tv.multiCarets == nil, "\(name)/escape-single-caret", "")
+        tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
     }
 
     static func bigFileCheck(_ app: AppDelegate, _ path: String) {
