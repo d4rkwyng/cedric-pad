@@ -587,8 +587,9 @@ action, and says so in its output.
 
 ## Folder sidebar
 
-File › Open Folder… (⇧⌘O), a folder dropped on the Dock icon, or
-`cedric some/dir` (both reach `AppDelegate.open`, which routes a folder
+File › Open Folder… (⇧⌘O), a folder dropped on the Dock icon or on an
+editor window (the text, or anywhere beside it: `FileDropStackView`), or
+`cedric some/dir` (all reach `AppDelegate.open`, which routes a folder
 that isn't a package to `openFolder`) shows a folder tree at the left of
 the editor. View › Show Folder Sidebar (⌃⌘1) hides and shows it; it is
 disabled until a folder is open. The model is `CedricCore/FolderTree.swift`
@@ -621,6 +622,15 @@ and `FolderWatcher.swift`.
   Packages are files. A symbolic link to a folder can be expanded unless
   its real path is that of a folder above it (`FolderTree.wouldLoop`). A
   20,000-entry folder is a unit test (`twentyThousandEntriesListQuickly`).
+- **Git-ignored entries are dimmed**, not hidden. `FolderIgnore` (in
+  `FolderTree.swift`) wraps the `GitIgnore` matcher Find in Files uses: it
+  is made on the sidebar's first listing (no folder open, no cost), and
+  marks each listed entry by its place in the tree, reading a
+  `.gitignore` only when a listing reaches its folder (and the ones
+  above it, once), never walking the tree. Listings run on background
+  threads, so it takes a lock. An FSEvents batch drops what it has read;
+  a changed folder that has a `.gitignore` re-lists its loaded subtree,
+  and rows whose flags changed are reloaded in place (`Diff.changed`).
 - **Updates.** `FolderWatcher` is an FSEvents stream on the root (no
   per-file events, 0.3 s latency, its own utility queue), running only
   while the sidebar shows; hiding stops it, showing again re-lists the
@@ -648,7 +658,8 @@ and `FolderWatcher.swift`.
 
 Checks: `CEDRIC_CHECK=folder` (`FolderCheck.swift`) opens a temp tree the
 way a dropped folder arrives and drives it with a click on a disclosure
-triangle, → on a selected folder, clicks and Return on files, ⌃⌘1 twice
+triangle, → on a selected folder, clicks and Return on files, dimmed
+git-ignored rows (and an edited .gitignore re-dimming them), ⌃⌘1 twice
 and the × button; it creates, deletes and renames files on disk and waits
 for the rows, checks the loop guard, the layout with the preview and Find
 in Files docked too, the re-dock on a tab switch, that the stream stops

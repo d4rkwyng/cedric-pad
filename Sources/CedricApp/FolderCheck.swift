@@ -8,7 +8,8 @@ import CedricCore
 /// on a selected folder, clicks on files (a tab opens; a second click
 /// doesn't open another), Return on a file. Then changes the tree on disk
 /// (create, delete, rename) and waits for FSEvents to show it; checks the
-/// symlink loop guard, the layout with the preview and Find in Files
+/// git-ignored rows dimmed, and re-dimmed when the .gitignore is edited
+/// on disk; the symlink loop guard, the layout with the preview and Find in Files
 /// docked too, re-docking on a tab switch, ⌃⌘1 hiding (stream stopped)
 /// and showing again (re-listed), the session state, snapshots in light
 /// and dark, and Close Folder.
@@ -20,6 +21,10 @@ extension DevChecks {
         _ = write("proj/src/b.swift", "let b = 2\n")
         _ = write("proj/docs/readme.md", "# Readme\n\nfolder sidebar\n")
         for n in ["zeta.txt", "alpha.txt", "file10.txt", "file2.txt", ".hidden", ".DS_Store", ".git/HEAD"] { _ = write("proj/\(n)", "\(n)\n") }
+        // Git-ignored entries are listed, dimmed.
+        _ = write("proj/.gitignore", "*.log\nbuild/\n")
+        _ = write("proj/debug.log", "log\n")
+        _ = write("proj/build/out.o", "o\n")
         try? FileManager.default.createSymbolicLink(atPath: proj.appendingPathComponent("src/up").path, withDestinationPath: "..")
         let outside = app.open(write("outside.txt", "not in the folder\n"))!
         sized(outside)
@@ -33,6 +38,12 @@ extension DevChecks {
         func row(_ rel: String) -> Int { node(rel).map { sidebar.outline.row(forItem: $0) } ?? -1 }
         func tab(named n: String) -> EditorWindowController? { app.tabs.first { $0.doc.fileURL?.lastPathComponent == n } }
         func toggleItem() -> NSMenuItem? { menuItem(action: #selector(AppDelegate.toggleFolderSidebarMenu(_:))) }
+        /// The row's drawn name colour (nil if the row has no view).
+        func nameColor(_ rel: String) -> NSColor? {
+            let r = row(rel)
+            guard r >= 0 else { return nil }
+            return (sidebar.outline.view(atColumn: 0, row: r, makeIfNecessary: true) as? NSTableCellView)?.textField?.textColor
+        }
         /// A real left click on the row's text, or (inactive app: a synthetic
         /// click isn't taken by a table in a window that can't become key)
         /// the selection and click action it would make.
@@ -82,8 +93,14 @@ extension DevChecks {
                 let subs = outside.split.arrangedSubviews
                 expect(subs.first === s && subs.count == 2 && subs[1] === outside.editorArea, "docked at the left of the tab's split", "\(subs.map { Swift.type(of: $0) })")
                 expect(abs(s.frame.width - FolderSidebar.defaultWidth) <= 2, "default width", "\(s.frame.width)")
-                expect(names(nil) == ["docs", "src", "alpha.txt", "file2.txt", "file10.txt", "zeta.txt"],
+                expect(names(nil) == ["build", "docs", "src", "alpha.txt", "debug.log", "file2.txt", "file10.txt", "zeta.txt"],
                        "folders first, then Finder order; no .git, .DS_Store or hidden files", "\(names(nil))")
+                expect(node("build")?.entry.isIgnored == true && node("debug.log")?.entry.isIgnored == true,
+                       "git-ignored entries are marked (.gitignore: *.log, build/)")
+                expect(["docs", "src", "alpha.txt", "file2.txt"].allSatisfy { node($0)?.entry.isIgnored == false }, "the rest aren't")
+                expect(nameColor("debug.log") == .tertiaryLabelColor && nameColor("build") == .tertiaryLabelColor, "ignored rows are dimmed",
+                       "\(String(describing: nameColor("debug.log")))")
+                expect(nameColor("alpha.txt") == .labelColor, "other rows aren't", "\(String(describing: nameColor("alpha.txt")))")
                 expect(node("src")?.isLoaded == false, "subfolders aren't listed until expanded")
                 expect(FolderWatcher.running == 1 && s.isWatching, "one FSEvents stream while shown", "\(FolderWatcher.running)")
                 expect(toggleItem().map { app.validateMenuItem($0) && $0.state == .on } == true, "Show Folder Sidebar enabled and checked")
@@ -145,9 +162,20 @@ extension DevChecks {
             until("FSEvents: a deleted file goes", timeout: 5) { node("zeta.txt") == nil },
             until("FSEvents: a renamed file shows its new name", timeout: 5) { node("omega.txt") != nil && node("alpha.txt") == nil },
             sync {
-                expect(names(nil) == ["docs", "src", "file2.txt", "file10.txt", "omega.txt"], "root rows after the changes", "\(names(nil))")
+                expect(names(nil) == ["build", "docs", "src", "debug.log", "file2.txt", "file10.txt", "omega.txt"], "root rows after the changes", "\(names(nil))")
                 expect(names(node("src")) == ["up", "a.swift", "b.swift", "new.swift"], "src rows after the changes", "\(names(node("src")))")
                 expect(sidebar.outline.isItemExpanded(node("src")) && sidebar.outline.isItemExpanded(node("docs")), "expansion kept through the updates")
+                // The .gitignore edited on disk: rows re-dimmed in place, in loaded subfolders too.
+                try? "*.log\nbuild/\nfile2.txt\nb.swift\n".write(to: proj.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+            },
+            until("FSEvents: an edited .gitignore dims what it now ignores", timeout: 5) {
+                node("file2.txt")?.entry.isIgnored == true && node("src/b.swift")?.entry.isIgnored == true
+            },
+            sync {
+                expect(nameColor("file2.txt") == .tertiaryLabelColor && nameColor("src/b.swift") == .tertiaryLabelColor,
+                       "the newly ignored rows are redrawn dimmed", "\(String(describing: nameColor("file2.txt")))")
+                expect(node("debug.log")?.entry.isIgnored == true && node("src/a.swift")?.entry.isIgnored == false, "the rest unchanged")
+                expect(sidebar.outline.isItemExpanded(node("src")), "expansion kept")
                 // The link back to src's parent: never listed into.
                 sidebar.outline.expandItem(node("src/up"))
             },

@@ -162,6 +162,9 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     private(set) var width: CGFloat
     private(set) var showHidden: Bool
     private(set) var watcher: FolderWatcher?
+    /// Dims git-ignored entries: reads a .gitignore only when a listing
+    /// reaches its folder (FolderIgnore), never walks the tree.
+    let ignore: FolderIgnore
     /// Folders that changed while their listing was under way: listed again after it.
     private var relistAfterLoad = Set<ObjectIdentifier>()
     /// Folders to expand once listed (restoring a session): relative paths.
@@ -182,6 +185,7 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
         rootURL = url
         root = FolderNode(root: url)
         realRoot = Self.realPath(url.path)
+        ignore = FolderIgnore(root: url)
         width = state?.width.map { CGFloat($0) } ?? Self.defaultWidth
         showHidden = state?.showHidden ?? false
         pendingExpand = state?.expanded ?? []
@@ -359,12 +363,12 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
             return
         }
         node.isLoading = true
-        let url = node.url, hidden = showHidden
+        let url = node.url, hidden = showHidden, ignore = ignore
         let ref = WeakRef(self), box = MainBox(value: node)
         DispatchQueue.global(qos: .userInitiated).async {
             var entries: [FolderEntry] = []
             var failure: String?
-            do { entries = try FolderTree.list(url, showHidden: hidden) } catch { failure = error.localizedDescription }
+            do { entries = try FolderTree.list(url, showHidden: hidden, ignore: ignore) } catch { failure = error.localizedDescription }
             let result = MainBox(value: (entries, failure))
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -398,6 +402,10 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
             if !diff.inserted.isEmpty { outline.insertItems(at: IndexSet(diff.inserted), inParent: item, withAnimation: []) }
             outline.endUpdates()
         }
+        // Kept rows whose flags changed (a .gitignore edited): redrawn in place.
+        if wasLoaded, let children = node.children {
+            for i in diff.changed where i < children.count { outline.reloadItem(children[i], reloadChildren: false) }
+        }
         listings += 1
         // Restoring: the folders that were expanded, top-down, as their parents land.
         if !pendingExpand.isEmpty, let children = node.children {
@@ -422,6 +430,9 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     /// events under folders never expanded cost a path walk.
     func handle(_ changes: [FolderWatcher.Change]) {
         guard isShown, root.isLoaded else { return }
+        // A .gitignore (or info/exclude) may have changed: read them again,
+        // as each folder is listed again.
+        ignore.invalidate()
         var toList: [FolderNode] = []
         func node(for path: String) -> FolderNode? {
             let u = URL(fileURLWithPath: path)
@@ -435,7 +446,13 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
                 if !AppDelegate.isFolder(rootURL) { onClose?(); return }
                 toList += root.loadedFolders
             case .folder(let p):
-                if let n = node(for: p), n.isLoaded { toList.append(n) }
+                guard let n = node(for: p), n.isLoaded else { break }
+                // A folder with a .gitignore: what it ignores can change below it too.
+                if FileManager.default.fileExists(atPath: (p as NSString).appendingPathComponent(".gitignore")) {
+                    toList += n.loadedFolders
+                } else {
+                    toList.append(n)
+                }
             case .subtree(let p):
                 if let n = node(for: p) { toList += n.loadedFolders }
             }
@@ -599,7 +616,10 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
         cell.imageView?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         cell.imageView?.contentTintColor = n.isDirectory ? .controlAccentColor : .secondaryLabelColor
         cell.textField?.stringValue = n.name
-        cell.textField?.textColor = n.entry.isHidden || n.loadError != nil ? .secondaryLabelColor : .labelColor
+        // Git-ignored: dimmed further than a hidden file.
+        cell.textField?.textColor = n.entry.isIgnored ? .tertiaryLabelColor
+            : n.entry.isHidden || n.loadError != nil ? .secondaryLabelColor : .labelColor
+        cell.imageView?.alphaValue = n.entry.isIgnored ? 0.45 : 1
         cell.toolTip = n.loadError.map { "\(n.url.path)\n\($0)" } ?? n.url.path
         return cell
     }

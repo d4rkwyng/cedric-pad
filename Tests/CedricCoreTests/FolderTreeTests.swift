@@ -110,6 +110,57 @@ private func makeTree(_ files: [String], dirs: [String] = []) throws -> URL {
         #expect(!FolderTree.wouldLoop(root.appendingPathComponent("link-to-src"), ancestors: [root]))
     }
 
+    @Test func reListingReportsChangedFlags() {
+        let root = FolderNode(root: URL(fileURLWithPath: "/p"))
+        root.apply([e("build", dir: true), e("a.txt")])
+        var ignored = e("build", dir: true)
+        ignored.isIgnored = true
+        let d = root.apply([ignored, e("a.txt")])
+        #expect(d.removed.isEmpty && d.inserted.isEmpty && d.changed == [0])
+        #expect(root.child(named: "build")?.entry.isIgnored == true)
+        #expect(FolderTree.diff(old: [e("a")], new: [e("a")]).changed.isEmpty)
+    }
+
+    @Test func listingMarksGitIgnoredEntries() throws {
+        let root = try makeTree([".gitignore", "a.swift", "a.log", "build/out.o", "src/.gitignore", "src/keep.swift", "src/gen.swift",
+                                 "docs/x.log", "docs/important.log"], dirs: [".git/info"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "*.log\nbuild/\n!docs/important.log\n".write(to: root.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+        try "gen.swift\n".write(to: root.appendingPathComponent("src/.gitignore"), atomically: true, encoding: .utf8)
+        try "keep.swift\n".write(to: root.appendingPathComponent(".git/info/exclude"), atomically: true, encoding: .utf8)
+        let ignore = FolderIgnore(root: root)
+        func ignoredNames(_ rel: String) throws -> [String] {
+            try FolderTree.list(rel.isEmpty ? root : root.appendingPathComponent(rel), showHidden: true, ignore: ignore).filter(\.isIgnored).map(\.name)
+        }
+        #expect(try ignoredNames("") == ["build", "a.log"])
+        // Nested .gitignore and info/exclude.
+        #expect(try ignoredNames("src") == ["gen.swift", "keep.swift"])
+        #expect(try ignoredNames("docs") == ["x.log"])
+        // Inside an ignored folder: everything.
+        #expect(try ignoredNames("build") == ["out.o"])
+        // Without a matcher nothing is marked.
+        #expect(try FolderTree.list(root).allSatisfy { !$0.isIgnored })
+        // A .gitignore changed on disk is read again after invalidate().
+        try "*.swift\n".write(to: root.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+        #expect(try ignoredNames("") == ["build", "a.log"])
+        ignore.invalidate()
+        #expect(try ignoredNames("") == ["a.swift"])
+    }
+
+    @Test func ignoreMatchesFromAFolderBelowTheRepository() throws {
+        let repo = try makeTree([".gitignore", "sub/a.tmp", "sub/b.txt", "sub/deep/c.tmp"], dirs: [".git"])
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try "sub/b.txt\n*.tmp\n".write(to: repo.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+        let sub = repo.appendingPathComponent("sub")
+        let ignore = FolderIgnore(root: sub)
+        #expect(try FolderTree.list(sub, ignore: ignore).filter(\.isIgnored).map(\.name) == ["a.tmp", "b.txt"])
+        #expect(try FolderTree.list(sub.appendingPathComponent("deep"), ignore: ignore).filter(\.isIgnored).map(\.name) == ["c.tmp"])
+        // A folder outside the sidebar's root is left alone.
+        var entries = [e("x.tmp")]
+        ignore.mark(&entries, in: repo)
+        #expect(!entries[0].isIgnored)
+    }
+
     @Test func relativePaths() {
         let root = URL(fileURLWithPath: "/a/b")
         #expect(FolderTree.relativePath(of: URL(fileURLWithPath: "/a/b"), in: root) == "")

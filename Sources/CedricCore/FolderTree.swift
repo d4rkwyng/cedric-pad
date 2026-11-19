@@ -9,12 +9,15 @@ public struct FolderEntry: Equatable, Hashable, Sendable {
     /// A dot file or a file with the hidden flag.
     public var isHidden: Bool
     public var isSymlink: Bool
+    /// Ignored by the folder's .gitignore files (the sidebar dims it).
+    public var isIgnored: Bool
 
-    public init(name: String, isDirectory: Bool, isHidden: Bool = false, isSymlink: Bool = false) {
+    public init(name: String, isDirectory: Bool, isHidden: Bool = false, isSymlink: Bool = false, isIgnored: Bool = false) {
         self.name = name
         self.isDirectory = isDirectory
         self.isHidden = isHidden
         self.isSymlink = isSymlink
+        self.isIgnored = isIgnored
     }
 
     /// What a re-listing matches entries by: a file that became a folder
@@ -32,7 +35,8 @@ public enum FolderTree {
 
     /// The entries of `url`, filtered and sorted. Throws if the folder
     /// can't be read. Doesn't recurse.
-    public static func list(_ url: URL, showHidden: Bool = false) throws -> [FolderEntry] {
+    /// `ignore`: marks the entries its .gitignore files ignore (`isIgnored`).
+    public static func list(_ url: URL, showHidden: Bool = false, ignore: FolderIgnore? = nil) throws -> [FolderEntry] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isHiddenKey, .isPackageKey, .isSymbolicLinkKey]
         let urls = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: [])
         var out: [FolderEntry] = []
@@ -54,6 +58,7 @@ public enum FolderTree {
             }
             out.append(FolderEntry(name: name, isDirectory: dir, isHidden: hidden, isSymlink: link))
         }
+        ignore?.mark(&out, in: url)
         return sorted(out)
     }
 
@@ -88,17 +93,25 @@ public enum FolderTree {
     /// and an outline view can apply the two steps in turn without
     /// disturbing the rows (and expansion) in between. A rename is one
     /// removal and one insertion.
+    /// `changed`: indexes into `new` of entries kept whose flags changed
+    /// (hidden, ignored, link): their rows are redrawn, not replaced.
     public struct Diff: Equatable, Sendable {
         public var removed: [Int]
         public var inserted: [Int]
+        public var changed: [Int]
         public var isEmpty: Bool { removed.isEmpty && inserted.isEmpty }
-        public init(removed: [Int], inserted: [Int]) { self.removed = removed; self.inserted = inserted }
+        public init(removed: [Int], inserted: [Int], changed: [Int] = []) {
+            self.removed = removed; self.inserted = inserted; self.changed = changed
+        }
     }
 
     public static func diff(old: [FolderEntry], new: [FolderEntry]) -> Diff {
-        let newKeys = Set(new.map(\.key)), oldKeys = Set(old.map(\.key))
+        var oldByKey: [String: FolderEntry] = [:]
+        for e in old { oldByKey[e.key] = e }
+        let newKeys = Set(new.map(\.key))
         return Diff(removed: old.indices.filter { !newKeys.contains(old[$0].key) },
-                    inserted: new.indices.filter { !oldKeys.contains(new[$0].key) })
+                    inserted: new.indices.filter { oldByKey[new[$0].key] == nil },
+                    changed: new.indices.filter { i in oldByKey[new[i].key].map { $0 != new[i] } ?? false })
     }
 
     /// True if expanding `url` would loop: its real path (symbolic links
@@ -116,6 +129,51 @@ public enum FolderTree {
         let prefix = r.hasSuffix("/") ? r : r + "/"
         guard p.hasPrefix(prefix) else { return nil }
         return String(p.dropFirst(prefix.count))
+    }
+}
+
+/// Which listed entries the folder's .gitignore files ignore, for the
+/// sidebar to dim. Lazy: `GitIgnore` reads a .gitignore only when a
+/// listing reaches its folder (and the ones above it), never walks the
+/// tree, and is made on the first listing, so it costs nothing until a
+/// folder is open. Listings run on background threads: one lock.
+/// Paths are taken by their place in the tree (below the sidebar's
+/// root), so a folder reached through a symbolic link is matched where
+/// it shows.
+public final class FolderIgnore: @unchecked Sendable {
+    private let root: URL
+    private let lock = NSLock()
+    private var ignore: GitIgnore?
+    /// The sidebar root relative to the repository root ("" if it is the
+    /// repository root), set with `ignore`.
+    private var rootRel = ""
+
+    /// `root`: the sidebar's folder, as opened.
+    public init(root: URL) { self.root = root.standardizedFileURL }
+
+    /// Forgets the .gitignore files read so far (one changed on disk).
+    public func invalidate() {
+        lock.lock(); defer { lock.unlock() }
+        ignore = nil
+    }
+
+    /// Sets `isIgnored` on each entry of the listing of `dir`.
+    public func mark(_ entries: inout [FolderEntry], in dir: URL) {
+        guard let dirRel = FolderTree.relativePath(of: dir, in: root) else { return }
+        lock.lock(); defer { lock.unlock() }
+        if ignore == nil {
+            let g = GitIgnore(folder: root)
+            ignore = g
+            let real = root.resolvingSymlinksInPath().standardizedFileURL
+            rootRel = FolderTree.relativePath(of: real, in: g.root.standardizedFileURL) ?? ""
+        }
+        guard let g = ignore else { return }
+        let base = [rootRel, dirRel].filter { !$0.isEmpty }.joined(separator: "/")
+        for i in entries.indices {
+            let rel = base.isEmpty ? entries[i].name : base + "/" + entries[i].name
+            // git sees a symbolic link as a file, whatever it points to.
+            entries[i].isIgnored = g.isIgnored(relative: rel, isDirectory: entries[i].isDirectory && !entries[i].isSymlink)
+        }
     }
 }
 
