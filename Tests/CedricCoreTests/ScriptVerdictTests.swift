@@ -71,12 +71,17 @@ import Testing
         #expect(s.display.hasSuffix("Verdict: " + ScriptVerdict.forcedDontRun + "."))
     }
 
-    @Test func longAnswersStayCheap() {
+    @Test(.offPool) func longAnswersStayCheap() {
         // Finished lines are clamped once: 5,000 lines streamed a line at a time.
+        // This thread's CPU time, not the wall clock: on a busy CI runner
+        // the wall clock also counts the wait for a core (2.9 s in run
+        // 44453496385). Same 2 s bound.
         var s = ScriptVerdictStream(forced: nil)
-        let clock = ContinuousClock()
-        let took = clock.measure { for i in 0..<5_000 { s.append("line \(i) does a thing\n") } }
-        #expect(took < .seconds(2), "\(took)")
+        let cpu = { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e9 }
+        let start = cpu()
+        for i in 0..<5_000 { s.append("line \(i) does a thing\n") }
+        let took = cpu() - start
+        #expect(took < 2, "\(took) s of CPU")
         #expect(s.display.hasPrefix("line 0 does a thing\nline 1"))
     }
 }

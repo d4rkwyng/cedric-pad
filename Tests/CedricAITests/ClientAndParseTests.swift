@@ -196,7 +196,12 @@ import CedricCore
     }
 }
 
-@Suite struct RequestTests {
+// `.timely` (OffPool.swift): these time a client against a stub, and other
+// tests' CPU work at a higher QoS made every one of them late at once on CI
+// (runs 44448784564, 44449227211: 3.4-7.4 s). The upper bounds are 10 s,
+// not 3: each stub stalls far longer than that (an hour, a 20 s stream,
+// three 5 s lookups) unless the deadline under test ends it.
+@Suite(.timely) struct RequestTests {
     @Test func sendsOnlyCappedContextLanguageAndFileName() async throws {
         let server = StubServer()
         server.json("/v1/chat/completions", chatCompletion(#"{"hints":[]}"#))
@@ -275,7 +280,7 @@ import CedricCore
         } catch {
             #expect(error as? LocalAIError == .timedOut)
         }
-        #expect(Date().timeIntervalSince(start) < 3)
+        #expect(Date().timeIntervalSince(start) < 10)
     }
 
     @Test func chatStreamTimesOut() async {
@@ -286,7 +291,7 @@ import CedricCore
         await #expect(throws: LocalAIError.timedOut) {
             _ = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 1) { _ in }
         }
-        #expect(Date().timeIntervalSince(start) < 3)
+        #expect(Date().timeIntervalSince(start) < 10)
     }
 
     static func deltas(_ n: Int) -> [Data] {
@@ -296,39 +301,45 @@ import CedricCore
 
     /// A slow model: the whole answer takes far longer than `timeout`, but
     /// a chunk keeps coming well inside the idle limit, so it all arrives.
+    /// Each limit is 3 s against 0.1-0.2 s gaps, so a 2 s stall of the
+    /// runner still fits; the answer takes 4 s, so a first-byte deadline
+    /// that ended the whole stream, or an idle limit that a chunk didn't
+    /// reset, still fails this.
     @Test func chatStreamSlowDribbleOutlivesTheFirstByteDeadline() async throws {
         let server = StubServer()
         server.route("/v1/chat/completions") { _, _ in
-            StubServer.Response(body: Data(), delay: 0.1, chunks: Self.deltas(12), every: 0.2)
+            StubServer.Response(body: Data(), delay: 0.1, chunks: Self.deltas(20), every: 0.2)
         }
         // Wide margins: when the whole suite starts at once in one process
         // (Swift 6.1 runs both test targets together), a 4-core CI runner or
         // VM starves the stub's and the client's tasks for ~1 s; 0.4 s and
         // 0.8 s first-byte limits failed every full run in the macOS 15 VM.
-        var client = LocalModelClient(baseURL: server.baseURL, timeout: 2.0, session: server.session)
-        client.streamIdleLimit = 2.0
+        var client = LocalModelClient(baseURL: server.baseURL, timeout: 3.0, session: server.session)
+        client.streamIdleLimit = 3.0
         let start = Date()
         let acc = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 8) { _ in }
-        #expect(Date().timeIntervalSince(start) > 2.2, "ran past the first-byte deadline")
-        #expect(acc.content.hasPrefix("w0 w1 ") && acc.content.hasSuffix("w11 "))
+        #expect(Date().timeIntervalSince(start) > 3.2, "ran past the first-byte deadline")
+        #expect(acc.content.hasPrefix("w0 w1 ") && acc.content.hasSuffix("w19 "))
     }
 
     /// A plain JSON body dribbled a few bytes at a time with no newline,
     /// each chunk well inside the idle limit, for far longer than it: every
-    /// chunk keeps the stream alive.
+    /// chunk keeps the stream alive. The 2.5 s idle limit leaves room for a
+    /// 2 s stall of the runner between 0.15 s chunks; the body takes about
+    /// 3.75 s, so an idle limit that only newlines reset still fails this.
     @Test func chatStreamNewlineFreeDribbleDoesNotTimeOut() async throws {
         let body = Data(#"{"choices":[{"message":{"role":"assistant","content":"slow and steady"}}]}"#.utf8)
-        let chunks = stride(from: 0, to: body.count, by: 6).map { body.subdata(in: $0..<min(body.count, $0 + 6)) }
+        let chunks = stride(from: 0, to: body.count, by: 3).map { body.subdata(in: $0..<min(body.count, $0 + 3)) }
         let server = StubServer()
         server.route("/v1/chat/completions") { _, _ in
-            StubServer.Response(body: Data(), delay: 0.05, chunks: chunks, every: 0.12)
+            StubServer.Response(body: Data(), delay: 0.05, chunks: chunks, every: 0.15)
         }
-        var client = LocalModelClient(baseURL: server.baseURL, timeout: 2.0, session: server.session)
-        client.streamIdleLimit = 0.8
+        var client = LocalModelClient(baseURL: server.baseURL, timeout: 3.0, session: server.session)
+        client.streamIdleLimit = 2.5
         let start = Date()
         let acc = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 8) { _ in }
-        #expect(chunks.count >= 12)
-        #expect(Date().timeIntervalSince(start) > 1.2, "ran well past the idle limit")
+        #expect(chunks.count >= 24)
+        #expect(Date().timeIntervalSince(start) > 3.0, "ran well past the idle limit")
         #expect(acc.content == "slow and steady")
     }
 
@@ -347,7 +358,7 @@ import CedricCore
             _ = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 1) { t in seen.mutate { $0 += t } }
         }
         let took = Date().timeIntervalSince(start)
-        #expect(took < 3, "idle limit, not the 30 s first-byte wait")
+        #expect(took < 10, "idle limit, not the 30 s first-byte wait")
         #expect(seen.mutate { $0 } == "w0 w1 ")
     }
 
@@ -358,7 +369,9 @@ import CedricCore
         server.route("/v1/chat/completions") { _, _ in
             StubServer.Response(body: Data(), chunks: [Self.deltas(1).reduce(Data(), +)], every: 0.6)
         }
-        var client = LocalModelClient(baseURL: server.baseURL, timeout: 5, session: server.session)
+        // 10 s, not 5: room for a stalled runner. The 0.2 s idle limit
+        // against the 0.6 s wait is what this checks.
+        var client = LocalModelClient(baseURL: server.baseURL, timeout: 10, session: server.session)
         client.streamIdleLimit = 0.2
         let acc = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 8) { _ in }
         #expect(acc.content == "w0 ")
@@ -377,7 +390,7 @@ import CedricCore
         await #expect(throws: LocalAIError.timedOut) {
             _ = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 1) { _ in }
         }
-        #expect(Date().timeIntervalSince(start) < 3)
+        #expect(Date().timeIntervalSince(start) < 10)
     }
 
     @Test func streamWatchDeadlines() {
@@ -412,7 +425,7 @@ import CedricCore
             _ = try await client.chatStream(model: "m", messages: [], tools: nil, maxTokens: 1) { _ in }
         }
         await #expect(throws: LocalAIError.timedOut) { _ = try await client.listModels() }
-        #expect(Date().timeIntervalSince(start) < 3)
+        #expect(Date().timeIntervalSince(start) < 10)
         #expect(server.recorded.isEmpty, "no request while the name is still being checked")
     }
 

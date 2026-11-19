@@ -79,7 +79,10 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         let body = request.httpBody ?? request.httpBodyStream.map(Self.drain)
         let response = server.handle(request, body: body)
         let box = UncheckedRef(self)
-        work = Task {
+        // At .high, like the timing tests (`.timely`, OffPool.swift): the
+        // stub's own clock must not wait behind other tests' CPU work, or a
+        // dribble looks like a stall.
+        work = Task(priority: .high) {
             if response.delay > 0 {
                 do { try await Task.sleep(nanoseconds: UInt64(response.delay * 1e9)) } catch { return }
             }
@@ -203,9 +206,11 @@ final class Box<T>: @unchecked Sendable {
     func mutate(_ f: (inout T) -> Void) { lock.withLock { f(&_value) } }
 }
 
-/// Polls `cond` (real time) until true or ~2 s pass.
+/// Polls `cond` (real time) until true or ~8 s pass. It returns as soon as
+/// `cond` holds, so the window only matters when a busy CI runner stalls
+/// the work for seconds (2 s ran out in runs 44451577951, 44453003629).
 func eventually(_ cond: @Sendable () async -> Bool) async -> Bool {
-    for _ in 0..<400 {
+    for _ in 0..<1_600 {
         if await cond() { return true }
         try? await Task.sleep(nanoseconds: 5_000_000)
     }

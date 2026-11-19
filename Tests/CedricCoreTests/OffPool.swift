@@ -12,7 +12,11 @@ import Testing
 @available(macOS 15, *)
 final class OffPoolExecutor: TaskExecutor, @unchecked Sendable {
     static let shared = OffPoolExecutor()
-    private let queue = DispatchQueue(label: "cedric.tests.off-pool", qos: .userInitiated, attributes: .concurrent)
+    // .default, the QoS the tests themselves run at (TaskPriority.medium):
+    // at .userInitiated this CPU work went ahead of every other test and of
+    // URLSession's own threads, and made the request timing tests late
+    // (runs 44449227211, 44452609801).
+    private let queue = DispatchQueue(label: "cedric.tests.off-pool", qos: .default, attributes: .concurrent)
 
     func enqueue(_ job: consuming ExecutorJob) {
         let job = UnownedJob(job)

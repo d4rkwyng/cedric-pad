@@ -4,7 +4,9 @@ import Testing
 
 /// The offline script scan on realistic scripts: what it must flag, and
 /// everyday scripts it must leave alone.
-@Suite struct ScriptSafetyTests {
+// .offPool: two of these scan the full 20,000-line limit (~0.7 s of CPU
+// each here, more on a CI runner), which held the cooperative pool.
+@Suite(.offPool) struct ScriptSafetyTests {
     func cats(_ text: String, _ lang: Language) -> Set<ScriptSafety.Category> {
         Set(ScriptSafety.scan(text, language: lang).map(\.category))
     }

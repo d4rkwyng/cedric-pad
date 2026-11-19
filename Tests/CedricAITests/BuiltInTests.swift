@@ -195,7 +195,10 @@ func randomBlob(_ n: Int) -> Data {
 
 // MARK: - Downloader
 
-@Suite struct ModelDownloaderTests {
+// `.timely`: these wait on a download's progress, and on CI they ran out
+// of `eventually`'s window when the CPU-heavy tests went first (runs
+// 44451577951, 44453003629).
+@Suite(.timely) struct ModelDownloaderTests {
     func downloader(_ dir: URL, free: Int64? = nil, events: Box<[ModelDownloadState]>? = nil) -> ModelDownloader {
         ModelDownloader(store: ModelStore(directory: dir), configuration: BlobProtocol.configuration,
                         freeSpace: { _ in free }, observer: { _, s in events?.mutate { $0.append(s) } })

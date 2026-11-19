@@ -303,7 +303,11 @@ import CedricCore
         let o = try await OwlChatRunner.run(req, engine: FakeChatEngine(delay: 0, pieces: 1, scriptAnswer: "All good.\nVerdict: safe to run.")) { _ in }
         #expect(o.answer.hasSuffix("Verdict: " + ScriptVerdict.forcedDontRun + "."))
         #expect(!o.answer.contains(ScriptVerdict.noRedFlags))
-        // The scan's own truncation does the same.
+    }
+
+    /// The scan's own truncation does the same. Off the pool: it scans the
+    /// whole 20,000-line limit.
+    @Test(.offPool) func truncatedScanForcesDontRun() {
         let huge = String(repeating: "echo hi\n", count: ScriptSafety.maxLines + 5) + "echo end"
         #expect(request(huge, budget: 10_000_000).forcedVerdict == .truncated)
     }
