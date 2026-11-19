@@ -4,7 +4,7 @@ import Foundation
 /// running it risky: download-and-run, dynamic execution, encoded
 /// commands, system and registry changes, credential access, turning off
 /// security, persistence and broad deletes. No AI, no network: it works on
-/// any Mac (Intel too), and Ask Cedric's "Is This Safe to Run?" shows its
+/// any Mac (Intel too), and Ask Cedric's "Check Script for Risks…" shows its
 /// findings first and hands them to the model.
 ///
 /// It flags what a careful reader would want to look at, not malware: a
@@ -15,7 +15,7 @@ import Foundation
 public enum ScriptSafety {
     public enum Category: String, Sendable, CaseIterable {
         case downloadAndRun, dynamicCode, encoded, download, systemChange, persistence,
-             credentials, disablesSecurity, broadDelete, hidden
+             credentials, disablesSecurity, broadDelete, hidden, remoteShell
 
         public var title: String {
             switch self {
@@ -29,6 +29,7 @@ public enum ScriptSafety {
             case .disablesSecurity: return String(localized: "Turns off a security protection")
             case .broadDelete: return String(localized: "Deletes broadly")
             case .hidden: return String(localized: "Hides what it does")
+            case .remoteShell: return String(localized: "Opens a shell for someone else")
             }
         }
     }
@@ -49,7 +50,7 @@ public enum ScriptSafety {
         public let why: String
     }
 
-    /// Languages the scan (and "Is This Safe to Run?") is offered for.
+    /// Languages the scan (and "Check Script for Risks…") is offered for.
     public static func isScript(_ language: Language) -> Bool {
         switch language {
         case .shell, .powershell, .batch, .registry, .python, .ruby: return true
@@ -62,11 +63,27 @@ public enum ScriptSafety {
     /// At most this many findings are kept (the highest first, then in order).
     public static let maxFindings = 40
 
-    public static func scan(_ text: String, language: Language) -> [Finding] {
+    /// A scan's findings, and whether lines past `maxLines` were left unread.
+    public struct Report: Sendable, Equatable {
+        public let findings: [Finding]
+        /// The script is longer than `maxLines`: only the start was read.
+        public let truncated: Bool
+        /// Any high-severity finding.
+        public var hasHigh: Bool { findings.contains { $0.severity == .high } }
+    }
+
+    public static func scan(_ text: String, language: Language) -> [Finding] { check(text, language: language).findings }
+
+    public static func check(_ text: String, language: Language) -> Report {
         var out: [Finding] = []
         var inBlockComment = false
         var lines = text.split(separator: "\n", maxSplits: maxLines, omittingEmptySubsequences: false).map(String.init)
-        if lines.count > maxLines { lines.removeLast() }
+        var truncated = false
+        if lines.count > maxLines {
+            // Only a trailing newline past the limit is not more script.
+            truncated = !lines[maxLines].isEmpty
+            lines.removeLast()
+        }
         var i = 0
         while i < lines.count {
             let first = i
@@ -102,7 +119,7 @@ public enum ScriptSafety {
             let keep = out.enumerated().sorted { ($0.element.severity, -$0.offset) > ($1.element.severity, -$1.offset) }.prefix(maxFindings)
             out = keep.sorted { $0.offset < $1.offset }.map(\.element)
         }
-        return out
+        return Report(findings: out, truncated: truncated)
     }
 
     static func isComment(_ line: String, language: Language) -> Bool {
@@ -140,17 +157,24 @@ public enum ScriptSafety {
     }
 
     private static let fetch = #"(?:curl|wget|fetch|iwr|irm|invoke-webrequest|invoke-restmethod|downloadstring|downloadfile|downloaddata|start-bitstransfer|urllib\.request|requests\.get|open-uri|net::http)"#
-    private static let shells = #"(?:sh|bash|zsh|dash|ksh|fish|python3?|perl|ruby|node|osascript|sudo\s+(?:-\w+\s+)*(?:sh|bash|zsh))"#
+    /// A shell or interpreter, by name or full path (`/bin/bash`, `/usr/bin/env python3`).
+    private static let shells = #"(?:(?:/[\w./-]*/)?(?:env\s+(?:-\S+\s+)*)?(?:(?:ba|z|da|k)?sh|fish|python[\d.]*(?!\s+-m\s+json\.tool)|perl|ruby|node|osascript)|sudo\s+(?:-\w+\s+)*(?:/[\w./-]*/)?(?:(?:ba|z|da|k)?sh))"#
+    /// Where a command starts: line start, after a separator, or a space.
+    private static let cmdStart = #"(?<![\w/.-])"#
 
     private static let rules: [Rule] = [
         // Download and run.
-        Rule(.downloadAndRun, .high, #"\b(?:curl|wget)\b[^|;&]*\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:env\s+\S+\s+)*"# + shells + #"\b"#,
+        // `curl … | sh`, also through other stages (`| tee f | sh`) and by path (`| /bin/bash`).
+        Rule(.downloadAndRun, .high, #"\b(?:curl|wget)\b[^|;&]*(?:\|(?!\|)[^|;&]*)*?(?<!\|)\|(?!\|)\s*(?:sudo\s+(?:-\S+\s+)*)?(?:env\s+\S+\s+)*"# + shells + #"(?![\w-])"#,
              "Pipes something from the internet straight into a shell: whatever the server sends runs, unseen."),
-        Rule(.downloadAndRun, .high, #"\b"# + shells + #"\s+(?:-\w+\s+)*(?:<\(|-c\s+["']?\$\()\s*(?:curl|wget)\b"#,
+        Rule(.downloadAndRun, .high, cmdStart + shells + #"\s+(?:-\w+\s+)*(?:<\(|-c\s+["']?\$\()\s*(?:curl|wget)\b"#,
              "Runs a script fetched from the internet without saving or showing it first."),
         Rule(.downloadAndRun, .high, #"\b(?:iex|invoke-expression)\b.*"# + fetch + "|" + fetch + #".*\|\s*(?:iex|invoke-expression)\b"#,
              "Downloads text and runs it as PowerShell (Invoke-Expression): whatever the server sends runs."),
-        Rule(.downloadAndRun, .high, #"\bexec\s*\(\s*(?:urllib|requests)\b|\beval\s*\(\s*(?:urllib|requests)\b"#,
+        Rule(.downloadAndRun, .high, #"\b(?:exec|eval|compile)\s*\(.*(?:urllib|requests\.|urlopen|httpx\.|http\.client)"#,
+             "Downloads code and runs it in this program."),
+        // Ruby: eval(Net::HTTP.get(…)), eval(open(url).read), eval(URI.open(…)).
+        Rule(.downloadAndRun, .high, #"\beval\s*\(?\s*(?:Net::HTTP|(?:Kernel\.|URI\.)?open\s*\(|URI\b|HTTParty|Faraday|RestClient)"#,
              "Downloads code and runs it in this program."),
         Rule(.downloadAndRun, .high, #"\b(?:msiexec|start-process|bitsadmin)\b.*https?://"#,
              "Starts a program or installer straight from a web address."),
@@ -162,23 +186,38 @@ public enum ScriptSafety {
              "Runs a string as PowerShell code (Invoke-Expression): what it runs isn't visible here."),
         Rule(.dynamicCode, .caution, #"(?:^|[;&|]\s*)eval\s+["'`$]"#,
              "Runs a string as shell code (eval): what it runs depends on that string."),
+        Rule(.dynamicCode, .caution, #"\bdo\s+(?:shell\s+)?script\b"#,
+             "Runs shell commands or Terminal scripts from AppleScript (do shell script)."),
         // Encoded commands.
         Rule(.encoded, .high, #"\b(?:powershell|pwsh)(?:\.exe)?\b.*\s[-/](?:e|ec|en|enc|enco|encod|encode|encoded|encodedc\w*)\s+["']?[A-Za-z0-9+/=]{16,}"#,
              "Runs a Base64-encoded PowerShell command (-EncodedCommand), which hides what it does."),
-        Rule(.encoded, .high, #"base64\s+(?:-d|--decode|-D)\b[^|]*\|\s*(?:sudo\s+)?"# + shells + #"\b"#,
+        Rule(.encoded, .high, #"base64\s+(?:-d|--decode|-D)\b[^|;&]*(?:\|(?!\|)[^|;&]*)*?(?<!\|)\|(?!\|)\s*(?:sudo\s+)?"# + shells + #"(?![\w-])"#,
              "Decodes hidden (Base64) text and runs it as a script."),
+        Rule(.encoded, .high, #"\b(?:exec|eval|compile)\s*\(.*(?:b64decode|base64\.|a85decode|b32decode|zlib\.decompress|marshal\.loads|codecs\.decode|bytes\.fromhex|\.decode\s*\(\s*["'](?:hex|base64|rot13))"#,
+             "Decodes hidden text and runs it as code."),
         Rule(.encoded, .caution, #"frombase64string\s*\(|\bbase64\s+(?:-d|--decode|-D)\b|b64decode\s*\(|\bcertutil\b.*-decode"#,
              "Decodes Base64 text: check what the decoded data is used for."),
         // Hiding.
+        Rule(.hidden, .high, #"[&.]\s*\(\s*(?:gcm|get-command|gal|get-alias)\s+[^)]*[*?]"#,
+             "Finds a command by a wildcard (e.g. Invoke-Expression as i*x), a trick to hide what runs."),
         Rule(.hidden, .caution, #"\b(?:powershell|pwsh|start-process)\b.*\s-w(?:indowstyle)?\s+["']?h(?:idden)?\b"#,
              "Runs PowerShell with a hidden window."),
         Rule(.hidden, .caution, #"\bhistory\s+-c\b|\bunset\s+histfile\b|clear-history|remove-item.*\(get-psreadlineoption\)\.historysavepath"#,
              "Clears the shell history, hiding what was run."),
+        // Remote shells.
+        Rule(.remoteShell, .high, #"(?:[<>]&|&>)\s*/dev/(?:tcp|udp)/|/dev/(?:tcp|udp)/.*\b0[<>]&1|\s-i\b.*/dev/(?:tcp|udp)/|\bnc(?:at)?\b[^|;&]*\s-[a-z]*[ec]\b|\bncat\b.*--(?:exec|sh-exec)|\bsocat\b.*\bexec:|\bmkfifo\b.*\bnc\b"#,
+             "Connects a shell to another computer (a reverse shell): someone else can run commands here."),
+        Rule(.remoteShell, .caution, #"/dev/(?:tcp|udp)/"#,
+             "Opens a network connection through the shell (/dev/tcp): check what is sent or read."),
         // Disabling security.
         Rule(.disablesSecurity, .high, #"set-mppreference\b.*-disable\w*\s+(?:\$true|1)|add-mppreference\b.*-exclusion"#,
              "Turns off Microsoft Defender protection or excludes files from scanning."),
         Rule(.disablesSecurity, .high, #"\bspctl\s+(?:--master-disable|--global-disable)|\bcsrutil\s+disable|\bsetenforce\s+0|\bufw\s+disable|netsh\s+(?:adv)?firewall\s+set\b.*\bstate\s+off|set-netfirewallprofile\b.*-enabled\s+(?:\$?false|0)|systemctl\s+(?:stop|disable)\s+(?:firewalld|apparmor|ufw)"#,
              "Turns off a system protection (Gatekeeper, SIP, SELinux or the firewall)."),
+        Rule(.disablesSecurity, .high, #"\btcc\.db\b|\bdefaults\s+write\b.*\bLSQuarantine\b"#,
+             "Edits macOS privacy permissions (TCC) or turns off quarantine for every download."),
+        Rule(.disablesSecurity, .caution, #"\btccutil\s+reset\b"#,
+             "Resets macOS privacy permissions (camera, files, screen recording…)."),
         Rule(.disablesSecurity, .caution, #"set-executionpolicy\b.*\b(?:bypass|unrestricted)\b|-ex(?:ecutionpolicy)?\s+(?:bypass|unrestricted)\b"#,
              "Bypasses PowerShell's script execution policy."),
         Rule(.disablesSecurity, .caution, #"\bxattr\s+(?:-\w+\s+)*-\w*d\w*\s+com\.apple\.quarantine|\bxattr\s+-(?:cr|rc|c)\s"#,
@@ -189,20 +228,28 @@ public enum ScriptSafety {
         Rule(.credentials, .caution, #"\bget-credential\b|convertto-securestring\b.*-asplaintext|\.ssh/id_\w+|\.aws/credentials|\.netrc\b|\.git-credentials|\bgh\s+auth\s+token|ssh-keygen\b.*-f\s"#,
              "Handles a password, a private key or a credentials file."),
         // Persistence.
+        Rule(.persistence, .high, #"(?:>>?|\btee\b(?:\s+-a)?|\bcp\b[^;&|]*|\bcat\b[^;&|]*>>?)\s*\S*\.ssh/authorized_keys"#,
+             "Adds a key that lets someone log in to this account over SSH."),
         Rule(.persistence, .high, #"(?:hklm|hkcu|hkey_local_machine|hkey_current_user)[:\\]+software\\microsoft\\windows\\currentversion\\run|\bschtasks\b.*/create|register-scheduledtask|new-scheduledtask|\bnew-service\b|\bsc(?:\.exe)?\s+create\b"#,
              "Makes something run at every login or on a schedule."),
         Rule(.persistence, .high, #"library/launch(?:agents|daemons)|\blaunchctl\s+(?:load|bootstrap|submit)\b|\bcrontab\s+(?!-l\b)|/etc/cron|\bsystemctl\s+enable\b|/etc/rc\.local|loginitems|\.(?:bash_profile|bashrc|zshrc|zprofile|profile)\b.*(?:>>|tee)|(?:>>|tee\s+-a)\s*\S*\.(?:bash_profile|bashrc|zshrc|zprofile|profile)\b"#,
              "Makes something run at every login or on a schedule (launch agent, cron or shell profile)."),
         // System changes.
+        Rule(.systemChange, .high, #"\bchmod\s+(?:-\w+\s+)*(?:[ua]*[+=][rwxXt]*s|[4-7][0-7]{3})\b"#,
+             "Sets the setuid bit: the program runs with its owner's (often root's) rights."),
         Rule(.systemChange, .caution, #"\b(?:set|new|remove)-itemproperty\b.*(?:hklm|hkey_local_machine)|\breg(?:\.exe)?\s+(?:add|delete|import)\b|^\s*\[-?hkey_local_machine"#,
              "Changes the Windows registry for the whole machine."),
         Rule(.systemChange, .caution, #"\bsudo\s+defaults\s+write\b|\bdefaults\s+write\s+/library|\bnvram\b|\bpmset\b|\bscutil\s+--set|\bnetworksetup\s+-set|\bdscl\b.*-(?:create|append|passwd)|\bsysadminctl\b|(?:>|tee(?:\s+-a)?)\s*/etc/|\bchmod\s+(?:-\w+\s+)*[0-7]*777\b|\bbcdedit\b|\bvssadmin\b.*delete|\bwevtutil\s+cl\b|\bnet\s+user\b.*/add|\badd-localgroupmember\b|\bdisable-computerrestore\b"#,
              "Changes system settings, users or permissions for the whole Mac or PC."),
-        Rule(.systemChange, .caution, #"\b(?:sudo|doas)\s"#,
-             "Runs commands as an administrator (sudo)."),
+        Rule(.systemChange, .caution, #"\b(?:sudo|doas)\s|\bstart-process\b.*-verb\s+["']?runas\b|with\s+administrator\s+privileges"#,
+             "Runs commands as an administrator."),
         // Disks.
         Rule(.broadDelete, .high, #"\bdiskutil\s+(?:erasedisk|erasevolume|zerodisk|secureerase|partitiondisk)\b|\bdd\b.*\bof=/dev/|\bmkfs(?:\.\w+)?\s|\bformat-volume\b|\bclear-disk\b|\bformat\s+[a-z]:|\bcipher\s+/w"#,
              "Erases or formats a disk."),
+        Rule(.broadDelete, .high, #"\bfind\s+(?:-[HLP]\s+)*["']?(?:/|/Users|/System|/Library|/Applications|/usr|/etc|/var|/private|/home)/?["']?\s.*-(?:delete\b|exec\s+rm\b)"#,
+             "Deletes files found anywhere under a top-level folder."),
+        Rule(.broadDelete, .high, #"\bshutil\.rmtree\s*\(\s*(?:os\.path\.expanduser\s*\(\s*["']~/?["']\s*\)|(?:pathlib\.)?Path\.home\s*\(\s*\)|os\.environ\s*\[\s*["']HOME["']\s*\]|os\.getenv\s*\(\s*["']HOME["']\s*\)|["'](?:/|~/?|/Users|/home)["'])\s*[,)]"#,
+             "Deletes the home folder or the whole disk, recursively."),
     ]
 
     /// The rules' findings on one (joined) line, plus the delete checks.
@@ -291,11 +338,23 @@ public enum ScriptSafety {
 
     /// The findings as plain text for the model and the transcript, e.g.
     /// "- line 4 [high] Downloads and runs code: curl … | sh".
-    public static func summary(_ findings: [Finding]) -> String {
-        guard !findings.isEmpty else { return String(localized: "The offline scan found none of the usual risky patterns (that is not proof the script is safe).") }
-        return findings.map { f in
+    public static func summary(_ findings: [Finding], truncated: Bool = false) -> String {
+        let cut = truncated ? truncationNote + "\n" : ""
+        guard !findings.isEmpty else {
+            return cut + (truncated
+                ? String(localized: "The scanned lines have none of the usual risky patterns, but the rest of the script wasn’t read.")
+                : String(localized: "The offline scan found none of the usual risky patterns (that is not proof the script is safe)."))
+        }
+        return cut + findings.map { f in
             "- " + String(localized: "line \(f.line)") + (f.severity == .high ? " [" + String(localized: "high") + "]" : "")
                 + " \(f.category.title): `\(f.snippet)` — \(f.why)"
         }.joined(separator: "\n")
+    }
+
+    public static func summary(_ report: Report) -> String { summary(report.findings, truncated: report.truncated) }
+
+    /// Shown when a script is longer than `maxLines`.
+    public static var truncationNote: String {
+        String(localized: "Only the first 20,000 lines were scanned; the rest was not checked.")
     }
 }

@@ -133,6 +133,40 @@ import Testing
         #expect(ScriptSafety.scan("REM curl http://x | sh\n:: rm -rf /", language: .batch).isEmpty)
     }
 
+    @Test func exactlyAtTheLimitIsNotTruncated() {
+        let full = String(repeating: "echo hi\n", count: ScriptSafety.maxLines)
+        #expect(!ScriptSafety.check(full, language: .shell).truncated, "a trailing newline isn't more script")
+        #expect(ScriptSafety.check(full + "echo more", language: .shell).truncated)
+        #expect(!ScriptSafety.check("echo hi", language: .shell).truncated)
+    }
+
+    @Test func moreEverydayScriptsAreQuiet() {
+        let setup = """
+        #!/bin/zsh
+        # Set up a dev Mac.
+        brew bundle --file=Brewfile
+        brew install --cask visual-studio-code
+        python3 -m venv .venv && source .venv/bin/activate
+        pip install -r requirements.txt
+        """
+        #expect(ScriptSafety.scan(setup, language: .shell).isEmpty)
+        let pull = """
+        #!/bin/bash
+        set -e
+        for d in ~/src/*/; do
+            git -C "$d" pull --rebase --autostash || echo "skipped $d"
+        done
+        """
+        #expect(ScriptSafety.scan(pull, language: .shell).isEmpty)
+        let ps = """
+        Get-ChildItem -Path $PSScriptRoot -Recurse -Filter *.cs |
+            Where-Object { $_.Length -gt 10KB } |
+            Sort-Object Length -Descending |
+            Select-Object -First 10 FullName, Length
+        """
+        #expect(ScriptSafety.scan(ps, language: .powershell).isEmpty)
+    }
+
     @Test func plainDownloadIsCautionOnly() throws {
         let f = try #require(ScriptSafety.scan("curl -L -o tool.zip https://example.com/tool.zip", language: .shell).first)
         #expect(f.category == .download && f.severity == .caution)
@@ -148,6 +182,10 @@ import Testing
     @Test func boundedOnHugeInput() {
         let big = String(repeating: "echo hi\n", count: ScriptSafety.maxLines + 500) + "rm -rf /\n"
         #expect(ScriptSafety.scan(big, language: .shell).isEmpty, "lines past the limit aren't read")
+        let report = ScriptSafety.check(big, language: .shell)
+        #expect(report.truncated, "a script past the limit is marked truncated")
+        #expect(ScriptSafety.summary(report).hasPrefix("Only the first 20,000 lines were scanned"))
+        #expect(!ScriptSafety.summary(report).contains("none of the usual risky patterns (that is not proof"))
         let many = String(repeating: "sudo ls\n", count: 100) + "rm -rf /\n"
         let f = ScriptSafety.scan(many, language: .shell)
         #expect(f.count == ScriptSafety.maxFindings)
