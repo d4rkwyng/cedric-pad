@@ -117,6 +117,8 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private(set) var stopButton: NSButton!
     private(set) var actionButtons: [OwlQuickAction: NSButton] = [:]
     let footer = NSTextField(labelWithString: "")
+    /// Cedric himself, in the header, reacting to the conversation.
+    let face = OwlChatFace(frame: NSRect(x: 0, y: 0, width: OwlChatFace.width, height: OwlChatFace.size))
     // The diff card.
     let card = NSStackView()
     let cardTitle = NSTextField(labelWithString: "")
@@ -178,8 +180,10 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         scopePopup.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         scopePopup.target = self
         scopePopup.action = #selector(scopeChanged(_:))
-        let head = NSStackView(views: [about, scopePopup])
+        face.engineReady = { AskCedricEngine.isAvailable }
+        let head = NSStackView(views: [about, scopePopup, NSView(), face])
         head.spacing = 6
+        head.alignment = .centerY
 
         // Two rows: what it does (and the script check), then the rest.
         let firstRow = NSStackView()
@@ -267,7 +271,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 8, right: 10)
         stack.setHuggingPriority(.defaultLow, for: .vertical)
-        for v in [tScroll, card, inputRow, foot, actions] as [NSView] {
+        for v in [head, tScroll, card, inputRow, foot, actions] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             v.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 10).isActive = true
             v.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -10).isActive = true
@@ -537,6 +541,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         flushes = 0
         updateButtons()
         tab.owl?.chatPhase(.thinking)
+        face.cue(.asked)
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             guard let engine = await OwlChatStore.shared.engine() else {
@@ -585,6 +590,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         guard running, let id = docID else { return }
         switch ev {
         case .text(let t):
+            face.cue(.streaming)
             pendingText += t
             if flushTimer == nil {
                 let timer = Timer(timeInterval: 1.0 / 30, repeats: false) { [weak self] _ in
@@ -601,8 +607,10 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             if name == .searchDocument { tab?.owl?.chatPhase(.searching) }
         case .proposal:
             tab?.owl?.chatPhase(.writing)
+            face.cue(.proposing)
         case .phase(let p):
             tab?.owl?.chatPhase(p)
+            face.cue(p == .thinking ? .asked : p == .searching ? .searching : .streaming)
         }
     }
 
@@ -648,6 +656,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         guard running else { return }
         flush()
         running = false
+        face.cue(outcome != nil ? .answered : task?.isCancelled == true ? .stopped : .failed)
         task = nil
         lastOutcome = outcome
         if let id = docID {
@@ -725,6 +734,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         if let id = docID { OwlChatStore.shared.append(OwlChatEntry(role: .note, text: String(localized: "Applied. ⌘Z undoes it.")), to: id) }
         render()
         tab.owl?.nod()
+        face.cue(.applied)
         return true
     }
 

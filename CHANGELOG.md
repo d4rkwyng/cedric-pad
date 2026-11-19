@@ -4,6 +4,11 @@ All notable changes to OwlInk. The format follows [Keep a Changelog](https://kee
 and OwlInk uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
+## [Unreleased]
+
+### Added
+- **Cedric in Ask Cedric.** The owl now sits in the Ask Cedric panel's header and reacts to the conversation: a wave when it opens, a glance at the question field while you type, thinking (and searching) while the model works, talking while the answer streams, a nod when it's done, a wing flap on Apply, and a sleepy look after an error or with no engine. He blinks when idle, stops entirely while the panel is closed, and under Reduce Motion shows still poses only.
+
 ## [0.2.0]
 
 ### Added

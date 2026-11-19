@@ -706,6 +706,16 @@ Instruct 90%, so it gets tools; Apple Intelligence 72.5%, Qwen2.5-Coder
 1.5B on LM Studio 75% and the built-in Qwen2.5-Coder 3B 65% stay
 without.
 
+Cedric sits in the panel's top right corner and follows the
+conversation: he waves when the panel opens, glances at the question
+field while you type, thinks while the model works (with a magnifier
+while he searches the document), talks while the answer streams in,
+nods when it's done and flaps his wings when you Apply an edit. After
+an error, or with no AI engine set up, he looks sleepy. Idle, he blinks
+now and then. Nothing animates while the panel is closed or hidden, and
+with Reduce Motion on (System Settings › Accessibility › Display) he
+only changes between still poses.
+
 ### Check Script for Risks…
 
 **Check Script for Risks…** (Edit menu, the owl, or **Check for
