@@ -22,7 +22,50 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-26   # same runner and toolchain as release.yml, so CI tests what ships (Swift 6.1 support is a 0.1.1 item)
+    runs-on: macos-26   # same runner and toolchain as release.yml, so CI tests what ships
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+
+      - name: Toolchain
+        run: swift --version && sw_vers && xcode-select -p && echo "macOS SDK $(xcrun --show-sdk-version) (Apple Intelligence engine needs 26+)"
+
+      # llama.cpp's XCFramework is a SwiftPM binary target (a 65 MB zip from
+      # github.com/ggml-org/llama.cpp releases). SwiftPM keeps downloaded
+      # binary artifacts in this global cache and reuses them on the next
+      # resolve without the network, so cache it, keyed on Package.swift
+      # (where the URL and checksum are pinned).
+      - name: Cache SwiftPM binary artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm/artifacts
+          key: spm-artifacts-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+
+      # The binary-target fetch has hung before (a stalled download, no
+      # error). Each try gets 5 minutes, then it is killed and retried.
+      - name: Resolve packages (timeout and retry)
+        timeout-minutes: 20
+        run: |
+          for i in 1 2 3; do
+            if perl -e 'alarm shift; exec @ARGV' 300 swift package resolve; then
+              ls ~/Library/Caches/org.swift.swiftpm/artifacts || true
+              exit 0
+            fi
+            echo "::warning::swift package resolve: try $i failed or took over 5 minutes"
+            sleep 15
+          done
+          echo "::error::swift package resolve failed 3 times (the llama.cpp binary target?)"
+          exit 1
+
+      - name: Tests
+        run: Scripts/test.sh
+
+  test-swift61:
+    # The oldest toolchain Cedric builds with: macOS 15's default Xcode
+    # (Swift 6.1). It rejects some things Swift 6.4 accepts (Sendable
+    # conversions of local functions, slow type checks), so this catches
+    # them before a release. No Apple Intelligence (FoundationModels) here.
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
