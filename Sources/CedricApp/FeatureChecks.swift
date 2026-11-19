@@ -239,7 +239,8 @@ extension DevChecks {
                 press(button)
                 expect(a.previewDetached && pw?.isVisible == true, "Detach moves it into its own window")
                 expect(pw?.title == "first.md — Preview", "titled after its document", pw?.title ?? "-")
-                expect(a.split.subviews.count == 1, "the editor has the whole window")
+                expect(!a.split.arrangedSubviews.contains { $0 === a.previewPane } && a.split.arrangedSubviews.contains(a.editorArea),
+                       "the preview left the editor's split", "\(a.split.arrangedSubviews.map { Swift.type(of: $0) })")
                 expect(pw.map { $0.styleMask.contains(.resizable) } == true, "the window is resizable")
                 expect(a.previewPane?.detachButton.accessibilityLabel() == "Attach", "its header now has Attach",
                        a.previewPane?.detachButton.accessibilityLabel() ?? "-")

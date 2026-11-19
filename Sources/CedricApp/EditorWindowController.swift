@@ -71,6 +71,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     let statusBar = StatusBar()
     let split = NSSplitView()
     private var container: EditorContainer!
+    /// The gutter and text: the pane in `split` the side panels dock around.
+    var editorArea: NSView { container }
     /// The preview with its header, docked in `split` or in `previewWindow`.
     private(set) var previewPane: PreviewPane?
     /// The web preview (Markdown, HTML), for its JavaScript and network switches.
@@ -78,7 +80,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// The detached preview's window (View › Detach Preview).
     private(set) var previewWindow: PreviewWindowController?
     var previewDetached: Bool { previewWindow != nil }
-    var previewVisible: Bool { previewPane != nil && (previewDetached || split.subviews.count > 1) }
+    /// Shown: detached, or docked in this tab's split. By identity, not by
+    /// counting the split's panes: Find in Files and the folder sidebar
+    /// dock there too.
+    var previewVisible: Bool {
+        guard let pane = previewPane else { return false }
+        return previewDetached || pane.superview === split
+    }
     private var previewTimer: Timer?
     private var observers: [NSObjectProtocol] = []
     /// While loading text, edits aren't user changes.
@@ -1211,8 +1219,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         pane.setDetached(false)
         split.addArrangedSubview(pane)
         split.adjustSubviews()
+        // Half the window: the divider right after the editor (a folder
+        // sidebar may sit before it).
         let w = split.bounds.width
-        if w > 0 { split.setPosition(w / 2, ofDividerAt: 0) }
+        if w > 0, let i = split.arrangedSubviews.firstIndex(of: container) { split.setPosition(w / 2, ofDividerAt: i) }
     }
 
     func closePreview() {

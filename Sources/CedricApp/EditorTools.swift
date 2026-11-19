@@ -231,8 +231,11 @@ extension EditorWindowController {
         panel.removeFromSuperview()
         split.addArrangedSubview(panel)
         split.adjustSubviews()
+        // The divider just before the panel (found by identity: other panes may dock in the split too).
         let w = split.bounds.width
-        if w > 0 { split.setPosition(max(w * 0.45, w - 460), ofDividerAt: split.arrangedSubviews.count - 2) }
+        if w > 0, let i = split.arrangedSubviews.firstIndex(of: panel), i > 0 {
+            split.setPosition(max(w * 0.45, w - 460), ofDividerAt: i - 1)
+        }
     }
 
     // MARK: Follow File
