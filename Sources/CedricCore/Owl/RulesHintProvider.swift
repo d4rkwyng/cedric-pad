@@ -66,6 +66,7 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         }
         let lines = Self.lines(text)
         moreHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
+        languageHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
         if !table, !Self.isPatch(c), c.language != "yaml" || !out.contains(where: { $0.id == Self.yamlTabsID }), let r = mixedIndent(text, lines: lines, fileName: c.fileName) {
             hint(Self.mixedIndentID, .fix,
                  r.toTabs ? String(localized: "Mixed tabs and spaces. Convert to tabs?") : String(localized: "Mixed tabs and spaces. Convert to spaces?"),
@@ -89,7 +90,8 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
                                range: h.range, replacement: h.replacement, source: h.source)
             }
         }
-        if facts.lineEnding == .crlf, !facts.mixedLineEndings {
+        // A shell script's CRLF has its own warning (it won't run).
+        if facts.lineEnding == .crlf, !facts.mixedLineEndings, !out.contains(where: { $0.id == ShellRules.crlfID }) {
             hint(Self.crlfID, .explain, String(localized: "Windows line endings (CRLF)."),
                  String(localized: "OwlInk keeps CRLF when you save. Change it from the status bar."))
         }

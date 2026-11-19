@@ -32,6 +32,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let quitOnLastClose = NSButton(checkboxWithTitle: String(localized: "Quit when the last window closes"), target: nil, action: nil)
     let grammar = NSButton(checkboxWithTitle: String(localized: "Check grammar in prose"), target: nil, action: nil)
     let owlChat = NSButton(checkboxWithTitle: String(localized: "Ask Cedric"), target: nil, action: nil)
+    let styleTips = NSButton(checkboxWithTitle: String(localized: "Style tips in code"), target: nil, action: nil)
     let indentKind = NSPopUpButton()
     let tabWidth = NSPopUpButton()
     private var observer: NSObjectProtocol?
@@ -98,7 +99,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let fontRow = NSStackView(views: [fontPopup, fontSize, fontStepper, NSTextField(labelWithString: "pt")])
         fontRow.spacing = 6
 
-        for b in [wrap, invisibles, lineNumbers, occurrences, gitChanges, autoClose, spelling, grammar, owlChat, quitOnLastClose] { b.target = self; b.action = #selector(changed(_:)) }
+        for b in [wrap, invisibles, lineNumbers, occurrences, gitChanges, autoClose, spelling, grammar, owlChat, styleTips, quitOnLastClose] { b.target = self; b.action = #selector(changed(_:)) }
         indentKind.addItems(withTitles: [String(localized: "Spaces"), String(localized: "Tabs")])
         indentKind.target = self; indentKind.action = #selector(changed(_:))
         for wdt in Indentation.widths { tabWidth.addItem(withTitle: "\(wdt)"); tabWidth.lastItem?.tag = wdt }
@@ -122,6 +123,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             [NSGridCell.emptyContentView, spelling],
             [NSGridCell.emptyContentView, grammar],
             [NSGridCell.emptyContentView, owlChat],
+            [NSGridCell.emptyContentView, styleTips],
             [label(String(localized: "Indent with:")), indentRow],
             [NSGridCell.emptyContentView, note],
             [label(String(localized: "App:")), quitOnLastClose],
@@ -162,6 +164,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         quitOnLastClose.state = s.quitWhenLastWindowCloses ? .on : .off
         grammar.state = s.checkGrammar ? .on : .off
         owlChat.state = s.owlChat ? .on : .off
+        styleTips.state = s.owlStyleTips ? .on : .off
+        styleTips.toolTip = String(localized: "Cedric’s style suggestions for code, on top of his checks for code that breaks or does the wrong thing (those are always on). Off by default.")
         let autoGrammar = s.checkGrammar && OwlHub.shared.ai.isActive && OwlHub.shared.ai.isAutomatic
         owlChat.toolTip = String(localized: "Ask Cedric… (⌥⌘/, or click the owl): questions, quick actions and proposed edits from a local AI engine (Apple Intelligence, the built-in model, or your LM Studio / Ollama). On by default when one is ready.")
             + " " + AskCedricEngine.privacy(autoGrammar: autoGrammar).settingsSentence
@@ -192,6 +196,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         case quitOnLastClose: s.quitWhenLastWindowCloses = quitOnLastClose.state == .on
         case grammar: s.checkGrammar = grammar.state == .on
         case owlChat: s.owlChat = owlChat.state == .on
+        case styleTips: s.owlStyleTips = styleTips.state == .on
         case indentKind, tabWidth:
             s.defaultIndentation = Indentation(usesTabs: indentKind.indexOfSelectedItem == 1, width: tabWidth.selectedTag() > 0 ? tabWidth.selectedTag() : 4)
         default: break

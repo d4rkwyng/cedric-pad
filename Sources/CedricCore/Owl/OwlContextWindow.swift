@@ -81,10 +81,14 @@ public struct OwlDocumentFacts: Sendable, Equatable {
     public var languageIsManual: Bool
     /// The time rules that depend on it (certificate expiry) use; nil: now.
     public var now: Date?
+    /// Settings › "Style tips in code": the style rules run too. Off by
+    /// default; the correctness rules always run.
+    public var styleTips: Bool
 
     public init(isWholeDocument: Bool = true, changedOnDisk: Bool = false, unsavedSince: Date? = nil, lineEnding: LineEnding = .lf,
-                mixedLineEndings: Bool = false, languageIsManual: Bool = false, now: Date? = nil) {
+                mixedLineEndings: Bool = false, languageIsManual: Bool = false, now: Date? = nil, styleTips: Bool = false) {
         self.now = now
+        self.styleTips = styleTips
         self.isWholeDocument = isWholeDocument
         self.changedOnDisk = changedOnDisk
         self.unsavedSince = unsavedSince

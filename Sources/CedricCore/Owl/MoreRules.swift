@@ -191,12 +191,18 @@ extension RulesHintProvider {
         var problem: Problem?
         /// UTF-16 offsets of “ ” ‘ ’ used as quotes in code (not in strings or comments).
         var curly: [Int] = []
+        /// Strings, comments and regex literals, in the order they end
+        /// (an interpolation's strings come before the string around them).
+        /// `CodeMask` sorts and merges them.
+        var spans: [CodeMask.Span] = []
     }
 
     /// A small lexer: skips strings, comments (and JS regex literals), and
     /// tracks (), [] and {} in what's left. Swift `\( )` and JS `${ }`
     /// interpolations are scanned as code. Stops at the first problem.
-    static func scanCode(_ s: NSString, language: String) -> CodeScan {
+    /// `forMask`: no bracket tracking, never stops: one pass for the
+    /// strings and comments of a window (`CodeMask`).
+    static func scanCode(_ s: NSString, language: String, forMask: Bool = false) -> CodeScan {
         var scan = CodeScan()
         let n = s.length
         let swift = language == "swift", python = language == "python", css = language == "css"
@@ -211,6 +217,8 @@ extension RulesHintProvider {
         /// Skips a quoted string starting at `i` (on the quote); handles escapes,
         /// Swift `#"…"#` raw strings, `"""` / `'''` blocks and interpolations.
         func skipString() {
+            let start = i
+            defer { scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .string, prefix: python ? pythonPrefix(s, start) : "")) }
             var hashes = 0
             while ch(i) == 35 { hashes += 1; i += 1 }   // Swift raw: #"
             let q = ch(i)
@@ -246,6 +254,8 @@ extension RulesHintProvider {
                 case 96 where js: skipString(); continue
                 case 35 where swift && swiftRegexHashes(at: i) > 0:   // #/ … /# (extended regex literal)
                     let hashes = swiftRegexHashes(at: i)
+                    let start = i
+                    defer { scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .string)) }
                     i += hashes + 1
                     while i < n {
                         if ch(i) == 92 { i += 2; continue }
@@ -255,12 +265,18 @@ extension RulesHintProvider {
                     continue
                 case 35 where swift && (ch(i + 1) == 34 || ch(i + 1) == 35): skipString(); continue
                 case 35 where python:
+                    let start = i
                     while i < n, ch(i) != 10 { i += 1 }
+                    scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .comment))
                     continue
                 case 47 where slashComments && ch(i + 1) == 47:
+                    let start = i
                     while i < n, ch(i) != 10 { i += 1 }
+                    scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .comment))
                     continue
                 case 47 where blockComments && ch(i + 1) == 42:
+                    let start = i
+                    defer { scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .comment)) }
                     var nest = 0
                     i += 2
                     while i < n {
@@ -272,8 +288,13 @@ extension RulesHintProvider {
                 case 47 where swift && regexCanStart(at: i):
                     // A bare /…/ regex literal: no space after the opening
                     // slash and closed on the same line, else it's division.
-                    if let end = swiftBareRegexEnd(from: i) { i = end; continue }
+                    if let end = swiftBareRegexEnd(from: i) {
+                        scan.spans.append(.init(range: NSRange(location: i, length: end - i), kind: .string))
+                        i = end; continue
+                    }
                 case 47 where js && regexCanStart(at: i):
+                    let start = i
+                    defer { scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .string)) }
                     i += 1
                     var inClass = false
                     while i < n, ch(i) != 10 {
@@ -294,9 +315,10 @@ extension RulesHintProvider {
                     scan.curly.append(i)
                 case 40, 91, 123:
                     if closer != nil { depth += 1 }
-                    stack.append((Character(UnicodeScalar(k)!), i))
+                    if !forMask { stack.append((Character(UnicodeScalar(k)!), i)) }
                 case 41, 93, 125:
                     if closer != nil { depth -= 1 }
+                    if forMask { break }
                     let want: Character = k == 41 ? "(" : k == 93 ? "[" : "{"
                     let got = Character(UnicodeScalar(k)!)
                     guard let top = stack.popLast() else { scan.problem = .unexpected(got, at: i); return }

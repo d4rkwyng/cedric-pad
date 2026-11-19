@@ -96,6 +96,14 @@ final class Settings {
         set { defaults.set(newValue, forKey: "owlChat"); changed() }
     }
 
+    /// Settings › "Style tips in code": Cedric's style rules for code run
+    /// too. Off by default; his correctness rules (it breaks, or does the
+    /// wrong thing) always run.
+    var owlStyleTips: Bool {
+        get { defaults.bool(forKey: "owlStyleTips") }
+        set { defaults.set(newValue, forKey: "owlStyleTips"); changed() }
+    }
+
     /// The user turned Ask Cedric off themselves (the owl then doesn't
     /// offer to set it up).
     var owlChatTurnedOff: Bool {

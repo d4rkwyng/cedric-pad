@@ -700,6 +700,30 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         markConverted()
     }
 
+    /// The owl's "Use LF" on a shell script with CRLF: the same change as
+    /// the status bar's, as one undo step.
+    func convertLineEndingsWithUndo(to le: LineEnding) {
+        let old = (doc.lineEnding, doc.mixedLineEndings)
+        guard le != old.0 || old.1 else { return }
+        convertLineEndings(to: le)
+        registerLineEndingUndo(back: old.0, mixed: old.1)
+    }
+
+    private func registerLineEndingUndo(back le: LineEnding, mixed: Bool) {
+        guard let um = textView.undoManager else { return }
+        um.registerUndo(withTarget: self) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = (self.doc.lineEnding, self.doc.mixedLineEndings)
+                self.doc.lineEnding = le
+                self.doc.mixedLineEndings = mixed
+                self.markConverted()
+                self.registerLineEndingUndo(back: now.0, mixed: now.1)
+            }
+        }
+        um.setActionName(String(localized: "Line Endings"))
+    }
+
     /// Encoding and line endings apply on save: the tab becomes unsaved.
     private func markConverted() {
         doc.noteChange()
@@ -854,7 +878,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     func owlFacts(wholeDocument: Bool) -> OwlDocumentFacts {
         OwlDocumentFacts(isWholeDocument: wholeDocument, changedOnDisk: doc.changedOnDisk,
                          unsavedSince: doc.isDirty ? doc.unsavedSince : nil, lineEnding: doc.lineEnding,
-                         mixedLineEndings: doc.mixedLineEndings, languageIsManual: doc.languageIsManual)
+                         mixedLineEndings: doc.mixedLineEndings, languageIsManual: doc.languageIsManual,
+                         styleTips: Settings.shared.owlStyleTips)
     }
 
     // MARK: Closing

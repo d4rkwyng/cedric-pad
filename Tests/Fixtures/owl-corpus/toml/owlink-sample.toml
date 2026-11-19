@@ -1,0 +1,51 @@
+# A sample configuration in the shape of a Cargo manifest and an app config.
+title = "OwlInk sample"
+
+[package]
+name = "owlink-sample"
+version = "0.3.0"
+edition = "2021"
+authors = ["Cedric contributors"]
+keywords = ["editor", "owl"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+regex = "1.10"
+
+[server]
+host = "127.0.0.1"
+port = 8_080
+timeout = 3.5
+enabled = true
+started = 1979-05-27T07:32:00Z
+backup_at = 07:32:00
+mask = 0o755
+color = 0xFF8800
+paths = [
+  "/usr/local/bin",
+  "/opt/homebrew/bin",
+]
+description = """
+Multi-line text
+[server]
+key = value inside a string
+"""
+
+[[bin]]
+name = "owl"
+path = "src/owl.rs"
+
+[bin.metadata]
+kind = "cli"
+
+[[bin]]
+name = "hoot"
+path = "src/hoot.rs"
+
+[bin.metadata]
+kind = "tool"
+
+[profile.release]
+lto = true
+opt-level = 3
+"site.url" = 'https://example.com/a#b'

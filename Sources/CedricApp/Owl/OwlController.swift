@@ -602,6 +602,11 @@ final class OwlController: NSObject, NSPopoverDelegate {
                 // Where it is, before fixing blind: selects the doubled words.
                 out.append(.init(title: String(localized: "Show Me"), isDefault: false) { [weak self] in self?.showPresented() })
             }
+        } else if let le = RulesHintProvider.lineEndingFix(hint) {
+            // A shell script with CRLF: switch the file's line endings.
+            out.append(.init(title: String(localized: "Use \(le.displayName)"), isDefault: true) { [weak self, weak tab] in
+                tab?.convertLineEndingsWithUndo(to: le); self?.hideBubble()
+            })
         } else if let language = RulesHintProvider.guessedLanguage(hint) {
             out.append(.init(title: String(localized: "Use \(language.displayName)"), isDefault: true) { [weak self, weak tab] in
                 tab?.setLanguage(language); self?.hideBubble()
