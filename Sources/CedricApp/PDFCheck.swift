@@ -134,7 +134,7 @@ extension DevChecks {
                 PreviewLinkLog.revealed = []
                 PreviewLinkLog.opened = []
                 let tabsBefore = app.tabs.count
-                expect(v.delegate is PDFLinkDelegate, "the PDF view has OwlInk's link delegate (not PDFKit's open-anything default)")
+                expect(v.delegate is PDFLinkDelegate, "the PDF view has Owlink's link delegate (not PDFKit's open-anything default)")
                 v.delegate?.pdfViewWillClick?(onLink: v, with: URL(string: "smb://attacker.invalid/share")!)
                 expect(tab.lastLinkAction == .ignore("smb"), "pdf: an smb: link is ignored", "\(String(describing: tab.lastLinkAction))")
                 v.perform(PDFActionURL(url: URL(string: "x-apple.systempreferences:com.apple.Security")!))

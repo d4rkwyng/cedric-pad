@@ -44,7 +44,7 @@ public struct ModelStore: Sendable {
 
     /// Whether the installed file is still the catalog's (security review
     /// 0.2.1): the size and marker say "installed", but llama.cpp parses
-    /// the file inside OwlInk's process, so before a load its SHA-256 is
+    /// the file inside Owlink's process, so before a load its SHA-256 is
     /// checked against the catalog's (bundled, signed) value. Hashing a
     /// model takes a few seconds, so it is done once and remembered with
     /// the file's device, inode, size and modification time: the first

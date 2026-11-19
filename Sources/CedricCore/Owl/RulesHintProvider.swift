@@ -46,7 +46,7 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         }
         if let since = facts.unsavedSince, now().timeIntervalSince(since) > unsavedThreshold {
             hint(Self.saveCopyID, .tip, String(localized: "Unsaved for over 2 hours. Save a copy?"),
-                 String(localized: "OwlInk keeps unsaved tabs across launches, but a copy on disk is safer."))
+                 String(localized: "Owlink keeps unsaved tabs across launches, but a copy on disk is safer."))
         }
         // CSV/TSV: a leading or trailing tab or space is an empty field or
         // part of a value, not indentation or stray whitespace.
@@ -91,7 +91,7 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         }
         if facts.lineEnding == .crlf, !facts.mixedLineEndings {
             hint(Self.crlfID, .explain, String(localized: "Windows line endings (CRLF)."),
-                 String(localized: "OwlInk keeps CRLF when you save. Change it from the status bar."))
+                 String(localized: "Owlink keeps CRLF when you save. Change it from the status bar."))
         }
         return out
     }

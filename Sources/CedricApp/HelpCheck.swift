@@ -2,7 +2,7 @@ import AppKit
 import CedricCore
 
 /// CEDRIC_CHECK=help (Scripts/tools-check.sh): the Help menu is the
-/// system's help menu (menu search), with OwlInk Help and Keyboard
+/// system's help menu (menu search), with Owlink Help and Keyboard
 /// Shortcuts, and the shortcuts window lists the menus' shortcuts.
 @MainActor
 extension DevChecks {
@@ -14,19 +14,19 @@ extension DevChecks {
                 let help = NSApp.mainMenu?.items.last
                 expect(help?.title == "Help" && NSApp.helpMenu === help?.submenu, "Help is the last menu and the system's help menu")
                 let titles = help?.submenu?.items.map(\.title) ?? []
-                expect(titles.contains("OwlInk Help") && titles.contains("Keyboard Shortcuts"), "with OwlInk Help and Keyboard Shortcuts",
+                expect(titles.contains("Owlink Help") && titles.contains("Keyboard Shortcuts"), "with Owlink Help and Keyboard Shortcuts",
                        "\(titles)")
                 expect(AppDelegate.helpURL == AboutInfo.help(version: CedricVersion.string)
                        && AppDelegate.helpURL.absoluteString.hasSuffix("/blob/v\(CedricVersion.string)/docs/MANUAL.md"),
                        "Help opens the manual at this release's tag", AppDelegate.helpURL.absoluteString)
-                expect(titles.contains("OwlInk on GitHub") && titles.contains("Report an Issue…"), "with OwlInk on GitHub and Report an Issue…")
+                expect(titles.contains("Owlink on GitHub") && titles.contains("Report an Issue…"), "with Owlink on GitHub and Report an Issue…")
                 let about = AboutPanel.options(AboutInfo.panelVersions(bundle: Bundle.main.infoDictionary))
                 let credits = (about[.credits] as? NSAttributedString)?.string ?? ""
                 expect(about[.version] as? String == "" && about[.applicationVersion] as? String == CedricVersion.string
                        && credits.contains("Made by d4rkwyng") && credits.contains("github.com/d4rkwyng/owlink")
                        && credits.contains("BSD-\u{2060}2-\u{2060}Clause") && credits.contains("llama.cpp")
                        && credits.contains("Sierra"), "About: version without build, author, link, licence, credits", credits)
-                expect(NSApp.mainMenu?.items.first?.submenu?.items.first?.action == #selector(AppDelegate.showAbout(_:)), "About OwlInk opens OwlInk's panel")
+                expect(NSApp.mainMenu?.items.first?.submenu?.items.first?.action == #selector(AppDelegate.showAbout(_:)), "About Owlink opens Owlink's panel")
                 if let i = help?.submenu?.items.firstIndex(where: { $0.title == "Keyboard Shortcuts" }) {
                     help?.submenu?.performActionForItem(at: i)
                 }

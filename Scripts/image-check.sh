@@ -14,11 +14,11 @@
 # unselected ones not loaded until shown. Throwaway session; works with
 # the screen locked.
 #
-#   Scripts/image-check.sh [--out DIR] [APP]     default "dist/OwlInk.app"
+#   Scripts/image-check.sh [--out DIR] [APP]     default "dist/Owlink.app"
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=${TMPDIR:-/tmp}/cedric-image-check
-APP="dist/OwlInk.app"
+APP="dist/Owlink.app"
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT=$2; shift ;;

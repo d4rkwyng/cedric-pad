@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "OwlInk.app" from the SwiftPM CedricApp target. Command Line Tools
+# Builds "Owlink.app" from the SwiftPM CedricApp target. Command Line Tools
 # only: no Xcode project, no asset catalog, no actool. Same shape as
 # Tankard's bundle-app.sh.
 #
@@ -7,13 +7,13 @@
 #   Scripts/bundle-app.sh --universal     x86_64 + arm64 in one binary
 #   Scripts/bundle-app.sh --arch x86_64   one specific architecture
 #   Scripts/bundle-app.sh --no-sign       leave it unsigned
-#   Scripts/bundle-app.sh --out DIR       where "OwlInk.app" goes (default: dist)
+#   Scripts/bundle-app.sh --out DIR       where "Owlink.app" goes (default: dist)
 #   Scripts/bundle-app.sh --release       a release build: no dev/check switches
 #
 # By default this is a CHECK build: it compiles with CEDRIC_CHECKS, so the
 # CEDRIC_* switches the check scripts use (DevHooks.swift) work. Never
 # ship it: any local program could launch it with those switches and use
-# OwlInk's file-access grants. Scripts/release.sh passes --release, which
+# Owlink's file-access grants. Scripts/release.sh passes --release, which
 # leaves them out (Sources/CedricCore/DevEnvironment.swift); a release
 # build honours only a few path-free ones its own launch check needs.
 #
@@ -27,7 +27,7 @@
 # version is written down. CFBundleVersion is the same string, as in
 # Tankard, so About shows "Version 0.1.0" with no "(N)" after it.
 #
-# Name: the app is "OwlInk" (bundle "OwlInk.app"); the owl is
+# Name: the app is "Owlink" (bundle "Owlink.app"); the owl is
 # Cedric. Everything a user's data hangs on keeps the owl's name: bundle id
 # net.mindtricks.cedric (UserDefaults domain), the cedric:// scheme,
 # ~/Library/Application Support/Cedric, and the executable Contents/MacOS/Cedric
@@ -84,7 +84,7 @@ else
     BIN=$(swift build -c release ${SWIFTC_FLAGS[@]+"${SWIFTC_FLAGS[@]}"} ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} --show-bin-path)
 fi
 
-APP="$OUT/OwlInk.app"
+APP="$OUT/Owlink.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # The app icon (Finder, Dock, About). Made by tools/icon/cedric_icon.py, committed.
@@ -134,9 +134,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key>
     <string>net.mindtricks.cedric</string>
     <key>CFBundleName</key>
-    <string>OwlInk</string>
+    <string>Owlink</string>
     <key>CFBundleDisplayName</key>
-    <string>OwlInk</string>
+    <string>Owlink</string>
     <key>CFBundleExecutable</key>
     <string>Cedric</string>
     <key>CFBundleIconFile</key>

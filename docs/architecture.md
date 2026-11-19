@@ -1,10 +1,10 @@
-# OwlInk architecture
+# Owlink architecture
 
-**Name.** The app is OwlInk (`OwlInk.app`, CFBundleName and
-CFBundleDisplayName "OwlInk", the app menu's About / Hide / Quit). The
+**Name.** The app is Owlink (`Owlink.app`, CFBundleName and
+CFBundleDisplayName "Owlink", the app menu's About / Hide / Quit; spelled "OwlInk" in 0.1.2–0.2.0). The
 owl assistant is Cedric, and the internal names say Cedric after the owl.
 Everything users' data or tools hang on keeps that name on purpose, for
-continuity of settings, session and models; don't "fix" these to OwlInk:
+continuity of settings, session and models; don't "fix" these to Owlink:
 bundle id `net.mindtricks.cedric` (the UserDefaults domain), the `cedric://`
 URL scheme, `~/Library/Application Support/Cedric/`
 (Session, Models), the `cedric` command, the executable
@@ -127,7 +127,7 @@ view. Typing over several ranges replaces only the first and drops the rest;
 pasting over two put the text in the first and deleted the second, and ⌘Z
 then restored the wrong text. Column *selection* drawing would have been
 free; carets and editing at each of them are not, and the built-in undo is
-unsafe. So OwlInk owns them.
+unsafe. So Owlink owns them.
 
 **Model.** `EditorTextView.multiCarets: [MultiCaret.Caret]?` is nil with one
 caret: NSTextView's own selection is the only state, and every override that
@@ -839,7 +839,7 @@ offers hints in a speech bubble.
   edit. Clicking the owl opens a popover with recent hints, "Quiet for 1
   Hour" and "Hide Cedric".
 - Art: `Resources/Owl` (from `tools/icon/cedric_icon.py`), copied into
-  OwlInk.app/Contents/Resources/Owl by `bundle-app.sh`; `swift run` loads it
+  Owlink.app/Contents/Resources/Owl by `bundle-app.sh`; `swift run` loads it
   from the source tree. On dark themes a faint disc behind the navy owl
   keeps it readable.
 - Ask Cedric drives the editor's owl; the panel has no owl of its own.
@@ -1273,7 +1273,7 @@ Then:
 
 ```sh
 Scripts/release.sh --dry-run          # print every step
-Scripts/release.sh                    # "dist/OwlInk.app" (signed, notarized, stapled) and dist/OwlInk-<version>.zip
+Scripts/release.sh                    # "dist/Owlink.app" (signed, notarized, stapled) and dist/Owlink-<version>.zip
 CEDRIC_SIGN_ID=- Scripts/release.sh --skip-notarize   # ad-hoc test of the whole signing path
 ```
 
@@ -1317,7 +1317,7 @@ Accepted; staples; checks with `spctl -a -vv`; and zips the stapled app.
 tag) on `macos-15`: checks the five secrets, builds the release notes from
 `CHANGELOG.md` (`Scripts/changelog-section.sh`, after Tankard's), restores the SwiftPM
 artifact cache, resolves packages, imports the certificate, runs `Scripts/test.sh`, then
-`Scripts/release.sh` with `CEDRIC_VERSION` from the tag, and attaches `OwlInk-<version>.zip` to the
+`Scripts/release.sh` with `CEDRIC_VERSION` from the tag, and attaches `Owlink-<version>.zip` to the
 release. A tag with a suffix (`v0.1.0-rc1`) makes a draft prerelease. `notary-result.json`
 and `notary-log.json` are kept as the workflow artifact `notary-<tag>` (90 days) with
 `if: always()`, so a failed notarization leaves Apple's issues list behind. Actions are

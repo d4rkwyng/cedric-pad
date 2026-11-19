@@ -57,11 +57,11 @@ let package = Package(
             checksum: "bf45668c4f916117faea4d1f6b3adf75f31c08fa53b8b8269c4d92358c9c7b30"
         ),
 
-        // The AppKit app. Scripts/bundle-app.sh wraps it in "OwlInk.app".
+        // The AppKit app. Scripts/bundle-app.sh wraps it in "Owlink.app".
         .executableTarget(
             name: "CedricApp",
             dependencies: ["CedricCore", "CedricAI"],
-            // llama.framework sits in OwlInk.app/Contents/Frameworks and is
+            // llama.framework sits in Owlink.app/Contents/Frameworks and is
             // loaded with dlopen when the built-in engine first loads a model
             // (CLlamaLoader); -dead_strip_dylibs drops the load commands for
             // it and the frameworks only it uses, since no symbol of theirs

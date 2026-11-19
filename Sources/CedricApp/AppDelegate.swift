@@ -240,7 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // bidi and control characters shown as escapes so they can't disguise it.
         let shown = PromptText.visible(path)
         a.messageText = String(localized: "Open “\(shown)” requested by a link?")
-        a.informativeText = String(localized: "Another app or a web page asked OwlInk to open this file. Open it only if you expected this.")
+        a.informativeText = String(localized: "Another app or a web page asked Owlink to open this file. Open it only if you expected this.")
         a.addButton(withTitle: String(localized: "Open"))
         a.addButton(withTitle: String(localized: "Cancel"))
         guard a.runModal() == .alertFirstButtonReturn else { refuseURL("declined: \(path)"); return }
@@ -376,7 +376,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     static var lastSpecialRefusal: String?
 
     func refuseSpecialFile(_ url: URL, _ kind: String) {
-        let text = String(localized: "“\(url.lastPathComponent)” is \(kind), not a regular file, so OwlInk won’t open it.")
+        let text = String(localized: "“\(url.lastPathComponent)” is \(kind), not a regular file, so Owlink won’t open it.")
         Self.lastSpecialRefusal = text
         if DevEnvironment.values["CEDRIC_CHECK"] != nil { print("check: note: \(text)"); return }
         let a = NSAlert()

@@ -274,7 +274,7 @@ import Testing
         let token = "feedfacefeedfacefeedfacefeedface"
         let script = """
         set -euo pipefail
-        tmpdir=\(d.path); DRY=""; TOKEN=\(token); TARGET=(-a OwlInk)
+        tmpdir=\(d.path); DRY=""; TOKEN=\(token); TARGET=(-a Owlink)
         open() { printf '%s\\n' "$@" > \(d.path)/argv; }
         \(urlencode)
         \(try function("send"))

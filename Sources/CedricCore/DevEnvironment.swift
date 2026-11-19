@@ -4,8 +4,8 @@ import Foundation
 ///
 /// The dev and check switches (`CEDRIC_*`, DevHooks.swift) open files,
 /// write snapshots, drive the editor and point the owl at other models.
-/// In a shipped build any local program could launch OwlInk with them and
-/// borrow OwlInk's privacy (TCC) grants, so they are compiled in only when
+/// In a shipped build any local program could launch Owlink with them and
+/// borrow Owlink's privacy (TCC) grants, so they are compiled in only when
 /// `CEDRIC_CHECKS` is defined: debug builds (Package.swift) and the dev
 /// `dist` build Scripts/bundle-app.sh makes by default. The release build
 /// (`bundle-app.sh --release`, used by Scripts/release.sh) leaves it out

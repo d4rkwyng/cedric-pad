@@ -1,5 +1,5 @@
 // Measures launch-to-first-window for any app, the same way for each, so
-// OwlInk can be compared with TextEdit and VS Code:
+// Owlink can be compared with TextEdit and VS Code:
 //
 //   swift Scripts/launch-time.swift [--runs 5] APP.app [APP.app ...]
 //

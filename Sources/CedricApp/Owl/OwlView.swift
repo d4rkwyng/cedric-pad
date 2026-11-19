@@ -2,7 +2,7 @@ import AppKit
 import CedricCore
 
 /// The owl art from Resources/Owl (made by tools/icon/cedric_icon.py):
-/// loaded once, from OwlInk.app/Contents/Resources/Owl, else
+/// loaded once, from Owlink.app/Contents/Resources/Owl, else
 /// CEDRIC_OWL_DIR, else the source tree (swift run).
 @MainActor
 enum OwlArt {

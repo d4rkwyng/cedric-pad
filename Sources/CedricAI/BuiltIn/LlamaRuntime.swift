@@ -44,7 +44,7 @@ public struct LlamaRuntime: BuiltInRuntime {
         // Only a catalog model whose bytes are still the catalog's
         // (ModelStore.verifiedForLoad; hashed again after any change).
         guard let model = ModelCatalog.bundled()?.models.first(where: { $0.fileName == url.lastPathComponent }) else {
-            throw BuiltInError.loadFailed("not a model from OwlInk's list")
+            throw BuiltInError.loadFailed("not a model from Owlink's list")
         }
         let store = ModelStore(directory: url.deletingLastPathComponent())
         return try await withCheckedThrowingContinuation { cont in

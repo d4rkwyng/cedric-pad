@@ -1,6 +1,6 @@
 import Foundation
 
-/// What OwlInk › About OwlInk and the Help menu show, after Tankard's
+/// What Owlink › About Owlink and the Help menu show, after Tankard's
 /// `AboutInfo` (0.2.1): "Version X" with no build number, the author, the
 /// repository, the licence, the third-party credits, the copyright.
 public enum AboutInfo {
@@ -8,7 +8,7 @@ public enum AboutInfo {
     public static let newIssue = URL(string: "https://github.com/d4rkwyng/owlink/issues/new")!
     public static let llamaCpp = URL(string: "https://github.com/ggml-org/llama.cpp")!
 
-    /// Help › OwlInk Help: the manual of this version, so it describes the
+    /// Help › Owlink Help: the manual of this version, so it describes the
     /// app the user has, not what main has changed since.
     public static var help: URL { help(version: CedricVersion.string) }
 
@@ -30,7 +30,7 @@ public enum AboutInfo {
     public static let llamaCredit = String(localized: "Built-in AI runs on llama.cpp (MIT license).")
     public static let modelsCredit = String(localized: "AI models are downloaded on request, each under its own licence.")
     /// Cedric the owl, honestly and briefly: a fan's nod, nothing official.
-    public static let tribute = String(localized: "Cedric the owl is a fan’s tribute. OwlInk is not affiliated with or endorsed by Sierra or its successors.")
+    public static let tribute = String(localized: "Cedric the owl is a fan’s tribute. Owlink is not affiliated with or endorsed by Sierra or its successors.")
     /// In the owner's name, as Tankard's; LICENSE keeps "Cedric contributors".
     public static let copyright = "© 2026 d4rkwyng"
 

@@ -48,9 +48,9 @@ enum MenuShortcuts {
     ]
 }
 
-/// Help › OwlInk Help (the manual, docs/MANUAL.md on GitHub, at this
+/// Help › Owlink Help (the manual, docs/MANUAL.md on GitHub, at this
 /// version's release tag), Keyboard Shortcuts (a window listing every menu
-/// shortcut), OwlInk on GitHub and Report an Issue…. NSApp.helpMenu is
+/// shortcut), Owlink on GitHub and Report an Issue…. NSApp.helpMenu is
 /// set, so macOS adds its menu search field to Help.
 extension AppDelegate {
     static var helpURL: URL { AboutInfo.help }
@@ -102,7 +102,7 @@ enum ShortcutsWindow {
     static var shared: NSWindow?
 }
 
-/// OwlInk › About OwlInk: the standard panel with Tankard's layout:
+/// Owlink › About Owlink: the standard panel with Tankard's layout:
 /// "Version X" (no build number), the author, the repository, the licence
 /// on one line, the credits, a short tribute line and the copyright.
 @MainActor
@@ -115,7 +115,7 @@ enum AboutPanel {
 
     static func options(_ versions: (application: String, build: String)) -> [NSApplication.AboutPanelOptionKey: Any] {
         [
-            .applicationName: "OwlInk",
+            .applicationName: "Owlink",
             .applicationVersion: versions.application,
             .version: versions.build,
             .credits: credits(),

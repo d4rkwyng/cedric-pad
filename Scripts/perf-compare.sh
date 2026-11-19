@@ -15,7 +15,7 @@
 #                           [--no-launch] [--no-perf] [BASELINE_APP [CANDIDATE_APP]]
 #
 # Defaults: 3 rounds, 15 launch runs per scenario, BASELINE_APP
-# ~/GitHub/cedric-wt/baseline/dist/OwlInk.app, CANDIDATE_APP dist/OwlInk.app.
+# ~/GitHub/cedric-wt/baseline/dist/Owlink.app, CANDIDATE_APP dist/Owlink.app.
 # --build runs Scripts/bundle-app.sh in both trees first. Both apps are
 # measured with this tree's scripts. KEEP_W=1 keeps the raw logs. Needs a
 # GUI session.
@@ -37,8 +37,8 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-A=${APPS[0]:-$BASE_TREE/dist/OwlInk.app}
-B=${APPS[1]:-dist/OwlInk.app}
+A=${APPS[0]:-$BASE_TREE/dist/Owlink.app}
+B=${APPS[1]:-dist/Owlink.app}
 load() { /usr/sbin/sysctl -n vm.loadavg | awk '{ print $2 }'; }
 quiet() { # exits 2 when the machine is busy
     local l; l=$(load)

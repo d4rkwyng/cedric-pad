@@ -27,7 +27,7 @@ extension EditorWindowController {
         case .ignore(let why):
             let text = why == "missing"
                 ? String(localized: "The preview link points to a file that isn't there.")
-                : String(localized: "OwlInk doesn't follow “\(why):” links from a preview.")
+                : String(localized: "Owlink doesn't follow “\(why):” links from a preview.")
             showNotice(text, buttons: [])
         }
     }

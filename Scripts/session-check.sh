@@ -9,7 +9,7 @@
 # (works with the screen locked). A saved folder sidebar comes back after
 # a kill -9, after the first frame.
 #
-#   Scripts/session-check.sh [--from OLD.app] [APP]     default "dist/OwlInk.app"
+#   Scripts/session-check.sh [--from OLD.app] [APP]     default "dist/Owlink.app"
 #
 # --from OLD.app first has another build (say an older release)
 # save a session, by a normal quit and by a kill -9 after a hot close, and
@@ -18,7 +18,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 FROM=""
 if [ "${1:-}" = "--from" ]; then FROM=${2%/}; shift 2; fi
-APP="${1:-dist/OwlInk.app}"
+APP="${1:-dist/Owlink.app}"
 BIN="$APP/Contents/MacOS/Cedric"
 [ -x "$BIN" ] || { echo "no app at $APP: run Scripts/bundle-app.sh first" >&2; exit 1; }
 W=$(mktemp -d)

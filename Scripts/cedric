@@ -1,8 +1,8 @@
 #!/bin/bash
-# cedric: open files in OwlInk from the command line (the running app if
+# cedric: open files in Owlink from the command line (the running app if
 # there is one). Install with:
 #
-#   ln -s "/Applications/OwlInk.app/Contents/Resources/cedric" /usr/local/bin/cedric
+#   ln -s "/Applications/Owlink.app/Contents/Resources/cedric" /usr/local/bin/cedric
 #
 #   cedric file ...         open files (missing files open as new, empty tabs)
 #   cedric file:42          open at line 42 (also +42 before the file)
@@ -12,12 +12,12 @@
 #   cedric dir              open a folder in the folder sidebar (with -w:
 #                           returns at once, a folder has no tab to wait for)
 #   cedric -                read stdin into a new untitled tab
-#   cedric                  bring OwlInk forward
+#   cedric                  bring Owlink forward
 #
 # CEDRIC_DRY_RUN=1 prints the cedric:// URLs instead of opening them (tests).
 set -euo pipefail
 
-# The app this script lives in ("OwlInk.app"), else CEDRIC_APP (a name or
+# The app this script lives in ("Owlink.app"), else CEDRIC_APP (a name or
 # path), else whichever copy Launch Services knows by the bundle id.
 here=$(cd "$(dirname "$(readlink "$0" 2>/dev/null || echo "$0")")" && pwd)
 case "$here" in

@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="docs/images/icon.png" width="128" height="128" alt="OwlInk icon">
+  <img src="docs/images/icon.png" width="128" height="128" alt="Owlink icon">
 </p>
 
-<h1 align="center">OwlInk</h1>
+<h1 align="center">Owlink</h1>
 
 <p align="center">
   A fast, simple, native text editor for the Mac.<br>
   With Cedric the owl as an optional, offline AI helper.
 </p>
 
-OwlInk is for quick work on files, in the spirit of Notepad++: open, edit,
+Owlink is for quick work on files, in the spirit of Notepad++: open, edit,
 close, and everything is still there next time. It is built with AppKit and
 TextKit 2, with no dependencies outside Apple's frameworks.
 
@@ -22,9 +22,9 @@ brew trust --tap d4rkwyng/tap      # once: newer Homebrew asks you to trust a th
 brew install --cask d4rkwyng/tap/owlink
 ```
 
-Or download `OwlInk-<version>.zip` from
+Or download `Owlink-<version>.zip` from
 [Releases](https://github.com/d4rkwyng/owlink/releases), open it, and move
-OwlInk to Applications.
+Owlink to Applications.
 
 Needs macOS 14 or later, on Apple silicon or Intel.
 
@@ -65,23 +65,23 @@ Everything else is in the [manual](docs/MANUAL.md).
 Needs Xcode 26 or its Command Line Tools (Swift 6.3, macOS 26 SDK).
 
 ```sh
-Scripts/bundle-app.sh        # builds dist/OwlInk.app
+Scripts/bundle-app.sh        # builds dist/Owlink.app
 Scripts/test.sh              # unit tests
-open dist/OwlInk.app
+open dist/Owlink.app
 ```
 
 More in the manual: [Building from source](docs/MANUAL.md#building-from-source).
 
 ## Privacy
 
-OwlInk has no accounts, analytics or update checks, and Cedric runs on
+Owlink has no accounts, analytics or update checks, and Cedric runs on
 your Mac. It uses the network only when you ask it to: downloading a model,
 letting a preview load remote content, using a model server on your network,
 or opening a link such as Open on GitHub.
 
 ## Built with Claude
 
-OwlInk is built with Claude: Claude Code agents under Derek's direction, with
+Owlink is built with Claude: Claude Code agents under Derek's direction, with
 review and tests before release.
 
 ## License

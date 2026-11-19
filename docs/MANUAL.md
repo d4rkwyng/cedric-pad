@@ -1,4 +1,4 @@
-# OwlInk manual
+# Owlink manual
 
 A fast, simple, native text editor for macOS, in the spirit of Notepad++: for
 quick work on files, not for projects or compiling. AppKit and TextKit 2, no
@@ -41,8 +41,8 @@ brew install --cask d4rkwyng/tap/owlink
 ```
 
 This also puts the `cedric` command on your PATH. Or download
-`OwlInk-<version>.zip` from [Releases](https://github.com/d4rkwyng/owlink/releases),
-open it, and move OwlInk to Applications. OwlInk doesn't update itself:
+`Owlink-<version>.zip` from [Releases](https://github.com/d4rkwyng/owlink/releases),
+open it, and move Owlink to Applications. Owlink doesn't update itself:
 `brew upgrade` (or a new download) brings a new version.
 
 ## Tabs, files and sessions
@@ -63,11 +63,11 @@ it, and for at most the 100 most recent such tabs; then it is deleted
 (see [Privacy](#privacy-and-what-stays-on-this-mac)).
 The first time in a launch that a file tab with unsaved edits is closed,
 the tab in front says the file wasn't written, with **Save Now**.
-Closing the last document window (text, PDF, image or Office tab) quits OwlInk.
+Closing the last document window (text, PDF, image or Office tab) quits Owlink.
 It is a close like any other: the tab goes to Reopen Closed Tab (⇧⌘T) with
 its unsaved text kept, and the next launch opens an empty Untitled tab.
 Quit (⌘Q) with tabs open brings them all back next launch.
-Detached previews, Settings and panels don't keep OwlInk running.
+Detached previews, Settings and panels don't keep Owlink running.
 Settings › "Quit when the last window closes" turns this off.
 
 ### Fast to open
@@ -115,7 +115,7 @@ again. Until a folder is open nothing is loaded or watched.
 **Files changed on disk** reload by themselves when the tab has no unsaved
 changes. With unsaved changes, a bar says so (**Reload** / **Keep Mine**),
 owl or no owl. **⌘S never overwrites another app's changes:** if the file
-changed since OwlInk read or saved it, a sheet asks first (**Keep My
+changed since Owlink read or saved it, a sheet asks first (**Keep My
 Version**, **Reload Theirs** (undoable) or **Compare**).
 
 ### Encodings and line endings
@@ -184,24 +184,24 @@ Replace field (`$1` for a regex group, as in the find bar):
    replace left them and Undo stays available to try again. With the
    panel hidden, the undo's progress and result show in a bar at the top
    of the tab. The command undoes only the most recent replace, and only
-   until you quit OwlInk.
+   until you quit Owlink.
 
 Replace All never writes read-only files, anything inside a `.git`
 folder (or a `.git` file), whatever the Exclude field says, or a file
-whose encoding OwlInk had to guess as Latin-1, Windows-1252 or Mac Roman
+whose encoding Owlink had to guess as Latin-1, Windows-1252 or Mac Roman
 when the replacement has accented or other non-ASCII text, or the file
 also holds UTF-8 text ("encoding uncertain": it may be UTF-8 with one
 stray byte). Those are listed as skipped, with why. A replaced file gets
 a new modification date, so backup and build tools see the change.
 
-Before Replace All writes a file, OwlInk copies the original to
+Before Replace All writes a file, Owlink copies the original to
 `~/Library/Application Support/Cedric/ReplaceUndo/<id>/`, one folder per
 replace (only your user account can read it), with a `manifest.json`
 that says which copy belongs to which file. These copies stay after you
 quit, so you can recover a file by hand from them. Files changed in a
 tab aren't written, so they aren't copied: ⌘Z in the tab undoes them.
-OwlInk keeps the copies of the last 5 replaces. Each time you replace
-again, and each time OwlInk starts, it deletes the older ones and any
+Owlink keeps the copies of the last 5 replaces. Each time you replace
+again, and each time Owlink starts, it deletes the older ones and any
 older than 7 days.
 
 Files with mixed line endings are skipped: open them and use the find
@@ -383,7 +383,7 @@ bar's items stay under the editor.
 
 ### Settings
 
-**Settings** (OwlInk › Settings…, ⌘,) holds the preferences that have
+**Settings** (Owlink › Settings…, ⌘,) holds the preferences that have
 no menu: theme, font and size, the default indentation for new files
 (Format › Indentation changes one tab), git changes in the gutter, Ask
 Cedric, and whether closing the last window quits. Each option lives in
@@ -423,14 +423,14 @@ changed are swapped into the page, so it keeps its place and its images.
 Scrolling either side scrolls the other to the same source line (by
 block, list item and quote). Relative images load from the document's
 folder (and only from there), and a link to a relative `.md` (or other
-text) file opens it in an OwlInk tab. The renderer follows CommonMark's
+text) file opens it in an Owlink tab. The renderer follows CommonMark's
 emphasis rules (`**bold *mix***` nests properly) and knows reference
 links, footnotes (`[^1]`), GitHub alerts (`> [!NOTE]`, `[!TIP]`,
 `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), task lists (disabled
 checkboxes) and YAML frontmatter, which shows as a small metadata table
 (and is coloured as YAML in the editor). Fenced code blocks are
 coloured by their language (```` ```swift ````, `py`, `js`, `bash`, …)
-both in the editor and in the preview, by OwlInk's own tokenizers and
+both in the editor and in the preview, by Owlink's own tokenizers and
 the theme's colours (no JavaScript highlighter). **Detach Preview** (View menu, ⇧⌥⌘P,
 or Detach on the preview bar) moves it into its own resizable
 window, "notes.md — Preview", still updating as you type; it stays
@@ -533,7 +533,7 @@ the other previews.
 
 **PDFs open in a viewer tab** (read-only, PDFKit), from File › Open, a
 drop on a window or the Dock icon, `cedric file.pdf` (`file.pdf:3` for
-page 3), Open Recent or Finder's Open With (OwlInk is registered as an
+page 3), Open Recent or Finder's Open With (Owlink is registered as an
 alternate PDF viewer; Preview stays the default). A PDF is recognised by
 its `%PDF-` header, so one without the extension opens too. Continuous
 scroll; ⌘+ / ⌘− zoom, ⌘0 actual size, ⌘9 fit to the window; View › Show
@@ -551,7 +551,7 @@ never opens in one click: a web or mail link asks first and shows the
 whole address, a link to a file only shows it in Finder, and any other
 kind of link is ignored. **File › Open as Text** puts the PDF's
 text in a new untitled tab to edit (extracted in the background). Saving
-and editing commands are off in a PDF tab, and OwlInk never writes to a
+and editing commands are off in a PDF tab, and Owlink never writes to a
 PDF. A password-protected PDF asks for its password; a damaged one says
 so. PDF tabs come back with the session on their page and zoom (a PDF
 tab that isn't selected loads when you first click it); the owl stays
@@ -575,7 +575,7 @@ Fit, Rotate Left / Right (the view only), Copy Image, Copy Path, Reveal
 in Finder, Open in the default app and Show Info. A big
 image is decoded downsampled (about 32 megapixels at most) off the main
 thread, so a 12000×12000 PNG doesn't hold up typing in other tabs.
-OwlInk is an alternate image viewer (Preview stays the default) and
+Owlink is an alternate image viewer (Preview stays the default) and
 never writes to an image; image tabs come back with the session at
 their zoom and place.
 
@@ -587,7 +587,7 @@ Quick Look's own previewer. Told apart by their first bytes (a zip with
 `[Content_Types].xml`, an OLE2 file) as well as the name. **File › Open
 as Text** takes a Word document's text into a new untitled tab; for an
 .xlsx the same item is **Open Sheet as CSV** (the first sheet, read
-with OwlInk's own zip and XML code: strings, numbers, booleans and
+with Owlink's own zip and XML code: strings, numbers, booleans and
 formulas' cached values; dates come out as their serial numbers). File ›
 Open in <default app>. Registered as an alternate viewer.
 
@@ -628,11 +628,11 @@ deleted (Settings: "Show git changes in the gutter", on by default).
 with `#L10` or `#L10-L20` for the selection (the branch if it has an
 upstream, else the commit), for a github.com or GitHub Enterprise
 `origin`; **View › Compare with Last Commit** shows the last commit
-beside the current text. OwlInk runs the local git only, after the
+beside the current text. Owlink runs the local git only, after the
 window is up, on a background queue; no network, no sign-in. Without
 the developer tools (or another git) it does nothing, rather than
 setting off the install prompt; very large documents are skipped.
-A repository can't make OwlInk run its programs: git is only
+A repository can't make Owlink run its programs: git is only
 asked read-only questions (`rev-parse`, `cat-file`, `ls-files`, never
 `status` or `diff`), with fsmonitor, hooks, pagers and diff drivers
 forced off, and a repository whose own config names a program to run
@@ -748,7 +748,7 @@ still poses.
 
 The panel opens beside the owl, wherever you have put him, on the side
 of the screen with more room. Drag it anywhere: once you have moved it,
-it opens where you left it until you quit OwlInk. With Cedric hidden
+it opens where you left it until you quit Owlink. With Cedric hidden
 (**Hide Cedric**), Ask Cedric works the same and the panel opens at the
 window's bottom-right corner; opening it doesn't bring him back.
 
@@ -780,11 +780,11 @@ reviewed, whatever the model said.
 
 ## Help menu
 
-**OwlInk Help** (⌘?, this manual, as of the version you have: a
+**Owlink Help** (⌘?, this manual, as of the version you have: a
 release opens the manual at its own tag on GitHub), **Keyboard
-Shortcuts** (every menu shortcut in one window), **OwlInk on GitHub**,
-**Report an Issue…** and the system's menu search. OwlInk › About
-OwlInk shows the version, the author, the licence (BSD-2-Clause) and
+Shortcuts** (every menu shortcut in one window), **Owlink on GitHub**,
+**Report an Issue…** and the system's menu search. Owlink › About
+Owlink shows the version, the author, the licence (BSD-2-Clause) and
 the credits: llama.cpp (MIT) for the built-in AI, and each AI model,
 downloaded only on request, under its own licence.
 
@@ -792,11 +792,11 @@ downloaded only on request, under its own licence.
 
 A **`cedric` command-line launcher**, with `-w` so it can be
 git's editor, and `file:line:col`.
-`OwlInk.app/Contents/Resources/cedric` opens files in the running app (or
+`Owlink.app/Contents/Resources/cedric` opens files in the running app (or
 starts it). The command keeps the name `cedric`. Link it onto your PATH:
 
 ```sh
-ln -s "/Applications/OwlInk.app/Contents/Resources/cedric" /usr/local/bin/cedric
+ln -s "/Applications/Owlink.app/Contents/Resources/cedric" /usr/local/bin/cedric
 cedric notes.md                 # open (a missing file opens as a new tab that saves there)
 cedric src/main.c:120           # open at line 120 (also: cedric +120 src/main.c)
 cedric src/main.c:120:7         # line 120, column 7 (grep -n / compiler output works too)
@@ -810,23 +810,23 @@ app or web page can send such a URL, so each one the script sends proves it
 comes from you with a secret token (`~/Library/Application Support/Cedric/cli-token`,
 readable only by you; the `Cedric` folder itself is owner-only, 0700, and the
 token is written to a temp file and moved into place, so it is never read
-half-written). OwlInk makes a new token every time it starts. The token is
+half-written). Owlink makes a new token every time it starts. The token is
 never on a command line, where other users of the Mac could see it: the
 script writes it to a `cedric-auth.*` file in your temp folder (readable
-only by you), passes that file's name, and OwlInk reads it once and deletes
+only by you), passes that file's name, and Owlink reads it once and deletes
 it. A link without it can't hand over stdin or `-w` files, and opening a
 file from it asks first, showing the full path (hidden or direction-changing
 characters are shown as `<U+202E>`-style codes). The app deletes only the
 script's own temp files (`cedric-stdin.*`, `cedric-wait.*`, `cedric-auth.*`
 in your temp folder), checked after `..` and symlinks are resolved.
 With `-w` the script makes a `cedric-wait.*` marker file in the temp
-folder and passes it along; OwlInk deletes it when that file's tab closes
-(or when OwlInk quits), and the script returns.
+folder and passes it along; Owlink deletes it when that file's tab closes
+(or when Owlink quits), and the script returns.
 
 ## Privacy and what stays on this Mac
 
 The AI engines run on this Mac or a server on your own network, never
-the cloud. What OwlInk keeps on this Mac, all under
+the cloud. What Owlink keeps on this Mac, all under
 `~/Library/Application Support/Cedric/` (owner-only, 0700; files 0600):
 
 - **`Session/`**: the open tabs and the **unsaved text** of open and
@@ -846,7 +846,7 @@ the cloud. What OwlInk keeps on this Mac, all under
   isn't loaded.
 - **`cli-token`**: the `cedric` command's secret, new at every launch.
 
-A release build of OwlInk ignores the `CEDRIC_*` developer and test
+A release build of Owlink ignores the `CEDRIC_*` developer and test
 switches (they could make it open files or load a model at another
 program's request); only the few that open nothing, such as the launch
 check's, are left.
@@ -856,10 +856,10 @@ check's, are left.
 Needs the Command Line Tools or Xcode 26 (Swift 6.3 or later, macOS 26 SDK); Xcode itself is not required. Swift 6.1 / 6.2 with an older SDK still compiles and passes the unit tests, but the app it builds draws no editor text, so never ship or test the app from an older toolchain. Releases are built on GitHub's macos-26 runner.
 
 ```sh
-Scripts/bundle-app.sh               # "dist/OwlInk.app" for this Mac, ad-hoc signed, a CHECK build
+Scripts/bundle-app.sh               # "dist/Owlink.app" for this Mac, ad-hoc signed, a CHECK build
 Scripts/bundle-app.sh --universal   # arm64 + x86_64
 Scripts/bundle-app.sh --release     # as shipped: without the CEDRIC_* test switches
-open "dist/OwlInk.app"
+open "dist/Owlink.app"
 ```
 
 Tests (Swift Testing; the script adds the paths the Command Line Tools need):
@@ -872,14 +872,14 @@ Scripts/launch-check.sh             # real launches: stays up, quits cleanly, no
 Scripts/pdf-check.sh                # PDF tabs in the running app: find, copy, zoom, Open as Text, session
 Scripts/image-check.sh              # image and Office tabs: zoom, copy, GIFs, docx/xlsx text, session, a 12000² PNG vs typing
 Scripts/launch-speed-check.sh       # launch phase medians: empty, 8-tab session, 500 KB file
-swift Scripts/launch-time.swift "dist/OwlInk.app" /System/Applications/TextEdit.app
+swift Scripts/launch-time.swift "dist/Owlink.app" /System/Applications/TextEdit.app
 ```
 
 `bundle-app.sh` makes a check build by default: the check scripts drive it
 with `CEDRIC_*` switches (open files, take snapshots), so don't use it as
 your everyday copy. `Scripts/release.sh` builds with `--release`.
 A local build is ad-hoc signed, not notarized. If macOS refuses to open a
-copied build, remove the quarantine flag: `xattr -dr com.apple.quarantine "OwlInk.app"`.
+copied build, remove the quarantine flag: `xattr -dr com.apple.quarantine "Owlink.app"`.
 
 ## Releases
 
@@ -926,7 +926,7 @@ Macros and automatic updates; code folding and split view (0.3.0). See
 
 ## Built with Claude
 
-OwlInk is built with Claude: Claude Code agents under Derek's direction, with
+Owlink is built with Claude: Claude Code agents under Derek's direction, with
 review and tests before release.
 
 ## Licences
@@ -936,7 +936,7 @@ BSD-2-Clause. See [LICENSE](../LICENSE). The Dracula theme's colours are by
 
 The built-in AI engine uses [llama.cpp](https://github.com/ggml-org/llama.cpp)
 (MIT, © the ggml authors), bundled as `llama.framework`. Models are not
-bundled: the ones OwlInk offers to download are Qwen models by Alibaba
+bundled: the ones Owlink offers to download are Qwen models by Alibaba
 Cloud, each under its own licence, shown before download. The default,
 Qwen3 4B Instruct (2507, the Q4_K_M GGUF quantised by Unsloth), is
 Apache-2.0, as are Qwen2.5-Coder 1.5B and 7B and Qwen3 4B. Qwen2.5-Coder

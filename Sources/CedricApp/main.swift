@@ -70,22 +70,22 @@ let f2 = String(UnicodeScalar(UInt16(NSF2FunctionKey))!)
 @MainActor
 func buildMainMenu() -> NSMenu {
     let main = NSMenu()
-    let app = "OwlInk"
+    let app = "Owlink"
 
     // Filled by AppKit with the system's services (Cedric vends none).
     let services = submenu(String(localized: "Services"), [])
     main.addItem(submenu(app, [
-        item(String(localized: "About OwlInk"), #selector(AppDelegate.showAbout(_:)), ""),
+        item(String(localized: "About Owlink"), #selector(AppDelegate.showAbout(_:)), ""),
         .separator(),
         item(String(localized: "Settings…"), #selector(AppDelegate.showSettings(_:)), ","),
         .separator(),
         services,
         .separator(),
-        item(String(localized: "Hide OwlInk"), #selector(NSApplication.hide(_:)), "h"),
+        item(String(localized: "Hide Owlink"), #selector(NSApplication.hide(_:)), "h"),
         item(String(localized: "Hide Others"), #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
         item(String(localized: "Show All"), #selector(NSApplication.unhideAllApplications(_:))),
         .separator(),
-        item(String(localized: "Quit OwlInk"), #selector(NSApplication.terminate(_:)), "q"),
+        item(String(localized: "Quit Owlink"), #selector(NSApplication.terminate(_:)), "q"),
     ]))
 
     main.addItem(submenu(String(localized: "File"), [
@@ -294,10 +294,10 @@ func buildMainMenu() -> NSMenu {
 
     // Help: macOS adds its menu search field here (NSApp.helpMenu).
     let help = submenu(String(localized: "Help"), [
-        item(String(localized: "OwlInk Help"), #selector(AppDelegate.showHelp(_:)), "?"),
+        item(String(localized: "Owlink Help"), #selector(AppDelegate.showHelp(_:)), "?"),
         item(String(localized: "Keyboard Shortcuts"), #selector(AppDelegate.showKeyboardShortcuts(_:))),
         .separator(),
-        item(String(localized: "OwlInk on GitHub"), #selector(AppDelegate.showGitHub(_:))),
+        item(String(localized: "Owlink on GitHub"), #selector(AppDelegate.showGitHub(_:))),
         item(String(localized: "Report an Issue…"), #selector(AppDelegate.reportIssue(_:))),
     ])
     main.addItem(help)
