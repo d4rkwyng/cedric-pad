@@ -330,8 +330,8 @@ extension LocalModelClient {
         do {
             return try await withThrowingTaskGroup(of: OpenAIStreamAccumulator?.self) { group in
                 group.addTask { [request] in
-                    try await checkLocal()
-                    return try await stream(request, watch: watch, onText: onText)
+                    let pin = try await checkLocal()
+                    return try await stream(pin.apply(request), watch: watch, onText: onText)
                 }
                 // Wakes at least every quarter of the idle limit, so a stall
                 // soon after the first byte isn't left to the first-byte wait.

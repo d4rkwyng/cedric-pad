@@ -107,10 +107,12 @@ public struct LocalModelClient: Sendable {
 
     /// The name must pass the policy and, unless it is an address, every
     /// address it resolves to must be private (a `.local`, bare or
-    /// `.ts.net` name can resolve to a public host). The connection makes
-    /// its own lookup a moment later, so a DNS server that answers
-    /// differently the second time (rebinding) is not ruled out.
-    func checkLocal() async throws {
+    /// `.ts.net` name can resolve to a public host). Returns the address
+    /// the request must then go to (`Pin`): the connection uses the checked
+    /// address itself, not a second lookup that a DNS server could answer
+    /// differently (rebinding).
+    @discardableResult
+    func checkLocal() async throws -> Pin {
         guard LocalEndpointPolicy.isAllowed(baseURL) else {
             throw LocalAIError.endpointNotLocal(baseURL.host ?? baseURL.absoluteString)
         }
@@ -121,6 +123,45 @@ public struct LocalModelClient: Sendable {
         let addrs = try await Self.abandoningOnCancel { await resolver(host) }
         guard !addrs.isEmpty, addrs.allSatisfy(LocalEndpointPolicy.isPrivateAddress) else {
             throw LocalAIError.endpointNotLocal(host)
+        }
+        return Pin(host: host, addresses: addrs)
+    }
+
+    /// Where a request goes once `checkLocal` has passed: for a plain-http
+    /// server named by a host name, the checked address, with the name
+    /// kept in the `Host` header (so Ollama's and LM Studio's host checks
+    /// and virtual hosts still see it). An address in the URL, or https
+    /// (the certificate is checked against the name), stays as it is.
+    struct Pin: Sendable, Equatable {
+        /// The address to connect to; nil: the URL is left alone.
+        let address: String?
+
+        init(host: String, addresses: [String]) {
+            let bare = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
+            if Self.isAddress(bare) {
+                address = nil
+            } else {
+                // IPv4 first; an IPv6 link-local one needs its interface,
+                // which the lookup dropped, so it isn't pinned.
+                address = addresses.first { !$0.contains(":") }
+                    ?? addresses.first { $0.contains(":") && !$0.lowercased().hasPrefix("fe80") }
+            }
+        }
+
+        static func isAddress(_ s: String) -> Bool {
+            var a = in_addr(), a6 = in6_addr()
+            return inet_pton(AF_INET, s, &a) == 1 || inet_pton(AF_INET6, s, &a6) == 1
+        }
+
+        func apply(_ request: URLRequest) -> URLRequest {
+            guard let address, let url = request.url, url.scheme?.lowercased() == "http", let host = url.host,
+                  var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return request }
+            c.percentEncodedHost = address.contains(":") ? "[\(address)]" : address
+            guard let pinned = c.url else { return request }
+            var r = request
+            r.url = pinned
+            r.setValue(url.port.map { "\(host):\($0)" } ?? host, forHTTPHeaderField: "Host")
+            return r
         }
     }
 
@@ -231,20 +272,20 @@ public struct LocalModelClient: Sendable {
 
     public func listModels() async throws -> [LocalModelInfo] {
         try await withDeadline {
-            try await checkLocal()
-            let data = try await send(URLRequest(url: baseURL.appendingPathComponent("models")))
+            let pin = try await checkLocal()
+            let data = try await send(pin.apply(URLRequest(url: baseURL.appendingPathComponent("models"))))
             guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let list = obj["data"] as? [[String: Any]] else { throw LocalAIError.badResponse }
             var models = list.compactMap { ($0["id"] as? String).map { LocalModelInfo(id: $0) } }
-            await enrich(&models)
+            await enrich(&models, pin: pin)
             return models
         }
     }
 
     /// Best effort, short timeout: LM Studio's native list adds type,
     /// quantization and load state; Ollama's adds bytes and parameter size.
-    private func enrich(_ models: inout [LocalModelInfo]) async {
-        var quick = URLRequest(url: serverRoot.appendingPathComponent("api/v0/models"))
+    private func enrich(_ models: inout [LocalModelInfo], pin: Pin) async {
+        var quick = pin.apply(URLRequest(url: serverRoot.appendingPathComponent("api/v0/models")))
         quick.timeoutInterval = 2
         if let data = try? await fetch(quick).0,
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -257,7 +298,7 @@ public struct LocalModelClient: Sendable {
             }
             return
         }
-        var tags = URLRequest(url: serverRoot.appendingPathComponent("api/tags"))
+        var tags = pin.apply(URLRequest(url: serverRoot.appendingPathComponent("api/tags")))
         tags.timeoutInterval = 2
         if let data = try? await fetch(tags).0,
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -304,12 +345,12 @@ public struct LocalModelClient: Sendable {
         let plain = jsonSchema == nil ? nil
             : try chatRequest(model: model, messages: messages, maxTokens: maxTokens, temperature: temperature, jsonSchema: nil)
         return try await withDeadline {
-            try await checkLocal()
+            let pin = try await checkLocal()
             let start = clock.now
             do {
-                return try await chatOnce(withSchema, start: start, clock: clock)
+                return try await chatOnce(pin.apply(withSchema), start: start, clock: clock)
             } catch LocalAIError.http(400) where plain != nil {
-                return try await chatOnce(plain!, start: start, clock: clock)
+                return try await chatOnce(pin.apply(plain!), start: start, clock: clock)
             }
         }
     }
