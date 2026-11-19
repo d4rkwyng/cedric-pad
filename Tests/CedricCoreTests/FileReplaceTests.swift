@@ -340,6 +340,41 @@ import Testing
         #expect(st.st_mode & 0o7777 == 0o444)
     }
 
+    /// Release review 0.2.1 M2: made read-only after the apply's checks
+    /// (here, while the originals are backed up), just before the write.
+    /// renameat alone would replace it; the last check skips it instead.
+    @Test func fileMadeReadOnlyBetweenPlanAndWriteIsSkipped() throws {
+        let root = try dir()
+        let ro = try put(root, "ro.txt", Data("owl\n".utf8))
+        defer { chmod(ro.path, 0o644); try? FileManager.default.removeItem(at: root) }
+        let rw = try put(root, "rw.txt", Data("owl\n".utf8))
+        let store = ReplaceUndoStore(root: root.appendingPathComponent(".undo"))
+        let q = ReplaceQuery(query: "owl", template: "hoot")
+        let plan = try FileReplace.plan(q, root: root, candidates: candidates(root, [ro, rw]))
+        #expect(plan.skipped.isEmpty)
+        var checked = false
+        let r = FileReplace.apply(plan.files, query: q, root: root, store: store) { p in
+            if p.stage == .backingUp, !checked { checked = true; chmod(ro.path, 0o444) }
+        }
+        #expect(checked)
+        #expect(r.written.map(\.lastPathComponent) == ["rw.txt"])
+        #expect(r.skipped.map(\.relativePath) == ["ro.txt"] && r.skipped.map(\.reason.rawValue) == ["readOnly"])
+        #expect(try Data(contentsOf: ro) == Data("owl\n".utf8), "a read-only file was replaced")
+        var st = stat()
+        stat(ro.path, &st)
+        #expect(st.st_mode & 0o7777 == 0o444)
+        let left = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.contains(FileReplace.tempMarker) }
+        #expect(left.isEmpty, "temp file left: \(left)")
+        // Undo writes through the same path: it says read-only the same way.
+        let w = try put(root, "w.txt", Data("x\n".utf8))
+        chmod(w.path, 0o444)
+        defer { chmod(w.path, 0o644) }
+        let dirfd = open(root.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        defer { close(dirfd) }
+        #expect(throws: TreeWrite.ReadOnly.self) { try TreeWrite.replace(Data("y\n".utf8), name: "w.txt", in: dirfd, mode: 0o644) }
+        #expect(try Data(contentsOf: w) == Data("x\n".utf8))
+    }
+
     @Test func undoOverAReadOnlyFileIsReportedAndCanBeRetried() throws {
         let root = try dir()
         defer { chmod(root.appendingPathComponent("a.txt").path, 0o644); try? FileManager.default.removeItem(at: root) }

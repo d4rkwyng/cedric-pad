@@ -398,7 +398,9 @@ public enum FileReplace {
                 report.replacements += p.count
             } catch {
                 op.drop(index: k)
-                report.skipped.append(SkippedFile(url: p.file.url, relativePath: p.file.relativePath, reason: .unwritable))
+                // Made read-only after the checks: said as at the preview.
+                let reason: ReplaceSkip = error is TreeWrite.ReadOnly ? .readOnly : .unwritable
+                report.skipped.append(SkippedFile(url: p.file.url, relativePath: p.file.relativePath, reason: reason))
             }
         }
         try? op.save()
@@ -461,6 +463,10 @@ public enum FileReplace {
 /// File writes relative to an open folder (openat/renameat), for Replace
 /// in Files and its undo.
 enum TreeWrite {
+    /// The file isn't writable (read-only now) at the last check before
+    /// the rename; nothing was changed.
+    struct ReadOnly: Error {}
+
     /// The folder names from `root` down to `url`'s folder (empty when the
     /// file is directly in `root`); nil when `url` isn't under `root` as
     /// written (or under `root` with its own links resolved).
@@ -495,6 +501,12 @@ enum TreeWrite {
     /// before the write); temp file made with O_EXCL | O_NOFOLLOW; ACL and
     /// extended attributes copied from the file (fcopyfile); exact mode;
     /// then renameat. The temp file is removed on any failure.
+    ///
+    /// renameat replaces a read-only file as long as its folder is
+    /// writable, so the file's own write permission is checked again right
+    /// before it (faccessat, not following a link): a file made read-only
+    /// since the earlier checks throws `ReadOnly` and is left alone
+    /// (release review 0.2.1 M2).
     static func replace(_ data: Data, name: String, in dirfd: Int32, mode: mode_t) throws {
         guard !name.isEmpty, !name.contains("/"), name != ".", name != ".." else { throw CocoaError(.fileWriteInvalidFileName) }
         var st = stat()
@@ -530,6 +542,10 @@ enum TreeWrite {
             ok = fchmod(fd, mode) == 0
         }
         close(fd)
+        if ok, faccessat(dirfd, name, W_OK, AT_SYMLINK_NOFOLLOW) != 0 {
+            unlinkat(dirfd, tmp, 0)
+            throw ReadOnly()
+        }
         guard ok, renameat(dirfd, tmp, dirfd, name) == 0 else {
             unlinkat(dirfd, tmp, 0)
             throw CocoaError(.fileWriteUnknown)
@@ -702,7 +718,8 @@ public final class ReplaceUndoStore: @unchecked Sendable {
                 m.entries[k].restored = true
                 report.restored.append(url)
             } catch {
-                skip(.unwritable)
+                // Made read-only after the check above: the same report as there.
+                skip(error is TreeWrite.ReadOnly ? .readOnly : .unwritable)
                 report.remaining = true
             }
         }
