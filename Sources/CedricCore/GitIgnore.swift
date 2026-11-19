@@ -88,12 +88,18 @@ public final class GitIgnore {
     public init(folder: URL) {
         let start = folder.standardizedFileURL.resolvingSymlinksInPath()
         var repo: URL?
-        var u = start
+        // Walked by path, not URL: on macOS 15 the URL parent of "/" is
+        // "/..", then "/../..", so a URL walk that stops when the parent
+        // equals the child never ends outside a git repo (0.2.0 VM test).
+        var path = start.path
         while true {
-            if FileManager.default.fileExists(atPath: u.appendingPathComponent(".git").path) { repo = u; break }
-            let parent = u.deletingLastPathComponent()
-            if parent.path == u.path { break }
-            u = parent
+            if FileManager.default.fileExists(atPath: (path as NSString).appendingPathComponent(".git")) {
+                repo = URL(fileURLWithPath: path, isDirectory: true)
+                break
+            }
+            let parent = (path as NSString).deletingLastPathComponent
+            if path == "/" || parent.isEmpty || parent.count >= path.count { break }
+            path = parent
         }
         root = repo ?? start
         rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"

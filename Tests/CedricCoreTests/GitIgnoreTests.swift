@@ -151,6 +151,22 @@ import Testing
         #expect(!g.isIgnored(relative: "other", isDirectory: false))
     }
 
+    /// 0.2.0 VM test, macOS 15: a folder with no .git in it or above it
+    /// looped forever (URL parent of "/" is "/.." there). The walk must end
+    /// at "/" and fall back to the folder itself; its .gitignore still applies.
+    @Test(.timeLimit(.minutes(1))) func folderOutsideAnyRepoEndsTheWalk() throws {
+        let root = tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root, ".gitignore", "*.log\n")
+        let g = GitIgnore(folder: root)
+        #expect(g.root.standardizedFileURL.resolvingSymlinksInPath().path
+                == root.standardizedFileURL.resolvingSymlinksInPath().path)
+        #expect(g.isIgnored(relative: "a.log", isDirectory: false))
+        #expect(!g.isIgnored(relative: "a.txt", isDirectory: false))
+        // From "/" itself (no repo above it either).
+        #expect(GitIgnore(folder: URL(fileURLWithPath: "/")).root.path == "/")
+    }
+
     @Test func parsesPatternFlags() {
         let r = GitIgnoreRules("# c\n!/a/b/\n\\#x\nplain\n")
         #expect(r.patterns.count == 3)
