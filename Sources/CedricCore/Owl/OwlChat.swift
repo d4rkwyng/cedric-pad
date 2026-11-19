@@ -415,6 +415,9 @@ public enum OwlTools {
     public static let maxLines = 120
     public static let maxMatches = 20
     public static let maxPatternLength = 200
+    /// A model-written regular expression: shorter, and a time limit on the search.
+    public static let maxRegexLength = 100
+    public static let searchTimeLimit: TimeInterval = 0.5
     /// Tool rounds per question, then the model must answer.
     public static let maxRounds = 3
     /// Calls honoured per round (more are refused).
@@ -494,6 +497,11 @@ public enum OwlTools {
             guard let q = a["query"]?.string, !q.isEmpty else { return fail("search_document needs a query") }
             guard q.count <= maxPatternLength else { return fail("query too long") }
             let regex = a["regex"]?.bool ?? false
+            // The model writes the pattern, and a prompt injection in the
+            // document can ask for a catastrophic one: shorter for a regex,
+            // and the search stops at a time limit with an error the model
+            // can act on (security review 0.2.1).
+            guard !regex || q.count <= maxRegexLength else { return fail("regular expression too long (at most \(maxRegexLength) characters)") }
             let re: NSRegularExpression
             do {
                 re = try NSRegularExpression(pattern: regex ? q : NSRegularExpression.escapedPattern(for: q), options: [.caseInsensitive])
@@ -502,7 +510,12 @@ public enum OwlTools {
             var lines: [Int] = []
             var seen = Set<Int>()
             var total = 0
-            re.enumerateMatches(in: s.text, options: [], range: NSRange(location: 0, length: ns.length)) { m, _, stop in
+            let deadline = Date().addingTimeInterval(searchTimeLimit)
+            var timedOut = false
+            // .reportProgress: called now and then during a long match too,
+            // so a pattern that backtracks forever can be stopped.
+            re.enumerateMatches(in: s.text, options: [.reportProgress], range: NSRange(location: 0, length: ns.length)) { m, _, stop in
+                if Date() > deadline { timedOut = true; stop.pointee = true; return }
                 guard let m else { return }
                 let line = s.lineNumber(at: m.range.location)
                 if seen.insert(line).inserted {
@@ -511,6 +524,7 @@ public enum OwlTools {
                 }
                 if total > 999 { stop.pointee = true }
             }
+            if timedOut { return fail("the search took too long and was stopped; use a plain query or a simpler regular expression") }
             let summary = String(localized: "Searched for “\(String(q.prefix(40)))”")
             guard !lines.isEmpty else { return OwlToolResult(text: "no matches", proposal: nil, summary: summary, ok: true) }
             var body = lines.map { l -> String in
