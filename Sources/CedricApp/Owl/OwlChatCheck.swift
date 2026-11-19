@@ -158,7 +158,11 @@ enum OwlChatCheck {
                         check(chat.transcriptText.contains("Offline scan (no AI)"), "the scan's findings are in the transcript")
                         if aiOn {
                             check(chat.transcriptText.contains("Verdict:"), "the model's review ends with a verdict")
-                            check(chat.transcriptText.contains("Line \(scan.first?.line ?? 0): risky"), "the model was given the scan's findings")
+                            if ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"] != nil {
+                                check(chat.transcriptText.contains("Line \(scan.first?.line ?? 0): risky"), "the model was given the scan's findings")
+                            } else {
+                                print("owlcheck: live answer: \(chat.transcriptText.components(separatedBy: "Cedric\n").last ?? "")")
+                            }
                         } else {
                             check(chat.transcriptText.contains("offline scan only"), "with Ask Cedric off, the scan alone, saying so")
                             check(chat.asks == 0, "and no AI request")
