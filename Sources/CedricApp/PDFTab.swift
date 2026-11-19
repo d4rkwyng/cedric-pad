@@ -6,6 +6,27 @@ import PDFKit
 /// (as on the editor's text).
 final class CedricPDFView: PDFView {
     var onDropFiles: (([URL]) -> Void)?
+    /// A link or action leaving the document (a URL, another file), decided
+    /// by PreviewLinkAction.pdfAction instead of PDFKit, which would hand
+    /// any URL to NSWorkspace in one click.
+    var onLink: ((URL) -> Void)?
+
+    /// PDFKit runs a link annotation's action here: links within the
+    /// document (GoTo), page navigation (Named) and form resets stay
+    /// PDFKit's; a URL or a link to another file goes through the policy;
+    /// anything else (Launch and the like) is dropped.
+    override func perform(_ action: PDFAction) {
+        switch action {
+        case let a as PDFActionURL:
+            if let url = a.url { onLink?(url) }
+        case let a as PDFActionRemoteGoTo:
+            onLink?(a.url)
+        case is PDFActionGoTo, is PDFActionNamed, is PDFActionResetForm:
+            super.perform(action)
+        default:
+            break
+        }
+    }
     /// ⌘= / ⌘- reach the view first: Cedric's steps (25%), not PDFKit's.
     var onZoom: ((_ zoomIn: Bool) -> Void)?
 
@@ -56,6 +77,17 @@ final class CedricPDFView: PDFView {
         guard !urls.isEmpty else { return super.performDragOperation(sender) }
         onDropFiles?(urls)
         return true
+    }
+}
+
+/// PDFKit's link-click hook: its default opens any URL with NSWorkspace.
+/// Ours sends it to the tab's policy instead.
+final class PDFLinkDelegate: NSObject, PDFViewDelegate, Sendable {
+    let follow: @MainActor @Sendable (URL) -> Void
+    init(_ follow: @escaping @MainActor @Sendable (URL) -> Void) { self.follow = follow }
+    func pdfViewWillClick(onLink sender: PDFView, with url: URL) {
+        let follow = follow
+        MainActor.assumeIsolated { follow(url) }
     }
 }
 
@@ -149,6 +181,23 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
     private(set) var passwordAlert: NSAlert?
     /// Open as Text is extracting (off the main thread).
     private(set) var extracting = false
+
+    /// What the last clicked link did (PreviewLinkAction.pdfAction; the check reads it).
+    private(set) var lastLinkAction: PreviewLinkAction?
+    private lazy var linkDelegate = PDFLinkDelegate { [weak self] url in self?.followLink(url) }
+
+    /// A link out of the PDF: web and mail links ask first with the whole
+    /// URL, a file is only shown in Finder, every other scheme is ignored.
+    func followLink(_ url: URL) {
+        let act = PreviewLinkAction.pdfAction(for: url)
+        lastLinkAction = act
+        switch act {
+        case .confirmExternal(let u): LinkPrompt.confirmExternal(u, in: window)
+        case .revealInFinder(let u): PreviewLinkLog.reveal(u)
+        case .openInCedric(let u): PreviewLinkLog.reveal(u) // never for a PDF; reveal at most
+        case .ignore: NSSound.beep()
+        }
+    }
 
     var onChange: ((PDFTabController) -> Void)?
     var onClose: ((PDFTabController) -> Void)?
@@ -267,6 +316,8 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
         v.document = doc
         v.onZoom = { [weak self] zoomIn in zoomIn ? self?.zoomIn(nil) : self?.zoomOut(nil) }
         v.onDropFiles = { urls in for u in urls { (NSApp.delegate as? AppDelegate)?.open(u) } }
+        v.onLink = { [weak self] url in self?.followLink(url) }
+        v.delegate = linkDelegate
         v.registerForDraggedTypes([.fileURL])
         let thumbs = PDFThumbnailView()
         thumbs.pdfView = v

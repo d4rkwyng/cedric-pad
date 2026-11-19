@@ -112,3 +112,47 @@ public enum PreviewLinkAction: Equatable, Sendable {
         return .revealInFinder(file)
     }
 }
+
+extension PreviewLinkAction {
+    /// A link clicked in a PDF: stricter than the Markdown preview's, as a
+    /// PDF has no folder of its own. http, https and mailto ask first; a
+    /// `file:` link is only shown in Finder, never opened (not even a text
+    /// file); every other scheme, `cedric-doc:` included, is ignored.
+    public static func pdfAction(for url: URL, fileManager fm: FileManager = .default) -> PreviewLinkAction {
+        let scheme = url.scheme?.lowercased() ?? ""
+        if externalSchemes.contains(scheme) || url.isFileURL {
+            return action(for: url, folder: nil, isText: { _ in false }, fileManager: fm)
+        }
+        return .ignore(scheme.isEmpty ? "?" : scheme)
+    }
+}
+
+/// Text from outside (a link's path or URL) made safe to show in a prompt:
+/// control characters and the bidirectional overrides and isolates that
+/// could make `~/.ssh/id_ed25519` read as something else are shown as
+/// visible `<U+202E>` escapes instead of acting on the text around them.
+public enum PromptText {
+    static func isHidden(_ s: Unicode.Scalar) -> Bool {
+        switch s.value {
+        case 0x00...0x1F, 0x7F...0x9F: return true          // C0 and C1 controls
+        case 0x200B...0x200F: return true                  // zero-width chars, LRM, RLM
+        case 0x2028...0x202E: return true                  // line/para separators, LRE…RLO
+        case 0x2060...0x206F: return true                  // word joiner, invisible operators, LRI…PDI
+        case 0x061C, 0xFEFF: return true                   // Arabic letter mark, BOM
+        default: return false
+        }
+    }
+
+    public static func visible(_ text: String) -> String {
+        var out = ""
+        out.unicodeScalars.reserveCapacity(text.unicodeScalars.count)
+        for s in text.unicodeScalars {
+            if isHidden(s) {
+                out += String(format: "<U+%04X>", s.value)
+            } else {
+                out.unicodeScalars.append(s)
+            }
+        }
+        return out
+    }
+}

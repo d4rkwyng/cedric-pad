@@ -215,8 +215,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         defer { Self.askingAboutLink = false }
         NSApp.activate(ignoringOtherApps: true)
         let a = NSAlert()
-        // The full path, so a link to ~/.ssh/config reads as exactly that.
-        a.messageText = String(localized: "Open “\(path)” requested by a link?")
+        // The full path, so a link to ~/.ssh/config reads as exactly that;
+        // bidi and control characters shown as escapes so they can't disguise it.
+        let shown = PromptText.visible(path)
+        a.messageText = String(localized: "Open “\(shown)” requested by a link?")
         a.informativeText = String(localized: "Another app or a web page asked OwlInk to open this file. Open it only if you expected this.")
         a.addButton(withTitle: String(localized: "Open"))
         a.addButton(withTitle: String(localized: "Cancel"))

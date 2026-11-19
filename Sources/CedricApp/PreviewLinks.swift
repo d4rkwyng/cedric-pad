@@ -33,10 +33,19 @@ extension EditorWindowController {
     }
 
     private func confirmExternalLink(_ url: URL) {
+        LinkPrompt.confirmExternal(url, in: window)
+    }
+}
+
+/// The "Open this link?" question, shared by the Markdown preview and PDF tabs.
+@MainActor
+enum LinkPrompt {
+    static func confirmExternal(_ url: URL, in window: NSWindow?) {
         let a = NSAlert()
         a.messageText = url.scheme?.lowercased() == "mailto" ? String(localized: "Write an email?") : String(localized: "Open this link?")
-        // The whole URL, so a misleading link text can't hide where it goes.
-        a.informativeText = url.absoluteString
+        // The whole URL, so a misleading link text can't hide where it goes
+        // (bidi and control characters shown as escapes).
+        a.informativeText = PromptText.visible(url.absoluteString)
         a.addButton(withTitle: String(localized: "Open"))
         a.addButton(withTitle: String(localized: "Cancel"))
         let open: (NSApplication.ModalResponse) -> Void = { r in
