@@ -4,6 +4,16 @@ All notable changes to OwlInk. The format follows [Keep a Changelog](https://kee
 and OwlInk uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
+## [0.2.0]
+
+### Added
+- **Replace in Files** (in progress).
+- **Folder sidebar** (in progress).
+- **Multiple carets and column selection** (in progress).
+
+### Known gaps
+- Code folding and split view come in 0.3.0.
+
 ## [0.1.2]
 
 ### Changed
@@ -73,6 +83,7 @@ spirit of Notepad++. Universal (Apple silicon and Intel), signed with Developer 
 - Two portable modules (CedricCore, CedricAI: Foundation only, no AppKit) and the AppKit app. llama.cpp is a pinned SwiftPM binary target (release b12360, checksum-verified), copied into `Contents/Frameworks`.
 - Releases: `Scripts/release.sh` builds universal, signs `llama.framework` and then the app with the hardened runtime and no entitlements, checks both carry the same Team ID, real-launches the signed app, notarizes, staples and zips; `.github/workflows/release.yml` runs it on a `v*` tag (a `-rcN` suffix makes a draft prerelease) and keeps Apple's notary log as a workflow artifact. `.github/workflows/tests.yml` runs the tests on pushes and pull requests with Swift 6.1. The version lives in one place, `CedricVersion.source`; the release refuses a build whose Info.plist, `CEDRIC_VERSION` or tag disagree with it.
 
+[0.2.0]: https://github.com/d4rkwyng/owlink/releases/tag/v0.2.0
 [0.1.2]: https://github.com/d4rkwyng/owlink/releases/tag/v0.1.2
 [0.1.1]: https://github.com/d4rkwyng/owlink/releases/tag/v0.1.1
 [0.1.0]: https://github.com/d4rkwyng/owlink/releases/tag/v0.1.0
