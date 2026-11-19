@@ -96,6 +96,8 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Open…"), #selector(AppDelegate.openDocument(_:)), "o"),
         // Filled by AppDelegate.rebuildRecentMenu from the system recent-documents list.
         submenu(AppDelegate.recentMenuTitle, []),
+        // The folder sidebar (FolderSidebar.swift).
+        item(String(localized: "Open Folder…"), #selector(AppDelegate.openFolderMenu(_:)), "o", [.command, .shift]),
         // A PDF tab's text in a new editable tab (PDFTab.swift).
         item(String(localized: "Open as Text"), #selector(PDFTabController.openAsText(_:))),
         // Viewer tabs: the file in its default app ("Open in Default App"; ViewerTabs.swift).
@@ -140,9 +142,24 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Copy as Rich Text"), #selector(AppDelegate.copyAsRichTextMenu(_:))),
         item(String(localized: "Paste"), #selector(NSText.paste(_:)), "v"),
         item(String(localized: "Select All"), #selector(NSText.selectAll(_:)), "a"),
+        // Multiple carets and column selection (MultiCaretEditing.swift).
+        submenu(String(localized: "Selection"), [
+            item(String(localized: "Add Next Occurrence"), #selector(AppDelegate.addNextOccurrenceMenu(_:)), "d"),
+            item(String(localized: "Select All Occurrences"), #selector(AppDelegate.selectAllOccurrencesMenu(_:)), "g", [.control, .command]),
+            .separator(),
+            item(String(localized: "Add Caret Above"), #selector(AppDelegate.addCaretAboveMenu(_:)),
+                 String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), [.control, .shift]),
+            item(String(localized: "Add Caret Below"), #selector(AppDelegate.addCaretBelowMenu(_:)),
+                 String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .shift]),
+            // ⎋ while there are 2 or more carets (no key equivalent here: see MultiCaretEditing.swift).
+            item(String(localized: "Single Caret"), #selector(AppDelegate.singleCaretMenu(_:))),
+        ]),
         .separator(),
         submenu(String(localized: "Find"), findItems),
         item(String(localized: "Find in Files…"), #selector(AppDelegate.findInFilesMenu(_:)), "f", [.command, .shift]),
+        // Replace in Files (ReplaceInFiles+App.swift).
+        item(String(localized: "Replace in Files…"), #selector(AppDelegate.replaceInFilesMenu(_:)), "f", [.command, .option, .shift]),
+        item(String(localized: "Undo Replace in Files"), #selector(AppDelegate.undoReplaceInFilesMenu(_:))),
         item(String(localized: "Go to Line…"), #selector(AppDelegate.goToLine(_:)), "l"),
         item(String(localized: "Go to Heading…"), #selector(AppDelegate.goToHeadingMenu(_:)), "j", [.command, .shift]),
         .separator(),
@@ -194,6 +211,7 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Allow JavaScript in Preview"), #selector(AppDelegate.togglePreviewJavaScript(_:))),
         item(String(localized: "Allow Network in Preview"), #selector(AppDelegate.togglePreviewNetwork(_:))),
         item(String(localized: "Show Outline"), #selector(AppDelegate.toggleOutlineMenu(_:)), "o", [.control, .command]),
+        item(String(localized: "Show Folder Sidebar"), #selector(AppDelegate.toggleFolderSidebarMenu(_:)), "1", [.control, .command]),
         .separator(),
         // ⌥⌘Z, not bare ⌥Z: that types Ω (and other letters on other keyboards).
         item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.command, .option]),

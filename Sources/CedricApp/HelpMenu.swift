@@ -36,6 +36,15 @@ enum MenuShortcuts {
         if let menu { walk(menu, "") }
         return out
     }
+
+    /// Shortcuts that aren't menu key equivalents (mouse gestures, and ⎋,
+    /// which stays the text view's unless there are several carets):
+    /// listed after the menus' in Help › Keyboard Shortcuts.
+    static let extraRows: [(String, String)] = [
+        ("⌥-drag", String(localized: "Edit › Selection: column selection")),
+        ("⌘-click", String(localized: "Edit › Selection: add or remove a caret")),
+        ("⎋", String(localized: "Edit › Selection › Single Caret (with several carets)")),
+    ]
 }
 
 /// Help › OwlInk Help (the manual, docs/MANUAL.md on GitHub) and Help › Keyboard
@@ -50,7 +59,7 @@ extension AppDelegate {
 
     @objc func showKeyboardShortcuts(_ sender: Any?) {
         if let w = ShortcutsWindow.shared { w.makeKeyAndOrderFront(nil); return }
-        let rows = MenuShortcuts.list()
+        let rows = MenuShortcuts.list() + MenuShortcuts.extraRows
         let width = rows.map(\.0.count).max() ?? 4
         let body = rows.map { k, p in k.padding(toLength: max(width, 6) + 2, withPad: " ", startingAt: 0) + p }.joined(separator: "\n")
         let w = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 560),

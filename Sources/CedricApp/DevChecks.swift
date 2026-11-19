@@ -8,7 +8,7 @@ import CedricCore
 /// responder chain), checks the result, writes PNG snapshots and exits 0
 /// (all passed) or 1. Scripts/tools-check.sh runs them all.
 ///
-///   CEDRIC_CHECK=texttool|findinfiles|compare|follow|recent|large
+///   CEDRIC_CHECK=texttool|findinfiles|compare|follow|recent|large|replaceinfiles|folder|multicaret|…
 ///   CEDRIC_CHECK_OUT=/dir      where snapshots go (default: the temp folder)
 @MainActor
 enum DevChecks {
@@ -215,6 +215,9 @@ enum DevChecks {
         case "recent": recent(app)
         case "large": largeDocument(app)
         case "git": gitCheck(app)
+        case "replaceinfiles": replaceInFilesCheck(app)
+        case "folder": folderCheck(app)
+        case "multicaret": multiCaretCheck(app)
         default:
             if !editingCheck(name, app), !pdfCheck(name, app), !imageCheck(name, app), !binaryCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
         }
@@ -588,6 +591,8 @@ enum DevChecks {
         let reserved: [String: String] = [
             "⌃⌘Q": "Lock Screen", "⌃⌘D": "Look Up", "⌃⌘␣": "Emoji & Symbols", "⌥⌘D": "Dock hiding", "⌘␣": "Spotlight",
             "⌥⌘⎋": "Force Quit", "⇧⌘3": "Screenshot", "⇧⌘4": "Screenshot", "⇧⌘5": "Screenshot", "⌘⇥": "App switcher",
+            // Mission Control and App Exposé (default settings); ⌃⇧↑/↓ (Add Caret Above/Below) stay free.
+            "⌃↑": "Mission Control", "⌃↓": "App Exposé",
         ]
         for (k, p) in MenuShortcuts.list() {
             print(String(format: "shortcut %-8@ %@", k as NSString, p as NSString))

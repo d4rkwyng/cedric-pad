@@ -817,7 +817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(useSelectionForFind(_:)),
              #selector(printDocument(_:)):
             return tab != nil
-        default: return validateGitItem(item) ?? validateMarkdownItem(item) ?? validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
+        default: return validateReplaceInFilesItem(item) ?? validateFolderItem(item) ?? validateMultiCaretItem(item) ?? validateGitItem(item) ?? validateMarkdownItem(item) ?? validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
         }
         return true
     }

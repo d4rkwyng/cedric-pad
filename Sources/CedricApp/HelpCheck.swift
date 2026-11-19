@@ -26,7 +26,8 @@ extension DevChecks {
                 expect(w?.isVisible == true, "Keyboard Shortcuts opens a window")
                 expect(text.contains("⇧⌘T") && text.contains("File › Reopen Closed Tab") && text.contains("⌘S"),
                        "listing the menus' shortcuts", String(text.prefix(120)))
-                expect(text.split(separator: "\n").count == MenuShortcuts.list().count, "every one of them")
+                expect(text.split(separator: "\n").count == MenuShortcuts.list().count + MenuShortcuts.extraRows.count,
+                       "every one of them, and the non-menu ones (⌥-drag, ⌘-click, ⎋)")
             },
             { next in snapshot("keyboard-shortcuts.png", window: ShortcutsWindow.shared)(next) },
         ])
