@@ -22,6 +22,7 @@ are its section below (`Scripts/changelog-section.sh`).
 - **Ask Cedric no longer says an SVG has no picture.** He is told the file is an SVG image whose picture the preview shows, and that he sees only its XML, so asked what it shows he says he can't see the rendered image and describes what the code draws. (Seeing pictures comes in 0.3.0.)
 - **Undo Replace in Files can always be tried again.** If the backup copy of a file couldn't be read (missing, no permission, or not matching the original), Undo used to mark the replace as undone and offer no retry. Now the file is left as the replace wrote it, the message names it and says why ("backup copy unreadable: permission denied"), and Edit › Undo Replace in Files stays available.
 - **Undo Replace in Files from the Edit menu with the Find in Files panel hidden** now shows its progress and then its result in a bar at the top of the tab.
+- **The `cedric` command no longer asks "Open … requested by a link?" when `TMPDIR` is set to another folder** (as in Nix shells or some tmux setups). It now hands files over in your own temp folder, wherever `TMPDIR` points.
 - **Dragging the Ask Cedric panel is smooth.** It was a child window of the editor and trailed the pointer by one mouse event all the way (measured with real mouse drags on macOS 26); it is now a floating panel of its own that keeps up with the pointer. It no longer moves with the editor window, and it hides when you switch to another tab and comes back with its tab.
 
 ### Security
@@ -35,8 +36,9 @@ Fixes from a security review of 0.2.0. None needs anything from you; the details
 - **Replace in Files and its undo write through the folders they checked.** A folder swapped for a link to somewhere else while a replace runs makes that file's write fail instead of landing outside the searched folder.
 - **Unsaved text and Replace in Files' copies are kept out of Time Machine**, and a closed tab's unsaved text is now deleted 30 days after closing (at most 100 such tabs). The manual has a new Privacy section saying what Owlink keeps.
 - **The `cedric` command's token is no longer on the command line**, where other users of the Mac could see it, and Owlink makes a new one at every launch.
-- **A downloaded AI model's checksum is checked again** before it is first loaded and whenever the file changes; one that doesn't match isn't loaded.
-- **Copied and exported HTML loses every script handler**, including ones written without a space before them.
+- **A downloaded AI model's checksum is checked again** before it is first loaded and whenever the file changes, including a change that sets its modification date back; one that doesn't match isn't loaded.
+- **Copied and exported HTML loses every script handler**, including ones written without a space before them, and every `javascript:` or `vbscript:` link, however it is written or encoded.
+- **Replace in Files and its undo skip a file made read-only while they run**, and say so, instead of writing over it.
 - **The "Open … requested by a link?" question shows hidden and direction-changing characters as codes**, so a path can't pretend to be another.
 - An unused library search path was dropped from the app.
 
