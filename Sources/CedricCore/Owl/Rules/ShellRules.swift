@@ -153,6 +153,24 @@ enum ShellRules {
     static let notAssignments: Set<String> = ["echo", "printf", "print", "expr", "test", "set", "read", "local", "export", "declare",
                                               "typeset", "readonly", "alias", "let", "eval"]
 
+    static let callParen = try! NSRegularExpression(pattern: #"(^|[^$])\("#)
+
+    /// `$name` or `${name` in the text, not `$names`.
+    static func isUsed(_ name: String, in s: NSString) -> Bool {
+        for prefix in ["$", "${"] {
+            var from = 0
+            while from < s.length {
+                let r = s.range(of: prefix + name, options: .literal, range: NSRange(location: from, length: s.length - from))
+                guard r.location != NSNotFound else { break }
+                let e = NSMaxRange(r)
+                if e >= s.length { return true }
+                guard let u = UnicodeScalar(s.character(at: e)), CharacterSet.alphanumerics.contains(u) || u == "_" else { return true }
+                from = e
+            }
+        }
+        return false
+    }
+
     static let assignmentSpaces = LintRule(assignSpacesID, applies: shell) { input in
         let code = input.codeNS
         guard code.range(of: "=").location != NSNotFound else { return nil }
@@ -170,11 +188,11 @@ enum ShellRules {
             let lineEnd = RulesHintProvider.lineRange(input.lines, containing: w[1].location).map(NSMaxRange) ?? cmd.end
             let rest = code.substring(with: NSRange(location: w[1].location, length: max(cmd.end, lineEnd) - w[1].location))
                 .trimmingCharacters(in: .whitespaces)
-            if rest.range(of: #"(^|[^$])\("#, options: .regularExpression) != nil || rest.hasSuffix(";") || rest.hasSuffix("{") { continue }
+            if rest.hasSuffix(";") || rest.hasSuffix("{") || callParen.firstMatch(in: rest, range: NSRange(location: 0, length: (rest as NSString).length)) != nil { continue }
             // A shell variable is meant to be used: `$NAME` or `${NAME` somewhere.
             // (Python or awk that a window shows as code never says $name.)
             // (`$NAME`, not `$NAMES`; a Python set or dict `NAME = {…}` isn't shell.)
-            guard input.string.range(of: "\\$\\{?" + name + "(?![A-Za-z0-9_])", options: .regularExpression) != nil,
+            guard isUsed(name, in: input.text),
                   !rest.dropFirst().trimmingCharacters(in: .whitespaces).hasPrefix("{"),
                   !rest.dropFirst().trimmingCharacters(in: .whitespaces).hasPrefix("[") else { continue }
             // From the end of the name to the start of the value: no spaces.
