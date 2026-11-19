@@ -16,12 +16,14 @@ public struct FileSearchOptions: Sendable {
     public var exclude: [String]
     public var maxResults: Int
     public var maxFileSize: Int
+    /// Skip what the tree's .gitignore files (and .git/info/exclude) ignore.
+    public var respectGitIgnore: Bool
 
     public static let defaultExclude = [".git", "node_modules", "build", "dist"]
 
     public init(root: URL, query: String, regex: Bool = false, caseSensitive: Bool = false,
                 include: [String] = [], exclude: [String] = FileSearchOptions.defaultExclude,
-                maxResults: Int = 10_000, maxFileSize: Int = 20 * 1024 * 1024) {
+                maxResults: Int = 10_000, maxFileSize: Int = 20 * 1024 * 1024, respectGitIgnore: Bool = false) {
         self.root = root
         self.query = query
         self.regex = regex
@@ -30,6 +32,7 @@ public struct FileSearchOptions: Sendable {
         self.exclude = exclude
         self.maxResults = maxResults
         self.maxFileSize = maxFileSize
+        self.respectGitIgnore = respectGitIgnore
     }
 
     /// "*.swift, *.md;*.txt" → ["*.swift", "*.md", "*.txt"].
@@ -49,6 +52,11 @@ public struct FileSearchResult: Sendable, Equatable {
     public var text: String
     /// The matches within `text`.
     public var ranges: [NSRange]
+    /// Every match on the line, in UTF-16 offsets into the whole decoded
+    /// file (line endings normalised to LF, BOM dropped).
+    public var matchRanges: [NSRange] = []
+    /// The file's modification date and size when it was searched.
+    public var stamp: DiskStamp?
 }
 
 public struct FileSearchSummary: Sendable, Equatable {
@@ -106,29 +114,30 @@ public final class FileSearch: @unchecked Sendable {
         var summary = FileSearchSummary()
         let root = options.root.standardizedFileURL.resolvingSymlinksInPath()
         let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        let ignore = options.respectGitIgnore ? GitIgnore(folder: root) : nil
         guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys, options: [],
                                                           errorHandler: { _, _ in true }) else { return summary }
         // Collect first and sort, so results come in a stable order (the
         // enumerator's order is the file system's).
-        var files: [(URL, String, Int)] = []
+        var files: [(URL, String, Int, Date?)] = []
         while let obj = walker.nextObject() {
             if isCancelled { summary.cancelled = true; return summary }
             guard let url = obj as? URL else { continue }
             let path = url.resolvingSymlinksInPath().path
             let rel = path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count)) : url.lastPathComponent
             guard let v = try? url.resourceValues(forKeys: Set(keys)) else { continue }
-            if isExcluded(rel) {
+            if isExcluded(rel) || ignore?.isIgnored(URL(fileURLWithPath: path), isDirectory: v.isDirectory == true) == true {
                 if v.isDirectory == true { walker.skipDescendants() }
                 continue
             }
             guard v.isRegularFile == true, v.isSymbolicLink != true else { continue }
             guard isIncluded(rel) else { continue }
-            files.append((url, rel, v.fileSize ?? 0))
+            files.append((url, rel, v.fileSize ?? 0, v.contentModificationDate))
         }
         files.sort { $0.1.localizedStandardCompare($1.1) == .orderedAscending }
 
-        for (url, rel, size) in files {
+        for (url, rel, size, modified) in files {
             if isCancelled { summary.cancelled = true; break }
             if size > options.maxFileSize { summary.skippedLarge += 1; continue }
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { continue }
@@ -151,8 +160,12 @@ public final class FileSearch: @unchecked Sendable {
                 fileHit = true
                 // All matches on this line, relative to the line.
                 var ranges: [NSRange] = []
+                var fileRanges: [NSRange] = []
                 re.enumerateMatches(in: decoded.text, range: content) { mm, _, _ in
-                    if let rr = mm?.range, rr.length > 0 { ranges.append(NSRange(location: rr.location - content.location, length: rr.length)) }
+                    if let rr = mm?.range, rr.length > 0 {
+                        fileRanges.append(rr)
+                        ranges.append(NSRange(location: rr.location - content.location, length: rr.length))
+                    }
                 }
                 var lineText = text.substring(with: content)
                 var shift = 0
@@ -167,7 +180,8 @@ public final class FileSearch: @unchecked Sendable {
                     }
                 }
                 found(FileSearchResult(url: url, relativePath: rel, line: line + 1, column: r.location - content.location + 1,
-                                       text: lineText, ranges: ranges))
+                                       text: lineText, ranges: ranges, matchRanges: fileRanges,
+                                       stamp: DiskStamp(modified: modified, size: size)))
                 summary.results += 1
                 if summary.results >= self.options.maxResults { summary.truncated = true; stop = true; flag.pointee = true }
                 if summary.results % 256 == 0, self.isCancelled { stop = true; flag.pointee = true }
