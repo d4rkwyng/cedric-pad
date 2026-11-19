@@ -212,6 +212,9 @@ enum OwlChatCheck {
         check(f.isLive, "the panel's owl is on screen with the panel")
         check(f.moodLog.contains(.wave), "he waves when the panel opens (\(f.moodLog))")
         check(f.superview != nil && f.window === chat.panel, "he sits in the panel's header")
+        // 0.2.1: the panel is a floating panel of its own, not a child window.
+        check(chat.panel.parent == nil && chat.panel.isFloatingPanel && tab.window?.childWindows?.contains(chat.panel) != true,
+              "the panel he sits in floats on its own, not as a child of the editor window")
         OwlCheck.snapshot(chat.panel, "\(out)/chat-owl-0-wave.png") {
             after(1.2) {
                 check(f.mood == .idle && f.blinkScheduled, "the wave settles to idle, with a blink scheduled")
