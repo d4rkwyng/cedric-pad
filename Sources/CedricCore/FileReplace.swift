@@ -57,6 +57,9 @@ public enum ReplaceSkip: String, Sendable, Codable, CaseIterable {
     case changedSinceSearch, changedSincePreview, changedSinceReplace
     case unreadable, unwritable, outsideFolder, symbolicLink, hardLinked, readOnlyTab
     case readOnly, encodingUncertain, insideGit
+    /// Undo: the backup copy of the original couldn't be read, or isn't
+    /// what was backed up. The operation stays open for another try.
+    case backupUnreadable
 
     public var summary: String {
         switch self {
@@ -77,6 +80,7 @@ public enum ReplaceSkip: String, Sendable, Codable, CaseIterable {
         case .readOnly: return String(localized: "read-only")
         case .encodingUncertain: return String(localized: "encoding uncertain")
         case .insideGit: return String(localized: "inside .git")
+        case .backupUnreadable: return String(localized: "backup copy unreadable")
         }
     }
 }
@@ -85,12 +89,19 @@ public struct SkippedFile: Sendable, Equatable {
     public var url: URL
     public var relativePath: String
     public var reason: ReplaceSkip
+    /// Why, when the reason alone doesn't say (the error behind
+    /// `backupUnreadable`).
+    public var detail: String?
 
-    public init(url: URL, relativePath: String, reason: ReplaceSkip) {
+    public init(url: URL, relativePath: String, reason: ReplaceSkip, detail: String? = nil) {
         self.url = url
         self.relativePath = relativePath
         self.reason = reason
+        self.detail = detail
     }
+
+    /// "backup copy unreadable: permission denied", or the reason alone.
+    public var why: String { detail.map { "\(reason.summary): \($0)" } ?? reason.summary }
 }
 
 /// What a planned file looked like on disk at preview time.
@@ -556,7 +567,8 @@ public final class ReplaceUndoStore: @unchecked Sendable {
         public var restored: [URL] = []
         public var skipped: [SkippedFile] = []
         /// Files left to restore that a later undo may still put back
-        /// (read-only now, or the write failed): the operation stays
+        /// (read-only now, the write failed, or the backup copy couldn't
+        /// be read): the operation stays
         /// undoable. False when everything was decided.
         public var remaining = false
     }
@@ -565,7 +577,8 @@ public final class ReplaceUndoStore: @unchecked Sendable {
     /// replace wrote, decided from its SHA-256 (not the manifest's written
     /// flag, which a crash mid-replace never saved): a file still holding
     /// the original needs nothing; one changed since is skipped and
-    /// reported, as is one now read-only (left to a later undo). The
+    /// reported, as is one now read-only or whose backup copy can't be
+    /// read (both left to a later undo, with the reason). The
     /// operation is marked undone only when nothing is left to retry.
     /// Reads, hashes and writes files: call it off the main thread;
     /// `progress(done, total)` after each file.
@@ -596,8 +609,17 @@ public final class ReplaceUndoStore: @unchecked Sendable {
                 continue
             }
             if access(e.path, W_OK) != 0 { skip(.readOnly); report.remaining = true; continue }
-            guard let original = try? Data(contentsOf: dir.appendingPathComponent(e.backup)),
-                  FileReplace.sha256(original).sha256Hex == e.originalSHA256 else { skip(.unreadable); continue }
+            // The copy of the original: if it can't be read (moved, permissions,
+            // a disk error) or isn't what was backed up, the file stays as the
+            // replace left it, and so does the operation, for another try.
+            let original: Data
+            switch Self.readBackup(dir.appendingPathComponent(e.backup), sha256: e.originalSHA256) {
+            case .success(let d): original = d
+            case .failure(let why):
+                report.skipped.append(SkippedFile(url: url, relativePath: url.lastPathComponent, reason: .backupUnreadable, detail: why.text))
+                report.remaining = true
+                continue
+            }
             do {
                 try FileReplace.atomicWrite(original, to: url, mode: st.st_mode & 0o7777)
                 m.entries[k].restored = true
@@ -611,6 +633,27 @@ public final class ReplaceUndoStore: @unchecked Sendable {
         let op = Operation(dir: dir, manifest: m)
         try? op.save()
         return report
+    }
+
+    struct BackupError: Error { var text: String }
+
+    /// The backup copy at `url`, if it reads and matches `sha256`; or why not.
+    static func readBackup(_ url: URL, sha256: String) -> Result<Data, BackupError> {
+        let data: Data
+        do { data = try Data(contentsOf: url) } catch {
+            let ns = error as NSError
+            let posix = (ns.userInfo[NSUnderlyingErrorKey] as? NSError).flatMap { $0.domain == NSPOSIXErrorDomain ? Int32($0.code) : nil }
+            switch posix ?? (ns.code == NSFileReadNoSuchFileError ? ENOENT : ns.code == NSFileReadNoPermissionError ? EACCES : 0) {
+            case ENOENT: return .failure(BackupError(text: String(localized: "missing")))
+            case EACCES, EPERM: return .failure(BackupError(text: String(localized: "permission denied")))
+            case 0: return .failure(BackupError(text: ns.localizedDescription))
+            case let code: return .failure(BackupError(text: String(cString: strerror(code)).lowercased()))
+            }
+        }
+        guard FileReplace.sha256(data).sha256Hex == sha256 else {
+            return .failure(BackupError(text: String(localized: "doesn’t match the original")))
+        }
+        return .success(data)
     }
 
     /// At launch (the app runs it off the main thread, after the first

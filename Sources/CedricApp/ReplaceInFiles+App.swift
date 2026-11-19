@@ -47,7 +47,7 @@ enum ReplaceInFiles {
 
     static func skippedText(_ s: [SkippedFile]) -> String {
         guard !s.isEmpty else { return "" }
-        let parts = s.prefix(4).map { "\($0.relativePath) (\($0.reason.summary))" }
+        let parts = s.prefix(4).map { "\($0.relativePath) (\($0.why))" }
         return " " + String(localized: "Skipped: \(parts.joined(separator: ", "))\(s.count > 4 ? "…" : "").")
     }
 }
@@ -237,7 +237,11 @@ extension AppDelegate {
         var s = restored.count == 1 ? String(localized: "Undid Replace in Files in 1 file.")
             : String(localized: "Undid Replace in Files in \(restored.count) files.")
         s += ReplaceInFiles.skippedText(skipped)
-        if ReplaceInFiles.last != nil { s += " " + String(localized: "Undo again once those files can be written.") }
+        if ReplaceInFiles.last != nil {
+            s += " " + (skipped.contains { $0.reason == .backupUnreadable }
+                ? String(localized: "Those files are unchanged; Undo Replace in Files stays available to try again.")
+                : String(localized: "Undo again once those files can be written."))
+        }
         trace("replace in files: \(s)")
         done(s)
     }

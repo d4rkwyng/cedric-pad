@@ -362,6 +362,64 @@ import Testing
         #expect(store.manifest(id)?.undone == true)
     }
 
+    @Test func undoWithAnUnreadableBackupKeepsTheOperationOpenAndSaysWhy() throws {
+        let root = try dir()
+        let undoDir = root.appendingPathComponent(".undo")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: undoDir)
+        let a = try put(root, "a.txt", Data("owl a\n".utf8))
+        let b = try put(root, "b.txt", Data("owl b\n".utf8))
+        let c = try put(root, "c.txt", Data("owl c\n".utf8))
+        let (_, report) = try replaceAll(ReplaceQuery(query: "owl", template: "hoot"), root: root, [a, b, c], store: store)
+        let id = try #require(report.operation)
+        let m = try #require(store.manifest(id))
+        let opDir = undoDir.appendingPathComponent(id.uuidString)
+        func backup(_ u: URL) throws -> URL {
+            opDir.appendingPathComponent(try #require(m.entries.first { $0.path == u.standardizedFileURL.path }).backup)
+        }
+        // a's copy can't be read, b's is gone, c's is intact.
+        let aBackup = try backup(a), bBackup = try backup(b)
+        let bBytes = try Data(contentsOf: bBackup)
+        chmod(aBackup.path, 0o000)
+        defer { chmod(aBackup.path, 0o600) }
+        try FileManager.default.removeItem(at: bBackup)
+        let u = store.undo(id)
+        #expect(u.restored.map(\.lastPathComponent) == ["c.txt"])
+        #expect(u.remaining, "files left unrestored must keep the operation undoable")
+        #expect(store.manifest(id)?.undone == false, "undo marked done while backups couldn't be read")
+        let why = Dictionary(uniqueKeysWithValues: u.skipped.map { ($0.relativePath, $0) })
+        #expect(why["a.txt"]?.reason == .backupUnreadable && why["a.txt"]?.why == "backup copy unreadable: permission denied")
+        #expect(why["b.txt"]?.reason == .backupUnreadable && why["b.txt"]?.why == "backup copy unreadable: missing")
+        #expect(try Data(contentsOf: a) == Data("hoot a\n".utf8) && Data(contentsOf: b) == Data("hoot b\n".utf8))
+        // The copies readable again: Undo again puts the rest back and closes the operation.
+        chmod(aBackup.path, 0o600)
+        try bBytes.write(to: bBackup)
+        let again = store.undo(id)
+        #expect(Set(again.restored.map(\.lastPathComponent)) == ["a.txt", "b.txt"] && again.skipped.isEmpty && !again.remaining)
+        #expect(try Data(contentsOf: a) == Data("owl a\n".utf8) && Data(contentsOf: b) == Data("owl b\n".utf8))
+        #expect(store.manifest(id)?.undone == true)
+    }
+
+    @Test func undoWithADamagedBackupLeavesTheFileAndCanBeRetried() throws {
+        let root = try dir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ReplaceUndoStore(root: root.appendingPathComponent(".undo"))
+        let a = try put(root, "a.txt", Data("owl a\n".utf8))
+        let (_, report) = try replaceAll(ReplaceQuery(query: "owl", template: "hoot"), root: root, [a], store: store)
+        let id = try #require(report.operation)
+        let e = try #require(store.manifest(id)?.entries.first)
+        let copy = root.appendingPathComponent(".undo").appendingPathComponent(id.uuidString).appendingPathComponent(e.backup)
+        let good = try Data(contentsOf: copy)
+        try Data("garbage\n".utf8).write(to: copy)
+        let u = store.undo(id)
+        #expect(u.restored.isEmpty && u.remaining)
+        #expect(u.skipped.first?.why == "backup copy unreadable: doesn’t match the original")
+        #expect(try Data(contentsOf: a) == Data("hoot a\n".utf8), "a damaged copy must never be written over the file")
+        try good.write(to: copy)
+        #expect(store.undo(id).restored.map(\.lastPathComponent) == ["a.txt"])
+        #expect(try Data(contentsOf: a) == Data("owl a\n".utf8))
+    }
+
     @Test func utf8WithAStrayByteIsEncodingUncertain() throws {
         let root = try dir()
         defer { try? FileManager.default.removeItem(at: root) }
