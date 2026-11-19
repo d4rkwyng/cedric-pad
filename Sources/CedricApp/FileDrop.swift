@@ -3,6 +3,7 @@ import AppKit
 /// Files and folders dropped on a window. A file opens in a tab and a
 /// folder in the folder sidebar, both through `AppDelegate.open`, as when
 /// they are dropped on the Dock icon.
+@MainActor
 enum FileDrop {
     /// The existing file and folder URLs a drag carries.
     static func urls(_ info: NSDraggingInfo) -> [URL] {
@@ -10,7 +11,7 @@ enum FileDrop {
         return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
-    @MainActor static func open(_ urls: [URL]) {
+    static func open(_ urls: [URL]) {
         for u in urls { (NSApp.delegate as? AppDelegate)?.open(u) }
     }
 }
