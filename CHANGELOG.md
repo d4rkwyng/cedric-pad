@@ -13,6 +13,7 @@ are its section below (`Scripts/changelog-section.sh`).
 ### Changed
 - **About OwlInk** shows the version (without a build number), who made it, a link to github.com/d4rkwyng/owlink, the BSD-2-Clause licence, credits for llama.cpp (MIT) and the AI models (downloaded on request, each under its own licence), a note that Cedric the owl is a fan's tribute and OwlInk is not affiliated with or endorsed by Sierra or its successors, and © 2026 d4rkwyng.
 - **Help menu:** OwlInk Help opens the manual for the version you have (a release opens it at its tag), and there are new OwlInk on GitHub and Report an Issue… items.
+- **View › Preview menu** with the preview bar's actions and shortcuts: Show Preview ⌥⌘P, Detach Preview ⇧⌥⌘P, Refresh Preview ⌥⌘R, Sync Scrolling, Zoom In Preview ⌥⌘=, Zoom Out Preview ⌥⌘−, Restore File Order (CSV), Export as HTML / PDF, Allow JavaScript and Allow Network, each enabled when the bar's button is. Show and Detach Preview moved there from the top of the View menu.
 - **Status bar zoom** ("110%") is a menu: Zoom In ⌘+, Zoom Out ⌘−, Actual Size ⌘0 and 75 % to 200 %. With the preview docked, the editor's status items stay under the editor instead of running under the preview.
 
 ## [0.2.0]

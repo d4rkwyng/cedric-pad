@@ -390,14 +390,18 @@ menu toggles still work and the window follows them).
 
 ### Live preview
 
-**Live preview** for Markdown and HTML, side by side (View › Show Preview,
-⌥⌘P). JavaScript and network access in the preview are **off** by default
+**Live preview** for Markdown and HTML, side by side (View › Preview ›
+Show Preview, ⌥⌘P). JavaScript and network access in the preview are **off** by default
 and can be turned on per tab (View menu, or the preview bar). A compact
 **preview bar** across the top of the preview (and of a detached
 preview's window) has Refresh, Sync Scrolling on/off, Zoom − / +,
 Export ▸ HTML / PDF (Markdown), Allow JavaScript, Allow Network and
 Detach / Attach; for CSV, the row count and Unsort (back to file order).
 It follows the theme; every button has a tooltip and a VoiceOver label.
+The same actions are in the **View › Preview** menu, enabled when the
+bar's button is: Refresh Preview (⌥⌘R), Sync Scrolling, Zoom In Preview
+(⌥⌘=), Zoom Out Preview (⌥⌘−), Restore File Order (CSV), Export as HTML
+/ PDF, Allow JavaScript, Allow Network and Detach / Attach Preview.
 A link in the preview never
 launches anything: web and mail links open only after you confirm the
 full URL, a text file in the document's folder opens in a tab, any
@@ -577,7 +581,7 @@ A PEM file (`.pem` `.crt` `.cer` `.csr`, or any text
 with a `-----BEGIN CERTIFICATE-----` block) opens in the editor with a
 compact **Certificate** panel beside it. The text stays whole and
 editable (⌘A ⌘C copies it exactly); the panel never replaces it, and
-View › Show Preview (⌥⌘P) closes it, which is remembered for the next
+View › Preview › Show Preview (⌥⌘P) closes it, which is remembered for the next
 certificate file until it is shown again. The panel lists each certificate in the file, in order, with an **Expired** /
 **Expires in N days** badge and its subject, issuer, validity, other
 names (SANs), whether it is a CA, key usage, what it is used for, public

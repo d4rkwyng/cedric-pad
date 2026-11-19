@@ -95,6 +95,31 @@ extension DevChecks {
                        tab.previewPane?.header.appearance?.name.rawValue ?? "-")
             },
             waitForPreview(tab, contains: "Part 3", "the preview shows the document"),
+            sync {
+                // 0.2.1: the bar is on screen, and View › Preview has its actions.
+                tab.window?.layoutIfNeeded()
+                if let header = tab.previewPane?.header, let content = tab.window?.contentView {
+                    let f = header.convert(header.bounds, to: content)
+                    expect(!header.isHidden && header.window != nil && f.height >= PreviewPane.headerHeight - 1
+                           && content.bounds.contains(f.insetBy(dx: 1, dy: 1)), "the preview bar is visible in the window", "\(f)")
+                } else { expect(false, "the preview bar is visible in the window", "no header") }
+                let view = NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu
+                let preview = view?.items.first { $0.title == "Preview" }?.submenu
+                let titles = preview?.items.map(\.title).filter { !$0.isEmpty } ?? []
+                expect(["Show Preview", "Detach Preview", "Refresh Preview", "Sync Scrolling", "Zoom In Preview", "Zoom Out Preview",
+                        "Restore File Order", "Export as HTML…", "Export as PDF…", "Allow JavaScript in Preview",
+                        "Allow Network in Preview"].allSatisfy(titles.contains), "View › Preview lists the bar's actions", "\(titles)")
+                @MainActor func enabled(_ sel: Selector) -> Bool { menuItem(action: sel).map { app.validateMenuItem($0) } ?? false }
+                expect(enabled(#selector(AppDelegate.refreshPreviewMenu(_:))) && enabled(#selector(AppDelegate.togglePreviewSyncMenu(_:)))
+                       && enabled(#selector(AppDelegate.previewZoomInMenu(_:))) && enabled(#selector(AppDelegate.exportHTMLMenu(_:))),
+                       "…enabled like the bar's buttons")
+                expect(!enabled(#selector(AppDelegate.previewResetSortMenu(_:))), "Restore File Order is off for Markdown (no such button)")
+                let z = tab.preview?.webView.pageZoom ?? 0
+                expect(choose(#selector(AppDelegate.previewZoomInMenu(_:))) && (tab.preview?.webView.pageZoom ?? 0) > z + 0.01,
+                       "View › Preview › Zoom In Preview zooms the page", "\(z) → \(tab.preview?.webView.pageZoom ?? 0)")
+                _ = choose(#selector(AppDelegate.previewZoomOutMenu(_:)))
+                expect(abs((tab.preview?.webView.pageZoom ?? 0) - z) < 0.001, "…and Zoom Out Preview back")
+            },
             snapshot("previewbar-dark.png"),
             sync {
                 Settings.shared.themeOverride = .light

@@ -748,6 +748,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func toggleDetachPreview(_ sender: Any?) { currentTab?.toggleDetachPreviewAction(sender) }
     @objc func togglePreviewJavaScript(_ sender: Any?) { currentTab.map { $0.previewAllowsJavaScript.toggle() } }
     @objc func togglePreviewNetwork(_ sender: Any?) { currentTab.map { $0.previewAllowsNetwork.toggle() } }
+    @objc func refreshPreviewMenu(_ sender: Any?) { currentTab?.previewBarAction(.refresh) }
+    @objc func togglePreviewSyncMenu(_ sender: Any?) { currentTab?.previewBarAction(.syncScroll) }
+    @objc func previewZoomInMenu(_ sender: Any?) { currentTab?.previewBarAction(.zoomIn) }
+    @objc func previewZoomOutMenu(_ sender: Any?) { currentTab?.previewBarAction(.zoomOut) }
+    @objc func previewResetSortMenu(_ sender: Any?) { currentTab?.previewBarAction(.sortReset) }
     @objc func toggleWrap(_ sender: Any?) { Settings.shared.wrapLines.toggle() }
     @objc func toggleInvisibles(_ sender: Any?) { Settings.shared.showInvisibles.toggle() }
     @objc func toggleLineNumbers(_ sender: Any?) { Settings.shared.showLineNumbers.toggle() }
@@ -830,6 +835,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(togglePreviewNetwork(_:)):
             item.state = tab?.previewAllowsNetwork == true ? .on : .off
             return tab?.previewVisible == true && tab?.preview != nil
+        // The preview bar's buttons: shown in the bar and enabled there.
+        case #selector(refreshPreviewMenu(_:)): return tab?.previewBarEnables(.refresh) == true
+        case #selector(togglePreviewSyncMenu(_:)):
+            item.state = tab?.previewVisible == true && tab?.previewSyncsScroll == true ? .on : .off
+            return tab?.previewBarEnables(.syncScroll) == true
+        case #selector(previewZoomInMenu(_:)): return tab?.previewBarEnables(.zoomIn) == true
+        case #selector(previewZoomOutMenu(_:)): return tab?.previewBarEnables(.zoomOut) == true
+        case #selector(previewResetSortMenu(_:)): return tab?.previewBarEnables(.sortReset) == true
         case #selector(pickLanguageMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.language.rawValue ? .on : .off
         case #selector(pickLineEndingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.lineEnding.rawValue ? .on : .off
         case #selector(pickEncodingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.encoding.rawValue ? .on : .off

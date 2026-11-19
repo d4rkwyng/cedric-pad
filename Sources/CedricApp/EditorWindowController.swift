@@ -1182,6 +1182,21 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if pane.bar.apply(s) { pane.needsLayout = true }
     }
 
+    /// Whether the preview bar shows `item` enabled (View › Preview
+    /// follows the bar).
+    func previewBarEnables(_ item: PreviewBarItem) -> Bool {
+        guard previewVisible, let pane = previewPane else { return false }
+        updatePreviewBar()
+        let s = pane.bar.state
+        guard s.items.contains(item) else { return false }
+        switch item {
+        case .zoomIn: return PreviewZoom.canStep(s.zoom, in: true)
+        case .zoomOut: return PreviewZoom.canStep(s.zoom, in: false)
+        case .sortReset: return s.sorted
+        default: return true
+        }
+    }
+
     /// A preview bar button.
     func previewBarAction(_ item: PreviewBarItem) {
         guard let pane = previewPane else { return }

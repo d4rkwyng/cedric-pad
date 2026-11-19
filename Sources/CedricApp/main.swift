@@ -205,11 +205,24 @@ func buildMainMenu() -> NSMenu {
     ]))
 
     main.addItem(submenu(String(localized: "View"), [
-        item(String(localized: "Show Preview"), #selector(AppDelegate.togglePreview(_:)), "p", [.command, .option]),
-        // "Attach Preview" while detached (AppDelegate.validateMenuItem).
-        item(String(localized: "Detach Preview"), #selector(AppDelegate.toggleDetachPreview(_:)), "p", [.command, .option, .shift]),
-        item(String(localized: "Allow JavaScript in Preview"), #selector(AppDelegate.togglePreviewJavaScript(_:))),
-        item(String(localized: "Allow Network in Preview"), #selector(AppDelegate.togglePreviewNetwork(_:))),
+        // The preview bar's actions as menu items (0.2.1), enabled as the bar's buttons are.
+        submenu(String(localized: "Preview"), [
+            item(String(localized: "Show Preview"), #selector(AppDelegate.togglePreview(_:)), "p", [.command, .option]),
+            // "Attach Preview" while detached (AppDelegate.validateMenuItem).
+            item(String(localized: "Detach Preview"), #selector(AppDelegate.toggleDetachPreview(_:)), "p", [.command, .option, .shift]),
+            .separator(),
+            item(String(localized: "Refresh Preview"), #selector(AppDelegate.refreshPreviewMenu(_:)), "r", [.command, .option]),
+            item(String(localized: "Sync Scrolling"), #selector(AppDelegate.togglePreviewSyncMenu(_:))),
+            item(String(localized: "Zoom In Preview"), #selector(AppDelegate.previewZoomInMenu(_:)), "=", [.command, .option]),
+            item(String(localized: "Zoom Out Preview"), #selector(AppDelegate.previewZoomOutMenu(_:)), "-", [.command, .option]),
+            item(String(localized: "Restore File Order"), #selector(AppDelegate.previewResetSortMenu(_:))),
+            .separator(),
+            item(String(localized: "Export as HTML…"), #selector(AppDelegate.exportHTMLMenu(_:))),
+            item(String(localized: "Export as PDF…"), #selector(AppDelegate.exportPDFMenu(_:))),
+            .separator(),
+            item(String(localized: "Allow JavaScript in Preview"), #selector(AppDelegate.togglePreviewJavaScript(_:))),
+            item(String(localized: "Allow Network in Preview"), #selector(AppDelegate.togglePreviewNetwork(_:))),
+        ]),
         item(String(localized: "Show Outline"), #selector(AppDelegate.toggleOutlineMenu(_:)), "o", [.control, .command]),
         item(String(localized: "Show Folder Sidebar"), #selector(AppDelegate.toggleFolderSidebarMenu(_:)), "1", [.control, .command]),
         .separator(),
