@@ -350,6 +350,7 @@ window); the app side is `EditorTools.swift`, `FindInFilesPanel.swift` and
 | JSON pretty-print / minify, XML pretty-print | Edit › Text Tools | ⌃⌥⌘J / ⌃⌥⇧⌘J / ⌃⌥⌘X |
 | Base64 encode / decode, URL encode / decode | Edit › Text Tools | ⌃⌘B / ⌃⇧⌘B, ⌃⌘E / ⌃⇧⌘E |
 | Find in Files | Edit › Find in Files… | ⇧⌘F |
+| Replace in Files (+ Undo Replace in Files) | Edit › Replace in Files… / Edit › Undo Replace in Files | ⌥⇧⌘F / none |
 | Compare two tabs | View › Compare With… (next/previous difference) | ⌥⌘C (⌥⌘↓ / ⌥⌘↑) |
 | Follow a log file | View › Follow File | ⌥⌘T |
 
@@ -389,7 +390,61 @@ exits 1 on a clash with another item or with a system shortcut (Lock Screen
   matching line, batched to the main queue at most every 50 ms or 200
   results, capped at 10,000; Stop sets a flag checked per file and every
   256 results. The panel is one view, docked in the split view of whichever
-  tab is selected; a click opens the file with the match selected.
+  tab is selected; a click opens the file with the match selected. The
+  results are a two-level `NSOutlineView` (file row with its count, then
+  `line: text` rows), view-based, filled incrementally per batch.
+  **Respect .gitignore** (on by default) uses `GitIgnore`: a pure matcher,
+  no git process (the `/usr/bin/git` stub without the Command Line Tools,
+  and a process per search, ruled git out). It finds the repository root
+  above the folder (or uses the folder), reads `.git/info/exclude` (a
+  worktree's through `commondir`) and each `.gitignore` lazily as the walk
+  reaches its folder; deeper files win, the last matching line wins, `!`
+  can't re-include below an ignored folder, `**` follows wildmatch.
+  Not read: `core.excludesFile`; matching is case-sensitive (git's
+  `core.ignoreCase` isn't read). Each result also carries its matches as
+  offsets into the whole decoded file and the file's stamp at search time.
+- **Replace in Files** (`FileReplace`, `ReplaceInFiles+App.swift`): the
+  same panel with its Replace box on (⌥⇧⌘F turns it on; for Find users the
+  panel looks as before). Data safety is the design:
+  - *Preview first.* Preview Replace… (or Return in the Replace field)
+    re-runs the search if the fields changed, then `FileReplace.plan` runs
+    off the main thread: per file, every match and its replacement through
+    `FindEngine.regex`/`FindEngine.replacement`, so `$1` and the case
+    option behave exactly as the find bar's Replace All. The list turns into
+    the preview: a box per file and per match (`before → after`, the match
+    struck through, the replacement highlighted), a summary ("N
+    replacements in M files. Skipped: …") and a Skipped group listing each
+    left-out file and why. The fields lock while it shows. A capped
+    (10,000) search is never replaced.
+  - *What is skipped.* Binary, over 20 MB, mixed line endings
+    (`TextCodec.decode` normalises them, so writing back would rewrite every
+    ending; open the file to replace there), bytes that don't decode and
+    re-encode to exactly the same bytes, a replacement the file's encoding
+    can't hold, a file changed since the search (date, size), symbolic
+    links, hard-linked files, and anything outside the folder.
+  - *Open tabs.* A file open in a tab (tabs restored lazily are built
+    first) is planned from the tab's text and edited through
+    `replaceAsOneStep` as one ⌘Z step named Replace in Files; it is marked
+    unsaved and never written behind the tab's back. At Replace All the
+    tab's text must still be the previewed text, else it is skipped.
+  - *Writes.* Replace All acts on the checked matches only. Each file is
+    re-read and must still match the preview's date, size and SHA-256;
+    then every target's original bytes go to
+    `~/Library/Application Support/Cedric/ReplaceUndo/<uuid>/` (0700,
+    `manifest.json` with path, mode, SHA-256 of the original and of the
+    written bytes; the last 5 operations or 7 days are kept) before the
+    first write. Each write is atomic: a temp file in the same folder, the
+    original's mode, ACL and extended attributes copied onto it
+    (`copyfile`), renamed over the file, in the file's own encoding, BOM
+    and line ending.
+  - *Undo.* Edit › Undo Replace in Files (and the panel's Undo Replace)
+    covers the last operation until quit: it restores each written file
+    whose bytes are still exactly what was written (others are skipped and
+    reported), and undoes each tab edit that is still the top of that tab's
+    undo stack with the text left by the replace. The manifest survives a
+    crash; recovery from it isn't offered in 0.2.0.
+  - Zero cost when unused: nothing new runs at launch, the panel is built
+    on first use, and the undo store is touched only by a replace.
 - **Compare** (`LineDiff`): Myers' O(ND) diff over lines (interned to
   integers, common prefix and suffix trimmed first). It keeps each step's
   diagonal array for the walk back, O(D²) memory, so past 4,000 differences
@@ -410,7 +465,11 @@ exits 1 on a clash with another item or with a system shortcut (Lock Screen
 Checks: unit tests in `EditorToolsTests.swift` (every transform, the diff
 against a brute-force LCS, the walker on a temp tree with excluded
 folders, a binary and a 21 MB file, tail on append, truncate, rotate and a
-split UTF-8 character). In-process: `Scripts/tools-check.sh` launches the
+split UTF-8 character), `GitIgnoreTests.swift` (57 root-pattern cases
+checked against `git check-ignore`/`git ls-files -i`, nested files,
+info/exclude, worktrees, the walker) and `FileReplaceTests.swift`
+(byte-exact UTF-8/BOM/UTF-16/Latin-1/CRLF/CR round trips, skips, `$1`,
+stamps and hashes, mode and xattrs, undo, pruning, links). In-process: `Scripts/tools-check.sh` launches the
 app once per feature with `CEDRIC_CHECK=…` (`DevChecks.swift`), drives it
 with key and mouse NSEvents and writes snapshots. When Cedric can't become
 the active app (screen locked, launched from a script) there is no key

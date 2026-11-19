@@ -7,12 +7,13 @@ are its section below (`Scripts/changelog-section.sh`).
 ## [0.2.0]
 
 ### Added
-- **Replace in Files** (in progress).
+- **Replace in Files.** Edit › Replace in Files… (⌥⇧⌘F) opens the Find in Files panel with a Replace field. Preview Replace… lists every change as before → after, with a box per file and per match to leave some out, and the files it skips and why (binary, over 20 MB, mixed line endings, changed since the search…). Replace All writes the rest atomically in each file's own encoding and line endings, keeping its permissions; files open in a tab are changed in the tab (one ⌘Z, unsaved) instead of on disk. Edit › Undo Replace in Files puts the last replace back byte for byte, skipping any file edited since. Find in Files results are now grouped by file, and a **Respect .gitignore** box (on by default) skips what the folder's .gitignore files ignore.
 - **Folder sidebar** (in progress).
 - **Multiple carets and column selection** (in progress).
 
 ### Known gaps
 - Code folding and split view come in 0.3.0.
+- Replace in Files skips files with mixed line endings (open them to replace there), symbolic links and hard-linked files. Respect .gitignore doesn't read git's `core.excludesFile` and matches case-sensitively.
 
 ## [0.1.2]
 
