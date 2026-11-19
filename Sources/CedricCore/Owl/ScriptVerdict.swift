@@ -70,25 +70,100 @@ public enum ScriptVerdict {
     /// `forced`, any verdict the model gave replaced by `forcedDontRun`.
     public static func clamp(_ answer: String, forced: Reason? = nil) -> String {
         var lines = answer.components(separatedBy: "\n")
+        // Forced: the model's verdicts go first, so none is rewritten into a reassuring line.
+        if forced != nil {
+            lines.removeAll { isVerdictLine($0) }
+            lines = lines.map(withoutInlineVerdict)
+        }
         let lastText = lines.lastIndex { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         for i in lines.indices {
-            let verdict = isVerdictLine(lines[i])
-            let strict = verdict || i == lastText
-            guard claimsSafe(lines[i], strict: strict) else { continue }
-            // "Safe" and "don't run" together: keep the warning, drop the claim.
-            let text = has(dontRunPhrase, lines[i]) ? dontRun : noRedFlags
-            lines[i] = verdict ? "Verdict: " + text + "." : text + "."
+            lines[i] = clampLine(lines[i], strict: i == lastText)
         }
         if let forced {
-            lines.removeAll { isVerdictLine($0) }
-            // A verdict at the end of a sentence ("… shown lines. Verdict: Don't run it").
-            lines = lines.map { l in
-                guard let m = inlineVerdict.firstMatch(in: l, range: NSRange(location: 0, length: (l as NSString).length)) else { return l }
-                return (l as NSString).substring(to: m.range.location).trimmingCharacters(in: .whitespaces)
-            }
             while let l = lines.last, l.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
-            lines.append(forced.note)
-            lines.append("Verdict: " + forcedDontRun + ".")
+            lines += forcedLines(forced)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// One line with any safe claim rewritten. `last`: it is the answer's
+    /// last line, where any "safe" counts (as on a verdict line).
+    public static func clampLine(_ line: String, strict last: Bool) -> String {
+        let verdict = isVerdictLine(line)
+        guard claimsSafe(line, strict: verdict || last) else { return line }
+        // "Safe" and "don't run" together: keep the warning, drop the claim.
+        let text = has(dontRunPhrase, line) ? dontRun : noRedFlags
+        return verdict ? "Verdict: " + text + "." : text + "."
+    }
+
+    /// A verdict at the end of a sentence ("… shown lines. Verdict: Don't run it") cut off.
+    static func withoutInlineVerdict(_ l: String) -> String {
+        guard let m = inlineVerdict.firstMatch(in: l, range: NSRange(location: 0, length: (l as NSString).length)) else { return l }
+        return (l as NSString).substring(to: m.range.location).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Where a partial "Verdict" starts at the end of `s`, if one does.
+    static func partialVerdictMatch(_ s: String) -> Int? {
+        partialVerdict.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length))?.range.location
+    }
+
+    static func forcedLines(_ forced: Reason) -> [String] { [forced.note, "Verdict: " + forcedDontRun + "."] }
+
+    /// The start of a "Verdict" still arriving at the end of the text ("… Verd").
+    private static let partialVerdict = try! NSRegularExpression(pattern: #"[*_]*\bv(?:e(?:r(?:d(?:i(?:c(?:t)?)?)?)?)?)?[*_]*\s*$"#, options: [.caseInsensitive])
+}
+
+/// The script check's answer as it streams in: every update is clamped
+/// before it is shown, so "safe to run" never appears, not even for one
+/// frame, and with a forced verdict the model's own verdict never shows.
+/// Incremental: finished lines are clamped once and kept; each update
+/// clamps only the line still arriving (cheap however long the answer).
+public struct ScriptVerdictStream: Sendable {
+    public let forced: ScriptVerdict.Reason?
+    /// Everything received.
+    public private(set) var raw = ""
+    /// Finished lines as shown (a hidden verdict line is left out).
+    private var done: [String] = []
+    /// Where in `raw` (UTF-8 offset) the line still arriving starts.
+    private var tailOffset = 0
+    private var tailStart: String.Index { raw.utf8.index(raw.utf8.startIndex, offsetBy: tailOffset) }
+
+    public init(forced: ScriptVerdict.Reason?) {
+        self.forced = forced
+    }
+
+    /// Adds a streamed piece; the text to show now.
+    @discardableResult
+    public mutating func append(_ piece: String) -> String {
+        raw += piece
+        while let nl = raw.utf8[tailStart...].firstIndex(of: 0x0A) {
+            let line = String(raw[tailStart..<nl])
+            tailOffset = raw.utf8.distance(from: raw.utf8.startIndex, to: nl) + 1
+            if forced != nil {
+                if ScriptVerdict.isVerdictLine(line) { continue }
+                done.append(ScriptVerdict.clampLine(ScriptVerdict.withoutInlineVerdict(line), strict: false))
+            } else {
+                done.append(ScriptVerdict.clampLine(line, strict: false))
+            }
+        }
+        return display
+    }
+
+    /// The text to show for what has arrived so far.
+    public var display: String {
+        var tail = String(raw[tailStart...])
+        if forced != nil {
+            // The model's verdict, whole or still arriving, never shows.
+            if ScriptVerdict.isVerdictLine(tail) { tail = "" }
+            tail = ScriptVerdict.withoutInlineVerdict(tail)
+            if let m = ScriptVerdict.partialVerdictMatch(tail) {
+                tail = (tail as NSString).substring(to: m).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        var lines = done + [ScriptVerdict.clampLine(tail, strict: true)]
+        if let forced {
+            while let l = lines.last, l.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
+            lines += ScriptVerdict.forcedLines(forced)
         }
         return lines.joined(separator: "\n")
     }

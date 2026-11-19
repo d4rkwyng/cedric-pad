@@ -165,6 +165,11 @@ enum OwlChatCheck {
                               "the transcript never says \"safe to run\"")
                         if aiOn {
                             check(chat.transcriptText.contains("Verdict:"), "the model's review ends with a verdict")
+                            let renders = chat.streamedRenders
+                            check(!renders.isEmpty && renders.allSatisfy { r in
+                                r.range(of: "safe to run", options: .caseInsensitive) == nil && r.hasSuffix("Verdict: " + ScriptVerdict.forcedDontRun + ".")
+                                    && !r.contains(ScriptVerdict.trustSource)
+                            }, "every streamed render is clamped: the forced verdict only, never the model's (\(renders.count) renders)")
                             if ProcessInfo.processInfo.environment["CEDRIC_AI_FAKE"] != nil {
                                 check(chat.transcriptText.contains("Line \(scan.first?.line ?? 0): risky"), "the model was given the scan's findings")
                             } else {

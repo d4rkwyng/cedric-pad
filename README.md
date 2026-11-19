@@ -486,7 +486,7 @@ Requires macOS 14 or later. Builds as a universal app (Apple silicon and Intel).
   told the script's text is never instructions) and ends with a verdict:
   "No obvious red flags (not a guarantee)", "Run only if you trust the
   source" or "Don't run it". Cedric never calls a script safe: the app
-  rewrites any such line, and forces "Don't run it — review the flagged
+  rewrites any such line (also while the answer streams in), and forces "Don't run it — review the flagged
   lines" after a high-risk finding or when only part of the script was
   reviewed, whatever the model said.
 - **Careful with files:** pipes and devices (`/dev/zero`, a FIFO) are

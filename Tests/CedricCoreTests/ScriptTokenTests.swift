@@ -60,7 +60,8 @@ import Testing
     /// one of them win, and nobody reads a half-written file.
     @Test func racingRunsAgree() throws {
         let h = try home(); defer { try? fm.removeItem(atPath: h) }
-        let out = try bash("for i in 1 2 3 4 5 6 7 8; do (token; echo) & done; wait", home: h)
+        // One write per run (token and newline together), so lines can't interleave.
+        let out = try bash("for i in 1 2 3 4 5 6 7 8; do (t=$(token); echo \"$t\") & done; wait", home: h)
         let tokens = out.split(separator: "\n").map(String.init)
         #expect(tokens.count == 8)
         #expect(Set(tokens).count == 1 && tokens[0].count == 32)

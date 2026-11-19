@@ -47,3 +47,36 @@ import Testing
         #expect(ScriptVerdict.forcedReason(scanHasHigh: false, truncated: false) == nil)
     }
 }
+
+/// ScriptVerdictStream: char by char, never a safe claim or (forced) a model verdict.
+@Suite struct ScriptVerdictStreamTests {
+    @Test func everyPrefixIsClamped() {
+        let answer = "It looks fine.\nVerdict: safe to run.\n"
+        var s = ScriptVerdictStream(forced: nil)
+        for c in answer {
+            let shown = s.append(String(c))
+            #expect(shown.range(of: "safe to run", options: .caseInsensitive) == nil, "\(shown)")
+            #expect(!shown.lowercased().hasSuffix("verdict: safe"), "\(shown)")
+        }
+        #expect(s.display == ScriptVerdict.clamp(answer))
+    }
+
+    @Test func forcedHidesPartialVerdicts() {
+        var s = ScriptVerdictStream(forced: .truncated)
+        #expect(s.display == ScriptVerdict.Reason.truncated.note + "\nVerdict: " + ScriptVerdict.forcedDontRun + ".")
+        for c in "Line 2 is fine. Verd" { s.append(String(c)) }
+        #expect(s.display.hasPrefix("Line 2 is fine.\n"), "a partial \"Verd\" doesn't show: \(s.display)")
+        for c in "ict: No obvious red flags\nMore." { s.append(String(c)) }
+        #expect(!s.display.contains(ScriptVerdict.noRedFlags))
+        #expect(s.display.hasSuffix("Verdict: " + ScriptVerdict.forcedDontRun + "."))
+    }
+
+    @Test func longAnswersStayCheap() {
+        // Finished lines are clamped once: 5,000 lines streamed a line at a time.
+        var s = ScriptVerdictStream(forced: nil)
+        let clock = ContinuousClock()
+        let took = clock.measure { for i in 0..<5_000 { s.append("line \(i) does a thing\n") } }
+        #expect(took < .seconds(2), "\(took)")
+        #expect(s.display.hasPrefix("line 0 does a thing\nline 1"))
+    }
+}

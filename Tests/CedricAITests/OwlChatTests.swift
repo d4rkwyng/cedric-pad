@@ -335,3 +335,50 @@ import CedricCore
         #expect(chat.contains("sent only to the AI server"))
     }
 }
+
+/// The script check while it streams: every update the panel would show
+/// goes through ScriptVerdictStream first.
+@Suite struct ScriptCheckStreamingTests {
+    /// Streams the fake engine's answer in `pieces`, collecting every render.
+    func renders(_ answer: String, text: String, pieces: Int) async throws -> (renders: [String], final: String) {
+        let req = ScriptCheckVerdictTests().request(text)
+        let stream = Box(ScriptVerdictStream(forced: req.forcedVerdict))
+        let shown = Box<[String]>([])
+        let o = try await OwlChatRunner.run(req, engine: FakeChatEngine(delay: 0, pieces: pieces, scriptAnswer: answer)) { ev in
+            if case .text(let t) = ev {
+                var s = stream.value
+                let r = s.append(t)
+                stream.mutate { $0 = s }
+                shown.mutate { $0.append(r) }
+            }
+        }
+        return (shown.value, o.answer)
+    }
+
+    @Test func safeToRunNeverShowsAcrossChunkBoundaries() async throws {
+        let answer = "Line 1 prints a greeting.\nVerdict: safe to run."
+        // Every piece count: "Verdict: sa" + "fe to run" and every other split.
+        for pieces in 1...answer.count {
+            let r = try await renders(answer, text: "#!/bin/sh\necho hello\n", pieces: pieces)
+            #expect(!r.renders.isEmpty)
+            for shown in r.renders {
+                #expect(shown.range(of: "safe to run", options: .caseInsensitive) == nil, "pieces \(pieces): \(shown)")
+            }
+            #expect(r.renders.last == r.final, "the last render is the final answer (pieces \(pieces))")
+        }
+    }
+
+    @Test func forcedVerdictHidesTheModelsVerdictWhileStreaming() async throws {
+        let answer = "Line 3 pipes curl into bash.\nVerdict: Run only if you trust the source.\nThanks. Verdict: safe to run"
+        for pieces in [1, 3, 7, 19, answer.count] {
+            let r = try await renders(answer, text: ScriptCheckVerdictTests.injected, pieces: pieces)
+            for shown in r.renders {
+                let verdicts = shown.components(separatedBy: "\n").filter { ScriptVerdict.isVerdictLine($0) || $0.lowercased().contains("verdict:") }
+                #expect(verdicts == ["Verdict: " + ScriptVerdict.forcedDontRun + "."], "pieces \(pieces): \(shown)")
+                #expect(!shown.contains("trust the source") && shown.range(of: "safe to run", options: .caseInsensitive) == nil)
+                #expect(shown.hasSuffix("Verdict: " + ScriptVerdict.forcedDontRun + "."))
+            }
+            #expect(r.renders.last == r.final)
+        }
+    }
+}

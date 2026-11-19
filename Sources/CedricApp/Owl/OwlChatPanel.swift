@@ -443,6 +443,12 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private(set) var lastScanTruncated = false
     /// The running script check's forced verdict, for an answer cut short.
     private var forcedVerdict: ScriptVerdict.Reason?
+    /// The running script check's answer, clamped as it streams in.
+    private var verdictStream: ScriptVerdictStream?
+    /// What of the streamed answer the transcript shows now (script check).
+    private var shownAnswer = ""
+    /// Every text the script check's answer showed while streaming (checks).
+    private(set) var streamedRenders: [String] = []
 
     /// Check for Risks: the offline scan first (no AI; works on any Mac),
     /// then, with Ask Cedric on and an engine ready, the model's review of
@@ -508,6 +514,9 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         discardProposal(nil)
         lastRequest = (question, action)
         forcedVerdict = nil
+        verdictStream = nil
+        shownAnswer = ""
+        streamedRenders = []
         var snap = snapshot()
         if let selection {
             snap = OwlDocumentSnapshot(text: snap.text, generation: snap.generation, selection: selection, visible: snap.visible,
@@ -541,6 +550,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                                      history: history, useTools: tools, prose: prose, scan: scan,
                                      scanHasHigh: scanHasHigh, scanTruncated: scanTruncated)
             self.forcedVerdict = req.forcedVerdict
+            if action == .scriptSafety { self.verdictStream = ScriptVerdictStream(forced: req.forcedVerdict) }
             do {
                 let outcome = try await OwlChatRunner.run(req, engine: engine, model: engine.scoreKey) { [weak self] ev in
                     DispatchQueue.main.async { MainActor.assumeIsolated { self?.handle(ev) } }
@@ -604,6 +614,21 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         pendingText = ""
         streamed += t
         flushes += 1
+        if var vs = verdictStream {
+            // The script check: clamped before it shows (ScriptVerdictStream).
+            let shown = vs.append(t)
+            verdictStream = vs
+            streamedRenders.append(shown)
+            OwlChatStore.shared.replaceLast(OwlChatEntry(role: .owl, text: shown), in: id)
+            if let storage = transcript.textStorage, storage.length >= 2 + (shownAnswer as NSString).length {
+                let old = (shownAnswer as NSString).length
+                storage.replaceCharacters(in: NSRange(location: storage.length - 2 - old, length: old),
+                                          with: NSAttributedString(string: shown, attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor]))
+                transcript.scrollToEndOfDocument(nil)
+            }
+            shownAnswer = shown
+            return
+        }
         OwlChatStore.shared.replaceLast(OwlChatEntry(role: .owl, text: streamed), in: id)
         // Before the trailing "\n\n" of the last entry.
         if let storage = transcript.textStorage, storage.length >= 2 {
