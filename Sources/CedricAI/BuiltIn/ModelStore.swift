@@ -1,4 +1,5 @@
 import Foundation
+import CedricCore
 
 /// Where downloaded models live: `~/Library/Application Support/Cedric/Models/`.
 ///
@@ -56,7 +57,7 @@ public struct ModelStore: Sendable {
     }
 
     func prepare() throws {
-        try FileManager.default.createDirectory(at: partialDirectory, withIntermediateDirectories: true)
+        try PrivateDirectory.make(partialDirectory)
     }
 
     /// Moves a verified partial into place and writes its marker.

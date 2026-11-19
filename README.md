@@ -529,7 +529,9 @@ git config --global core.editor "cedric -w"   # -w / --wait: return when the tab
 It talks to the app through a `cedric://open?path=…&line=…&col=…` URL. Any
 app or web page can send such a URL, so each one the script sends carries a
 secret token (`~/Library/Application Support/Cedric/cli-token`, readable only
-by you). A link without it can't hand over stdin or `-w` files, and opening a
+by you; the `Cedric` folder itself is owner-only, 0700, and the script writes
+a new token to a temp file and links it into place, so it is never read
+half-written). A link without it can't hand over stdin or `-w` files, and opening a
 file from it asks first. The app deletes only the script's own temp files
 (`cedric-stdin.*`, `cedric-wait.*` in your temp folder), checked after `..`
 and symlinks are resolved.

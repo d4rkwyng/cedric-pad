@@ -130,8 +130,13 @@ public final class SessionStore: @unchecked Sendable {
 
     public func bufferURL(_ id: UUID) -> URL { directory.appendingPathComponent("\(id.uuidString).txt") }
 
+    /// Owner-only (0700), like the Cedric folder it is in; checked once
+    /// per store, not on every save.
+    private var directoryReady = false
     private func ensureDirectory() throws {
-        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        if directoryReady, fm.fileExists(atPath: directory.path) { return }
+        try PrivateDirectory.make(directory)
+        directoryReady = true
     }
 
     /// The saved session, or nil if there is none or it can't be read.

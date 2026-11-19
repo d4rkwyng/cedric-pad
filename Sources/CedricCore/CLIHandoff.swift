@@ -106,8 +106,7 @@ public enum CLIToken {
     /// if the file isn't this user's own private regular file.
     public static func ensure(at url: URL = defaultURL) -> String? {
         if let t = read(url) { return t }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                                 attributes: [.posixPermissions: 0o700])
+        try? PrivateDirectory.make(url.deletingLastPathComponent())
         var bytes = [UInt8](repeating: 0, count: 16)
         arc4random_buf(&bytes, bytes.count)
         let token = bytes.map { String(format: "%02x", $0) }.joined()
