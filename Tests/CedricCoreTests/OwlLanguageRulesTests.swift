@@ -97,10 +97,14 @@ import Testing
         let ids = RulesHintProvider.languageRules.map(\.id)
         #expect(Set(ids).count == ids.count)
         #expect(ids.allSatisfy { $0.hasPrefix("rules.") })
-        // The downloaded-script offer, then data loss first, tidy last.
-        #expect(ids.first == SafetyRules.downloadedScriptID && ids[1] == ShellRules.cdID && ids.last == ShellRules.shebangID)
-        // Packs 1–7 are all correctness rules: on by default.
-        #expect(RulesHintProvider.languageRules.allSatisfy { $0.tier == .correctness })
+        // The downloaded-script offer, then data loss first, tidy last, style after.
+        let correctness = RulesHintProvider.languageRules.filter { $0.tier == .correctness }.map(\.id)
+        #expect(ids.first == SafetyRules.downloadedScriptID && ids[1] == ShellRules.cdID && correctness.last == ShellRules.shebangID)
+        // Style rules come after every correctness rule (and are off by default).
+        let firstStyle = try! #require(RulesHintProvider.languageRules.firstIndex { $0.tier == .style })
+        #expect(RulesHintProvider.languageRules[firstStyle...].allSatisfy { $0.tier == .style })
+        #expect(Set(RulesHintProvider.languageRules.filter { $0.tier == .style }.map(\.id))
+                == [PythonRules.bareExceptID, PythonRules.boolCompareID, ShellRules.backticksID, MarkdownRules.imageAltID])
     }
 
     @Test func styleRulesNeedTheSettingAndWholeDocumentRulesTheWholeFile() {
@@ -252,7 +256,7 @@ import Testing
                                               fileName: url.lastPathComponent, language: lang, documentID: UUID(), editGeneration: 0)
                 // No file probe: a copied Markdown file's relative links point
                 // into its own repository (the large run checks them in place).
-                let facts = OwlDocumentFacts(isWholeDocument: window.isWholeDocument)
+                let facts = OwlDocumentFacts(isWholeDocument: window.isWholeDocument, styleTips: true)
                 let hits = Self.rules.check(window.context, facts: facts).filter { ids.contains($0.id) }
                 #expect(hits.isEmpty, "\(url.lastPathComponent) @\(at): \(hits.map { "\($0.id): \($0.title)" })")
             }
@@ -304,7 +308,7 @@ import Testing
             for at in stride(from: 0, to: max(ns.length, 1), by: 6000) {
                 let w = OwlContextWindow(text: ns, visible: NSRange(location: at, length: 0), selection: nil, fileName: name, language: lang,
                                          documentID: UUID(), editGeneration: 0)
-                let facts = OwlDocumentFacts(isWholeDocument: w.isWholeDocument, fileExists: OwlLanguageRulesTests.probe(for: url))
+                let facts = OwlDocumentFacts(isWholeDocument: w.isWholeDocument, styleTips: true, fileExists: OwlLanguageRulesTests.probe(for: url))
                 for h in rules.check(w.context, facts: facts) where ids.contains(h.id) {
                     let loc = w.offset + (h.range?.location ?? 0)
                     guard seen.insert("\(h.id)@\(loc)").inserted else { continue }

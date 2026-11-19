@@ -105,3 +105,54 @@ extension EditorWindowController {
         return !DownloadedScriptOffers.offered(path)
     }
 }
+
+/// `.editorconfig` for the owl's whitespace rules: read lazily (on the
+/// owl's first query for a file, then once per file location), off the
+/// main thread, walking up from the file's folder to the config with
+/// `root = true` (or the top). The first query goes without it; the next
+/// one has it.
+enum EditorConfigReader {
+    static func values(for file: URL) -> EditorConfig.Values? {
+        var configs: [(EditorConfig.File, String)] = []
+        var dir = file.deletingLastPathComponent()
+        let name = file.lastPathComponent
+        var rel = name
+        for _ in 0..<40 {
+            let url = dir.appendingPathComponent(".editorconfig")
+            if let text = try? String(contentsOf: url, encoding: .utf8) {
+                let f = EditorConfig.parse(text)
+                configs.insert((f, rel), at: 0)
+                if f.root { break }
+            }
+            let parent = dir.deletingLastPathComponent()
+            if parent.path == dir.path { break }
+            rel = dir.lastPathComponent + "/" + rel
+            dir = parent
+        }
+        guard !configs.isEmpty else { return nil }
+        let v = EditorConfig.values(for: configs.map(\.1), configs: configs.map(\.0))
+        return v.isEmpty ? nil : v
+    }
+}
+
+extension EditorWindowController {
+    /// The `.editorconfig` values for this file, if read (see EditorConfigReader).
+    func owlEditorConfig() -> EditorConfig.Values? {
+        guard let url = doc.fileURL else { return nil }
+        if editorConfigFor == url { return editorConfigValues }
+        guard editorConfigPending != url else { return nil }
+        editorConfigPending = url
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let v = EditorConfigReader.values(for: url)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.editorConfigPending == url else { return }
+                    self.editorConfigFor = url
+                    self.editorConfigValues = v
+                    self.editorConfigPending = nil
+                }
+            }
+        }
+        return nil
+    }
+}

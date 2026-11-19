@@ -93,10 +93,15 @@ public struct OwlDocumentFacts: Sendable, Equatable {
     /// com.apple.quarantine attribute) and hasn't had the offer to check it
     /// yet: the owl offers Check Script for Risks, once per file.
     public var isQuarantined: Bool
+    /// The `.editorconfig` values for this file (nil: none, or not read
+    /// yet). The whitespace rules follow them: `false` turns the matching
+    /// rule off, and indent_style picks the side mixed indentation goes to.
+    public var editorConfig: EditorConfig.Values?
 
     public init(isWholeDocument: Bool = true, changedOnDisk: Bool = false, unsavedSince: Date? = nil, lineEnding: LineEnding = .lf,
                 mixedLineEndings: Bool = false, languageIsManual: Bool = false, now: Date? = nil, styleTips: Bool = false,
-                fileExists: OwlFileProbe? = nil, isQuarantined: Bool = false) {
+                fileExists: OwlFileProbe? = nil, isQuarantined: Bool = false, editorConfig: EditorConfig.Values? = nil) {
+        self.editorConfig = editorConfig
         self.fileExists = fileExists
         self.isQuarantined = isQuarantined
         self.now = now

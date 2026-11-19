@@ -8,6 +8,7 @@ enum MarkdownRules {
     static let fenceID = "rules.md.unclosed-fence"
     static let anchorID = "rules.md.broken-anchor"
     static let relativeLinkID = "rules.md.broken-link"
+    static let imageAltID = "rules.md.image-alt"
 
     static let markdown = LintRule.languages(["markdown"])
 
@@ -391,6 +392,23 @@ enum MarkdownRules {
                            title: first.0.image ? String(localized: "No image at “\(name)”.") : String(localized: "No file at “\(name)”."),
                            detail: String(localized: "The link \(input.at(first.0.target.location)) points to a file that isn’t there, relative to this document. Renamed or moved?\(RulesHintProvider.andMore(hits.count))"),
                            range: first.0.target)
+    }
+
+    // MARK: Style: an image without alt text (MD045)
+
+    static let imageWithoutAlt = LintRule(imageAltID, tier: .style, applies: markdown) { input in
+        guard input.text.range(of: "![](").location != NSNotFound || input.text.range(of: "![ ](").location != NSNotFound else { return nil }
+        let hits = links(input).filter { $0.image && $0.altEmpty && input.text.character(at: $0.whole.location) == 33 }
+        guard let first = hits.first else { return nil }
+        // Fix: the file name as the alt text ("logo" for img/logo.png) is a start.
+        let path = input.text.substring(with: first.target)
+        let base = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+            .replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
+        let open = NSRange(location: first.whole.location, length: 4)   // ![](
+        let ok = !base.isEmpty && input.text.substring(with: open) == "![]("
+        return LintFinding(kind: ok ? .fix : .tip, title: String(localized: "An image without alt text. Describe it?"),
+                           detail: String(localized: "Screen readers read the alt text out, and it shows when the image doesn’t load.\(RulesHintProvider.andMore(hits.count))"),
+                           range: ok ? open : first.whole, replacement: ok ? "![\(base)](" : nil)
     }
 }
 

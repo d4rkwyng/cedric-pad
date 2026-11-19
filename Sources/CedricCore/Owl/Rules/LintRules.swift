@@ -101,6 +101,9 @@ extension RulesHintProvider {
         return s.substring(with: NSRange(location: j, length: quote - j)).lowercased()
     }
 
+    /// The language rules' ids, in order (for the AI verifier's categories).
+    public static var languageRuleIDs: [String] { languageRules.map(\.id) }
+
     /// The rules for 0.3.0's language packs, most serious first.
     static let languageRules: [LintRule] = [
         // An offer when a downloaded script opens: before its own hints.
@@ -141,6 +144,11 @@ extension RulesHintProvider {
         // Left behind, or missing.
         JSRules.debuggerLeftIn,
         ShellRules.missingShebang,
+        // Style (Settings › "Style tips in code", off by default).
+        PythonRules.bareExcept,
+        PythonRules.boolCompare,
+        ShellRules.backticks,
+        MarkdownRules.imageWithoutAlt,
     ]
 
     /// The language rules that apply to this file, in order, as hints.

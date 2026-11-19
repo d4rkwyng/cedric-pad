@@ -893,7 +893,9 @@ extension RulesHintProvider {
         let isCode = Self.codeLanguages.contains(lang) && lang != "json" && lang != "html"
         let n = text.length
         // A saved code file whose last line has no newline, with the caret elsewhere.
-        if isCode, facts.isWholeDocument, c.fileName != nil, facts.unsavedSince == nil, n > 0, text.character(at: n - 1) != 10,
+        // .editorconfig: insert_final_newline = false turns it off; true asks for it in any saved file.
+        let wantsNewline = facts.editorConfig?.insertFinalNewline
+        if isCode || wantsNewline == true, wantsNewline != false, facts.isWholeDocument, c.fileName != nil, facts.unsavedSince == nil, n > 0, text.character(at: n - 1) != 10,
            c.selection.map({ NSMaxRange($0) < n }) ?? true {
             hint(Self.finalNewlineID, .tip, String(localized: "No newline at the end of the file. Add one?"),
                  String(localized: "Git and many tools expect the last line to end with one."), NSRange(location: n, length: 0), "\n")

@@ -733,6 +733,22 @@ final class OwlController: NSObject, NSPopoverDelegate {
             safe.toolTip = String(localized: "An offline scan for risky commands, then the AI’s review when Ask Cedric is on.")
             stack.addArrangedSubview(safe)
         }
+        // Explain & tidy (OwlTools.swift): on the selection, and the file's TODOs.
+        if let tab, !tab.isLargeDocument {
+            if tab.canExplainRegex {
+                let b = NSButton(title: String(localized: "Explain Regex"), target: self, action: #selector(explainRegex))
+                b.toolTip = String(localized: "What the selected regular expression matches, piece by piece (offline).")
+                stack.addArrangedSubview(b)
+            }
+            if tab.canDecodeSelection {
+                let b = NSButton(title: String(localized: "Decode Selection"), target: self, action: #selector(decodeSelection))
+                b.toolTip = String(localized: "Shows a JWT’s header and payload, base64 as text, or a Unix time as a date. Nothing is checked or sent.")
+                stack.addArrangedSubview(b)
+            }
+            let todos = NSButton(title: String(localized: "Find TODOs"), target: self, action: #selector(findTodos))
+            todos.toolTip = String(localized: "The TODO, FIXME, HACK and XXX notes in this file.")
+            stack.addArrangedSubview(todos)
+        }
         if stack.arrangedSubviews.count > 0 { stack.setCustomSpacing(10, after: stack.arrangedSubviews.last!) }
         let head = NSTextField(labelWithString: String(localized: "Recent hints"))
         head.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -870,6 +886,21 @@ final class OwlController: NSObject, NSPopoverDelegate {
     @objc func askCedric() {
         closePopover()
         tab?.openAskCedric()
+    }
+
+    @objc func explainRegex() {
+        closePopover()
+        tab?.explainRegexSelection()
+    }
+
+    @objc func decodeSelection() {
+        closePopover()
+        tab?.decodeSelection()
+    }
+
+    @objc func findTodos() {
+        closePopover()
+        tab?.showTodos()
     }
 
     @objc func scriptSafety() {

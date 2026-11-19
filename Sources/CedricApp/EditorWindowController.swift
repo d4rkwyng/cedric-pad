@@ -146,6 +146,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var fileProbe: FileProbe?
     /// The file has the quarantine attribute (read after open, OwlFacts.swift).
     var quarantined = false
+    /// The .editorconfig values for `editorConfigFor` (OwlFacts.swift).
+    var editorConfigValues: EditorConfig.Values?
+    var editorConfigFor: URL?
+    var editorConfigPending: URL?
     var editorContainer: EditorContainer { container }
 
     init(doc: EditorDocument, text: String) {
@@ -884,7 +888,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
                          unsavedSince: doc.isDirty ? doc.unsavedSince : nil, lineEnding: doc.lineEnding,
                          mixedLineEndings: doc.mixedLineEndings, languageIsManual: doc.languageIsManual,
                          styleTips: Settings.shared.owlStyleTips, fileExists: owlFileProbe(),
-                         isQuarantined: owlQuarantined)
+                         isQuarantined: owlQuarantined, editorConfig: owlEditorConfig())
     }
 
     // MARK: Closing

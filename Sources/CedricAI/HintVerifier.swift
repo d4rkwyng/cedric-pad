@@ -1,4 +1,5 @@
 import Foundation
+import CedricCore
 
 /// Checks a model's hint against the code where the claim can be checked
 /// deterministically, and drops the hint when the code contradicts it
@@ -10,6 +11,63 @@ import Foundation
 public enum HintVerifier {
     public enum Category: String, Sendable, CaseIterable {
         case unclosedTag = "unclosed-tag", brackets, unused, undefined, json, logic, other
+        // 0.3.0: what the offline rules check (never offered to the model;
+        // found from the hint's words). An AI hint in one of these whose
+        // offline rule fires on the same text is dropped: the rule's hint
+        // says the same thing and has a real Fix it.
+        case secret, nullCompare = "null-compare", shellSyntax = "shell-syntax", quoting, escape
+        case mutableDefault = "mutable-default", duplicateKey = "duplicate-key", configValue = "config-value"
+        case markdownLink = "markdown-link", codeFence = "code-fence", csv, sqlWhere = "sql-where", redirect
+        case leftover, lineEndings = "line-endings", markup, whitespace, style, safety
+
+        /// The categories the model may name (its JSON schema): unchanged by 0.3.0.
+        public static let modelCases: [Category] = [.unclosedTag, .brackets, .unused, .undefined, .json, .logic, .other]
+    }
+
+    /// Every offline rule id and the category of its claim (0.3.0; the
+    /// language packs, the secrets and the whitespace rules).
+    public static let ruleCategory: [String: Category] = [
+        // Pack 1: shell.
+        "rules.sh.crlf": .lineEndings, "rules.sh.assign-spaces": .shellSyntax, "rules.sh.test-brackets": .shellSyntax,
+        "rules.sh.pasted-punctuation": .quoting, "rules.sh.shebang": .shellSyntax, "rules.sh.cd-unchecked": .safety,
+        "rules.sh.unquoted-var": .quoting, "rules.sh.backticks": .style,
+        // Pack 2: Python.
+        "rules.py.invalid-escape": .escape, "rules.py.mutable-default": .mutableDefault, "rules.py.none-compare": .nullCompare,
+        "rules.py.is-literal": .logic, "rules.py.print-statement": .logic, "rules.py.bare-except": .style, "rules.py.bool-compare": .style,
+        // Pack 3: JavaScript / TypeScript.
+        "rules.js.debugger": .leftover, "rules.js.nan-compare": .logic, "rules.js.typeof-typo": .logic,
+        // Pack 4: config.
+        "rules.yaml.duplicate-key": .duplicateKey, "rules.json.duplicate-key": .duplicateKey, "rules.env.duplicate-key": .duplicateKey,
+        "rules.yaml.version-float": .configValue, "rules.xml.invalid": .markup, "rules.toml.duplicate": .duplicateKey,
+        "rules.toml.bare-string": .configValue, "rules.env.spaces": .configValue,
+        // Pack 5: Markdown, CSV.
+        "rules.md.unclosed-fence": .codeFence, "rules.md.broken-anchor": .markdownLink, "rules.md.broken-link": .markdownLink,
+        "rules.md.image-alt": .style, "rules.csv.unclosed-quote": .csv, "rules.csv.ragged-rows": .csv,
+        // Pack 6: SQL, PowerShell.
+        "rules.sql.null-compare": .nullCompare, "rules.sql.no-where": .sqlWhere,
+        "rules.ps.redirect-compare": .redirect, "rules.ps.backtick-space": .shellSyntax,
+        // Pack 7: safety.
+        "rules.secret": .secret, "rules.downloaded-script": .safety,
+        // Whitespace and file rules.
+        "rules.editorconfig-indent": .whitespace, "rules.mixed-indent": .whitespace, "rules.trailing-whitespace": .whitespace,
+        "rules.final-newline": .whitespace, "rules.crlf": .lineEndings, "rules.mixed-line-endings": .lineEndings,
+        "rules.json-invalid": .json, "rules.brackets": .brackets, "rules.yaml-tabs": .whitespace, "rules.smart-quotes-in-code": .quoting,
+    ]
+
+    /// Categories an offline rule can confirm.
+    static let ruleBacked: Set<Category> = Set(ruleCategory.values).subtracting([.json, .brackets, .logic])
+
+    /// True when the hint repeats what an offline rule says about this
+    /// text: one of its rule-backed categories, and a rule of that category
+    /// fires here. The rules are run only when a category could match.
+    public static func duplicatesRule(_ categories: Set<Category>, text: String, language: String, fileName: String? = nil,
+                                      wholeDocument: Bool = true) -> Bool {
+        let wanted = categories.intersection(ruleBacked)
+        guard !wanted.isEmpty else { return false }
+        let ctx = OwlContext(fileName: fileName, language: language, text: text, textStart: 0, visibleRange: NSRange(location: 0, length: 0),
+                             selection: nil, documentID: UUID(), editGeneration: 0, isWholeDocument: wholeDocument)
+        let fired = RulesHintProvider().check(ctx, facts: OwlDocumentFacts(isWholeDocument: wholeDocument))
+        return fired.contains { ruleCategory[$0.id].map(wanted.contains) ?? false }
     }
 
     /// The categories a hint claims: the model's own field plus keywords.
@@ -28,6 +86,22 @@ public enum HintVerifier {
         if has(["unused", "never used", "not used", "is assigned but"]) { out.insert(.unused) }
         if has(["undefined", "not defined", "undeclared", "is not declared", "unknown variable", "never declared"]) { out.insert(.undefined) }
         if has(["invalid json", "json syntax", "trailing comma", "malformed json", "not valid json"]) { out.insert(.json) }
+        // 0.3.0: the offline rules' topics.
+        if has(["api key", "secret", "access token", "hardcoded password", "hard-coded password", "credential", "password in"]) { out.insert(.secret) }
+        if has(["== none", "!= none", "= null", "<> null", "is none", "is null", "is not null", "compare with none", "comparison with null"]) { out.insert(.nullCompare) }
+        if has(["shebang", "spaces around =", "space around =", "around the =", "line continuation", "backtick"]) { out.insert(.shellSyntax) }
+        if has(["unquoted variable", "quote the variable", "word splitting", "curly quote", "smart quote"]) { out.insert(.quoting) }
+        if has(["escape sequence", "invalid escape", "raw string"]) { out.insert(.escape) }
+        if has(["mutable default", "default argument is a list", "default argument is a dict"]) { out.insert(.mutableDefault) }
+        if has(["duplicate key", "key is defined twice", "defined twice", "duplicated key"]) { out.insert(.duplicateKey) }
+        if has(["broken link", "anchor", "link target", "relative link", "image path", "missing image"]) { out.insert(.markdownLink) }
+        if has(["code block", "code fence", "fence is", "unclosed fence"]) { out.insert(.codeFence) }
+        if has(["field count", "number of fields", "number of columns", "ragged", "csv"]) { out.insert(.csv) }
+        if has(["without where", "without a where", "no where", "missing where", "every row", "all rows"]) { out.insert(.sqlWhere) }
+        if has(["redirect", "-gt", "-ge", "writes a file"]) { out.insert(.redirect) }
+        if has(["debugger statement", "debugger;", "leftover debug"]) { out.insert(.leftover) }
+        if has(["crlf", "line ending", "windows line"]) { out.insert(.lineEndings) }
+        if has(["trailing whitespace", "trailing space", "tabs and spaces", "indentation style", "final newline", "newline at the end"]) { out.insert(.whitespace) }
         return out
     }
 
@@ -58,6 +132,10 @@ public enum HintVerifier {
                 guard language.lowercased() == "json" else { continue }
                 if isStrictJSON(text) { return false }
             case .logic, .other:
+                continue
+            default:
+                // A topic of the offline rules: the rules can confirm it (see
+                // duplicatesRule), not refute it.
                 continue
             }
         }

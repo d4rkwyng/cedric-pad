@@ -67,7 +67,18 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         let lines = Self.lines(text)
         moreHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
         languageHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
-        if !table, !Self.isPatch(c), c.language != "yaml" || !out.contains(where: { $0.id == Self.yamlTabsID }), let r = mixedIndent(text, lines: lines, fileName: c.fileName) {
+        let ec = facts.editorConfig
+        if !table, !Self.isPatch(c), let r = editorConfigIndent(text, lines: lines, fileName: c.fileName, config: ec) {
+            hint(Self.editorConfigIndentID, .fix,
+                 r.toTabs ? String(localized: ".editorconfig says tabs; this file uses spaces. Convert?")
+                          : String(localized: ".editorconfig says spaces; this file uses tabs. Convert?"),
+                 r.toTabs ? String(localized: "\(r.count) lines indent with spaces. Every \(r.width) spaces become a tab.")
+                          : String(localized: "\(r.count) lines indent with tabs. Each tab becomes \(r.width) spaces."),
+                 range: r.range, replacement: r.replacement)
+        }
+        if !table, !Self.isPatch(c), c.language != "yaml" || !out.contains(where: { $0.id == Self.yamlTabsID }),
+           !out.contains(where: { $0.id == Self.editorConfigIndentID }),
+           let r = mixedIndent(text, lines: lines, fileName: c.fileName, style: ec?.indentStyle, width: ec?.width) {
             hint(Self.mixedIndentID, .fix,
                  r.toTabs ? String(localized: "Mixed tabs and spaces. Convert to tabs?") : String(localized: "Mixed tabs and spaces. Convert to spaces?"),
                  r.toTabs ? String(localized: "\(r.tabs) lines indent with tabs and \(r.spaces) with spaces. Every \(tabWidth) spaces become a tab.")
@@ -75,7 +86,7 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
                  range: r.range, replacement: r.replacement)
         }
         tidyHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
-        if Self.mayTidyWhitespace(c), let r = trailing(text, lines: lines, markdown: c.language == "markdown",
+        if Self.mayTidyWhitespace(c), ec?.trimTrailingWhitespace != false, let r = trailing(text, lines: lines, markdown: c.language == "markdown",
                                                          keep: c.language == Language.powershell.rawValue ? Self.powerShellHereStrings(text) : []) {
             hint(Self.trailingID, .fix, String(localized: "\(r.count) lines end in spaces. Trim?"),
                  String(localized: "Removes spaces and tabs at the ends of lines."), range: r.range, replacement: r.replacement)
@@ -206,15 +217,17 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
 
     /// Lines indented with tabs and lines indented with spaces: converts the
     /// minority to the majority (spaces on a tie, tabs in a Makefile).
-    func mixedIndent(_ s: NSString, lines: [NSRange], fileName: String? = nil) -> (range: NSRange, replacement: String, tabs: Int, spaces: Int, toTabs: Bool)? {
+    func mixedIndent(_ s: NSString, lines: [NSRange], fileName: String? = nil, style: EditorConfig.Values.IndentStyle? = nil,
+                     width: Int? = nil) -> (range: NSRange, replacement: String, tabs: Int, spaces: Int, toTabs: Bool)? {
         var tabs = 0, spaces = 0
         for r in lines where r.length > 0 {
             let c = s.character(at: r.location)
             if c == 9 { tabs += 1 } else if c == 32, r.length > 1, s.character(at: r.location + 1) == 32 { spaces += 1 }
         }
         guard tabs > 0, spaces > 0 else { return nil }
-        let w = tabWidth
-        let toTabs = tabs > spaces || Self.needsTabs(fileName)
+        let w = width.map { max(1, min($0, 16)) } ?? tabWidth
+        // .editorconfig's indent_style decides the side (a Makefile still keeps tabs).
+        let toTabs = style.map { $0 == .tab } ?? (tabs > spaces) || Self.needsTabs(fileName)
         guard let rw = Self.rewrite(s, lines, { r in
             var i = r.location, col = 0, sawTab = false, sawSpace = false
             while i < NSMaxRange(r) {
@@ -233,6 +246,37 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
             return String(repeating: " ", count: col) + rest
         }) else { return nil }
         return (rw.range, rw.replacement, tabs, spaces, toTabs)
+    }
+
+    public static let editorConfigIndentID = "rules.editorconfig-indent"
+
+    /// A file that indents only the other way from its `.editorconfig`'s
+    /// indent_style (at least 3 indented lines, none the configured way):
+    /// the rewrite to the configured style. Not Makefiles or Go (tabs).
+    func editorConfigIndent(_ s: NSString, lines: [NSRange], fileName: String?, config: EditorConfig.Values?)
+        -> (range: NSRange, replacement: String, count: Int, toTabs: Bool, width: Int)? {
+        guard let style = config?.indentStyle, !Self.needsTabs(fileName) else { return nil }
+        let w = max(1, min(config?.width ?? tabWidth, 16))
+        var tabs = 0, spaces = 0
+        for r in lines where r.length > 1 {
+            let c = s.character(at: r.location)
+            if c == 9 { tabs += 1 } else if c == 32, s.character(at: r.location + 1) == 32 { spaces += 1 }
+        }
+        let toTabs = style == .tab
+        guard toTabs ? (spaces >= 3 && tabs == 0) : (tabs >= 3 && spaces == 0) else { return nil }
+        guard let rw = Self.rewrite(s, lines, { r in
+            var i = r.location, col = 0
+            while i < NSMaxRange(r) {
+                let c = s.character(at: i)
+                if c == 9 { col += w - col % w } else if c == 32 { col += 1 } else { break }
+                i += 1
+            }
+            guard i > r.location, i < NSMaxRange(r) else { return nil }   // indented, not blank
+            let rest = s.substring(with: NSRange(location: i, length: NSMaxRange(r) - i))
+            let new = toTabs ? String(repeating: "\t", count: col / w) + String(repeating: " ", count: col % w) : String(repeating: " ", count: col)
+            return new == s.substring(with: NSRange(location: r.location, length: i - r.location)) ? nil : new + rest
+        }) else { return nil }
+        return (rw.range, rw.replacement, rw.count, toTabs, w)
     }
 
     /// Whether whitespace fixes (trim, tabs vs spaces, stray marks) may

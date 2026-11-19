@@ -9,6 +9,8 @@ enum PythonRules {
     static let noneCompareID = "rules.py.none-compare"
     static let isLiteralID = "rules.py.is-literal"
     static let printID = "rules.py.print-statement"
+    static let bareExceptID = "rules.py.bare-except"
+    static let boolCompareID = "rules.py.bool-compare"
 
     static let python = LintRule.languages(["python"])
 
@@ -251,6 +253,45 @@ enum PythonRules {
             k -= 1
         }
         return false
+    }
+
+    // MARK: Style: bare `except:` (E722)
+
+    static let bareExceptLine = try! NSRegularExpression(pattern: #"(?m)^[ \t]*except[ \t]*:"#)
+
+    static let bareExcept = LintRule(bareExceptID, tier: .style, applies: python) { input in
+        let code = input.codeNS
+        guard code.range(of: "except").location != NSNotFound else { return nil }
+        var edits: [(NSRange, String)] = []
+        for m in RulesHintProvider.matches(bareExceptLine, input.code) {
+            let colon = NSMaxRange(m.range) - 1
+            let kw = code.range(of: "except", options: [], range: m.range)
+            edits.append((NSRange(location: NSMaxRange(kw), length: colon - NSMaxRange(kw)), " Exception"))
+        }
+        guard let fix = RulesHintProvider.spanEdit(input.text, edits) else { return nil }
+        return LintFinding(kind: .fix, title: String(localized: "A bare “except:” also catches Ctrl-C. Use Exception?"),
+                           detail: String(localized: "“except:” catches KeyboardInterrupt and SystemExit too, so the script can’t be stopped there. “except Exception:” catches errors only.\(RulesHintProvider.andMore(edits.count))"),
+                           range: fix.range, replacement: fix.replacement)
+    }
+
+    // MARK: Style: `== True` / `== False` (E712)
+
+    static let boolComparison = try! NSRegularExpression(pattern: #"^([ \t]*(?:if|elif|while)[ \t]+)([A-Za-z_][\w.]*)[ \t]*(==|!=)[ \t]*(True|False)[ \t]*:"#, options: .anchorsMatchLines)
+
+    static let boolCompare = LintRule(boolCompareID, tier: .style, applies: python) { input in
+        let code = input.codeNS
+        guard code.range(of: "True").location != NSNotFound || code.range(of: "False").location != NSNotFound else { return nil }
+        var edits: [(NSRange, String)] = []
+        for m in RulesHintProvider.matches(boolComparison, input.code) {
+            let name = code.substring(with: m.range(at: 2))
+            let positive = (code.substring(with: m.range(at: 3)) == "==") == (code.substring(with: m.range(at: 4)) == "True")
+            let span = NSRange(location: m.range(at: 2).location, length: NSMaxRange(m.range(at: 4)) - m.range(at: 2).location)
+            edits.append((span, positive ? name : "not " + name))
+        }
+        guard let fix = RulesHintProvider.spanEdit(input.text, edits) else { return nil }
+        return LintFinding(kind: .fix, title: String(localized: "No need to compare with True or False. Simplify?"),
+                           detail: String(localized: "“if x == True:” reads better as “if x:” (and “== False” as “if not x:”). If x may be something other than a bool, keep “is True”.\(RulesHintProvider.andMore(edits.count))"),
+                           range: fix.range, replacement: fix.replacement)
     }
 }
 

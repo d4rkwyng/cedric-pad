@@ -12,6 +12,7 @@ enum ShellRules {
     static let shebangID = "rules.sh.shebang"
     static let cdID = "rules.sh.cd-unchecked"
     static let unquotedID = "rules.sh.unquoted-var"
+    static let backticksID = "rules.sh.backticks"
 
     /// Autoconf and libtool output: generated, huge, full of multi-line
     /// strings and here-documents in other languages. Not the user's to fix.
@@ -443,6 +444,32 @@ enum ShellRules {
             }
         }
         return out
+    }
+
+    // MARK: Style: backticks (SC2006)
+
+    static let backtickSub = try! NSRegularExpression(pattern: #"`([^`\\\n]*)`"#)
+
+    static let backticks = LintRule(backticksID, tier: .style, applies: shell) { input in
+        guard input.text.range(of: "`").location != NSNotFound, let mask = input.mask else { return nil }
+        // In code, or inside a "…" string, where `…` is still a command.
+        var edits: [(NSRange, String)] = []
+        for m in RulesHintProvider.matches(backtickSub, input.string) {
+            let r = m.range
+            if let sp = mask.span(at: r.location) {
+                guard sp.kind == .string, input.text.character(at: sp.range.location) == 34, NSMaxRange(r) < NSMaxRange(sp.range) else { continue }
+                // A "…" string over several lines: in a window the quoting may be
+                // out of step (the window started inside a string), so only one-line strings.
+                if input.text.range(of: "\n", options: [], range: sp.range).location != NSNotFound { continue }
+            }
+            let inner = input.text.substring(with: m.range(at: 1))
+            guard !inner.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+            edits.append((r, "$(" + inner + ")"))
+        }
+        guard let fix = RulesHintProvider.spanEdit(input.text, edits) else { return nil }
+        return LintFinding(kind: .fix, title: String(localized: "Backticks are the old form. Use $(…)?"),
+                           detail: String(localized: "$(…) nests without escaping and is easier to read; it does the same thing.\(RulesHintProvider.andMore(edits.count))"),
+                           range: fix.range, replacement: fix.replacement)
     }
 }
 
