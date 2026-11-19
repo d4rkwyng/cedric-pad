@@ -174,8 +174,18 @@ Replace field (`$1` for a regex group, as in the find bar):
    written in the background, with a progress bar, each in its own
    encoding and line endings and keeping its permissions.
 3. **Undo Replace** in the panel, or **Edit › Undo Replace in Files**,
-   puts the last replace back byte for byte, until you quit. A file
-   edited since is left alone and listed.
+   puts the last replace back byte for byte. A file edited since is left
+   alone and listed. The command undoes only the most recent replace, and
+   only until you quit OwlInk.
+
+Before Replace All writes a file, OwlInk copies the original to
+`~/Library/Application Support/Cedric/ReplaceUndo/<id>/`, one folder per
+replace (only your user account can read it), with a `manifest.json`
+that says which copy belongs to which file. These copies stay after you
+quit, so you can recover a file by hand from them. Files changed in a
+tab aren't written, so they aren't copied: ⌘Z in the tab undoes them.
+OwlInk keeps the copies of the last 5 replaces. Each time you replace
+again, it deletes the older ones and any older than 7 days.
 
 Files with mixed line endings are skipped: open them and use the find
 bar there.
