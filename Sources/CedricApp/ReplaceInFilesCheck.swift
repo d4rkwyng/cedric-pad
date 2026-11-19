@@ -116,6 +116,12 @@ extension DevChecks {
                 expect(listed == ["blob.bin:binary", "huge.log:tooLarge", "mixed.txt:mixedLineEndings"], "every skipped file is listed with its reason", "\(listed)")
                 expect(row("Skipped (3)") >= 0 && ["blob.bin", "huge.log", "mixed.txt"].allSatisfy { row($0) >= 0 },
                        "the skipped list shows the binary, the 21 MB and the mixed-ending files")
+                if let cell = p.table.view(atColumn: 0, row: row("huge.log"), makeIfNecessary: true) as? ResultCell {
+                    let a = cell.label.attributedStringValue
+                    let style = a.length > 0 ? a.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle : nil
+                    expect(cell.label.maximumNumberOfLines == 1 && style?.lineBreakMode == .byTruncatingTail,
+                           "a long skipped row stays on one line, cut at the end (it wrapped onto the next row)")
+                }
                 expect(!p.replaceAllButton.isHidden && p.replaceAllButton.isEnabled, "Replace All is offered")
                 // Nothing written yet.
                 expect(originals.allSatisfy { bytes($0.key) == $0.value }, "preview writes nothing")

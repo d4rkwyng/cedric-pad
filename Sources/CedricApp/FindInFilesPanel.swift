@@ -740,13 +740,23 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
             box.allowsMixedState = node.kind == .file
             box.state = node.kind == .file ? node.fileState : (node.checked ? .on : .off)
         }
-        cell.label.attributedStringValue = Self.format(node)
+        cell.label.attributedStringValue = Self.oneLine(Self.format(node))
         cell.label.toolTip = node.url.map { u in node.result.map { "\(u.path):\($0.line)" } ?? node.edit.map { "\(u.path):\($0.line)" } ?? u.path }
             ?? node.relativePath
         return cell
     }
 
     static var mono: NSFont { NSFont.monospacedSystemFont(ofSize: 11, weight: .regular) }
+
+    /// One line, cut at the end: an attributed string's own paragraph
+    /// style wraps (a long skipped path wrapped onto the row below).
+    static func oneLine(_ s: NSAttributedString) -> NSAttributedString {
+        let out = NSMutableAttributedString(attributedString: s)
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        out.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: out.length))
+        return out
+    }
 
     static func format(_ node: ResultNode) -> NSAttributedString {
         switch node.kind {
@@ -823,6 +833,8 @@ final class ResultCell: NSTableCellView {
         box = checkable ? NSButton(checkboxWithTitle: "", target: nil, action: nil) : nil
         super.init(frame: .zero)
         label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = 1
+        label.usesSingleLineMode = true
         label.cell?.truncatesLastVisibleLine = true
         label.alignment = .natural
         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
