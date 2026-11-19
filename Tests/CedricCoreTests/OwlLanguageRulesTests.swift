@@ -138,6 +138,7 @@ import Testing
         let samples: [(String, String, String)] = [
             ("cd build\nrm -rf *\nNAME = x\necho $NAME\nif [$a = b]; then rm -rf $DIR/out; fi\necho “hi” –la\n", "shell", "a.sh"),
             ("print \"x\"\ndef f(a=[]): pass\nif x == None or y is \"a\": re.compile(\"\\d\")\n", "python", "a.py"),
+            ("debugger;\nif (x === NaN || typeof y === \"undefnied\") {}\n", "javascript", "a.js"),
         ]
         for (text, lang, name) in samples {
             let hints = Self.check(text, language: lang, fileName: name)

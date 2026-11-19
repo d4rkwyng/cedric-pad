@@ -112,11 +112,14 @@ extension RulesHintProvider {
         ShellRules.pastedPunctuation,
         PythonRules.printStatement,
         // It silently does the wrong thing.
+        JSRules.nanCompare,
+        JSRules.typeofTypo,
         PythonRules.mutableDefault,
         PythonRules.isLiteral,
         PythonRules.invalidEscape,
         PythonRules.noneCompare,
         // Left behind, or missing.
+        JSRules.debuggerLeftIn,
         ShellRules.missingShebang,
     ]
 
