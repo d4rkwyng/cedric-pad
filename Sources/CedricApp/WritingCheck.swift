@@ -124,6 +124,16 @@ extension DevChecks {
                 expect(worst <= lineHeight, "the caret line stays at the middle while typing", String(format: "%.1f pt off", worst))
                 expect(maxScrolls <= 1, "at most one scroll per keystroke", "\(maxScrolls)")
                 expect(essay.text.hasSuffix("Line 40 of the draft\n"), "the lines were typed", String(essay.text.suffix(40)))
+                // One long paragraph: each wrap moves the caret a row down, and the text up.
+                var wrapWorst: CGFloat = 0
+                let sentence = String(repeating: "Prose wraps onto the next row as it grows. ", count: 14)
+                for (i, ch) in sentence.enumerated() {
+                    TypingCheck.key(w, String(ch))
+                    if i % 8 == 7 { w.displayIfNeeded(); if let off = caretOffset(essay) { wrapWorst = max(wrapWorst, abs(off)) } }
+                }
+                TypingCheck.key(w, "\r", keyCode: 36)
+                print(String(format: "check: typewriter: a wrapping paragraph, worst offset %.1f pt", wrapWorst))
+                expect(wrapWorst <= lineHeight, "a wrapping paragraph stays at the middle too", String(format: "%.1f pt off", wrapWorst))
             },
             snapshot("writing-typewriter.png"),
             sync {

@@ -81,10 +81,8 @@ extension EditorWindowController {
         guard let loc else { return nil }
         if layout {
             // Mid-keystroke the new text isn't laid out yet (that waits for
-            // the display pass): lay out the viewport now, which also sizes
-            // the view; the display pass then finds it done.
+            // the display pass): lay out the caret's paragraph now.
             tlm.ensureLayout(for: NSTextRange(location: loc))
-            tlm.textViewportLayoutController.layoutViewport()
         }
         var rect: CGRect?
         tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard, options: [.rangeNotRequired]) { _, f, _, _ in
@@ -100,12 +98,20 @@ extension EditorWindowController {
         let pane = pane ?? activePane
         let tv = pane.textView
         guard editing.writing.typewriter else { return }
-        guard let mid = caretLineMidY(tv, layout: true) else { return }
+        guard var mid = caretLineMidY(tv, layout: true) else { return }
         let sv = pane.scrollView, clip = sv.contentView
         updateTypewriterInset(pane)
         let visible = clip.bounds
+        // The view's height lags new lines until the viewport is laid out:
+        // only when the middle is past what it lets us scroll to is that
+        // done here (a Return at the end, say), not on every key.
+        let inset = sv.contentInsets.bottom
+        if mid - visible.height / 2 > tv.frame.height + inset - visible.height + 0.5, let tlm = tv.textLayoutManager {
+            tlm.textViewportLayoutController.layoutViewport()
+            mid = caretLineMidY(tv) ?? mid
+        }
         guard let target = Typewriter.scrollTarget(caretMidY: Double(mid), visibleHeight: Double(visible.height), currentY: Double(visible.minY),
-                                                   documentHeight: Double(max(tv.frame.height, mid + visible.height / 2)), bottomInset: Double(sv.contentInsets.bottom))
+                                                   documentHeight: Double(tv.frame.height), bottomInset: Double(inset))
         else { return }
         let p = NSPoint(x: visible.minX, y: CGFloat(target))
         editing.typewriterScrolls += 1
