@@ -7,6 +7,10 @@ import CedricCore
 /// `TextCodec`, as on the Mac: the encoding and line ending are detected on
 /// open, the text is held with LF line endings, and saving writes the
 /// file's own encoding and line ending back.
+///
+/// Byte for byte: a save whose text and format are what is on disk writes
+/// nothing (`DiskState`); a file that mixes line endings keeps each
+/// unchanged line's own; UTF-16 without a byte-order mark gets none.
 final class TextDocument: UIDocument {
     enum OpenError: LocalizedError {
         case binary, undecodable, unencodable(TextEncoding)
@@ -24,6 +28,12 @@ final class TextDocument: UIDocument {
     var encoding: TextEncoding = .utf8
     var lineEnding: LineEnding = .lf
     var mixedLineEndings = false
+    /// The line endings as read, while the file mixes them.
+    private var lineEndingLayout: LineEndingLayout?
+    /// What is on disk: as read, then as last written.
+    private(set) var onDisk: DiskState?
+    /// What the save in progress writes (becomes `onDisk` if it succeeds).
+    private var writing: (state: DiskState, layout: LineEndingLayout?)?
     var language = LanguageChoice()
     /// Allows opening a file that looks binary (asked once).
     var openBinaryAnyway = false
@@ -60,11 +70,25 @@ final class TextDocument: UIDocument {
     /// What happened to that copy (nil: not opened yet).
     private(set) var openedCopy: RevertStore.Kept?
 
+    var currentState: DiskState {
+        DiskState(text: currentText?() ?? text,
+                  format: .init(encoding: encoding, lineEnding: lineEnding, mixedLineEndings: mixedLineEndings),
+                  hasBOM: DiskState.includeBOM(encoding: encoding, onDisk: onDisk))
+    }
+
     override func contents(forType typeName: String) throws -> Any {
         if let t = currentText?() { text = t }
-        guard let data = TextCodec.encode(text, encoding: encoding, lineEnding: lineEnding) else {
+        let state = currentState
+        // Mixed line endings: unchanged lines keep their own.
+        var endings: [LineEnding]?
+        if mixedLineEndings, let layout = lineEndingLayout {
+            endings = TextCodec.lineEndings(for: text, keeping: layout, fallback: lineEnding)
+        }
+        guard let data = TextCodec.encode(text, encoding: encoding, lineEnding: lineEnding, includeBOM: state.hasBOM,
+                                          endings: endings) else {
             throw OpenError.unencodable(encoding)
         }
+        writing = (state, endings.map { LineEndingLayout(text: text, endings: $0) })
         return data
     }
 
@@ -79,6 +103,10 @@ final class TextDocument: UIDocument {
         encoding = decoded.encoding
         lineEnding = decoded.lineEnding
         mixedLineEndings = decoded.mixedLineEndings
+        lineEndingLayout = decoded.lineEndingLayout
+        onDisk = DiskState(text: decoded.text, format: .init(encoding: decoded.encoding, lineEnding: decoded.lineEnding,
+                                                             mixedLineEndings: decoded.mixedLineEndings),
+                           hasBOM: decoded.hasBOM)
         if !language.isManual { language = .forFile(named: fileURL.lastPathComponent, content: decoded.text) }
         firstUnsavedEdit = nil
         if let onReload { DispatchQueue.main.async(execute: onReload) }
@@ -116,8 +144,26 @@ final class TextDocument: UIDocument {
     func discardOpenedCopy() { SaveSafetyStores.revert.clear(id: openedCopyID) }
 
     override func save(to url: URL, for saveOperation: UIDocument.SaveOperation, completionHandler: ((Bool) -> Void)? = nil) {
+        // Nothing changed from what is on disk (an edit undone, a format
+        // change undone): the file isn't written at all.
+        if saveOperation == .forOverwriting, url == fileURL, !DiskState.needsWrite(currentState, onDisk: onDisk) {
+            if hasUnsavedChanges { updateChangeCount(.cleared) }
+            firstUnsavedEdit = nil
+            completionHandler?(true)
+            onSaved?()
+            notifyEdited()
+            return
+        }
+        writing = nil
         super.save(to: url, for: saveOperation) { ok in
-            if ok { self.firstUnsavedEdit = nil }
+            if ok {
+                self.firstUnsavedEdit = nil
+                if let w = self.writing, url == self.fileURL {
+                    self.onDisk = w.state
+                    if let layout = w.layout { self.lineEndingLayout = layout }
+                }
+            }
+            self.writing = nil
             // A failed save leaves the text unsaved (the Edited mark, the
             // recovery copy), whatever UIDocument's count says.
             if !ok, !self.hasUnsavedChanges { super.updateChangeCount(.done) }
@@ -172,11 +218,6 @@ final class TextDocument: UIDocument {
     func revertAfterChoice(_ done: @escaping (Bool) -> Void) {
         revertChosen = true
         revert(toContentsOf: fileURL, completionHandler: done)
-    }
-
-    /// The encoding or line ending was chosen (menu, Undo, Revert).
-    func formatChanged() {
-        mixedLineEndings = false
     }
 
     /// Keep Mine: the edits stay unsaved, and the next save replaces theirs.

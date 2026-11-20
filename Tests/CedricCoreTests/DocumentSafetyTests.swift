@@ -237,4 +237,24 @@ import Testing
         #expect(a.changesEverything)
         #expect(!FormatChange(from: .init(encoding: .utf8, lineEnding: .lf), to: .init(encoding: .utf8, lineEnding: .lf)).changesEverything)
     }
+
+    // MARK: Byte-identical
+
+    @Test func unchangedTextAndFormatAreNotWritten() {
+        let f = FormatChange.Format(encoding: .utf16LE, lineEnding: .crlf, mixedLineEndings: true)
+        let disk = DiskState(text: "a\nb", format: f, hasBOM: false)
+        #expect(!DiskState.needsWrite(disk, onDisk: disk))
+        #expect(DiskState.needsWrite(DiskState(text: "a\nb!", format: f, hasBOM: false), onDisk: disk))
+        var unified = f
+        unified.mixedLineEndings = false
+        #expect(DiskState.needsWrite(DiskState(text: "a\nb", format: unified, hasBOM: false), onDisk: disk))
+        #expect(DiskState.needsWrite(disk, onDisk: nil))
+    }
+
+    @Test func bomKeptOrAddedByEncoding() {
+        let disk = DiskState(text: "", format: .init(encoding: .utf16BE, lineEnding: .lf), hasBOM: false)
+        #expect(!DiskState.includeBOM(encoding: .utf16BE, onDisk: disk))
+        #expect(DiskState.includeBOM(encoding: .utf16LE, onDisk: disk))
+        #expect(DiskState.includeBOM(encoding: .utf16LE, onDisk: nil))
+    }
 }

@@ -540,7 +540,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         statusLabel.text = s
         languageButton.setTitle(document.language.displayTitle, for: .normal)
         languageButton.menu = languageMenu()
-        formatButton.setTitle("\(document.encoding.displayName) · \(document.lineEnding.rawValue.uppercased())", for: .normal)
+        // A file that mixes line endings keeps each line's own: say so.
+        let ending = document.mixedLineEndings ? String(localized: "\(document.lineEnding.displayName) (mixed)") : document.lineEnding.displayName
+        formatButton.setTitle("\(document.encoding.displayName) · \(ending)", for: .normal)
         formatButton.menu = formatMenu()
     }
 
@@ -587,7 +589,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             toast(String(localized: "Some characters can’t be saved as \(e.displayName)."))
             return
         }
-        let change = FormatChange(from: currentFormat, to: .init(encoding: e, lineEnding: document.lineEnding))
+        let change = FormatChange(from: currentFormat, to: .init(encoding: e, lineEnding: document.lineEnding,
+                                                                 mixedLineEndings: document.mixedLineEndings))
         confirmFormatChange(change, title: String(localized: "Save \(document.displayName) as \(e.displayName)?"),
                             message: String(localized: "When it is saved, the whole file is rewritten in \(e.displayName). You can undo this with Undo."))
     }
@@ -601,7 +604,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         confirmFormatChange(change, title: String(localized: "Use \(le.displayName) line endings?"), message: message)
     }
 
-    private var currentFormat: FormatChange.Format { .init(encoding: document.encoding, lineEnding: document.lineEnding) }
+    private var currentFormat: FormatChange.Format {
+        .init(encoding: document.encoding, lineEnding: document.lineEnding, mixedLineEndings: document.mixedLineEndings)
+    }
 
     private func confirmFormatChange(_ change: FormatChange, title: String, message: String) {
         let a = UIAlertController(title: title, message: message, preferredStyle: .alert)
@@ -616,7 +621,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     func applyFormat(_ change: FormatChange, actionName: String) {
         document.encoding = change.to.encoding
         document.lineEnding = change.to.lineEnding
-        document.formatChanged()
+        document.mixedLineEndings = change.to.mixedLineEndings
         document.updateChangeCount(.done)
         if let um = textView.undoManager {
             um.registerUndo(withTarget: self) { $0.applyFormat(change.undo, actionName: actionName) }
@@ -1597,7 +1602,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             return
         }
         replaceAllText(with: decoded.text)
-        let change = FormatChange(from: currentFormat, to: .init(encoding: decoded.encoding, lineEnding: decoded.lineEnding))
+        let change = FormatChange(from: currentFormat, to: .init(encoding: decoded.encoding, lineEnding: decoded.lineEnding,
+                                                                 mixedLineEndings: decoded.mixedLineEndings))
         // In the same undo group as the text: one Undo brings both back.
         if change.changesEverything { applyFormat(change, actionName: String(localized: "Revert")) }
         toast(String(localized: "Reverted to the opened version."))
@@ -1615,7 +1621,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         // Kept for later if the file can't be changed now (it stays offered).
         guard explicitChangeAllowed() else { return }
         replaceAllText(with: r.text)
-        let change = FormatChange(from: currentFormat, to: .init(encoding: r.encoding, lineEnding: r.lineEnding))
+        let change = FormatChange(from: currentFormat, to: .init(encoding: r.encoding, lineEnding: r.lineEnding,
+                                                                 mixedLineEndings: document.mixedLineEndings))
         if change.changesEverything { applyFormat(change, actionName: String(localized: "Restore")) }
         recoveryWriter.writeNow()
         toast(String(localized: "Restored the unsaved changes."))
@@ -1661,7 +1668,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     }
 
     private func saveAsUTF8() {
-        applyFormat(FormatChange(from: currentFormat, to: .init(encoding: .utf8, lineEnding: document.lineEnding)),
+        applyFormat(FormatChange(from: currentFormat, to: .init(encoding: .utf8, lineEnding: document.lineEnding,
+                                                                mixedLineEndings: document.mixedLineEndings)),
                     actionName: String(localized: "Save as UTF-8"))
         saveDocument()
     }

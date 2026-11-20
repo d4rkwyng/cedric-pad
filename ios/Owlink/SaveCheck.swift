@@ -81,6 +81,11 @@ enum SaveCheck {
         check(!tv.isEditable && editor.editBarItem.title == String(localized: "Edit"), "opens read-only, with Edit")
         editor.startEditing()
         check(tv.isEditable && editor.editBarItem.title == String(localized: "Done"), "Edit makes it editable, with Done")
+        // Byte for byte: a save with nothing changed doesn't write the file.
+        let modBefore = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        let saved0 = await withCheckedContinuation { c in doc.save(to: doc.fileURL, for: .forOverwriting) { c.resume(returning: $0) } }
+        let modAfter = try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        check(saved0 && modBefore == modAfter && (try? Data(contentsOf: url)) == original, "a save with nothing changed writes nothing")
         info("after open", tv)
         check(editor.undoBarItem.isEnabled == false, "Undo disabled before any edit")
         SelfCheck.render(window, out.appendingPathComponent("save-opened.png"))

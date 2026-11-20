@@ -344,9 +344,13 @@ public struct FormatChange: Equatable, Sendable {
     public struct Format: Equatable, Sendable {
         public var encoding: TextEncoding
         public var lineEnding: LineEnding
-        public init(encoding: TextEncoding, lineEnding: LineEnding) {
+        /// Each line keeps its own ending (a file that mixes them, until a
+        /// line ending is chosen).
+        public var mixedLineEndings: Bool
+        public init(encoding: TextEncoding, lineEnding: LineEnding, mixedLineEndings: Bool = false) {
             self.encoding = encoding
             self.lineEnding = lineEnding
+            self.mixedLineEndings = mixedLineEndings
         }
     }
 
@@ -362,4 +366,34 @@ public struct FormatChange: Equatable, Sendable {
 
     /// Anything changes at all.
     public var changesEverything: Bool { from != to }
+}
+
+/// What a save would write, compared with what is on disk: a document
+/// whose text and format are what was read (or last written) is not
+/// written at all, so opening, reading, an edit undone, or a format
+/// change undone never touches the file's bytes.
+public struct DiskState: Equatable, Sendable {
+    public var text: String
+    public var format: FormatChange.Format
+    public var hasBOM: Bool
+
+    public init(text: String, format: FormatChange.Format, hasBOM: Bool) {
+        self.text = text
+        self.format = format
+        self.hasBOM = hasBOM
+    }
+
+    /// Whether a save has anything to write. No state on disk known (never
+    /// read): write.
+    public static func needsWrite(_ current: DiskState, onDisk: DiskState?) -> Bool {
+        guard let onDisk else { return true }
+        return current != onDisk
+    }
+
+    /// The BOM to write: the file's own while it keeps its encoding (UTF-16
+    /// read without one gets none), the standard one for a new encoding.
+    public static func includeBOM(encoding: TextEncoding, onDisk: DiskState?) -> Bool {
+        guard let onDisk, onDisk.format.encoding == encoding else { return true }
+        return onDisk.hasBOM
+    }
 }

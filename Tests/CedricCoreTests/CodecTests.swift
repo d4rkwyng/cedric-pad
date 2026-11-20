@@ -204,3 +204,69 @@ import Testing
         #expect(back.encoding == .macRoman)
     }
 }
+
+/// Decode, then encode with what decoding found, gives back the same
+/// bytes (the iOS app's byte-for-byte guarantee for files it saves).
+@Suite struct RoundTripTests {
+    func roundTrip(_ data: Data, sourceLocation: SourceLocation = #_sourceLocation) {
+        guard let d = TextCodec.decode(data) else {
+            Issue.record("didn't decode", sourceLocation: sourceLocation)
+            return
+        }
+        let endings = d.lineEndingLayout.map { TextCodec.lineEndings(for: d.text, keeping: $0, fallback: d.lineEnding) }
+        let back = TextCodec.encode(d.text, encoding: d.encoding, lineEnding: d.lineEnding, includeBOM: d.hasBOM, endings: endings)
+        #expect(back == data, sourceLocation: sourceLocation)
+    }
+
+    @Test func utf8WithAndWithoutBOM() {
+        roundTrip(Data("héllo\nwörld\n".utf8))
+        roundTrip(Data([0xEF, 0xBB, 0xBF]) + Data("héllo\nwörld\n".utf8))
+        #expect(TextCodec.decode(Data([0xEF, 0xBB, 0xBF]) + Data("a".utf8))?.hasBOM == true)
+        #expect(TextCodec.decode(Data("a".utf8))?.hasBOM == false)
+    }
+
+    @Test func utf16WithoutBOMStaysWithout() {
+        let le = "plain ascii text\r\nline two\r\n".data(using: .utf16LittleEndian)!
+        let be = "plain ascii text\nline two\n".data(using: .utf16BigEndian)!
+        #expect(TextCodec.decode(le)?.hasBOM == false)
+        roundTrip(le)
+        roundTrip(be)
+        // And with one, it stays with one.
+        roundTrip(Data([0xFF, 0xFE]) + "with bom\n".data(using: .utf16LittleEndian)!)
+        roundTrip(Data([0xFE, 0xFF]) + "with bom\n".data(using: .utf16BigEndian)!)
+    }
+
+    @Test func mixedLineEndingsKeptExactly() {
+        let mixed = Data("one\r\ntwo\nthree\r\nfour\rfive\n".utf8)
+        let d = TextCodec.decode(mixed)!
+        #expect(d.mixedLineEndings)
+        #expect(d.lineEndingLayout?.endings == [.crlf, .lf, .crlf, .cr, .lf])
+        roundTrip(mixed)
+    }
+
+    @Test func noTrailingNewlineStaysWithout() {
+        roundTrip(Data("last line has no newline".utf8))
+        roundTrip(Data("a\r\nb\r\nno newline".utf8))
+        roundTrip(Data("a\r\nb\nno newline".utf8))
+        roundTrip(Data())
+    }
+
+    @Test func editingAMixedFileKeepsUntouchedLinesEndings() {
+        let d = TextCodec.decode(Data("a\r\nb\nc\r\nd\ne\r\n".utf8))!
+        let layout = d.lineEndingLayout!
+        // A line changed in the middle: only it gets the file's usual ending.
+        var text = d.text.replacingOccurrences(of: "c\n", with: "C changed\n")
+        var e = TextCodec.lineEndings(for: text, keeping: layout, fallback: d.lineEnding)
+        #expect(String(decoding: TextCodec.encode(text, encoding: .utf8, lineEnding: d.lineEnding, endings: e)!, as: UTF8.self)
+                == "a\r\nb\nC changed\r\nd\ne\r\n")
+        // A line inserted after b: b keeps LF, the new line gets CRLF, the rest theirs.
+        text = d.text.replacingOccurrences(of: "b\n", with: "b\nnew\n")
+        e = TextCodec.lineEndings(for: text, keeping: layout, fallback: .crlf)
+        #expect(String(decoding: TextCodec.encode(text, encoding: .utf8, lineEnding: .crlf, endings: e)!, as: UTF8.self)
+                == "a\r\nb\nnew\r\nc\r\nd\ne\r\n")
+        // Lines deleted at the end.
+        text = "a\nb\n"
+        e = TextCodec.lineEndings(for: text, keeping: layout, fallback: .crlf)
+        #expect(e == [.crlf, .lf])
+    }
+}
