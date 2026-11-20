@@ -141,6 +141,11 @@ extension RulesHintProvider {
         DataRules.raggedRows,
         MarkdownRules.brokenRelativeLink,
         MarkdownRules.brokenAnchor,
+        MarkdownRules.footnote,
+        MarkdownRules.emptyLink,
+        // Writing structure (0.4.0): Markdown's outline and its anchors.
+        MarkdownRules.headingSkip,
+        MarkdownRules.duplicateHeading,
         // Left behind, or missing.
         JSRules.debuggerLeftIn,
         ShellRules.missingShebang,

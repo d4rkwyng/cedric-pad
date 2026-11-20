@@ -121,10 +121,51 @@ public struct OwlDocumentFacts: Sendable, Equatable {
 public struct OwlFileProbe: Sendable, Equatable {
     public let id: UUID
     public let exists: @Sendable (String) -> Bool?
+    /// The Markdown and image files under the document's folder, as paths
+    /// relative to it (at most `OwlFileProbe.scanLimit` entries looked at),
+    /// for a broken link's nearest-file Fix it. It answers nil while it
+    /// doesn't know yet (the app lists the folder off the main thread and
+    /// the next query has it); no closure: no list, no nearest-file fix.
+    public let files: (@Sendable () -> [String]?)?
 
-    public init(id: UUID = UUID(), exists: @escaping @Sendable (String) -> Bool?) {
+    public init(id: UUID = UUID(), exists: @escaping @Sendable (String) -> Bool?, files: (@Sendable () -> [String]?)? = nil) {
         self.id = id
         self.exists = exists
+        self.files = files
+    }
+
+    /// How many folder entries the app's scan looks at, at most.
+    public static let scanLimit = 2000
+    /// How deep below the document's folder it looks.
+    public static let scanDepth = 6
+    /// The files a nearest-file match can be: Markdown and images.
+    public static let markdownExtensions: Set<String> = ["md", "markdown", "mdx", "mdown", "mkd"]
+    public static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "svg", "webp", "avif", "heic", "tif", "tiff", "bmp", "ico", "pdf"]
+
+    /// Lists the Markdown and image files under `folder` (relative paths),
+    /// skipping hidden files, packages and installed copies, looking at no
+    /// more than `scanLimit` entries. Disk I/O: call it off the main thread.
+    public static func scan(folder: URL) -> [String] {
+        let base = folder.standardizedFileURL.resolvingSymlinksInPath()
+        guard let walker = FileManager.default.enumerator(at: base, includingPropertiesForKeys: [.isDirectoryKey],
+                                                          options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+        let prefix = base.path.hasSuffix("/") ? base.path : base.path + "/"
+        var out: [String] = [], seen = 0
+        for case let url as URL in walker {
+            seen += 1
+            if seen > scanLimit { break }
+            let name = url.lastPathComponent
+            if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                if installedCopyFolders.contains(name) || walker.level >= scanDepth { walker.skipDescendants() }
+                continue
+            }
+            let ext = (name as NSString).pathExtension.lowercased()
+            guard markdownExtensions.contains(ext) || imageExtensions.contains(ext) else { continue }
+            var path = url.path
+            if !path.hasPrefix(prefix) { path = url.resolvingSymlinksInPath().path }
+            if path.hasPrefix(prefix) { out.append(String(path.dropFirst(prefix.count))) }
+        }
+        return out
     }
 
     /// Folders whose Markdown is an installed or vendored copy of a
@@ -139,7 +180,8 @@ public struct OwlFileProbe: Sendable, Equatable {
 
     /// A fixed set of existing paths (tests).
     public static func set(_ paths: Set<String>) -> OwlFileProbe {
-        OwlFileProbe { p in paths.contains((p as NSString).standardizingPath) || paths.contains(p) }
+        OwlFileProbe(exists: { p in paths.contains((p as NSString).standardizingPath) || paths.contains(p) },
+                     files: { paths.filter { !$0.hasPrefix("..") && !$0.hasSuffix("/") }.sorted() })
     }
 
     public static func == (a: OwlFileProbe, b: OwlFileProbe) -> Bool { a.id == b.id }

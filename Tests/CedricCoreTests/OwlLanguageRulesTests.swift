@@ -176,7 +176,11 @@ import Testing
         case "json": return ("{" + (0..<400).map { "\"k\($0)\": [1, {\"a\": \"b\"}]" }.joined(separator: ",") + "}", "a.json")
         case "xml": return ("<r>" + String(repeating: "<item id=\"1\">text &amp; more</item>\n", count: 200) + "</r>", "a.xml")
         case "toml": return (fill("[t]\nkey = \"v\"\nn = 1_000\nd = 1979-05-27\narr = [1,\n 2]\n[[a]]\nx = word\n"), "a.toml")
-        case "markdown": return (fill("# Head `a` [x](#head) ![i](img/a.png)\n\n```sh\ncode [y](z.md)\n```\n<!-- c --> [r]: other.md\n"), "a.md")
+        // 0.4.0's writing checks too: skipped levels, repeated headings,
+        // footnotes, empty links and broken links matched against a
+        // 2,000-file listing (`timingFacts`).
+        case "markdown": return (fill("# Head `a` [x](#head) ![i](img/a.png)\n\n```sh\ncode [y](z.md)\n```\n<!-- c --> [r]: other.md\n"
+                                      + "### Sub[^1] [e]() [](u) [d](docs/gide.md) ![p](imgs/pic12.png)\n## Head\n[^2]: n\n"), "a.md")
         case "csv": return (fill("a,\"b,c\",d\n1,2,3\n"), "a.csv")
         case "sql": return (fill("UPDATE t SET a = NULL WHERE b = NULL AND c <> 'x = NULL' -- d = NULL\n/* e */ DELETE FROM u;\nGO\n"), "a.sql")
         case "powershell": return (fill("if ($a > 5 -and (Get-X 2>$null)) { 'x > 1' } # c > 2\nGet-Item `  \n@'\nhere ` \n'@\n"), "a.ps1")
@@ -207,7 +211,10 @@ import Testing
 
     /// Every fact a rule may use is there (a probe that knows its answers,
     /// as the app's cache does after the first query).
-    static let timingFacts = OwlDocumentFacts(styleTips: true, fileExists: OwlFileProbe { _ in false })
+    static let timingFacts = OwlDocumentFacts(styleTips: true, fileExists: OwlFileProbe(exists: { _ in false }, files: { timingFiles }))
+
+    /// A folder listing as large as the app's scan makes (2,000 entries).
+    static let timingFiles: [String] = (0..<1000).map { "docs/section\($0)/page\($0).md" } + (0..<1000).map { "img/pic\($0).png" }
 
     /// 5 ms in an optimised build (the plan's budget; `Scripts/test.sh -c
     /// release -Xswiftc -enable-testing` checks it). A debug build runs

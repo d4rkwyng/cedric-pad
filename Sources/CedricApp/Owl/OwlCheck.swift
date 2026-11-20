@@ -44,6 +44,7 @@ enum OwlCheck {
         }
         let env = DevEnvironment.values
         if env["CEDRIC_OWL_CHECK_RULES"] == "1" { OwlRulesCheck.run(tab, out: out); return }
+        if env["CEDRIC_OWL_CHECK_RULES"] == "markdown" { OwlRulesCheck.runMarkdown(tab, out: out); return }
         if env["CEDRIC_OWL_CHECK_AI"] == "1" { OwlRulesCheck.runAI(tab, out: out); return }
         if env["CEDRIC_OWL_CHECK_CHAT"] == "1" { OwlChatCheck.run(tab, out: out); return }
         if env["CEDRIC_OWL_CHECK_CHAT_OFF"] == "1" { OwlChatCheck.runDefaultOff(tab, out: out); return }

@@ -42,7 +42,8 @@ public enum HintVerifier {
         "rules.toml.bare-string": .configValue, "rules.env.spaces": .configValue,
         // Pack 5: Markdown, CSV.
         "rules.md.unclosed-fence": .codeFence, "rules.md.broken-anchor": .markdownLink, "rules.md.broken-link": .markdownLink,
-        "rules.md.image-alt": .style, "rules.csv.unclosed-quote": .csv, "rules.csv.ragged-rows": .csv,
+        "rules.md.image-alt": .style, "rules.md.footnote": .markdownLink, "rules.md.empty-link": .markdownLink,
+        "rules.md.heading-skip": .markup, "rules.md.duplicate-heading": .markup, "rules.csv.unclosed-quote": .csv, "rules.csv.ragged-rows": .csv,
         // Pack 6: SQL, PowerShell.
         "rules.sql.null-compare": .nullCompare, "rules.sql.no-where": .sqlWhere,
         "rules.ps.redirect-compare": .redirect, "rules.ps.backtick-space": .shellSyntax,

@@ -21,7 +21,35 @@ final class FileProbe: @unchecked Sendable {
 
     /// The probe the rules call: relative path → exists, or nil (checking).
     /// Made on the main thread (`owlFacts`), called from the rules.
-    lazy var rulesProbe: OwlFileProbe = OwlFileProbe { [weak self] rel in self?.exists(rel) ?? nil }
+    lazy var rulesProbe: OwlFileProbe = OwlFileProbe(exists: { [weak self] rel in self?.exists(rel) ?? nil },
+                                                     files: { [weak self] in self?.files() })
+
+    private var tree: (files: [String], at: Date)?
+    private var scanning = false
+
+    /// The Markdown and image files under the folder (for a broken link's
+    /// nearest-file Fix it): the cached list, or nil the first time while
+    /// `OwlFileProbe.scan` lists the folder on the utility queue (at most
+    /// 2,000 entries). Kept for the same 2 min as the answers; an older
+    /// list is still returned while a fresh one is made.
+    func files() -> [String]? {
+        lock.lock()
+        defer { lock.unlock() }
+        let fresh = tree.map { Date().timeIntervalSince($0.at) < Self.lifetime } ?? false
+        if !fresh, !scanning {
+            scanning = true
+            let folder = self.folder
+            Self.queue.async { [weak self] in
+                let list = OwlFileProbe.scan(folder: folder)
+                guard let self else { return }
+                self.lock.lock()
+                self.tree = (list, Date())
+                self.scanning = false
+                self.lock.unlock()
+            }
+        }
+        return tree?.files
+    }
 
     func exists(_ rel: String) -> Bool? {
         let path = folder.appendingPathComponent(rel).standardizedFileURL.path

@@ -3,7 +3,8 @@
 # one-line JSON file with the owl on, waits for "Format it?", clicks Apply,
 # checks one ⌘Z undoes it, types near the owl, saves. Then the newer rules
 # (OwlRulesCheck.swift): types a to-do list, a doubled word and merge
-# markers into a text file and answers each hint (Fix it, Show Me); the
+# markers into a text file and answers each hint (Fix it, Show Me); a
+# Markdown file's broken link gets its nearest file (Fix it, one ⌘Z); the
 # typo offer on the owl's pause (OwlTypoCheck.swift: an opened diary, a
 # log that gets none, an email typed key by key); and,
 # with a fake AI and automatic checks off (Intel's default), checks that
@@ -30,6 +31,14 @@ printf 'Todo\n' > "$WORK/todo.txt"
 CEDRIC_SESSION_DIR="$WORK/session-rules" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
 CEDRIC_OPEN="$WORK/todo.txt" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_PAUSE=0.5 CEDRIC_OWL_INTERVAL=1 \
 CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/rules" CEDRIC_OWL_CHECK_RULES=1 "$BIN" || status=1
+# Markdown's writing checks (OwlRulesCheck.runMarkdown): a broken link
+# next to a similarly named file; Fix it links the nearest one; one ⌘Z.
+mkdir -p "$WORK/md/docs"
+printf '# Guide\n' > "$WORK/md/docs/guide.md"
+printf '# Notes\n\nSee [the guide](docs/gide.md#setup) first.\n' > "$WORK/md/notes.md"
+CEDRIC_SESSION_DIR="$WORK/session-md" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
+CEDRIC_OPEN="$WORK/md/notes.md" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_PAUSE=0.5 CEDRIC_OWL_INTERVAL=1 \
+CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/markdown" CEDRIC_OWL_CHECK_RULES=markdown "$BIN" || status=1
 # Typos on the owl's schedule: an opened diary, a log, typing an email.
 printf 'Monday\n\nToday I walked to the shop agian and ofcourse it was closed. It definately rains too much here, and shes not happy about it.\nTomorrow I will try agian.\n' > "$WORK/diary.txt"
 for i in 1 2 3 4 5 6 7 8; do printf '2026-11-18T10:00:0%sZ INFO recieved request id=%s dur=0ms statsu=200  \n' $i $i; done > "$WORK/server.log"

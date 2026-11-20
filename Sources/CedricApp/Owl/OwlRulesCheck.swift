@@ -136,6 +136,50 @@ enum OwlRulesCheck {
         }
     }
 
+    // MARK: Markdown's writing checks (0.4.0)
+
+    /// CEDRIC_OWL_CHECK_RULES=markdown: a saved Markdown file holding
+    /// `markdownBroken`, next to docs/guide.md. The owl offers the broken
+    /// link's nearest file ("Link to “docs/guide.md”?"); Fix it rewrites
+    /// the link, keeping its #fragment; one ⌘Z puts it back; ⇧⌘Z redoes it.
+    static let markdownBroken = "# Notes\n\nSee [the guide](docs/gide.md#setup) first.\n"
+    static let markdownFixed = "# Notes\n\nSee [the guide](docs/guide.md#setup) first.\n"
+
+    static func runMarkdown(_ tab: EditorWindowController, out: String) {
+        guard let window = tab.window else { OwlCheck.finish(out); return }
+        check(tab.text == markdownBroken, "opened the Markdown file (\(tab.text.debugDescription))")
+        check(tab.doc.language == .markdown, "as Markdown (\(tab.doc.language))")
+        // The first query only starts the file checks and the folder's
+        // listing (off the main thread); the owl asks again on the next
+        // activity, as when the writer types on. Nudge him every 1.5 s
+        // (longer than CEDRIC_OWL_PAUSE + CEDRIC_OWL_INTERVAL) until he asks.
+        var offered = false
+        func nudge() {
+            guard !offered else { return }
+            if tab.owl?.bubble == nil { OwlHub.shared.activity(in: tab) }
+            OwlCheck.after(1.5) { nudge() }
+        }
+        OwlCheck.after(1.5) { nudge() }
+        waitFor("rules.md.broken-link", in: tab, timeout: 30) { bubble in
+            offered = true
+            guard let bubble else { OwlCheck.finish(out); return }
+            let title = tab.owl?.presentedHint?.hint.title ?? ""
+            check(title == "No file “gide.md”. Link to “docs/guide.md”?", "the hint names the nearest file (\(title))")
+            guard let fix = button(bubble, String(localized: "Fix it")) else {
+                check(false, "the bubble has Fix it (\(bubble.buttons.map(\.title)))"); OwlCheck.finish(out); return
+            }
+            OwlCheck.snapshot(window, "\(out)/markdown-1-broken-link.png") {
+                click(fix)
+                check(tab.text == markdownFixed, "Fix it linked docs/guide.md#setup (\(tab.text.debugDescription))")
+                OwlCheck.key(window, "z", code: 6, [.command])
+                check(tab.text == markdownBroken, "one ⌘Z restores the broken link")
+                OwlCheck.key(window, "z", code: 6, [.command, .shift])
+                check(tab.text == markdownFixed, "⇧⌘Z redoes the fix")
+                OwlCheck.finish(out)
+            }
+        }
+    }
+
     // MARK: AI only when asked
 
     static func runAI(_ tab: EditorWindowController, out: String) {
