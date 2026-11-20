@@ -910,7 +910,10 @@ View › Writing Mode (`WritingMode.swift`, pure parts in CedricCore's
   (which resizes the view) only when the middle is past what the view's
   current height lets us scroll to, such as a Return at the end: doing it
   on every key cost ~0.3 ms, and in a 6 MB file it made the clip view
-  jump to the top and back on each key. The scroll is a clip-view origin; the
+  jump to the top and back on each key. The two calls per key (selection
+  change, then NSTextView's scroll to the caret) are one pass: the second
+  finds the same caret, length and scroll position (`typewriterLast`) and
+  returns. The scroll is a clip-view origin; the
   bottom `contentInsets` (half the view) let the last line reach the
   middle. Animated only for a mouse selection with Reduce Motion off.
   Off, the hook is nil and the inset 0.
@@ -932,7 +935,10 @@ View › Writing Mode (`WritingMode.swift`, pure parts in CedricCore's
   changes nothing: the last pass is remembered per view as the focus and
   visible ranges with their ends counted from the text's end, and when
   that matches the pass does nothing (TextKit moves the attribute with
-  its text; the check reads it back after an edit). Ranges are found from
+  its text; the check reads it back after an edit). Before that, a cheaper
+  test (the focus and the clip view's bounds, `focusPrecheck`) skips even
+  the visible-range lookup. A paragraph longer than the scan window is
+  clipped to a window on a fixed 5 K grid, so it stays put while typing. Ranges are found from
   the viewport's start, not the document's. (A 5 K window on a 636
   K-character line moves with the caret, so every key would redraw the
   view: one reason it pauses in large-document mode.) (Colours stay storage

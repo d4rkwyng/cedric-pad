@@ -76,7 +76,12 @@ enum LargeDocPerf {
                 samples.append((DevHooks.now() - s) * 1000)
             }
             report("type_\(name)", samples)
-            if writing { DevHooks.metric("typewriter_scrolls_\(name)", Double(tab.editing.typewriterScrolls)) }
+            if writing {
+                DevHooks.metric("typewriter_scrolls_\(name)", Double(tab.editing.typewriterScrolls))
+                DevHooks.metric("typewriter_layouts_\(name)", Double(tab.editing.typewriterLayouts))
+                DevHooks.metric("typewriter_passes_\(name)", Double(tab.editing.typewriterPasses))
+                DevHooks.metric("focus_passes_\(name)", Double(tab.editing.focusPasses))
+            }
             all += samples
         }
         report("type", all)

@@ -33,8 +33,16 @@ final class EditingState {
     /// ranges, their ends counted from the text's end (WritingMode.swift).
     var focusDimmed: [ObjectIdentifier: [Int]] = [:]
     var focusPending = false
+    /// The cheap part of that (focus and scroll position), tested first.
+    var focusPrecheck: [ObjectIdentifier: [Int]] = [:]
     /// Typewriter scrolls made (the checks: one per keystroke at most).
     var typewriterScrolls = 0
+    /// Viewport layouts the typewriter asked for (perf hooks).
+    var typewriterLayouts = 0
+    /// Typewriter and Focus passes that did the work (perf hooks).
+    var typewriterPasses = 0, focusPasses = 0
+    /// Each view's caret, text length and scroll after its last typewriter pass.
+    var typewriterLast: [ObjectIdentifier: [Int]] = [:]
     /// The stats popover's word goal (a file's is also in the session's
     /// `wordGoals`, by path); never written into the text.
     var wordGoal: Int?

@@ -43,8 +43,8 @@ public enum Typewriter {
 
 public enum FocusRange {
     /// Paragraphs and sentences are looked for at most this far either way
-    /// from the caret (a longer paragraph is clipped to that): a 636 K-character
-    /// line must not be scanned per key.
+    /// from the caret (a longer paragraph is clipped to a window of 2–3 times
+    /// that, on a fixed grid): a 636 K-character line must not be scanned per key.
     public static let scanLimit = 5_000
 
     /// The paragraph holding `caret`: its lines, up to (not including) the
@@ -54,7 +54,12 @@ public enum FocusRange {
     public static func paragraph(in text: NSString, caret: Int) -> NSRange {
         let n = text.length
         let c = max(0, min(caret, n))
-        let lo = max(0, c - scanLimit), hi = min(n, c + scanLimit)
+        // The window is on a grid of `scanLimit`, at least that far either
+        // side of the caret: a paragraph longer than it is clipped to the
+        // same window while the caret stays in one grid cell, so typing in
+        // a huge paragraph doesn't move the focus (and redraw) on every key.
+        let cell = c / scanLimit
+        let lo = max(0, (cell - 1) * scanLimit), hi = min(n, (cell + 2) * scanLimit)
         // One copy of the window; lines are found in it (getLineStart would
         // walk the whole of a 636 K-character line on every key).
         var u = [unichar](repeating: 0, count: hi - lo)

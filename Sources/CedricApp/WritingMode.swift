@@ -45,6 +45,7 @@ extension EditorWindowController {
     /// for the second pane of a split when it is made).
     func wireWriting(_ pane: EditorPane) {
         let on = typewriterActive
+        editing.typewriterLast[ObjectIdentifier(pane.textView)] = nil
         pane.textView.onScrollRangeToVisible = on ? { [weak self, weak pane] _ in
             guard let self, let pane else { return false }
             self.typewriterScroll(in: pane, animated: false)
@@ -112,6 +113,16 @@ extension EditorWindowController {
         let pane = pane ?? activePane
         let tv = pane.textView
         guard typewriterActive else { return }
+        // Called twice per key (the selection change, then NSTextView's
+        // scroll to the caret): the second finds the same caret, text
+        // length and scroll position, and returns at once.
+        func state() -> [Int] {
+            let b = pane.scrollView.contentView.bounds, sel = tv.selectedRange()
+            return [sel.location, sel.length, tv.textStorage?.length ?? 0, Int(b.minY.rounded()), Int(b.height.rounded()), Int(b.width.rounded())]
+        }
+        if editing.typewriterLast[ObjectIdentifier(tv)] == state() { return }
+        defer { editing.typewriterLast[ObjectIdentifier(tv)] = state() }
+        editing.typewriterPasses += 1
         guard var mid = caretLineMidY(tv, layout: true) else { return }
         let sv = pane.scrollView, clip = sv.contentView
         updateTypewriterInset(pane)
@@ -124,6 +135,7 @@ extension EditorWindowController {
         let halfLine = ceil(font.ascender - font.descender + font.leading) / 2
         if mid - visible.height / 2 > tv.frame.height + inset - visible.height + halfLine, let tlm = tv.textLayoutManager {
             tlm.textViewportLayoutController.layoutViewport()
+            editing.typewriterLayouts += 1
             mid = caretLineMidY(tv) ?? mid
         }
         guard let target = Typewriter.scrollTarget(caretMidY: Double(mid), visibleHeight: Double(visible.height), currentY: Double(visible.minY),
@@ -181,7 +193,7 @@ extension EditorWindowController {
             if !editing.focusDimmed.isEmpty { clearFocus() }
             return
         }
-        if force { editing.focusDimmed = [:] }
+        if force { editing.focusDimmed = [:]; editing.focusPrecheck = [:] }
         let focus = focusRange
         for pane in panes { applyFocus(focus, to: pane.textView) }
     }
@@ -190,9 +202,18 @@ extension EditorWindowController {
     /// loses the attribute, the rest of the visible text gets it. Text out
     /// of view is left as it is (it is set again when scrolled into view).
     private func applyFocus(_ focus: NSRange, to tv: EditorTextView) {
-        guard let tlm = tv.textLayoutManager, let vis = tv.visibleCharacterRange else { return }
         let len = tv.textStorage?.length ?? 0
         let id = ObjectIdentifier(tv)
+        // First the cheap test: the same focus (its end counted from the
+        // text's end) and the view neither scrolled nor resized since the
+        // last pass. Then even the visible range isn't looked up (near the
+        // end of a 6 MB file that lookup was most of a key's cost).
+        let b = tv.enclosingScrollView?.contentView.bounds ?? .zero
+        let pre = [focus.location, len - NSMaxRange(focus), Int(b.minY.rounded()), Int(b.height.rounded()), Int(b.width.rounded())]
+        if editing.focusPrecheck[id] == pre, editing.focusDimmed[id] != nil { return }
+        editing.focusPrecheck[id] = pre
+        editing.focusPasses += 1
+        guard let tlm = tv.textLayoutManager, let vis = tv.visibleCharacterRange else { return }
         // Typing inside the focus moves nothing that is dimmed: the text
         // before the focus is the same, and so is the text after it counted
         // from the end (TextKit moves the attribute with its text). Then

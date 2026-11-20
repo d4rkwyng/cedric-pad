@@ -107,7 +107,11 @@ import Testing
         let t = Date()
         let r = FocusRange.paragraph(in: big, caret: 500_000)
         #expect(Date().timeIntervalSince(t) < 0.05)
-        #expect(r.length <= 2 * FocusRange.scanLimit + 1)
+        #expect(r.length <= 3 * FocusRange.scanLimit)
         #expect(NSLocationInRange(500_000, r))
+        // Typing on in the same paragraph: the clipped window stays put
+        // (on a grid), so Focus has nothing to redo for most keys.
+        #expect(FocusRange.paragraph(in: big, caret: 500_001) == r)
+        #expect(FocusRange.paragraph(in: big, caret: 500_000 + FocusRange.scanLimit).location > r.location)
     }
 }
