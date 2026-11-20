@@ -228,8 +228,9 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
                 }
                 guard let action = i.action, action != #selector(AppDelegate.showCommandPalette(_:)) else { continue }
                 if systemAdded.contains(action) { continue }
-                // The Window menu's list of windows.
-                if isWindowsMenu, action == #selector(NSWindow.makeKeyAndOrderFront(_:)) || i.target is NSWindow { continue }
+                // The Window menu's list of windows (wherever AppKit put it: anything that brings a window forward).
+                if action == #selector(NSWindow.makeKeyAndOrderFront(_:)) || i.target is NSWindow
+                    || (isWindowsMenu && i.representedObject is NSWindow) { continue }
                 let enabled = validate(i, in: window, autoenables: menu.autoenablesItems)
                 let shortcut = i.keyEquivalent.isEmpty ? "" : MenuShortcuts.name(i)
                 // The title after validation (Detach/Attach Preview changes it there).

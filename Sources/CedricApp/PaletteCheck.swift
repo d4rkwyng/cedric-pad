@@ -60,7 +60,9 @@ extension DevChecks {
                 expect(palette?.lastAnnouncement == "\(n) commands", "VoiceOver hears the count", palette?.lastAnnouncement ?? "-")
                 let titles = palette?.shownTitles ?? []
                 expect(!titles.contains("Command Palette…"), "the palette itself is left out")
-                expect(!titles.contains("palette.txt"), "the Window menu's window list is left out")
+                let windowRows = palette?.shownRows.filter { $0.candidate.path.hasPrefix("Window") }.map(\.candidate.title) ?? []
+                // (File › Open Recent may list palette.txt from an earlier run: that one stays.)
+                expect(!windowRows.contains("palette.txt"), "the Window menu's window list is left out", "\(windowRows)")
                 expect(!titles.contains { $0.contains("Services") }, "the Services menu is left out")
                 expect(row("UPPERCASE")?.shortcut == "⌃⌘U", "a Text Tool, with its shortcut", row("UPPERCASE")?.shortcut ?? "-")
                 expect(row("UPPERCASE")?.candidate.path == "Edit › Text Tools", "its menu path", row("UPPERCASE")?.candidate.path ?? "-")
