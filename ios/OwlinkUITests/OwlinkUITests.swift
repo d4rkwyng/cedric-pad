@@ -30,7 +30,8 @@ final class OwlinkUITests: XCTestCase {
         tv.tap()
         tv.typeText("\n// typed by the UI test\n")
         XCTAssertTrue((tv.value as? String ?? "").contains("typed by the UI test"))
-        app.buttons["editor.more"].tap()
+        // The system overflow menu (the "More" button the system adds).
+        app.navigationBars.buttons["More"].firstMatch.tap()
         app.buttons["Save"].firstMatch.tap()
         sleep(2)
         app.terminate()
@@ -41,10 +42,29 @@ final class OwlinkUITests: XCTestCase {
         XCTAssertTrue(app.buttons["editor.format"].label.contains("UTF-8"))
     }
 
+    func testHideKeyboardButton() throws {
+        let app = launch("sample.swift", fresh: true)
+        let tv = editor(app)
+        let hide = app.buttons["editor.hideKeyboard"]
+        XCTAssertFalse(hide.exists && hide.isHittable)
+        tv.tap()
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "no hide-keyboard button while editing")
+        XCTAssertEqual(hide.label, "Hide Keyboard")
+        hide.tap()
+        let gone = NSPredicate { _, _ in !app.keyboards.firstMatch.exists }
+        wait(for: [XCTNSPredicateExpectation(predicate: gone, object: nil)], timeout: 5)
+    }
+
     func testOwlHintFixesTrailingSpaces() throws {
         let app = launch("sample.swift", fresh: true)
         let tv = editor(app)
         XCTAssertTrue((tv.value as? String ?? "").contains("struct Owl {   "))
+        // The owl in the corner shows a badge; tapping him opens his bubble.
+        let owl = app.descendants(matching: .any)["owl.sprite"]
+        XCTAssertTrue(owl.waitForExistence(timeout: 10), "no owl")
+        let badged = NSPredicate(format: "label CONTAINS 'hint'")
+        wait(for: [XCTNSPredicateExpectation(predicate: badged, object: owl)], timeout: 10)
+        owl.tap()
         let title = app.staticTexts["owl.hint.title"]
         XCTAssertTrue(title.waitForExistence(timeout: 10), "no owl hint")
         XCTAssertTrue(title.label.contains("spaces"), "unexpected hint: \(title.label)")

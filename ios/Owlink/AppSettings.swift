@@ -17,11 +17,35 @@ enum AppSettings {
 
     static let defaults = UserDefaults.standard
 
-    static var defaultFontSize: Double { UIDevice.current.userInterfaceIdiom == .pad ? 15 : 13 }
+    /// 15 pt on large screens (an iPad, an unfolded iPhone Duo), 13 on
+    /// phone-sized ones: by size class, not device idiom (the Duo is a
+    /// "phone" either way). Without traits: the frontmost window's.
+    static func defaultFontSize(for traits: UITraitCollection?) -> Double {
+        guard let t = traits else { return UIDevice.current.userInterfaceIdiom == .pad ? 15 : 13 }
+        return EditorDefaults.fontSize(regularWidth: t.horizontalSizeClass == .regular, regularHeight: t.verticalSizeClass == .regular)
+    }
+
+    @MainActor static var defaultFontSize: Double {
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.first as? UIWindowScene
+        return defaultFontSize(for: scene?.traitCollection)
+    }
+
+    /// The size the person chose, or nil (the default for the screen then).
+    static var chosenFontSize: Double? {
+        let v = defaults.double(forKey: Key.fontSize)
+        return v == 0 ? nil : min(max(v, fontSizes.lowerBound), fontSizes.upperBound)
+    }
+
+    /// Back to the default for each screen (Actual Size).
+    static func resetFontSize() {
+        defaults.removeObject(forKey: Key.fontSize)
+        post()
+    }
     static let fontSizes: ClosedRange<Double> = 9...32
 
-    static var fontSize: Double {
-        get { let v = defaults.double(forKey: Key.fontSize); return v == 0 ? defaultFontSize : min(max(v, fontSizes.lowerBound), fontSizes.upperBound) }
+    @MainActor static var fontSize: Double {
+        get { chosenFontSize ?? defaultFontSize }
         set { defaults.set(min(max(newValue, fontSizes.lowerBound), fontSizes.upperBound), forKey: Key.fontSize); post() }
     }
 
@@ -43,8 +67,14 @@ enum AppSettings {
 
     static func post() { NotificationCenter.default.post(name: changed, object: nil) }
 
-    static func font(size: Double? = nil) -> UIFont {
+    @MainActor static func font(size: Double? = nil) -> UIFont {
         UIFont.monospacedSystemFont(ofSize: CGFloat(size ?? fontSize), weight: .regular)
+    }
+
+    /// The editor's font for its own traits: unfolding a Duo goes from 13 to
+    /// 15 pt unless the person chose a size.
+    static func font(for traits: UITraitCollection) -> UIFont {
+        UIFont.monospacedSystemFont(ofSize: CGFloat(chosenFontSize ?? defaultFontSize(for: traits)), weight: .regular)
     }
 }
 

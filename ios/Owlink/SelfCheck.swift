@@ -30,9 +30,14 @@ enum SelfCheck {
     static func run(in window: UIWindow, browser: UIViewController, out: URL) {
         Task { @MainActor in
             try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+            // iPhone Duo inner display: 669 x 951 pt, read from a real
+            // Duo screenshot (2007 x 2853 px at 3x); the cover display's
+            // point size isn't confirmed, so it isn't listed.
             let shapes: [(String, CGSize, UIUserInterfaceSizeClass)] = [
                 ("iphone", CGSize(width: 402, height: 874), .compact),
                 ("ipad", CGSize(width: 1194, height: 834), .regular),
+                ("duo-open", CGSize(width: 669, height: 951), .regular),
+                ("duo-open-landscape", CGSize(width: 951, height: 669), .regular),
             ]
             for (device, size, sizeClass) in shapes {
                 resize(window, to: size)
@@ -88,7 +93,10 @@ enum SelfCheck {
         for _ in 0..<30 where editor.owl.visible == nil { try? await Task.sleep(for: .milliseconds(200)) }
         let hint = editor.owl.visible?.hint.title ?? "none"
         check(hint.contains("spaces"), "owl hint shown: \(hint)")
-        check(!editor.hintBar.isHidden, "hint bar visible")
+        check(!editor.owlSprite.isHidden && editor.owlSprite.badge.isHidden == false, "owl shows a hint badge")
+        check(editor.owlSprite.bounds.width >= 44, "owl is at least 44 pt")
+        editor.openHint()
+        check(!editor.hintBar.isHidden, "hint bubble opens on tap")
         editor.applyFix()
         check(!editor.textView.text.contains("struct Owl {   "), "Fix it trimmed the trailing spaces")
         check(editor.textView.undoManager?.canUndo == true, "the fix is undoable")

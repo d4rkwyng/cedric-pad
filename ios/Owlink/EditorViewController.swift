@@ -18,6 +18,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private let statusLabel = UILabel()
     private let languageButton = UIButton(type: .system)
     private let formatButton = UIButton(type: .system)
+    /// In the bar that rides on the keyboard, only while it is up.
+    let hideKeyboardButton = UIButton(type: .system)
     private let split = UIStackView()
     private(set) var preview: PreviewController?
     private(set) var previewOn = false
@@ -25,6 +27,20 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private var loading = false
     private(set) var palette = EditorPalettes.light
     private var previewTimer: Timer?
+    /// Cedric, in the corner (as on the Mac).
+    let owlSprite = OwlSprite()
+    /// His bubble (the hint bar) is showing the current hint.
+    private(set) var bubbleOpen = false
+    private var lastHintCount = 0
+    private var textWidth: NSLayoutConstraint!
+    /// Selection, scroll and keyboard while the preview covers the text
+    /// (an iPhone Duo folded shut with the preview on).
+    private var continuity: EditorContinuity?
+    /// Ask Cedric docked beside the text on wide screens.
+    private var askPanel: UIViewController?
+    private var askPanelWidth: NSLayoutConstraint?
+    private var askModel: AskCedricModel?
+    private var splitTrailing: NSLayoutConstraint!
 
     init(document: TextDocument) {
         self.document = document
@@ -54,9 +70,13 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
                                                name: NSTextStorage.didProcessEditingNotification, object: textView.textStorage)
         NotificationCenter.default.addObserver(self, selector: #selector(documentStateChanged),
                                                name: UIDocument.stateChangedNotification, object: document)
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self]) { (self: Self, _) in
+        // Opening or closing an iPhone Duo is a size-class change (compact
+        // outside, regular inside; outer landscape is compact both ways).
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self,
+                                 UITraitVerticalSizeClass.self]) { (self: Self, _) in
             self.applySettings()
             self.layoutPreview()
+            self.updateAskPanelForWidth()
         }
     }
 
@@ -95,55 +115,112 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
         languageButton.accessibilityIdentifier = "editor.language"
         formatButton.accessibilityIdentifier = "editor.format"
-        let row = UIStackView(arrangedSubviews: [languageButton, formatButton, UIView(), statusLabel])
+        hideKeyboardButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down"), for: .normal)
+        hideKeyboardButton.accessibilityLabel = String(localized: "Hide Keyboard")
+        hideKeyboardButton.accessibilityIdentifier = "editor.hideKeyboard"
+        hideKeyboardButton.isHidden = true
+        hideKeyboardButton.addAction(UIAction { [weak self] _ in self?.hideKeyboard() }, for: .primaryActionTriggered)
+        NSLayoutConstraint.activate([
+            hideKeyboardButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            hideKeyboardButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 30),
+        ])
+        let row = UIStackView(arrangedSubviews: [languageButton, formatButton, UIView(), statusLabel, hideKeyboardButton])
         row.spacing = 14
         row.alignment = .center
         row.translatesAutoresizingMaskIntoConstraints = false
         statusBar.addSubview(row)
         statusBar.backgroundColor = .secondarySystemBackground
+        // The background runs to the screen's edges; the labels stay inside
+        // the safe area and clear of the rounded corners (they were clipped
+        // at the bottom left on an iPhone Duo): the margins guide includes
+        // the safe area (insetsLayoutMarginsFromSafeArea), and on iOS 26+
+        // the corner-adapted one also keeps out of the display's corners.
+        statusBar.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16)
+        statusBar.insetsLayoutMarginsFromSafeArea = true
+        var guide: UILayoutGuide = statusBar.layoutMarginsGuide
+        if #available(iOS 26.0, *) { guide = statusBar.layoutGuide(for: .margins(cornerAdaptation: .horizontal)) }
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: statusBar.layoutMarginsGuide.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: statusBar.layoutMarginsGuide.trailingAnchor),
-            row.topAnchor.constraint(equalTo: statusBar.topAnchor, constant: 4),
-            row.bottomAnchor.constraint(equalTo: statusBar.bottomAnchor, constant: -4),
+            row.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
+            row.topAnchor.constraint(equalTo: guide.topAnchor),
+            row.bottomAnchor.constraint(equalTo: guide.bottomAnchor),
             statusBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 30),
         ])
     }
 
     private func setUpLayout() {
         split.axis = .horizontal
-        split.distribution = .fillEqually
+        split.distribution = .fill
         split.spacing = 1
         split.addArrangedSubview(textView)
-        for v in [split, statusBar, hintBar] as [UIView] {
+        for v in [split, statusBar] as [UIView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(v)
         }
+        // Frame-based, placed in viewDidLayoutSubviews: the owl and his bubble.
+        view.addSubview(owlSprite)
+        view.addSubview(hintBar)
         hintBar.isHidden = true
-        hintBar.onClose = { [weak self] in self?.owl.dismissCurrent() }
+        hintBar.onClose = { [weak self] in
+            self?.bubbleOpen = false
+            self?.owl.dismissCurrent()
+            self?.showHint()
+        }
         hintBar.onNext = { [weak self] in self?.owl.showNext() }
         hintBar.onFix = { [weak self] in self?.applyFix() }
+        setUpOwlSprite()
         let g = view.safeAreaLayoutGuide
+        splitTrailing = split.trailingAnchor.constraint(equalTo: g.trailingAnchor)
+        // The text pane's width when the preview is beside it (the seam on
+        // the fold of an unfolded iPhone Duo): set in updateSplit().
+        textWidth = textView.widthAnchor.constraint(equalToConstant: 100)
+        textWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
             split.topAnchor.constraint(equalTo: g.topAnchor),
-            split.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            split.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            // Inside the safe area: clear of a vertical bar at the side, the
+            // camera and the rounded corners in landscape.
+            split.leadingAnchor.constraint(equalTo: g.leadingAnchor),
+            splitTrailing,
             split.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             statusBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-            hintBar.leadingAnchor.constraint(greaterThanOrEqualTo: g.leadingAnchor, constant: 12),
-            hintBar.trailingAnchor.constraint(lessThanOrEqualTo: g.trailingAnchor, constant: -12),
-            hintBar.centerXAnchor.constraint(equalTo: g.centerXAnchor),
-            hintBar.bottomAnchor.constraint(equalTo: statusBar.topAnchor, constant: -10),
-            hintBar.widthAnchor.constraint(lessThanOrEqualToConstant: 640),
         ])
-        // As wide as it may be: the full width on a phone, 640 pt on an iPad.
-        let wide = hintBar.widthAnchor.constraint(equalTo: g.widthAnchor, constant: -24)
-        wide.priority = .defaultHigh
-        wide.isActive = true
         view.keyboardLayoutGuide.usesBottomSafeArea = false
-        statusBar.insetsLayoutMarginsFromSafeArea = true
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateSplit()
+        updateAskPanelWidth()
+        layoutOwl()
+    }
+
+    // MARK: Fold (iPhone Duo)
+
+    /// The fold, as the system's "division" reserved regions (iOS 27.1+),
+    /// in the view's coordinates: also while the phone is flat open
+    /// (.includeInactive), since the crease is still there. None elsewhere.
+    func folds() -> [CGRect] {
+        if #available(iOS 27.1, *) {
+            return view.reservedRegions(kind: .division, options: .includeInactive).map(\.frame)
+        }
+        return []
+    }
+
+    private var rightToLeft: Bool { view.effectiveUserInterfaceLayoutDirection == .rightToLeft }
+
+    /// Text and preview side by side meet at the fold when there is one.
+    private func updateSplit() {
+        let sideBySide = previewOn && !textView.isHidden && preview?.view.isHidden == false
+        guard sideBySide else {
+            if textWidth.isActive { textWidth.isActive = false }
+            return
+        }
+        let s = FoldLayout.split(content: split.frame, folds: folds(), spacing: 1, rightToLeft: rightToLeft)
+        if split.spacing != s.gap { split.spacing = s.gap }
+        if textWidth.constant != s.leading { textWidth.constant = s.leading }
+        if !textWidth.isActive { textWidth.isActive = true }
     }
 
     private func setUpNavigation() {
@@ -161,29 +238,28 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         })
         find.accessibilityIdentifier = "editor.find"
         find.title = String(localized: "Find")
-        let ask = UIBarButtonItem(image: UIImage(named: "Owl", in: .owlink, with: nil)?.preparingThumbnail(of: CGSize(width: 28, height: 28))?
-            .withRenderingMode(.alwaysOriginal), primaryAction: UIAction { [weak self] _ in self?.askCedric() })
-        ask.title = String(localized: "Ask Cedric")
-        ask.accessibilityIdentifier = "editor.ask"
-        let more = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), menu: moreMenu())
-        more.accessibilityIdentifier = "editor.more"
-        more.title = String(localized: "More")
-        var items = [more, ask, find]
+        // Cedric himself is the owl in the editor's corner (OwlSprite), not
+        // a small bar icon; Ask Cedric is also in the overflow menu.
+        var items = [find]
         if document.language.language == .markdown {
             let p = UIBarButtonItem(image: UIImage(systemName: previewOn ? "eye.fill" : "eye"), primaryAction: UIAction { [weak self] _ in
                 self?.togglePreview()
             })
             p.title = String(localized: "Preview")
             p.accessibilityIdentifier = "editor.preview"
-            items.insert(p, at: 1)
+            items.append(p)
         }
-        navigationItem.rightBarButtonItems = items
-    }
-
-    private func moreMenu() -> UIMenu {
-        UIMenu(children: [
-            UIDeferredMenuElement.uncached { [weak self] done in done(self?.moreMenuItems() ?? []) },
-        ])
+        // Which stay when a vertical bar (iPhone Duo) runs out of room.
+        if #available(iOS 27.0, *) {
+            find.visibilityPriority = .high
+            items.dropFirst().forEach { $0.visibilityPriority = .standard }
+        }
+        navigationItem.rightBarButtonItems = items.reversed()
+        // The rest in the system's own overflow menu (the ellipsis is
+        // reserved for it), not an app-made "More" menu.
+        navigationItem.additionalOverflowItems = UIDeferredMenuElement.uncached { [weak self] done in
+            done(self?.moreMenuItems() ?? [])
+        }
     }
 
     private func moreMenuItems() -> [UIMenuElement] {
@@ -199,14 +275,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         let check = UIAction(title: String(localized: "Check with Cedric"), image: UIImage(systemName: "sparkles")) { [weak self] _ in
             self?.checkWithCedric()
         }
-        let window = UIAction(title: String(localized: "New Window"), image: UIImage(systemName: "macwindow.badge.plus")) { _ in
-            UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: nil)
+        let ask = UIAction(title: String(localized: "Ask Cedric"), image: UIImage(systemName: "bubble.left.and.text.bubble.right")) { [weak self] _ in
+            self?.askCedric()
         }
         let settings = UIAction(title: String(localized: "Settings"), image: UIImage(systemName: "gear")) { [weak self] _ in
             self?.showSettings()
         }
-        var first: [UIMenuElement] = [save, replace, goTo, check]
-        if UIApplication.shared.supportsMultipleScenes { first.append(window) }
+        var first: [UIMenuElement] = [save, replace, goTo, ask, check]
+        if UIApplication.shared.supportsMultipleScenes { first.append(Self.newWindowAction()) }
         return [UIMenu(options: .displayInline, children: first), languageMenu(), formatMenu(),
                 UIMenu(options: .displayInline, children: [settings])]
     }
@@ -217,9 +293,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         loading = true
         let sel = textView.selectedRange
         textView.text = document.text
-        textView.font = AppSettings.font()
+        textView.font = AppSettings.font(for: traitCollection)
         textView.textColor = UIColor(hex: palette.foreground)
-        textView.typingAttributes = [.font: AppSettings.font(), .foregroundColor: UIColor(hex: palette.foreground)]
+        textView.typingAttributes = [.font: AppSettings.font(for: traitCollection), .foregroundColor: UIColor(hex: palette.foreground)]
         lineIndex = LineIndex(textView.textStorage.string as NSString)
         if NSMaxRange(sel) <= (textView.text as NSString).length { textView.selectedRange = sel }
         loading = false
@@ -255,9 +331,33 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
     }
 
-    func textViewDidChangeSelection(_ textView: UITextView) { updateStatus() }
+    func textViewDidBeginEditing(_ textView: UITextView) { hideKeyboardButton.isHidden = false }
+    func textViewDidEndEditing(_ textView: UITextView) { hideKeyboardButton.isHidden = true }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { colorizer?.scheduleViewport() }
+    /// The hide-keyboard button, Esc and ⌘. on a hardware keyboard (and
+    /// still the interactive drag down).
+    @objc func hideKeyboard() {
+        textView.resignFirstResponder()
+        hideKeyboardButton.isHidden = true
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        let esc = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(hideKeyboard))
+        let dot = UIKeyCommand(title: String(localized: "Hide Keyboard"), action: #selector(hideKeyboard), input: ".", modifierFlags: .command)
+        // Esc stays with find and other system uses when they want it.
+        esc.wantsPriorityOverSystemBehavior = false
+        return [esc, dot]
+    }
+
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        updateStatus()
+        fadeOwlNearCaret()
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        colorizer?.scheduleViewport()
+        fadeOwlNearCaret()
+    }
 
     private func updateStatus() {
         let sel = textView.selectedRange
@@ -323,6 +423,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     @objc private func settingsChanged() {
         applySettings()
         scheduleOwl()
+        showHint()
     }
 
     private func applySettings() {
@@ -335,7 +436,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         textView.keyboardAppearance = palette.isDark ? .dark : .light
         statusBar.backgroundColor = UIColor(hex: palette.statusBar)
         statusLabel.textColor = UIColor(hex: palette.gutterForeground)
-        let font = AppSettings.font()
+        owlSprite.onDark = palette.isDark
+        let font = AppSettings.font(for: traitCollection)
         if textView.font != font {
             textView.font = font
             textView.typingAttributes[.font] = font
@@ -376,10 +478,24 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
                                                           languageIsManual: document.language.isManual))
     }
 
+    /// The hints he may show: the offline ones only with the setting on;
+    /// ones asked for (Check with Cedric) always.
+    private var shownHints: [EditorOwl.Shown] {
+        owl.hints.filter { AppSettings.owlHints || $0.hint.source != "rules" }
+    }
+
+    /// The hints changed: his badge and pose; the bubble if it is open
+    /// (rules hints wait for a tap; a check you asked for opens it).
     private func showHint() {
-        guard let shown = owl.visible, AppSettings.owlHints || shown.hint.source != "rules" else {
+        let asked = owl.visible.map { $0.hint.source != "rules" } ?? false
+        if asked, !bubbleOpen { bubbleOpen = true }
+        updateOwlBadge()
+        guard bubbleOpen, let shown = owl.visible, AppSettings.owlHints || shown.hint.source != "rules" else {
+            bubbleOpen = false
+            updateOwlBadge()
+            guard !hintBar.isHidden else { return }
             UIView.animate(withDuration: 0.2) { self.hintBar.alpha = 0 } completion: { _ in
-                if self.owl.visible == nil { self.hintBar.isHidden = true }
+                if !self.bubbleOpen { self.hintBar.isHidden = true }
             }
             return
         }
@@ -387,12 +503,154 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         if shown.hint.replacement != nil, shown.hint.range != nil { fixTitle = String(localized: "Fix it") }
         if let l = RulesHintProvider.guessedLanguage(shown.hint) { fixTitle = String(localized: "Use \(l.displayName)") }
         if shown.hint.id == RulesHintProvider.saveCopyID { fixTitle = String(localized: "Save") }
-        hintBar.show(shown.hint, fixTitle: fixTitle, more: owl.hints.count > 1)
+        hintBar.show(shown.hint, fixTitle: fixTitle, more: shownHints.count > 1)
         if hintBar.isHidden {
             hintBar.alpha = 0
             hintBar.isHidden = false
         }
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
         UIView.animate(withDuration: 0.2) { self.hintBar.alpha = 1 }
+    }
+
+    /// Tap on the owl with a hint waiting: his bubble shows it.
+    func openHint() {
+        guard owl.visible != nil else { return }
+        bubbleOpen = true
+        showHint()
+    }
+
+    func closeHint() {
+        bubbleOpen = false
+        showHint()
+    }
+
+    // MARK: The owl in the corner
+
+    private static let placementKey = "ios.owlPlacement"
+
+    var owlPlacement: OwlPlacement {
+        get {
+            guard let d = AppSettings.defaults.data(forKey: Self.placementKey),
+                  let p = try? JSONDecoder().decode(OwlPlacement.self, from: d) else { return .default }
+            return p
+        }
+        set { AppSettings.defaults.set(try? JSONEncoder().encode(newValue), forKey: Self.placementKey) }
+    }
+
+    private func setUpOwlSprite() {
+        owlSprite.onTap = { [weak self] in
+            guard let self else { return }
+            if self.bubbleOpen { self.closeHint() }
+            else if self.owl.visible != nil, !self.shownHints.isEmpty { self.openHint() }
+            else { self.askCedric() }
+        }
+        owlSprite.onDoubleTap = { [weak self] in self?.moveOwl(to: .default) }
+        owlSprite.onDragBegan = { [weak self] in self?.closeHint() }
+        owlSprite.dragArea = { [weak self] in self?.owlArea() ?? .zero }
+        owlSprite.onDragEnded = { [weak self] frame in
+            guard let self else { return }
+            self.moveOwl(to: OwlPlacement.snapped(frameYDown: frame, in: self.owlArea()))
+        }
+        owlSprite.menuProvider = { [weak self] in self?.owlMenu() ?? UIMenu(children: []) }
+        owlSprite.accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: String(localized: "Ask Cedric")) { [weak self] _ in self?.askCedric(); return true },
+            UIAccessibilityCustomAction(name: String(localized: "Reset Position")) { [weak self] _ in self?.moveOwl(to: .default); return true },
+        ]
+    }
+
+    /// His long-press menu (the Mac's popover).
+    private func owlMenu() -> UIMenu {
+        let ask = UIAction(title: String(localized: "Ask Cedric"), image: UIImage(systemName: "bubble.left.and.text.bubble.right")) { [weak self] _ in
+            self?.askCedric()
+        }
+        let check = UIAction(title: String(localized: "Check with Cedric"), image: UIImage(systemName: "sparkles")) { [weak self] _ in
+            self?.checkWithCedric()
+        }
+        let hints = UIAction(title: String(localized: "Offline Hints"), image: UIImage(systemName: "lightbulb"),
+                             state: AppSettings.owlHints ? .on : .off) { _ in AppSettings.owlHints.toggle() }
+        let reset = UIAction(title: String(localized: "Reset Position"), image: UIImage(systemName: "arrow.down.right.square")) { [weak self] _ in
+            self?.moveOwl(to: .default)
+        }
+        return UIMenu(children: [ask, check, UIMenu(options: .displayInline, children: [hints, reset])])
+    }
+
+    /// Where he may sit: the text pane (inside the safe area, above the
+    /// status line, which rides on the keyboard), a little in from its edges.
+    func owlArea() -> CGRect {
+        var area = view.safeAreaLayoutGuide.layoutFrame
+        area.size.height = max(0, statusBar.frame.minY - area.minY)
+        if !textView.isHidden { area = area.intersection(textView.frame.offsetBy(dx: split.frame.minX, dy: split.frame.minY)) }
+        return area.isNull ? .zero : area.insetBy(dx: 4, dy: 4)
+    }
+
+    private func layoutOwl() {
+        let area = owlArea()
+        let size = CGSize(width: OwlSprite.size, height: OwlSprite.size)
+        if !owlSprite.isDragging {
+            let f = owlPlacement.frameYDown(in: area, size: size)
+            owlSprite.frame = OwlPlacement.avoidingFolds(f, folds: folds(), in: area)
+        }
+        layoutBubble(area: area)
+        fadeOwlNearCaret()
+    }
+
+    private func layoutBubble(area: CGRect) {
+        guard bubbleOpen, !hintBar.isHidden else { return }
+        // On his side of the fold.
+        let o = owlSprite.frame
+        let fold = FoldLayout.crossingFolds(folds(), content: area).first
+        let lane = FoldLayout.lane(in: area, folds: folds(), trailing: fold.map { o.midX > $0.midX } ?? true)
+        let size = hintBar.fit(width: lane.width - 8)
+        let b = OwlPlacement.bubbleYDown(owl: o, size: size, in: lane, avoid: hintedRect())
+        hintBar.tailOnTop = b.tailOnTop
+        hintBar.tailAtLeft = b.tailAtLeft
+        hintBar.frame = b.frame
+    }
+
+    /// The lines the shown hint is about, across the view (nil if none or off screen).
+    private func hintedRect() -> CGRect? {
+        guard let v = owl.visible, let r = v.hint.range,
+              let start = textView.position(from: textView.beginningOfDocument, offset: r.location + v.offset),
+              let end = textView.position(from: start, offset: r.length),
+              let range = textView.textRange(from: start, to: end) else { return nil }
+        let rect = textView.firstRect(for: range)
+        guard !rect.isNull, !rect.isInfinite else { return nil }
+        let inView = textView.convert(rect, to: view)
+        return CGRect(x: view.bounds.minX, y: inView.minY, width: view.bounds.width, height: max(inView.height, 12))
+    }
+
+    /// Saves where he goes and slides him there (0.16 s, as on the Mac).
+    func moveOwl(to place: OwlPlacement) {
+        owlPlacement = place
+        let area = owlArea()
+        let f = OwlPlacement.avoidingFolds(place.frameYDown(in: area, size: owlSprite.bounds.size), folds: folds(), in: area)
+        if UIAccessibility.isReduceMotionEnabled {
+            owlSprite.frame = f
+        } else {
+            UIView.animate(withDuration: 0.16) { self.owlSprite.frame = f }
+        }
+        layoutBubble(area: area)
+        fadeOwlNearCaret()
+    }
+
+    /// He fades while the caret is near him (so he never sits on what you type).
+    private func fadeOwlNearCaret() {
+        guard !textView.isHidden, let sel = textView.selectedTextRange else { owlSprite.setFaded(false); return }
+        let caret = textView.convert(textView.caretRect(for: sel.end), to: view)
+        owlSprite.setFaded(caret.insetBy(dx: -28, dy: -18).intersects(owlSprite.frame))
+    }
+
+    private func updateOwlBadge() {
+        let count = shownHints.count
+        let large = LargeDocument.reason(for: lineIndex) != nil
+        let state = OwlBadge.make(hints: count, previous: lastHintCount, bubbleOpen: bubbleOpen,
+                                  hintsOn: AppSettings.owlHints || count > 0, largeDocument: large,
+                                  reduceMotion: UIAccessibility.isReduceMotionEnabled)
+        lastHintCount = count
+        owlSprite.isHidden = state.hidden
+        owlSprite.apply(state)
+        owlSprite.pose = count > 0 || bubbleOpen ? .talking : .idle
     }
 
     func applyFix() {
@@ -417,6 +675,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
         // Through UITextInput, so it is one undoable edit.
         textView.replace(range, withText: fix.replacement)
+        bubbleOpen = false
         owl.dismissCurrent()
     }
 
@@ -433,8 +692,22 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
                                    fileName: document.displayName, language: document.language.language)
         model.apply = { [weak self] proposal in self?.apply(proposal) ?? false }
         model.openSettings = { [weak self] in
-            self?.dismiss(animated: true) { self?.showSettings() }
+            guard let self else { return }
+            if self.askPanel != nil { self.closeAskPanel(); self.showSettings() }
+            else { self.dismiss(animated: true) { self.showSettings() } }
         }
+        askModel = model
+        // Wide screens (an iPad, an unfolded iPhone Duo): docked beside the
+        // text, meeting it at the fold, code on one side and Cedric on the
+        // other. Compact: the sheet.
+        if traitCollection.horizontalSizeClass == .regular {
+            openAskPanel(model)
+            return
+        }
+        presentAskSheet(model)
+    }
+
+    private func presentAskSheet(_ model: AskCedricModel) {
         let host = UIHostingController(rootView: AskCedricView(model: model))
         host.modalPresentationStyle = .formSheet
         if let sheet = host.sheetPresentationController {
@@ -443,6 +716,70 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             sheet.prefersScrollingExpandsWhenScrolledToEdge = false
         }
         present(host, animated: true)
+    }
+
+    private func openAskPanel(_ model: AskCedricModel) {
+        closeAskPanel()
+        var root = AskCedricView(model: model)
+        root.onDone = { [weak self] in self?.closeAskPanel() }
+        let host = UIHostingController(rootView: root)
+        addChild(host)
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        host.view.accessibilityIdentifier = "ask.panel"
+        view.insertSubview(host.view, belowSubview: owlSprite)
+        let g = view.safeAreaLayoutGuide
+        let width = host.view.widthAnchor.constraint(equalToConstant: 360)
+        splitTrailing.isActive = false
+        splitTrailing = split.trailingAnchor.constraint(equalTo: host.view.leadingAnchor, constant: -1)
+        NSLayoutConstraint.activate([
+            host.view.topAnchor.constraint(equalTo: g.topAnchor),
+            host.view.trailingAnchor.constraint(equalTo: g.trailingAnchor),
+            host.view.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            width, splitTrailing,
+        ])
+        host.didMove(toParent: self)
+        askPanel = host
+        askPanelWidth = width
+        updateAskPanelWidth()
+    }
+
+    func closeAskPanel() {
+        guard let host = askPanel else { return }
+        askModel?.stop()
+        host.willMove(toParent: nil)
+        host.view.removeFromSuperview()
+        host.removeFromParent()
+        askPanel = nil
+        askPanelWidth = nil
+        splitTrailing.isActive = false
+        splitTrailing = split.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor)
+        splitTrailing.isActive = true
+    }
+
+    /// The panel takes the trailing side of the fold when there is one,
+    /// else 40% of the width (at least 340 pt).
+    private func updateAskPanelWidth() {
+        guard let w = askPanelWidth else { return }
+        let safe = view.safeAreaLayoutGuide.layoutFrame
+        let lane = FoldLayout.lane(in: safe, folds: folds(), trailing: true, rightToLeft: rightToLeft, gap: 0)
+        let width = lane.width < safe.width ? lane.width : max(340, safe.width * 0.4)
+        let clamped = min(width, max(0, safe.width - 280))
+        if w.constant != clamped { w.constant = clamped }
+    }
+
+    /// Folded shut with the panel open: it becomes the sheet, same conversation.
+    private func updateAskPanelForWidth() {
+        guard askPanel != nil, traitCollection.horizontalSizeClass != .regular, let model = askModel else { return }
+        let host = askPanel
+        host?.willMove(toParent: nil)
+        host?.view.removeFromSuperview()
+        host?.removeFromParent()
+        askPanel = nil
+        askPanelWidth = nil
+        splitTrailing.isActive = false
+        splitTrailing = split.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor)
+        splitTrailing.isActive = true
+        presentAskSheet(model)
     }
 
     /// Applies an Ask Cedric edit if the text it replaces is unchanged.
@@ -479,12 +816,35 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         if previewOn {
             if p.view.superview !== split { split.addArrangedSubview(p.view) }
             p.view.isHidden = false
-            textView.isHidden = !regular
-            if !regular { textView.resignFirstResponder() }
+            if !regular, !textView.isHidden { hideTextKeepingState() }
+            if regular, textView.isHidden { showTextRestoringState() }
         } else {
             p.view.isHidden = true
-            textView.isHidden = false
+            if textView.isHidden { showTextRestoringState() }
         }
+        view.setNeedsLayout()
+    }
+
+    /// The preview takes the whole screen (an iPhone Duo folded shut with
+    /// the preview on): remember the caret, selection, scroll and keyboard.
+    private func hideTextKeepingState() {
+        continuity = EditorContinuity(selection: textView.selectedRange, contentOffset: textView.contentOffset,
+                                      wasEditing: textView.isFirstResponder)
+        textView.resignFirstResponder()
+        textView.isHidden = true
+    }
+
+    /// The text is back (opened again, or the preview turned off): as it was.
+    private func showTextRestoringState() {
+        textView.isHidden = false
+        guard let c = continuity else { return }
+        continuity = nil
+        textView.selectedRange = c.restoredSelection(length: (textView.text as NSString).length)
+        view.layoutIfNeeded()
+        let maxOffset = CGPoint(x: textView.contentSize.width + textView.adjustedContentInset.right - textView.bounds.width,
+                                y: textView.contentSize.height + textView.adjustedContentInset.bottom - textView.bounds.height)
+        textView.setContentOffset(c.restoredOffset(maxOffset: maxOffset), animated: false)
+        if c.wasEditing { textView.becomeFirstResponder() }
     }
 
     private func refreshPreview() {
@@ -510,7 +870,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     @objc func biggerFont() { AppSettings.fontSize += 1 }
     @objc func smallerFont() { AppSettings.fontSize -= 1 }
-    @objc func actualSizeFont() { AppSettings.fontSize = AppSettings.defaultFontSize }
+    @objc func actualSizeFont() { AppSettings.resetFontSize() }
     @objc func toggleWrap() { AppSettings.wrap.toggle() }
 
     @objc func showSettings() {
@@ -521,6 +881,16 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     @objc func newWindow() {
         UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: nil)
+    }
+
+    /// New Window as the system's scene activation action: the system
+    /// hides or refuses it where a new window can't open (an iPhone Duo's
+    /// outer display) instead of the request failing silently.
+    static func newWindowAction() -> UIAction {
+        UIWindowScene.ActivationAction(title: String(localized: "New Window"), image: UIImage(systemName: "macwindow.badge.plus"),
+                                      identifier: nil, alternate: nil) { _ in
+            UIWindowScene.ActivationConfiguration(userActivity: NSUserActivity(activityType: "app.owlink.ios.newWindow"))
+        }
     }
 
     @objc func goToLine() {
@@ -567,10 +937,13 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.accessibilityIdentifier = "editor.toast"
         view.addSubview(label)
+        // Inside the safe area, and on one side of an iPhone Duo's fold.
+        let lane = FoldLayout.lane(in: view.safeAreaLayoutGuide.layoutFrame, folds: folds(), trailing: true,
+                                   rightToLeft: rightToLeft)
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.centerXAnchor.constraint(equalTo: view.leftAnchor, constant: lane.midX),
             label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            label.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -40),
+            label.widthAnchor.constraint(lessThanOrEqualToConstant: max(120, lane.width - 40)),
         ])
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             UIView.animate(withDuration: 0.3) { label.alpha = 0 } completion: { _ in label.removeFromSuperview() }

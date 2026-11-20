@@ -113,6 +113,20 @@ final class EditorSnapshotTests: XCTestCase {
         await withCheckedContinuation { c in doc.close { _ in c.resume() } }
     }
 
+    /// The hide-keyboard button shows only while editing and resigns.
+    func testHideKeyboardButton() async throws {
+        let doc = try await open(try sample("sample.swift"))
+        let (_, editor) = show(doc, size: Self.iPhone, dark: false)
+        XCTAssertTrue(editor.hideKeyboardButton.isHidden, "shown without the keyboard")
+        XCTAssertEqual(editor.hideKeyboardButton.accessibilityLabel, "Hide Keyboard")
+        XCTAssertTrue(editor.textView.becomeFirstResponder())
+        XCTAssertFalse(editor.hideKeyboardButton.isHidden, "not shown while editing")
+        editor.hideKeyboardButton.sendActions(for: .primaryActionTriggered)
+        XCTAssertFalse(editor.textView.isFirstResponder, "didn't resign")
+        XCTAssertTrue(editor.hideKeyboardButton.isHidden)
+        await withCheckedContinuation { c in doc.close { _ in c.resume() } }
+    }
+
     func testKeepsCRLFAndLatin1OnSave() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -137,6 +151,8 @@ final class EditorSnapshotTests: XCTestCase {
         for _ in 0..<30 where editor.owl.visible == nil { await spin(0.2) }
         let shown = try XCTUnwrap(editor.owl.visible, "no hint")
         XCTAssertTrue(shown.hint.title.contains("spaces"), shown.hint.title)
+        XCTAssertFalse(editor.owlSprite.isHidden)
+        editor.openHint()
         XCTAssertFalse(editor.hintBar.isHidden)
         try snapshot(w, "test-owl-hint")
         editor.applyFix()

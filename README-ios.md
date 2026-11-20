@@ -29,6 +29,29 @@ Source files can be added in Xcode or Finder: `ios/Owlink`,
 - Cedric's offline hints with **Fix it**; Ask Cedric (`⇧⌘K`) and Check
   with Cedric (`⌥⌘H`).
 - iPad: menu bar and keyboard shortcuts, several windows, Stage Manager.
+- Cedric sits in the editor's corner as on the Mac (the same owl art):
+  tap him for his bubble with the waiting hint (a count badge and a short
+  pulse say one arrived; no pulse with Reduce Motion), or for Ask Cedric
+  when there is none; drag him to another edge or corner (he snaps, and
+  the place is kept); double-tap puts him back; long-press for his menu.
+  He fades while the caret is near him.
+- Ask Cedric is a sheet on a phone and a panel beside the text on a wide
+  screen (iPad, an unfolded iPhone Duo).
+
+### iPhone Duo
+
+Opening and closing the phone is a size-class change (compact outside,
+regular inside). Unfolded, text and Markdown preview meet at the fold
+(the system's `.division` reserved region), and the owl, his bubble, the
+toast and the Ask Cedric panel keep off it. Folded shut with the preview
+on, the preview takes the screen; reopening puts back the caret,
+selection, scroll position and keyboard. The status line and the text
+stay inside the safe area and clear of the rounded corners and the
+vertical bar the system moves the toolbar into; the toolbar's extra
+commands are in the system's overflow menu. The font defaults to 15 pt
+unfolded and 13 pt folded unless one was chosen. Layout rules are pure
+functions in CedricCore (`FoldLayout`, `OwlPlacement`, `OwlBadge`,
+`EditorContinuity`) with tests in `DuoLayoutTests`.
 
 Not on iOS: the `cedric` command, Replace in Files, the folder sidebar, Git,
 the certificate view, XML formatting.
@@ -62,7 +85,8 @@ GitHub, and checks it against the SHA-256 in `Package.swift`.
 On a Mac signed in to the Apple developer account for team V868MD2SHX:
 
 1. `git checkout feat/ios-app` (once merged: `main`), then open
-   `ios/Owlink.xcodeproj` in Xcode 26 or later.
+   `ios/Owlink.xcodeproj` in Xcode 27.1 or later (the iPhone Duo APIs
+   need the iOS 27.1 SDK).
 2. Xcode › Settings › Accounts: make sure the account is signed in.
 3. Select the **Owlink** target › Signing & Capabilities: Team
    V868MD2SHX, "Automatically manage signing" on. Xcode registers the
@@ -95,7 +119,7 @@ Not set up. What it would need:
   With an API key, `xcodebuild -allowProvisioningUpdates` can create the
   signing certificate and profiles itself (cloud-managed signing), so no
   certificate has to be exported into a secret.
-- **A macOS runner** with Xcode 26 or later (`macos-26` or a self-hosted
+- **A macOS runner** with Xcode 27.1 or later (`macos-26` or a self-hosted
   Mac).
 - **Workflow outline** (`.github/workflows/ios-testflight.yml`, run by
   hand or on a tag):
