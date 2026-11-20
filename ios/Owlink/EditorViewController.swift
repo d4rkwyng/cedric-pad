@@ -382,7 +382,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         // Which stay when a vertical bar (iPhone Duo) runs out of room.
         if #available(iOS 27.0, *) {
             items.forEach { $0.visibilityPriority = .standard }
-            for i in [find, undoItem, redoItem, saveItem] { i.visibilityPriority = .high }
+            for i in [find, undoItem, redoItem, saveItem, editItem] { i.visibilityPriority = .high }
         }
         // Undo and Redo first (leading), then Save, Find, Preview, and
         // Edit / Done at the trailing end.
