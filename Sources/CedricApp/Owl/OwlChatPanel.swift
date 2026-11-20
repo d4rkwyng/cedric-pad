@@ -362,6 +362,9 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         })
     }
 
+    /// Still watching a tab window (the checks: false once closed).
+    var followsTabWindow: Bool { followed != nil || !followers.isEmpty }
+
     private func unfollow() {
         followers.forEach { NotificationCenter.default.removeObserver($0) }
         followers = []
@@ -406,6 +409,9 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     func windowWillClose(_ notification: Notification) {
         stop(nil)
         hiddenWithTab = false
+        // Closed by its own close button or Escape (not `close()`): stop
+        // watching the tab's window too.
+        unfollow()
         panel.parent?.removeChildWindow(panel)
         tab?.owl?.chatClosed()
     }

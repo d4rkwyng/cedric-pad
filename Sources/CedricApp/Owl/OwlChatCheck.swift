@@ -460,6 +460,7 @@ enum OwlChatCheck {
         let held = o.map { $0.chatBusy || $0.chatGesturePlaying || $0.owl.inState } ?? false
         check(!chat.hasTimers && mood == .idle && !held && o?.chatOpen != true,
               "\(what): no timers or animation left from the chat (panel timers \(chat.hasTimers), mood \(mood), owl held \(held))")
+        check(!chat.followsTabWindow, "\(what): the panel no longer watches the tab's window")
     }
 
     static func reopen(_ tab: EditorWindowController, _ then: @escaping @MainActor (OwlChatPanel) -> Void) {

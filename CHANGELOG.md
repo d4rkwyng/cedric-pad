@@ -12,6 +12,7 @@ are its section below (`Scripts/changelog-section.sh`).
 - **A closed tab's unsaved text expires while Owlink stays open**, not only at the next launch: each time you close a tab, closed tabs older than 30 days go (and past 100 such tabs, the oldest), so a session left running for weeks doesn't keep them.
 
 ### Fixed
+- **Closing the Ask Cedric panel with its close button or Escape stops it watching the tab's window**, as closing it from the menu already did; it no longer reacts to that window after it is closed. Closing a tab you follow (View › Follow File) is now checked to leave nothing open on the file.
 - **IPv6 link-local AI server addresses keep their interface.** An address typed as `[fe80::1%en0]` is saved in the standard URL form (`%25en0`), the private-address checks understand the interface part, and a `.local` name that has only a link-local address is reached at the checked address, with its interface, instead of being looked up a second time.
 
 ## [0.2.1]

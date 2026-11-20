@@ -550,6 +550,25 @@ enum DevChecks {
                 key("t", [.command, .option])
                 expect(!tab.isFollowing && tab.textView.isEditable, "⌥⌘T again stops following")
             },
+            // Closing a followed tab stops the watcher: no descriptor left
+            // on the file (0.2.1 review M5).
+            sync {
+                key("t", [.command, .option])
+                expect(tab.isFollowing, "following again before closing the tab")
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { next() } },
+            sync {
+                expect(FileTail.descriptorsOpen(on: log) == 1, "the followed file has one descriptor open",
+                       "\(FileTail.descriptorsOpen(on: log))")
+                _ = app.open(write("keep-a-window.txt", "x\n"))
+                tab.window?.close()
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { next() } },
+            sync {
+                expect(tab.tail == nil, "closing the tab drops its tail")
+                expect(FileTail.descriptorsOpen(on: log) == 0, "…and no descriptor is left on the file",
+                       "\(FileTail.descriptorsOpen(on: log))")
+            },
         ])
     }
 
