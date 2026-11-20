@@ -553,8 +553,8 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private var forcedVerdict: ScriptVerdict.Reason?
     /// The running script check's answer, clamped as it streams in.
     private var verdictStream: ScriptVerdictStream?
-    /// This answer is about a script: "safe" claims are rewritten (`OwlChatRequest.guardsSafeClaims`).
-    private var guardsSafeClaims = false
+    /// This answer is about a script: "safe" claims are rewritten (`OwlChatRequest.safeClaimGuard`).
+    private var safeClaimGuard: ScriptVerdict.Guard?
     /// What of the streamed answer the transcript shows now (script check).
     private var shownAnswer = ""
     /// Every text the script check's answer showed while streaming (checks).
@@ -625,7 +625,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         lastRequest = (question, action)
         forcedVerdict = nil
         verdictStream = nil
-        guardsSafeClaims = false
+        safeClaimGuard = nil
         shownAnswer = ""
         streamedRenders = []
         var snap = snapshot()
@@ -665,8 +665,8 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                                      scanHasHigh: scanHasHigh, scanTruncated: scanTruncated, imageSource: picture)
             self.forcedVerdict = req.forcedVerdict
             // Any answer about a script: clamped before it shows (ScriptVerdictStream).
-            self.guardsSafeClaims = req.guardsSafeClaims
-            if req.guardsSafeClaims { self.verdictStream = ScriptVerdictStream(forced: req.forcedVerdict) }
+            self.safeClaimGuard = req.safeClaimGuard
+            if let mode = req.safeClaimGuard { self.verdictStream = ScriptVerdictStream(forced: req.forcedVerdict, guard: mode) }
             do {
                 let outcome = try await OwlChatRunner.run(req, engine: engine, model: engine.scoreKey) { [weak self] ev in
                     DispatchQueue.main.async { MainActor.assumeIsolated { self?.handle(ev) } }
@@ -772,12 +772,13 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         lastOutcome = outcome
         if let id = docID {
             if let outcome {
-                OwlChatStore.shared.replaceLast(OwlChatEntry(role: .owl, text: outcome.answer.isEmpty ? streamed : outcome.answer,
-                                                             proposal: outcome.proposal), in: id)
+                // An empty answer falls back to what streamed, guarded the same way.
+                let text = OwlChatRunner.storedText(answer: outcome.answer, streamed: streamed, guard: safeClaimGuard, forced: forcedVerdict)
+                OwlChatStore.shared.replaceLast(OwlChatEntry(role: .owl, text: text, proposal: outcome.proposal), in: id)
             } else if let error {
                 // A script check cut short still never reads as "safe".
-                let partial = guardsSafeClaims && !streamed.isEmpty
-                    ? ScriptVerdict.clamp(streamed, forced: forcedVerdict) : streamed
+                let partial = !streamed.isEmpty
+                    ? OwlChatRunner.storedText(answer: "", streamed: streamed, guard: safeClaimGuard, forced: forcedVerdict) : streamed
                 let text = partial.isEmpty ? error : partial + " (" + error + ")"
                 OwlChatStore.shared.replaceLast(OwlChatEntry(role: .note, text: text), in: id)
             }

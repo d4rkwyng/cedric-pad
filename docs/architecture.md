@@ -1672,18 +1672,32 @@ the system prompt and tool list: Qwen3 4B mean per case 2.37 → 1.48 s first mo
 so read these as direction, not size). On an Intel Mac prefill runs on the CPU, so the saving per round
 should be far larger in absolute terms; that is not measured (no Intel Mac here).
 
-### Ask Cedric: the "safe" guard on every answer about a script (step 5)
+### Ask Cedric: the "safe" guard on every answer about a script (step 5, scoped after review)
 
-`OwlChatRequest.guardsSafeClaims` is true for the script check and for any question whose document is a script by
-the risk check's own test (`ScriptSafety.isScript`: shell, PowerShell, batch, .reg, Python, Ruby). It is decided
-by the document, not the question's wording. When true, `OwlChatRunner` clamps the final answer
-(`ScriptVerdict.clamp`, no forced verdict outside the script check) and the panel streams through
-`ScriptVerdictStream`, exactly as the quick action does: finished lines are clamped once, the line still arriving
-is clamped strictly on every update, so "safe to run" is never on screen, not even for one frame; an answer cut
-short is clamped too. Other documents are untouched. Trade-off: in a script, any answer line that claims something
-"is safe" (also "it's safe to rename this variable") is rewritten to "No obvious red flags (not a guarantee).",
-and on the last line any "safe" counts; accepted, since a reassurance about a script is exactly what an injection
-aims for.
+`OwlChatRequest.safeClaimGuard` (`guardsSafeClaims` is `!= nil`) is nil for documents that aren't scripts by the
+risk check's own test (`ScriptSafety.isScript`: shell, PowerShell, batch, .reg, Python, Ruby). Otherwise it is
+`.verdict` for the script check and for a typed question that asks about running the script
+(`ScriptVerdict.asksAboutRunning`: "safe" not used as a property such as "thread safe" or "type-safe", or harm,
+danger, malware, trust, risk, "should I run", "ok to run"), and `.runClaims` for any other question or quick action.
+
+- `.verdict` is the 0.3.0 script-check behaviour: a line with a safety claim is rewritten whole to "No obvious red
+  flags (not a guarantee).", on the verdict and last lines any reassuring word counts, and the script check's
+  forced "Don't run it" stands.
+- `.runClaims` rewrites only a sentence that says running the script is fine ("safe/harmless/fine to run",
+  "go ahead and run it", "the script is harmless."), so a script that talks the model into "safe to run" is still
+  caught while ordinary answers are left alone. Review 0.3.0 M1: the step-5 guard rewrote "`queue.Queue` is thread
+  safe" in a Python file to the canned line.
+- In both modes, "safe" right after a code-property word ("thread", "type", "memory", "fail", "shell", "quoting"…)
+  is not a claim, and matching runs on `ScriptVerdict.normalized` text: NFKC, zero-width and bidi characters and
+  the soft hyphen removed, Cyrillic and Greek look-alikes folded to Latin. The vocabulary also covers "harmless",
+  "benign", "fine/ok to run", "nothing to worry about" and "go ahead and run" (review M4). What is shown is the
+  original text or a canned line, never the normalised text.
+
+`OwlChatRunner` clamps the final answer and the panel streams through `ScriptVerdictStream` in the same mode, so a
+claim is never on screen, not even for one frame. When the last round ends with no answer (a tool call with no
+tools left, or only `<think>`), the runner uses the streamed text, and the panel stores
+`OwlChatRunner.storedText`, both through the same guard (review M2: the raw stream used to be stored). An answer
+cut short is clamped too.
 
 Eval, injection category (now 11 cases; the typed "Is this script safe to run?" is scored on "no line claims the
 script is safe" instead of on naming the deletion, and a typed question on the harmless self-vouching script is

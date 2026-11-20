@@ -185,15 +185,23 @@ public struct OwlChatRequest: Sendable {
         context.truncated || context.firstLine > 1 || context.lastLine < snapshot.lineCount
     }
 
-    /// Every "safe" claim in the answer is rewritten (`ScriptVerdict.clamp`,
-    /// and `ScriptVerdictStream` while it streams): the script check, and
-    /// any question at all about a script (the risk check's languages:
-    /// shell, PowerShell, batch, .reg, Python, Ruby). Decided by the
-    /// document, not the question's wording, so "is this ok to run?" and
-    /// a script that talks the model into "safe to run" are both covered.
-    public var guardsSafeClaims: Bool {
-        action == .scriptSafety || ScriptSafety.isScript(Language(rawValue: snapshot.language) ?? .plain)
+    /// How the answer's "safe" claims are rewritten (`ScriptVerdict.clamp`,
+    /// and `ScriptVerdictStream` while it streams), or nil for none.
+    /// `.verdict` (every claim, the whole line) for the script check and
+    /// for a typed question about running a script ("is it safe?", "should
+    /// I run this?"). `.runClaims` (only a sentence saying running it is
+    /// fine) for any other question about a script, so a script that talks
+    /// the model into "safe to run" is still caught while "queue.Queue is
+    /// thread safe" is left alone. Scripts: the risk check's languages
+    /// (shell, PowerShell, batch, .reg, Python, Ruby). Other documents: nil.
+    public var safeClaimGuard: ScriptVerdict.Guard? {
+        if action == .scriptSafety { return .verdict }
+        guard ScriptSafety.isScript(Language(rawValue: snapshot.language) ?? .plain) else { return nil }
+        return action == nil && ScriptVerdict.asksAboutRunning(question) ? .verdict : .runClaims
     }
+
+    /// Some "safe" claims in the answer are rewritten (`safeClaimGuard`).
+    public var guardsSafeClaims: Bool { safeClaimGuard != nil }
 
     /// Why the script check's verdict is forced, if it is.
     public var forcedVerdict: ScriptVerdict.Reason? {
@@ -241,8 +249,10 @@ public enum OwlChatRunner {
                                                totalLines: req.snapshot.lineCount)
         onEvent(.phase(.thinking))
         let wrote = Flag()
+        let streamed = TextBuffer()
         let onText: @Sendable (String) -> Void = { t in
             if !wrote.value { wrote.value = true; onEvent(.phase(.writing)) }
+            streamed.append(t)
             onEvent(.text(t))
         }
         var rounds = 0
@@ -276,10 +286,24 @@ public enum OwlChatRunner {
                                              reason: "", in: req.snapshot)
             if let proposal { onEvent(.proposal(proposal)) }
         }
+        // No final answer (the last round ended in a tool call, or only
+        // "<think>" came): the text that streamed is the answer, and goes
+        // through the same guard, so what is stored matches what was shown.
         var shown = stripThinking(answer)
+        if shown.isEmpty { shown = stripThinking(streamed.value) }
         // About a script, the owl never says "safe" (`ScriptVerdict`), whatever the model wrote.
-        if req.guardsSafeClaims { shown = ScriptVerdict.clamp(shown, forced: req.forcedVerdict) }
+        if let mode = req.safeClaimGuard { shown = ScriptVerdict.clamp(shown, forced: req.forcedVerdict, guard: mode) }
         return OwlChatOutcome(answer: shown, proposal: proposal, toolCalls: toolbox.callCount, rounds: rounds)
+    }
+
+    /// The text kept in the chat for a finished answer: `answer` (already
+    /// guarded by `run`), or, if that is empty, what streamed, through the
+    /// same guard. Never the raw stream of a guarded answer.
+    public static func storedText(answer: String, streamed: String, guard mode: ScriptVerdict.Guard?,
+                                  forced: ScriptVerdict.Reason?) -> String {
+        guard answer.isEmpty else { return answer }
+        guard let mode else { return streamed }
+        return ScriptVerdict.clamp(streamed, forced: forced, guard: mode)
     }
 
     /// The first ``` block's body.
@@ -308,6 +332,14 @@ public enum OwlChatRunner {
         guard let r = s.range(of: "</think>") else { return s.trimmingCharacters(in: .whitespacesAndNewlines) }
         return String(s[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
+}
+
+/// Text appended from any thread.
+final class TextBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var s = ""
+    func append(_ t: String) { lock.withLock { s += t } }
+    var value: String { lock.withLock { s } }
 }
 
 final class Flag: @unchecked Sendable {
