@@ -29,6 +29,14 @@ final class TextDocument: UIDocument {
     var openBinaryAnyway = false
     /// Called on the main queue after the file was (re)read from disk.
     var onReload: (() -> Void)?
+    /// Called on the main queue when the file changed on disk while there
+    /// were unsaved edits: nothing was reloaded; the editor asks Keep Mine
+    /// / Use Theirs.
+    var onExternalChange: (() -> Void)?
+    /// The app asked for the next revert itself (Use Theirs, Keep Other).
+    private var revertChosen = false
+    /// Keep Mine / Use Theirs is being asked.
+    private(set) var externalChangePending = false
     /// Set by the editor: returns its current text before a save.
     var currentText: (() -> String)?
     private(set) var firstUnsavedEdit: Date?
@@ -106,10 +114,35 @@ final class TextDocument: UIDocument {
         }
     }
 
+    /// UIDocument reverts when the file changed elsewhere, which discards
+    /// unsaved edits. With unsaved edits it doesn't, yet: the editor copies
+    /// both sides and asks (`onExternalChange`).
+    override func revert(toContentsOf url: URL, completionHandler: ((Bool) -> Void)? = nil) {
+        switch ExternalChange.onRevert(hasUnsavedChanges: hasUnsavedChanges, chosen: revertChosen, asking: externalChangePending) {
+        case .reload:
+            revertChosen = false
+            externalChangePending = false
+            super.revert(toContentsOf: url, completionHandler: completionHandler)
+        case .askFirst:
+            externalChangePending = true
+            completionHandler?(false)
+            if let onExternalChange { DispatchQueue.main.async(execute: onExternalChange) }
+        case .ignore:
+            completionHandler?(false)
+        }
+    }
+
     /// Reads the file again after the person chose its version on disk
-    /// (Keep Other Version in a conflict).
+    /// (Use Theirs, Keep Other Version in a conflict).
     func revertAfterChoice(_ done: @escaping (Bool) -> Void) {
+        revertChosen = true
         revert(toContentsOf: fileURL, completionHandler: done)
+    }
+
+    /// Keep Mine: the edits stay unsaved, and the next save replaces theirs.
+    func keepMineAfterExternalChange() {
+        externalChangePending = false
+        updateChangeCount(.done)
     }
 
     var displayName: String { fileURL.lastPathComponent }

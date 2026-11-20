@@ -107,6 +107,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         colorizer.lineIndex = { [weak self] in self?.lineIndex ?? LineIndex() }
         document.currentText = { [weak self] in self?.textView.text ?? "" }
         document.onReload = { [weak self] in self?.loadText() }
+        document.onExternalChange = { [weak self] in self?.externalChange() }
         document.onEditedChange = { [weak self] in self?.updateEdited() }
         recoveryWriter = RecoveryWriter(document: document) { [weak self] in self?.textView.text ?? "" }
         document.onSaved = { [weak self] in
@@ -435,6 +436,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         lineIndex = LineIndex(textView.textStorage.string as NSString)
         if NSMaxRange(sel) <= (textView.text as NSString).length { textView.selectedRange = sel }
         loading = false
+        // The text was replaced from disk: the old undo steps' ranges no
+        // longer match it.
+        textView.undoManager?.removeAllActions()
         colorizer.setLanguage(document.language.language)
         generation += 1
         updateStatus()
@@ -1533,6 +1537,43 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
                 }
             }
         }
+    }
+
+    // MARK: Changed elsewhere with unsaved edits
+
+    /// The file changed on disk while the text here had unsaved edits: the
+    /// document did not reload. The text here goes to the recovery store
+    /// and both sides to the safety copies, then Keep Mine / Use Theirs.
+    private func externalChange() {
+        guard !closing, document.externalChangePending else { return }
+        setEditLock(.externalChange, true)
+        recoveryWriter.writeNow()
+        DocumentCopies.keepUnsaved(textView.text, of: document)
+        DocumentCopies.keepDisk(of: document, kind: .externalVersion) { [weak self] _ in
+            self?.askExternalChange()
+        }
+    }
+
+    private func askExternalChange() {
+        guard !closing else { return }
+        let a = UIAlertController(title: String(localized: "\(document.displayName) was changed somewhere else"),
+                                  message: String(localized: "You have unsaved changes here. Keep Mine saves your version over the other one; Use Theirs shows the other one. A copy of both is kept in Owlink."),
+                                  preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: String(localized: "Keep Mine"), style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.document.keepMineAfterExternalChange()
+            self.setEditLock(.externalChange, false)
+            self.toast(String(localized: "Kept your version."))
+        })
+        a.addAction(UIAlertAction(title: String(localized: "Use Theirs"), style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.recoveryWriter.clear()
+            self.document.revertAfterChoice { [weak self] _ in
+                self?.setEditLock(.externalChange, false)
+                self?.toast(String(localized: "Showing the other version. Your text is kept in Owlink."))
+            }
+        })
+        present(a, animated: true)
     }
 
     private func endConflict() {

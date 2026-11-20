@@ -32,6 +32,36 @@ enum SaveSafetyStores {
     static let queue = DispatchQueue(label: "app.owlink.recovery", qos: .utility)
 }
 
+/// Safety copies of one document, made before anything replaces its text.
+enum DocumentCopies {
+    /// The unsaved text, in the document's encoding (UTF-8 if it can't hold
+    /// it). Synchronous: done before the question that could replace it.
+    @MainActor @discardableResult
+    static func keepUnsaved(_ text: String, of doc: TextDocument) -> Bool {
+        let enc = TextCodec.encode(text, encoding: doc.encoding, lineEnding: doc.lineEnding)
+        let copy = SafetyCopy(documentPath: doc.recoveryPath, displayName: doc.displayName, kind: .unsavedText,
+                              encoding: enc == nil ? .utf8 : doc.encoding)
+        return (try? SaveSafetyStores.copies.keep(enc ?? Data(text.utf8), as: copy)) != nil
+    }
+
+    /// The file as it is on disk now, read coordinated off the main thread.
+    @MainActor static func keepDisk(of doc: TextDocument, kind: SafetyCopy.Kind, done: @escaping (Bool) -> Void) {
+        let url = doc.fileURL, path = doc.recoveryPath, name = doc.displayName
+        let store = SaveSafetyStores.copies
+        DispatchQueue.global(qos: .userInitiated).async {
+            var err: NSError?
+            var data: Data?
+            NSFileCoordinator(filePresenter: doc).coordinate(readingItemAt: url, options: [], error: &err) { u in
+                data = try? Data(contentsOf: u)
+            }
+            let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            let ok = data.map { (try? store.keep($0, as: SafetyCopy(documentPath: path, displayName: name, kind: kind,
+                                                                     sourceDate: modified))) != nil } ?? false
+            DispatchQueue.main.async { done(ok) }
+        }
+    }
+}
+
 /// The documents open in an editor in this process (any window): their
 /// recovery copies are live, not left over from a crash.
 @MainActor enum OpenDocuments {

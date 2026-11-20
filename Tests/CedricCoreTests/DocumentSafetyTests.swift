@@ -108,4 +108,26 @@ import Testing
         g.set(.conflict, false)
         #expect(g.isEditable)
     }
+
+    // MARK: External change
+
+    @Test func externalChangeAsksOnlyWithUnsavedEdits() {
+        #expect(ExternalChange.onRevert(hasUnsavedChanges: false, chosen: false, asking: false) == .reload)
+        #expect(ExternalChange.onRevert(hasUnsavedChanges: true, chosen: false, asking: false) == .askFirst)
+        // A second change while the question is up: one question.
+        #expect(ExternalChange.onRevert(hasUnsavedChanges: true, chosen: false, asking: true) == .ignore)
+        // Use Theirs / Keep Other Version: the app's own reload goes ahead.
+        #expect(ExternalChange.onRevert(hasUnsavedChanges: true, chosen: true, asking: true) == .reload)
+        #expect(ExternalChange.onRevert(hasUnsavedChanges: true, chosen: true, asking: false) == .reload)
+    }
+
+    @Test func editGateLocksWhileAskingAboutExternalChange() {
+        var g = EditGate()
+        g.set(.externalChange, true)
+        g.set(.conflict, true)
+        g.set(.externalChange, false)
+        #expect(!g.isEditable)
+        g.set(.conflict, false)
+        #expect(g.isEditable)
+    }
 }

@@ -185,6 +185,9 @@ public struct EditGate: Equatable, Sendable {
     public enum Reason: Hashable, Sendable {
         /// An iCloud conflict is waiting for a choice.
         case conflict
+        /// Another app changed the file while there were unsaved edits:
+        /// waiting for Keep Mine / Use Theirs.
+        case externalChange
     }
 
     public private(set) var reasons: Set<Reason> = []
@@ -195,5 +198,34 @@ public struct EditGate: Equatable, Sendable {
 
     public mutating func set(_ reason: Reason, _ on: Bool) {
         if on { reasons.insert(reason) } else { reasons.remove(reason) }
+    }
+}
+
+/// The file changed on disk (another app, another device) while open.
+/// UIDocument then reverts, which "discard[s] all unsaved document
+/// modifications"; with unsaved edits the app asks first instead.
+public enum ExternalChange {
+    public enum Action: Equatable, Sendable {
+        /// Read the file now (nothing unsaved, or the person chose to).
+        case reload
+        /// Keep the unsaved text, copy both sides, and ask Keep Mine / Use Theirs.
+        case askFirst
+        /// Already asking: this change is covered by the same question.
+        case ignore
+    }
+
+    public enum Choice: Equatable, Sendable {
+        /// Keep the text here (saving replaces theirs; theirs is copied).
+        case keepMine
+        /// Load the file from disk (the text here is copied).
+        case useTheirs
+    }
+
+    /// `chosen`: the app itself asked for this reload (Use Theirs, Keep
+    /// Other Version). `asking`: the question is already up.
+    public static func onRevert(hasUnsavedChanges: Bool, chosen: Bool, asking: Bool) -> Action {
+        if chosen { return .reload }
+        if asking { return .ignore }
+        return hasUnsavedChanges ? .askFirst : .reload
     }
 }
