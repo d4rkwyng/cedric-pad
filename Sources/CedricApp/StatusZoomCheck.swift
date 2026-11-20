@@ -4,7 +4,8 @@ import CedricCore
 /// CEDRIC_CHECK=statuszoom (Scripts/tools-check.sh, 0.2.1): the status
 /// bar's zoom is a pull-down (Zoom In, Zoom Out, Actual Size, 75–200 %)
 /// that zooms the editor, and with the preview docked the editor's status
-/// items stay under the editor column.
+/// items stay under the editor column, a split editor's two panes too
+/// (0.3.0).
 @MainActor
 extension DevChecks {
     static func statusZoomCheck(_ app: AppDelegate) {
@@ -58,6 +59,24 @@ extension DevChecks {
                        "the status items sit under the editor column, not under the preview", "items \(items) column \(column)")
                 let zoom = bar.zoom.convert(bar.zoom.bounds, to: bar)
                 expect(zoom.maxX <= column.maxX, "the zoom too", "\(zoom)")
+                // 0.3.0: a split editor is one column for the status bar.
+                tab.splitPanes(sideBySide: true, ratio: 0.5, focusSecond: true)
+            },
+            snapshot("statuszoom-split.png"),
+            sync {
+                tab.window?.layoutIfNeeded()
+                let column = tab.editorArea.frame
+                let items = bar.itemsFrame
+                expect(tab.isSplit && tab.previewVisible && tab.editorArea !== tab.editorContainer, "split side by side, preview docked")
+                expect(abs(items.maxX - column.maxX) < 1 && items.minX >= column.minX - 1 && column.maxX > tab.primaryPane.container.frame.maxX + 100,
+                       "split: the status items span both panes, not the first pane or the preview", "items \(items) column \(column)")
+                tab.unsplit()
+            },
+            sync {
+                tab.window?.layoutIfNeeded()
+                let column = tab.editorArea.frame
+                expect(!tab.isSplit && abs(bar.itemsFrame.maxX - column.maxX) < 1, "unsplit: still under the editor column",
+                       "items \(bar.itemsFrame) column \(column)")
                 tab.togglePreview()
             },
             sync {

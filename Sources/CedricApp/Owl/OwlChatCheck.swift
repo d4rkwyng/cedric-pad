@@ -490,32 +490,62 @@ enum OwlChatCheck {
                 checkBeside(tab, chat, "the owl moved to the top left")
                 check(chat.panel.frame.origin != firstFrame.origin, "so it opens somewhere else than the first time")
                 OwlCheck.snapshot(w, "\(out)/chat-owl-7-moved.png") {
-                    // Hide Cedric: the panel opens at the default place and the chat works.
                     chat.close()
-                    setOwlShown(false)
-                    check(tab.owl == nil, "Hide Cedric: no owl")
-                    reopen(tab) { chat in
-                        check(tab.owl == nil, "opening the panel doesn't bring him back")
-                        let p = chat.panel.frame
-                        let screen = (w.screen ?? NSScreen.main)?.visibleFrame ?? w.frame
-                        let x = min(max(w.frame.maxX - p.width - 24, screen.minX + 4), screen.maxX - p.width - 4)
-                        let y = min(max(w.frame.minY + 100, screen.minY + 4), screen.maxY - p.height - 4)
-                        check(chat.openedBesideOwl == nil && abs(p.minX - x) < 0.5 && abs(p.minY - y) < 0.5,
-                              "with no owl it opens at the default place, the window's bottom-right corner")
-                        OwlCheck.click(chat.actionButtons[.explain]!)
-                        waitDone(chat) { _ in
-                            check(chat.transcriptText.contains("fake answer"), "the chat works without the owl")
-                            OwlCheck.snapshot(chat.panel, "\(out)/chat-panel-1-no-owl-shown.png") {
-                                chat.clearHistory(nil)
-                                chat.close()
-                                setOwlShown(true)
-                                // Once he is laid out in his new overlay.
-                                after(0.3) {
-                                    tab.owl?.resetPosition()
-                                    dragged(tab, out: out)
-                                }
-                            }
-                        }
+                    split(tab, out: out) { hideOwl(tab, out: out) }
+                }
+            }
+        }
+    }
+
+    /// 0.3.0, split side by side: the owl lives in the first pane; at his
+    /// default bottom right he is in the middle of the window, and the
+    /// panel opens beside him there, not beside the window's corner.
+    static func split(_ tab: EditorWindowController, out: String, then: @escaping @MainActor () -> Void) {
+        guard let w = tab.window else { then(); return }
+        tab.splitPanes(sideBySide: true, ratio: 0.5, focusSecond: true)
+        tab.owl?.resetPosition()
+        after(0.4) {
+            reopen(tab) { chat in
+                let pane = tab.primaryPane.container
+                let paneRect = w.convertToScreen(pane.convert(pane.bounds, to: nil))
+                let owl = tab.owl?.screenFrame ?? .zero
+                check(tab.isSplit && paneRect.contains(owl) && owl.maxX < w.frame.midX + 4,
+                      "split side by side: the owl sits in the first pane, at its bottom right (owl \(Int(owl.minX)),\(Int(owl.minY)), pane \(Int(paneRect.minX))–\(Int(paneRect.maxX)))")
+                checkBeside(tab, chat, "split side by side")
+                OwlCheck.snapshot(w, "\(out)/chat-owl-7b-split.png") {
+                    chat.close()
+                    tab.unsplit()
+                    tab.owl?.moveTo(OwlPlacement(corner: .topLeft, inset: OwlPlacement.margin))
+                    after(0.4) { then() }
+                }
+            }
+        }
+    }
+
+    /// Hide Cedric: the panel opens at the default place and the chat works.
+    static func hideOwl(_ tab: EditorWindowController, out: String) {
+        guard let w = tab.window else { OwlCheck.finish(out); return }
+        setOwlShown(false)
+        check(tab.owl == nil, "Hide Cedric: no owl")
+        reopen(tab) { chat in
+            check(tab.owl == nil, "opening the panel doesn't bring him back")
+            let p = chat.panel.frame
+            let screen = (w.screen ?? NSScreen.main)?.visibleFrame ?? w.frame
+            let x = min(max(w.frame.maxX - p.width - 24, screen.minX + 4), screen.maxX - p.width - 4)
+            let y = min(max(w.frame.minY + 100, screen.minY + 4), screen.maxY - p.height - 4)
+            check(chat.openedBesideOwl == nil && abs(p.minX - x) < 0.5 && abs(p.minY - y) < 0.5,
+                  "with no owl it opens at the default place, the window's bottom-right corner")
+            OwlCheck.click(chat.actionButtons[.explain]!)
+            waitDone(chat) { _ in
+                check(chat.transcriptText.contains("fake answer"), "the chat works without the owl")
+                OwlCheck.snapshot(chat.panel, "\(out)/chat-panel-1-no-owl-shown.png") {
+                    chat.clearHistory(nil)
+                    chat.close()
+                    setOwlShown(true)
+                    // Once he is laid out in his new overlay.
+                    after(0.3) {
+                        tab.owl?.resetPosition()
+                        dragged(tab, out: out)
                     }
                 }
             }
