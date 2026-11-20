@@ -7,7 +7,7 @@ import CedricAI
 /// Mac's NSTextView), coloured by the core's highlighter, with the system
 /// find and replace (⌘F, ⌥⌘F), a status line (language, encoding, line
 /// ending, caret), Cedric's hints, the Markdown preview and Ask Cedric.
-final class EditorViewController: UIViewController, UITextViewDelegate, NSTextStorageDelegate {
+final class EditorViewController: UIViewController, UITextViewDelegate {
     let document: TextDocument
     let textView = UITextView(usingTextLayoutManager: true)
     private(set) var lineIndex = LineIndex()
@@ -49,6 +49,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, NSTextSt
         applySettings()
         loadText()
         NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged), name: AppSettings.changed, object: nil)
+        // As the Mac does: TextKit 2's content storage owns the storage's delegate.
+        NotificationCenter.default.addObserver(self, selector: #selector(storageEdited),
+                                               name: NSTextStorage.didProcessEditingNotification, object: textView.textStorage)
         NotificationCenter.default.addObserver(self, selector: #selector(documentStateChanged),
                                                name: UIDocument.stateChangedNotification, object: document)
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self]) { (self: Self, _) in
@@ -67,7 +70,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate, NSTextSt
 
     private func setUpTextView() {
         textView.delegate = self
-        textView.textStorage.delegate = self
         textView.autocorrectionType = .no
         textView.autocapitalizationType = .none
         textView.spellCheckingType = .no
@@ -224,9 +226,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate, NSTextSt
         refreshPreview()
     }
 
-    func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorage.EditActions,
-                     range edited: NSRange, changeInLength delta: Int) {
-        guard editedMask.contains(.editedCharacters), !loading else { return }
+    @objc private func storageEdited() {
+        let textStorage = textView.textStorage
+        let edited = textStorage.editedRange, delta = textStorage.changeInLength
+        guard textStorage.editedMask.contains(.editedCharacters), !loading else { return }
         let oldRange = NSRange(location: edited.location, length: edited.length - delta)
         let oldLines = lineIndex.lineCount
         let first = lineIndex.replace(oldRange, newLength: edited.length, in: textStorage.string as NSString)

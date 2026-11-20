@@ -55,12 +55,28 @@ objs[ai_t] = ('XCSwiftPackageProductDependency', {'package': pkg, 'productName':
 core_t2 = product('CedricCore-tests2')
 objs[core_t2] = ('XCSwiftPackageProductDependency', {'package': pkg, 'productName': 'CedricCore'}, 'CedricCore')
 
-def sync(name, path):
-    return add('sync-' + name, 'PBXFileSystemSynchronizedRootGroup', {'path': path, 'sourceTree': '<group>'}, name)
+# The package tests that exercise macOS-only parts (Process/git, the
+# Security certificate parser, XMLDocument): left out of the iOS test
+# targets. They still run on the Mac (Scripts/test.sh).
+MAC_ONLY_TESTS = {
+    'CedricCoreTests': ['CertificateTests.swift', 'GitSafetyTests.swift', 'SecurityReviewTests.swift',
+                        'ViewerFormatsTests.swift', 'ScriptTokenTests.swift'],
+    'CedricAITests': ['LiveBuiltInTests.swift'],
+}
+
+def sync(name, path, target_name=None):
+    body = {'path': path, 'sourceTree': '<group>'}
+    excluded = MAC_ONLY_TESTS.get(name)
+    if excluded:
+        ex = add('ex-' + name, 'PBXFileSystemSynchronizedBuildFileExceptionSet',
+                 {'membershipExceptions': excluded, 'target': oid('target-Owlink' + target_name)},
+                 'Exceptions for "%s" folder in "Owlink%s" target' % (name, target_name))
+        body['exceptions'] = [ex]
+    return add('sync-' + name, 'PBXFileSystemSynchronizedRootGroup', body, name)
 g_app = sync('Owlink', 'Owlink')
 g_ui = sync('OwlinkUITests', 'OwlinkUITests')
-g_ct = sync('CedricCoreTests', '../Tests/CedricCoreTests')
-g_at = sync('CedricAITests', '../Tests/CedricAITests')
+g_ct = sync('CedricCoreTests', '../Tests/CedricCoreTests', 'CoreTests')
+g_at = sync('CedricAITests', '../Tests/CedricAITests', 'AITests')
 
 def fref(name, path, ftype, extra=None):
     d = {'lastKnownFileType': ftype, 'path': path, 'sourceTree': '<group>'}
@@ -173,7 +189,7 @@ app = {
     'SUPPORTS_MACCATALYST': 'NO', 'SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD': 'NO', 'SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD': 'NO',
 }
 unit = {'PRODUCT_NAME': '$(TARGET_NAME)', 'GENERATE_INFOPLIST_FILE': 'YES', 'BUNDLE_LOADER': '', 'TEST_HOST': '',
-        'SWIFT_VERSION': '6.0'}
+        'SWIFT_VERSION': '6.0', 'IPHONEOS_DEPLOYMENT_TARGET': '18.0'}
 uitest = {'PRODUCT_NAME': '$(TARGET_NAME)', 'GENERATE_INFOPLIST_FILE': 'YES', 'TEST_TARGET_NAME': 'Owlink',
           'PRODUCT_BUNDLE_IDENTIFIER': BUNDLE_ID + '.uitests'}
 

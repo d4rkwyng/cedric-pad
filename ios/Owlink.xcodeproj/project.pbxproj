@@ -132,6 +132,27 @@
 		};
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		61C361FC2460CEEC85664901 /* Exceptions for "CedricAITests" folder in "OwlinkAITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"LiveBuiltInTests.swift",
+			);
+			target = 70A7AD607E9CC750EBDAACA9;
+		};
+		6F0B60DD556AA42A2F32BE8A /* Exceptions for "CedricCoreTests" folder in "OwlinkCoreTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"CertificateTests.swift",
+				"GitSafetyTests.swift",
+				"SecurityReviewTests.swift",
+				"ViewerFormatsTests.swift",
+				"ScriptTokenTests.swift",
+			);
+			target = 12A5C6FEED62ED5491A2F4D1;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		79626783C76C4E22B8181DF8 /* OwlinkUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -142,11 +163,17 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "../Tests/CedricAITests";
 			sourceTree = "<group>";
+			exceptions = (
+				61C361FC2460CEEC85664901,
+			);
 		};
 		C19BEAF09C5B43AB6D912A3B /* CedricCoreTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "../Tests/CedricCoreTests";
 			sourceTree = "<group>";
+			exceptions = (
+				6F0B60DD556AA42A2F32BE8A,
+			);
 		};
 		C4DC4ACB831CC5AAFFEC341F /* Owlink */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -552,6 +579,7 @@ fi
 				BUNDLE_LOADER = "";
 				TEST_HOST = "";
 				SWIFT_VERSION = "6.0";
+				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
 				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.coretests";
 			};
 			name = Debug;
@@ -652,6 +680,7 @@ fi
 				BUNDLE_LOADER = "";
 				TEST_HOST = "";
 				SWIFT_VERSION = "6.0";
+				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
 				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.aitests";
 			};
 			name = Debug;
@@ -674,6 +703,7 @@ fi
 				BUNDLE_LOADER = "";
 				TEST_HOST = "";
 				SWIFT_VERSION = "6.0";
+				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
 				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.aitests";
 			};
 			name = Release;
@@ -686,6 +716,7 @@ fi
 				BUNDLE_LOADER = "";
 				TEST_HOST = "";
 				SWIFT_VERSION = "6.0";
+				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
 				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.coretests";
 			};
 			name = Release;

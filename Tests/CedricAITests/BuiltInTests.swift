@@ -590,7 +590,7 @@ final class FakeRuntime: BuiltInRuntime, @unchecked Sendable {
 
     #if canImport(FoundationModels) && arch(arm64)
     @Test func appleSchemaBuilds() throws {
-        if #available(macOS 26.0, *) { _ = try AppleFoundationModelsProvider.schema() }
+        if #available(macOS 26.0, iOS 26.0, *) { _ = try AppleFoundationModelsProvider.schema() }
     }
     #endif
 }
