@@ -100,6 +100,9 @@ func buildMainMenu() -> NSMenu {
         hiddenAlias(item(String(localized: "New Tab"), #selector(AppDelegate.newTab(_:)), "t")),
         item(String(localized: "New Window"), #selector(AppDelegate.newWindow(_:)), "n", [.command, .shift]),
         item(String(localized: "Open…"), #selector(AppDelegate.openDocument(_:)), "o"),
+        // The folder's files and the document's headings, by fuzzy name (QuickOpenFiles.swift). ⌥⌘O:
+        // ⌘P is Print… and ⇧⌘O Open Folder… (Xcode's Open Quickly key).
+        item(String(localized: "Open Quickly…"), #selector(AppDelegate.openQuicklyMenu(_:)), "o", [.command, .option]),
         // Filled by AppDelegate.rebuildRecentMenu from the system recent-documents list.
         submenu(AppDelegate.recentMenuTitle, []),
         // The folder sidebar (FolderSidebar.swift).

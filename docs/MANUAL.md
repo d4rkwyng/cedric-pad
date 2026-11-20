@@ -173,6 +173,25 @@ and the Services menu. Nothing about it runs until you open it. With
 VoiceOver, the number of matching commands is read as you type, and the
 selected command (with its shortcut and menu) as you move.
 
+### Open Quickly
+
+**File › Open Quickly…** (⌥⌘O) opens the palette for files: with a folder
+open in the sidebar, type part of a file's name and its files are listed
+by fuzzy match, as in Xcode or VS Code. A match in the name ranks above a
+match that needs the folders, a name's word starts ("fs" for
+FolderSidebar.swift) and its beginning rank high, and on a tie the shorter
+name and the shallower file come first. Type a `/` to match the whole path
+("app/del"). Return opens the file in a tab (or selects its tab). The list
+follows the sidebar: hidden files only with Show Hidden Files, and nothing
+the folder's `.gitignore` files ignore. The folder is indexed in the
+background the first time you use it there (up to 20,000 files, nearest
+the top first) and kept current as files come and go.
+
+The current Markdown document's headings follow the files; start the query
+with `#` to search only them, and Return jumps to the heading. Start it
+with `>` for the menu commands. ⌥⌘O isn't Xcode's ⇧⌘O (that is Open
+Folder… here) or ⌘P (Print…).
+
 Page Setup… gave up ⇧⌘P for it (VS Code, iA Writer and Drafts use ⇧⌘P for
 their palettes); it has no shortcut now.
 

@@ -189,6 +189,8 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     private(set) var width: CGFloat
     private(set) var showHidden: Bool
     private(set) var watcher: FolderWatcher?
+    /// File › Open Quickly's index of this folder, once used (QuickOpenFiles.swift).
+    var quickOpen: QuickOpenFiles?
     /// Dims git-ignored entries: reads a .gitignore only when a listing
     /// reaches its folder (FolderIgnore), never walks the tree.
     let ignore: FolderIgnore
@@ -360,6 +362,7 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
         isShown = false
         watcher?.stop()
         watcher = nil
+        quickOpen?.markStale()
         let w = window
         undock()
         if let w, let tab = (NSApp.delegate as? AppDelegate)?.tabs.first(where: { $0.window === w }) { w.makeFirstResponder(tab.textView) }
@@ -478,6 +481,7 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     /// FSEvents (FolderWatcher): re-list the loaded folders that changed;
     /// events under folders never expanded cost a path walk.
     func handle(_ changes: [FolderWatcher.Change]) {
+        quickOpen?.handle(changes)
         guard isShown, root.isLoaded else { return }
         // A .gitignore (or info/exclude) may have changed: read them again,
         // as each folder is listed again.

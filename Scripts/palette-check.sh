@@ -4,7 +4,8 @@
 # a query into the palette, moves with ↓, runs the row with Return and
 # checks the command ran; also Esc, disabled rows, recent-first, VoiceOver
 # announcements, an image tab, and the open time (fails over 50 ms; the
-# numbers are printed). Also run by Scripts/tools-check.sh. Throwaway
+# numbers are printed). Then File › Open Quickly… (⌥⌘O, CEDRIC_CHECK=quickopen,
+# QuickOpenCheck.swift) over a folder. Also run by Scripts/tools-check.sh. Throwaway
 # session; needs a GUI session (works with the screen locked, without
 # the ⇧⌘P event timing).
 #
@@ -26,9 +27,14 @@ mkdir -p "$OUT"
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
 set +e
-env CEDRIC_SESSION_DIR="$W/session" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 CEDRIC_CHECK_OUT="$OUT" CEDRIC_CHECK=palette \
-    CEDRIC_THEME=${CEDRIC_THEME:-dark} perl -e 'alarm 90; exec @ARGV' "$BIN" -ApplePersistenceIgnoreState YES 2>/dev/null \
-    | grep -E '^check:' | tee "$OUT/palette.txt"
+for CHECK in palette quickopen; do
+    rm -rf "$W/session"
+    env CEDRIC_SESSION_DIR="$W/session" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 CEDRIC_CHECK_OUT="$OUT" CEDRIC_CHECK=$CHECK \
+        CEDRIC_THEME=${CEDRIC_THEME:-dark} perl -e 'alarm 90; exec @ARGV' "$BIN" -ApplePersistenceIgnoreState YES 2>/dev/null \
+        | grep -E '^check:' | tee "$OUT/$CHECK.txt"
+done
 set -e
-grep -q "check: done .* 0 failed" "$OUT/palette.txt" || { echo "palette-check: FAILED" >&2; exit 1; }
+for CHECK in palette quickopen; do
+    grep -q "check: done .* 0 failed" "$OUT/$CHECK.txt" || { echo "palette-check: $CHECK FAILED" >&2; exit 1; }
+done
 echo "palette-check: passed (snapshots in $OUT)"

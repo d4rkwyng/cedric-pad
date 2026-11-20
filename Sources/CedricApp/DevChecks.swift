@@ -8,7 +8,7 @@ import CedricCore
 /// responder chain), checks the result, writes PNG snapshots and exits 0
 /// (all passed) or 1. Scripts/tools-check.sh runs them all.
 ///
-///   CEDRIC_CHECK=texttool|findinfiles|compare|follow|recent|large|replaceinfiles|folder|multicaret|folding|split|palette|contextbar|…
+///   CEDRIC_CHECK=texttool|findinfiles|compare|follow|recent|large|replaceinfiles|folder|multicaret|folding|split|palette|quickopen|contextbar|…
 ///   CEDRIC_CHECK_OUT=/dir      where snapshots go (default: the temp folder)
 @MainActor
 enum DevChecks {
@@ -231,6 +231,7 @@ enum DevChecks {
         case "split": splitCheck(app)
         case "defaulteditor": defaultEditorCheck(app)
         case "palette": paletteCheck(app)
+        case "quickopen": quickOpenCheck(app)
         case "contextbar": contextBarCheck(app)
         case "writing": writingCheck(app)
         case "writingrestore": writingRestoreCheck(app)

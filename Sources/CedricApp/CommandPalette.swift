@@ -22,6 +22,12 @@ import CedricCore
 /// - **VoiceOver**: the result count is announced as the list changes,
 ///   and the selected command (title, shortcut, menu, "dimmed") as the
 ///   arrow keys move.
+/// - **Open Quickly** (File › Open Quickly…, ⌥⌘O, 0.4.0) opens it in file
+///   mode: the folder sidebar's files by fuzzy name (QuickOpen.swift in
+///   CedricCore, the index in QuickOpenFiles.swift), then the current
+///   Markdown document's headings. In either mode `#` searches the
+///   headings only and `>` the commands (as in VS Code). Return opens the
+///   file (or jumps to the heading).
 @MainActor
 final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
     static private(set) var shared: CommandPalette?
@@ -29,10 +35,22 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
     static var recents = CommandRecents()
 
     struct Row {
-        let item: NSMenuItem
+        enum Target {
+            case command(NSMenuItem)
+            case file(URL)
+            case heading(MarkdownOutline.Heading)
+        }
+        let target: Target
         let candidate: CommandMatcher.Candidate
         let shortcut: String
+        var item: NSMenuItem? { if case .command(let i) = target { return i } else { return nil } }
     }
+
+    enum Mode { case commands, files }
+    /// What the palette was opened for (⇧⌘P commands, ⌥⌘O files).
+    private(set) var mode: Mode = .commands
+    /// What the rows are now (the query's prefix can change it).
+    private(set) var showing: QuickOpen.Query = .commands("")
 
     static let width: CGFloat = 560
     static let rowHeight: CGFloat = 36
@@ -49,6 +67,10 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
     private(set) var rows: [Row] = []
     private(set) var shown: [Int] = []
     private var index: CommandIndex?
+    /// The menu's commands, collected at a ⇧⌘P open or the first `>` query.
+    private var commandRows: [Row]?
+    /// The parent tab's Markdown headings, read at the first query that wants them.
+    private var headings: [MarkdownOutline.Heading]?
 
     /// Milliseconds the last open took, from the command to the panel
     /// drawn with its list (dev checks report it).
@@ -59,11 +81,15 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
 
     // MARK: Opening
 
-    static func toggle(over window: NSWindow?) {
-        if let p = shared, p.isOpen { p.close(); return }
+    static func toggle(over window: NSWindow?, mode: Mode = .commands) {
+        if let p = shared, p.isOpen {
+            // The other mode's key while open: switch, keeping the window.
+            if p.mode == mode { p.close() } else { let w = p.parent; p.close(); p.open(over: w, mode: mode) }
+            return
+        }
         let p = shared ?? CommandPalette()
         shared = p
-        p.open(over: window)
+        p.open(over: window, mode: mode)
     }
 
     override init() {
@@ -149,18 +175,30 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
     /// Phase times of the last open, in ms (dev checks print them).
     private(set) static var lastOpenPhases: [(String, Double)] = []
 
-    func open(over window: NSWindow?) {
+    func open(over window: NSWindow?, mode: Mode = .commands) {
         let start = CACurrentMediaTime()
         var phases: [(String, Double)] = []
         var t = start
         func mark(_ name: String) { let n = CACurrentMediaTime(); phases.append((name, (n - t) * 1000)); t = n }
         parent = window
+        self.mode = mode
         panel.appearance = window?.effectiveAppearance
-        rows = Self.collect(for: window)
+        headings = nil
+        commandRows = mode == .commands ? Self.collect(for: window) : nil
+        if mode == .files, let files = FolderSidebar.shared?.quickOpenFiles {
+            files.onUpdate = { [weak self] in
+                guard let self, self.isOpen, case .files = self.showing else { return }
+                self.filter(keepSelection: true)
+            }
+            files.ensure()
+        }
         mark("collect")
         index = nil // prepared on the first keystroke: an empty query needs no scoring
         field.stringValue = ""
-        shown = CommandIndex.emptyQueryOrder(rows.map(\.candidate), recent: Self.recents.ids)
+        field.placeholderString = mode == .commands ? String(localized: "Type a command")
+            : String(localized: "Open quickly: a file name, # a heading, > a command")
+        field.setAccessibilityLabel(mode == .commands ? String(localized: "Search commands") : String(localized: "Open Quickly"))
+        fill()
         table.reloadData()
         mark("reload")
         resize()
@@ -186,6 +224,8 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
         rows = []
         shown = []
         index = nil
+        commandRows = nil
+        headings = nil
         table.reloadData()
         parent?.makeKeyAndOrderFront(nil)
     }
@@ -206,6 +246,19 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
         f.size = NSSize(width: Self.width, height: h)
         panel.setFrame(f, display: false)
         empty.isHidden = !shown.isEmpty
+        if shown.isEmpty { empty.stringValue = emptyText }
+    }
+
+    /// What the empty list says.
+    var emptyText: String {
+        switch showing {
+        case .commands: return String(localized: "No matching commands")
+        case .headings: return String(localized: "No matching headings")
+        case .files:
+            guard let side = FolderSidebar.shared else { return String(localized: "Open a folder (⇧⌘O) to find its files") }
+            if side.quickOpenFiles.matcher == nil { return String(localized: "Indexing files…") }
+            return String(localized: "No matching files")
+        }
     }
 
     // MARK: The menu
@@ -235,7 +288,7 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
                 let shortcut = i.keyEquivalent.isEmpty ? "" : MenuShortcuts.name(i)
                 // The title after validation (Detach/Attach Preview changes it there).
                 let id = path.isEmpty ? i.title : "\(path) › \(i.title)"
-                out.append(Row(item: i, candidate: .init(id: id, title: i.title, path: path, enabled: enabled), shortcut: shortcut))
+                out.append(Row(target: .command(i), candidate: .init(id: id, title: i.title, path: path, enabled: enabled), shortcut: shortcut))
             }
         }
         let walkAll = {
@@ -284,8 +337,20 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
         guard r >= 0, r < shown.count else { NSSound.beep(); return }
         let row = rows[shown[r]]
         guard row.candidate.enabled else { NSSound.beep(); return }
-        let item = row.item
         let window = parent
+        let item: NSMenuItem
+        switch row.target {
+        case .command(let i): item = i
+        case .file(let url):
+            close()
+            Self.openFile(url)
+            return
+        case .heading(let h):
+            let tab = window?.windowController as? EditorWindowController
+            close()
+            tab?.jump(to: h)
+            return
+        }
         close()
         guard let action = item.action, Self.validate(item, in: window) else { NSSound.beep(); return }
         Self.recents.note(row.candidate.id)
@@ -303,18 +368,83 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
 
     func controlTextDidChange(_ obj: Notification) { filter() }
 
-    func filter() {
-        let q = field.stringValue
-        if q.trimmingCharacters(in: .whitespaces).isEmpty {
-            shown = CommandIndex.emptyQueryOrder(rows.map(\.candidate), recent: Self.recents.ids)
-        } else {
-            if index == nil { index = CommandIndex(rows.map(\.candidate)) }
-            shown = index!.rank(query: q, recent: Self.recents.ids)
-        }
+    /// `keepSelection`: the file index changed under the list (not a
+    /// keystroke): the selected row stays selected if it is still there.
+    func filter(keepSelection: Bool = false) {
+        let selectedID = keepSelection && table.selectedRow >= 0 && table.selectedRow < shown.count
+            ? rows[shown[table.selectedRow]].candidate.id : nil
+        fill()
         table.reloadData()
         resize()
-        selectFirstEnabled()
+        if let id = selectedID, let r = shown.firstIndex(where: { rows[$0].candidate.id == id }) {
+            select(r, announce: false)
+        } else {
+            selectFirstEnabled()
+        }
         announceCount()
+    }
+
+    /// `rows` and `shown` for the query in the field.
+    private func fill() {
+        showing = QuickOpen.parse(field.stringValue, filesMode: mode == .files)
+        switch showing {
+        case .commands(let q):
+            if commandRows == nil { commandRows = Self.collect(for: parent) }
+            rows = commandRows ?? []
+            if q.trimmingCharacters(in: .whitespaces).isEmpty {
+                shown = CommandIndex.emptyQueryOrder(rows.map(\.candidate), recent: Self.recents.ids)
+            } else {
+                if index == nil { index = CommandIndex(rows.map(\.candidate)) }
+                shown = index!.rank(query: q, recent: Self.recents.ids)
+            }
+        case .headings(let q):
+            rows = headingRows(q)
+            shown = Array(rows.indices)
+        case .files(let q):
+            // The headings follow the files once something is typed (or
+            // when there is no folder to list).
+            let blank = q.trimmingCharacters(in: .whitespaces).isEmpty
+            rows = fileRows(q) + (blank && FolderSidebar.shared != nil ? [] : headingRows(q))
+            shown = Array(rows.indices)
+        }
+    }
+
+    private func fileRows(_ q: String) -> [Row] {
+        guard let side = FolderSidebar.shared else { return [] }
+        let files = side.quickOpenFiles
+        guard let m = files.matcher else { return [] }
+        let top = files.root.lastPathComponent
+        return m.rank(q).map { i in
+            let rel = m.paths[i]
+            let dir = (rel as NSString).deletingLastPathComponent
+            return Row(target: .file(files.root.appendingPathComponent(rel)),
+                       candidate: .init(id: "file:" + rel, title: m.name(i), path: dir.isEmpty ? top : top + "/" + dir),
+                       shortcut: "")
+        }
+    }
+
+    private func headingRows(_ q: String) -> [Row] {
+        if headings == nil {
+            let tab = parent?.windowController as? EditorWindowController
+            headings = tab.map { $0.doc.language == .markdown ? MarkdownOutline.headings(in: $0.textView.string, limit: 5_000) : [] } ?? []
+        }
+        let hs = headings ?? []
+        return QuickOpen.rankHeadings(hs, query: q).prefix(QuickOpen.shownLimit).map { i in
+            let h = hs[i]
+            return Row(target: .heading(h),
+                       candidate: .init(id: "heading:\(h.line)", title: h.title,
+                                        path: String(localized: "Heading \(h.level), line \(h.line + 1)")),
+                       shortcut: "")
+        }
+    }
+
+    /// Return on a file row: its tab (opened, or selected if open), shown
+    /// in the sidebar, the text focused.
+    static func openFile(_ url: URL) {
+        guard let app = NSApp.delegate as? AppDelegate, let tab = app.open(url) else { return }
+        tab.window?.makeKeyAndOrderFront(nil)
+        tab.window?.makeFirstResponder(tab.textView)
+        if let s = FolderSidebar.shared, s.isShown { s.reveal(tab.doc.fileURL) }
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
@@ -363,8 +493,12 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
 
     private func announceCount() {
         let n: Int = shown.count
-        announce(n == 0 ? String(localized: "No matching commands")
-                        : n == 1 ? String(localized: "1 command") : String(localized: "\(n) commands"))
+        if case .commands = showing {
+            announce(n == 0 ? String(localized: "No matching commands")
+                            : n == 1 ? String(localized: "1 command") : String(localized: "\(n) commands"))
+        } else {
+            announce(n == 0 ? emptyText : n == 1 ? String(localized: "1 result") : String(localized: "\(n) results"))
+        }
     }
 
     func spoken(_ row: Row) -> String {
