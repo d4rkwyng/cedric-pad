@@ -248,6 +248,8 @@ func buildMainMenu() -> NSMenu {
         .separator(),
         // ⌥⌘Z, not bare ⌥Z: that types Ω (and other letters on other keyboards).
         item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.command, .option]),
+        // A centred column of text, per tab; on for Markdown and plain text (ReadableWidthView.swift).
+        item(String(localized: "Readable Width"), #selector(AppDelegate.toggleReadableWidthMenu(_:))),
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
         item(String(localized: "Show Line Numbers"), #selector(AppDelegate.toggleLineNumbers(_:))),
         item(String(localized: "Highlight Occurrences"), #selector(AppDelegate.toggleHighlightOccurrences(_:))),

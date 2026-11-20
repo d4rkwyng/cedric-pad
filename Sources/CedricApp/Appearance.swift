@@ -49,6 +49,13 @@ final class Settings {
         set { defaults.set(newValue, forKey: "wrapLines"); changed() }
     }
 
+    /// Settings › Readable width: View › Readable Width's column, in
+    /// characters (60–100, 72 by default; ReadableWidthView.swift).
+    var readableColumns: Int {
+        get { let v = defaults.integer(forKey: "readableColumns"); return v > 0 ? ReadableWidth.clamp(v) : ReadableWidth.defaultColumns }
+        set { defaults.set(ReadableWidth.clamp(newValue), forKey: "readableColumns"); changed() }
+    }
+
     /// CEDRIC_INVISIBLES=1: on for this run, not saved.
     let invisiblesOverride = DevEnvironment.values["CEDRIC_INVISIBLES"] == "1" ? true : nil as Bool?
 

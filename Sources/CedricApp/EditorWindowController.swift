@@ -660,6 +660,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             container.widthTracksTextView = false
             container.size = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         }
+        applyReadableWidth(to: pane)
     }
 
     func updateGutterWidth() {
@@ -759,6 +760,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         panes.forEach { $0.textView.language = l }
         foldingContextChanged()
         updateGutterWidth()
+        applyReadableWidth()
         // What counts as a word changed (code vs prose): check again
         // (or not at all: data such as JSON isn't checked). Spelling is
         // the primary pane's.

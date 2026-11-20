@@ -490,6 +490,18 @@ file over about 25 MB): the bar above the text says "…the owl and Writing
 Mode are paused for speed", the menu items stay ticked, and they work again
 after **Turn On Anyway** or once the document isn't large.
 
+### Readable width
+
+**View › Readable Width** keeps the text in a centred column about 72
+characters wide, as in iA Writer, however wide the window is; a window
+narrower than that wraps as usual. It is on by default for Markdown and
+plain text and off for code, and the menu item switches it for the
+current tab. The width is in Settings › Readable width (60–100
+characters). It needs View › Wrap Lines. Line numbers, folds and git bars
+stay beside their lines, and Typewriter Scrolling and Focus work the same
+in the column. Typing is as fast with it on: the column only moves when
+the window, the font or the setting changes.
+
 ## Spelling and grammar
 
 ### Fix Typos…
@@ -571,8 +583,8 @@ bar's items stay under the editor (both panes of a split).
 
 **Settings** (Owlink › Settings…, ⌘,) holds the preferences that have
 no menu: theme, font and size, the default indentation for new files
-(Format › Indentation changes one tab), git changes in the gutter, Ask
-Cedric, Cedric's style tips in code, and whether closing the last window
+(Format › Indentation changes one tab), the readable width's column,
+git changes in the gutter, Ask Cedric, Cedric's style tips in code, and whether closing the last window
 quits. Each option lives in one place: wrap lines, invisibles, line
 numbers and highlight occurrences are in the View menu, auto-close
 brackets, spelling while typing and grammar in the Edit menu (all
