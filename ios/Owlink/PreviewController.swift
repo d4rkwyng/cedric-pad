@@ -13,13 +13,17 @@ import CedricCore
 /// reloads that follow typing, and can be set as a share of the page
 /// (Focus Preview keeps text and preview at the same place).
 ///
-/// Images and wikilinks resolve on disk only: the page's base URL is
-/// `cedric-doc://doc/<folder>/` and `PreviewFiles` serves files from the
-/// document's folder, the site root `PreviewRoot` finds for `/images/…`,
-/// and the Obsidian vault, read in this process (which holds the
-/// security-scoped access), so the web view itself needs no file access.
-/// A file opened on its own from Files grants only itself: its images
-/// then show a quiet "Open the folder" hint, which asks for the folder.
+/// Images and wikilinks resolve on disk only. The page is loaded from
+/// `cedric-doc://doc/<folder>/` (not `loadHTMLString`, which on iOS does
+/// not adopt a custom-scheme base URL, so `/images/…` never reaches the
+/// handler). `PreviewFiles` serves that page and the files: the document's
+/// folder, the site root `PreviewRoot` finds, and the Obsidian vault, read
+/// in this process (which holds the security-scoped access).
+/// A file opened on its own from Files grants only itself. A folder listing
+/// can still succeed, so access is a real open of a sibling file
+/// (`PreviewFolderAccess`); without it, images become one "Open the folder"
+/// hint, which asks for the folder. Split preview, full-screen read-only,
+/// Focus Preview and the detached preview all come through `show`.
 final class PreviewController: UIViewController, WKNavigationDelegate, UIGestureRecognizerDelegate, UIDocumentPickerDelegate {
     private(set) var web: WKWebView!
     private let queue = DispatchQueue(label: "owlink.preview", qos: .userInitiated)
@@ -34,6 +38,9 @@ final class PreviewController: UIViewController, WKNavigationDelegate, UIGesture
     private let files = PreviewFiles()
     private var vault: WikiVault?
     private var vaultKey: String?
+    /// Folder-access probe for this document and grant. Preview refreshes
+    /// on each edit; the probe (real file opens) runs once per folder.
+    private var folderAccess: (key: String, readable: Bool)?
     private var last: (markdown: String, palette: EditorPalette)?
     /// A scroll share to apply once the page has loaded (and laid out).
     private var pendingFraction: Double?
@@ -148,22 +155,46 @@ final class PreviewController: UIViewController, WKNavigationDelegate, UIGesture
         files.openedRoot = opened
         files.vaultRoot = vault?.root
         let baseURL = folder.flatMap(PreviewFolder.pageURL(for:))
+        let document = documentURL
+        let accessKey = "\(folder?.path ?? "-")|\(opened?.path ?? "-")"
+        let cachedAccess = folderAccess?.key == accessKey ? folderAccess?.readable : nil
         let hint = "<p class=\"preview-hint\"><a href=\"\(Self.grantURL)\">" + Markdown.escape(String(localized: "Open the folder to see its images")) + "</a></p>\n"
         queue.async { [weak self] in
             var body = HTMLScrub.noScriptNoRemote(Markdown.render(markdown, options: .preview(vault: vault)))
+            let readable: Bool
+            if let cachedAccess {
+                readable = cachedAccess
+            } else if let folder, let document {
+                readable = PreviewFolderAccess.canRead(PreviewFolderAccess.facts(folder: folder, document: document))
+            } else {
+                readable = false
+            }
             if let folder {
-                // No access to the folder (a file opened on its own): its
-                // images can't load, so a hint instead of empty boxes.
-                let readable = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) != nil
+                // No access to the folder (a file opened on its own, even
+                // when its parent happens to list): images can't load, so
+                // a hint instead of empty boxes.
                 body = PreviewImageAccess.hideUnreadable(body, folder: folder, openedRoot: opened, folderReadable: readable, hint: hint).html
             }
             let page = PreviewHTML.page(body: body, palette: palette, csp: Self.csp, viewport: true)
             DispatchQueue.main.async {
                 guard let self, gen == self.generation else { return }
+                self.folderAccess = (accessKey, readable)
+                self.files.pageHTML = page
+                self.files.pageURL = baseURL
                 // A reload goes back to the top: keep the reader's place.
                 if self.loaded, self.pendingFraction == nil { self.pendingFraction = self.scrollFraction }
                 self.loaded = false
-                self.web.loadHTMLString(page, baseURL: baseURL)
+                guard let baseURL else {
+                    self.web.loadHTMLString(page, baseURL: nil)
+                    return
+                }
+                // A distinct URL per render, so a repeat load isn't served
+                // from WebKit's cache. The query is not part of the page match.
+                var parts = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
+                parts?.queryItems = [URLQueryItem(name: "r", value: String(gen))]
+                var request = URLRequest(url: parts?.url ?? baseURL)
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                self.web.load(request)
             }
         }
     }

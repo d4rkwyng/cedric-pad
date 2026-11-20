@@ -13,6 +13,10 @@ final class PreviewFiles: NSObject, WKURLSchemeHandler {
     var folder: URL?
     var openedRoot: URL?
     var vaultRoot: URL?
+    /// The rendered page, served at `pageURL` so the document's origin is
+    /// `cedric-doc` (see `PreviewScheme`). Nil until a preview has rendered.
+    var pageHTML: String?
+    var pageURL: URL?
     private var stopped: Set<ObjectIdentifier> = []
     /// Links to these open in Owlink.
     static let notes: Set<String> = ["md", "markdown", "mdown", "mkd", "txt"]
@@ -20,7 +24,20 @@ final class PreviewFiles: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         let id = ObjectIdentifier(task)
         stopped.remove(id)
-        guard let url = task.request.url, let folder,
+        guard let url = task.request.url else {
+            task.didFailWithError(URLError(.badURL))
+            return
+        }
+        // The page itself, not a file: generated HTML, already in hand.
+        if let pageURL, let pageHTML, PreviewScheme.isPageRequest(url, page: pageURL) {
+            guard !stopped.contains(id) else { stopped.remove(id); return }
+            let data = Data(pageHTML.utf8)
+            task.didReceive(Self.response(url: url, data: data, mime: PreviewScheme.htmlMIME))
+            task.didReceive(data)
+            task.didFinish()
+            return
+        }
+        guard let folder,
               let file = PreviewFolder.file(for: url, in: folder, openedRoot: openedRoot, vaultRoot: vaultRoot, scriptOn: false) else {
             task.didFailWithError(URLError(.noPermissionsToReadFile))
             return
@@ -28,18 +45,33 @@ final class PreviewFiles: NSObject, WKURLSchemeHandler {
         let box = PreviewTaskBox(task)
         DispatchQueue.global(qos: .userInitiated).async {
             let data = try? Data(contentsOf: file, options: .mappedIfSafe)
+            let mime = PreviewScheme.mimeType(forExtension: file.pathExtension)
+                ?? UTType(filenameExtension: file.pathExtension)?.preferredMIMEType
+                ?? "application/octet-stream"
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     let task = box.task
                     guard !self.stopped.contains(id) else { self.stopped.remove(id); return }
                     guard let data else { task.didFailWithError(URLError(.fileDoesNotExist)); return }
-                    let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-                    task.didReceive(URLResponse(url: url, mimeType: type, expectedContentLength: data.count, textEncodingName: nil))
+                    task.didReceive(Self.response(url: url, data: data, mime: mime))
                     task.didReceive(data)
                     task.didFinish()
                 }
             }
         }
+    }
+
+    /// An HTTP response. A plain `URLResponse` has no status, and iOS
+    /// WebKit then does not paint the image.
+    private static func response(url: URL, data: Data, mime: String) -> URLResponse {
+        let fields = PreviewScheme.responseFields(mimeType: mime, byteCount: data.count)
+        let headers = [
+            "Content-Type": fields.mimeType,
+            "Content-Length": String(fields.contentLength),
+            "Cache-Control": fields.cacheControl,
+        ]
+        return HTTPURLResponse(url: url, statusCode: fields.status, httpVersion: "HTTP/1.1", headerFields: headers)
+            ?? URLResponse(url: url, mimeType: mime, expectedContentLength: data.count, textEncodingName: nil)
     }
 
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) { stopped.insert(ObjectIdentifier(task)) }
