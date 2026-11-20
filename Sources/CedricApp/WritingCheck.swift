@@ -284,6 +284,34 @@ extension DevChecks {
                        "with a selection: its counts beside the document's", "\(p?.values ?? [:])")
                 p?.popover.close()
             },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { next() } },
+            sync {
+                // UX review #5: View › Show Statistics opens the same popover from the keyboard.
+                focus(stats)
+                guard let i = ContextBarView.menuItem(NSStringFromSelector(#selector(AppDelegate.showStatisticsMenu(_:)))) else {
+                    expect(false, "View › Show Statistics exists"); return
+                }
+                expect(CommandPalette.validate(i, in: stats.window), "View › Show Statistics is enabled in a text tab")
+                expect(CommandPalette.collect(for: stats.window).contains { $0.candidate.title == "Show Statistics" }, "the palette has Show Statistics")
+                NSApp.sendAction(i.action!, to: nil, from: i)
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { next() } },
+            sync {
+                expect(stats.editing.statsPopover?.popover.isShown == true, "View › Show Statistics opens the stats popover")
+                stats.editing.statsPopover?.popover.close()
+                // The status bar's pop-ups are named for VoiceOver, with tooltips.
+                let sb = stats.statusBar
+                expect(sb.languageButton.accessibilityLabel() == "Language" && sb.encodingButton.accessibilityLabel() == "Text Encoding"
+                       && sb.lineEndingButton.accessibilityLabel() == "Line Endings", "the status bar pop-ups have VoiceOver labels")
+                expect([sb.languageButton, sb.encodingButton, sb.lineEndingButton].allSatisfy { !($0.toolTip ?? "").isEmpty }, "and tooltips")
+                expect(sb.counts.accessibilityRole() == .button, "the word count is a button for VoiceOver")
+                if NSApp.isFullKeyboardAccessEnabled {
+                    expect(sb.counts.canBecomeKeyView, "with Full Keyboard Access the word count takes focus")
+                } else {
+                    print("check: note: Full Keyboard Access off; word-count focus not exercised")
+                }
+            },
+            { next in DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { next() } },
             sync {
                 // A word goal for the essay: typed into the popover's field.
                 focus(essay)

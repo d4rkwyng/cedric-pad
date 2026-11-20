@@ -434,7 +434,9 @@ How words are counted, in every kind of file:
 
 ### Stats and a word goal
 
-**Click the word count** in the status bar for the stats popover: the
+**Click the word count** in the status bar (or choose **View › Show
+Statistics**, also in the command palette; with Full Keyboard Access on,
+Tab to the word count and press Space) for the stats popover: the
 document's words, characters, lines and reading time, and the same for
 the selection beside them when there is one. Reading time is at 238 words
 a minute, the average for silent reading of non-fiction (Brysbaert, 2019).

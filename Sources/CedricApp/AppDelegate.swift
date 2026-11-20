@@ -851,6 +851,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleLineNumbers(_:)): item.state = s.showLineNumbers ? .on : .off
         case #selector(toggleSpellingWhileTyping(_:)): item.state = s.checkSpellingWhileTyping ? .on : .off
         case #selector(checkDocumentNow(_:)): return tab != nil
+        case #selector(showStatisticsMenu(_:)): return tab?.statusBar.counts.onClick != nil && tab?.statusBar.counts.isHidden == false
         // Explain & tidy (OwlTools.swift): on a selection that is one.
         case #selector(explainRegexMenu(_:)): return tab?.canExplainRegex == true
         case #selector(decodeSelectionMenu(_:)): return tab?.canDecodeSelection == true

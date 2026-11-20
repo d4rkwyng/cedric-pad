@@ -297,6 +297,12 @@ extension DevChecks {
                 expect(marks == want && want.count == 2, "⌥⌘F2 bookmarks every line with the word", "\(marks) want \(want)")
                 // With the find bar open: its search (a regex here).
                 tab.showFindBar(replace: false)
+                // UX review #6: previous/next are chevron symbols with VoiceOver names.
+                let fb = tab.findBar
+                expect(fb.prevButton.image != nil && fb.nextButton.image != nil && fb.prevButton.title.isEmpty,
+                       "the find bar's previous/next are chevron symbols")
+                expect(fb.prevButton.accessibilityLabel() == "Find Previous" && fb.nextButton.accessibilityLabel() == "Find Next",
+                       "named Find Previous / Find Next for VoiceOver")
                 tab.findBar.regexBox.state = .on
                 tab.findBar.findField.stringValue = "line 1[01]"
                 key(f2Key, [.command, .option])

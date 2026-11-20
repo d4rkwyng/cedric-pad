@@ -12,6 +12,9 @@ final class FindBar: NSView, NSSearchFieldDelegate {
     let wordBox = NSButton(checkboxWithTitle: String(localized: "Whole Word"), target: nil, action: nil)
     let status = NSTextField(labelWithString: "")
     private var replaceRow: NSStackView!
+    /// Find Previous / Find Next (chevrons; the checks read them).
+    private(set) var prevButton: NSButton!
+    private(set) var nextButton: NSButton!
 
     var onFind: ((_ backwards: Bool) -> Void)?
     var onChange: (() -> Void)?
@@ -56,10 +59,22 @@ final class FindBar: NSView, NSSearchFieldDelegate {
             b.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             return b
         }
-        let prev = button("‹", #selector(previous))
+        /// Previous / next: chevron symbols, named for VoiceOver (UX review #6;
+        /// they were "‹" "›" text, read as punctuation).
+        func chevron(_ symbol: String, _ label: String, _ action: Selector) -> NSButton {
+            let b = button("", action)
+            b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+                .withSymbolConfiguration(.init(pointSize: NSFont.smallSystemFontSize, weight: .semibold))
+            b.imagePosition = .imageOnly
+            b.setAccessibilityLabel(label)
+            return b
+        }
+        let prev = chevron("chevron.left", String(localized: "Find Previous"), #selector(previous))
         prev.toolTip = String(localized: "Find Previous (⇧⌘G)")
-        let next = button("›", #selector(nextMatch))
+        prevButton = prev
+        let next = chevron("chevron.right", String(localized: "Find Next"), #selector(nextMatch))
         next.toolTip = String(localized: "Find Next (⌘G)")
+        nextButton = next
         let done = button(String(localized: "Done"), #selector(close))
         let findRow = NSStackView(views: [findField, prev, next, regexBox, caseBox, wordBox, status, done])
         findRow.spacing = 8
@@ -210,6 +225,16 @@ final class StatusBar: NSView {
             b.controlSize = .small
             b.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             (b.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+        }
+        // VoiceOver hears what each pop-up sets, then its value (the title):
+        // "Language, Markdown (auto), pop-up button" (UX review #5).
+        for (b, label, tip) in [
+            (languageButton, String(localized: "Language"), String(localized: "Language: how this file is highlighted and indented")),
+            (encodingButton, String(localized: "Text Encoding"), String(localized: "Text encoding: save or reopen this file with another encoding")),
+            (lineEndingButton, String(localized: "Line Endings"), String(localized: "Line endings: convert this file’s line endings")),
+        ] {
+            b.setAccessibilityLabel(label)
+            b.toolTip = tip
         }
         gitButton.isBordered = false
         gitButton.controlSize = .small
