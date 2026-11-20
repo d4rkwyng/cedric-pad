@@ -145,8 +145,8 @@ import Testing
         #expect(h.title == ".editorconfig says spaces; this file uses tabs. Convert?")
         #expect(apply(h, to: text) == "function f() {\n  if (a) {\n    return 1;\n  }\n}\n")
         let toTabs = OwlDocumentFacts(editorConfig: EditorConfig.Values(indentStyle: .tab, indentSize: 2))
-        let t = try #require(find(RulesHintProvider.editorConfigIndentID, "a:\n  b:\n    c: 1\n  d: 2\n", language: "yaml", fileName: "a.yml", facts: toTabs))
-        #expect(t.replacement == "\tb:\n\t\tc: 1\n\td: 2")
+        let t = try #require(find(RulesHintProvider.editorConfigIndentID, "a {\n  b;\n    c;\n  d;\n}\n", language: "css", fileName: "a.css", facts: toTabs))
+        #expect(t.replacement == "\tb;\n\t\tc;\n\td;")
         // Quiet: no config, already the configured style, a mix (the mixed-indent rule's), a Makefile, fewer than 3 lines.
         #expect(find(RulesHintProvider.editorConfigIndentID, text, language: "javascript", fileName: "a.js") == nil)
         #expect(find(RulesHintProvider.editorConfigIndentID, text, language: "javascript", fileName: "a.js",
@@ -154,6 +154,23 @@ import Testing
         #expect(find(RulesHintProvider.editorConfigIndentID, text + "  x\n", language: "javascript", fileName: "a.js", facts: spaces) == nil)
         #expect(find(RulesHintProvider.editorConfigIndentID, "all:\n\tcc a.c\n\tcc b.c\n\tld\n", language: "plain", fileName: "Makefile", facts: spaces) == nil)
         #expect(find(RulesHintProvider.editorConfigIndentID, "a\n\tb\n\tc\n", language: "plain", fileName: "a.txt", facts: spaces) == nil)
+    }
+
+    /// Review 0.3.0 M3: YAML can't indent with tabs, so a tab
+    /// .editorconfig never offers to convert it; data files are left alone.
+    @Test func editorConfigNeverOffersTabsForYAMLOrDataFiles() {
+        let toTabs = OwlDocumentFacts(editorConfig: EditorConfig.Values(indentStyle: .tab, indentSize: 2))
+        let workflow = "on: push\njobs:\n  build:\n    runs-on: macos-15\n    steps:\n      - run: make\n"
+        #expect(find(RulesHintProvider.editorConfigIndentID, workflow, language: "yaml", fileName: "ci.yml", facts: toTabs) == nil)
+        #expect(find(RulesHintProvider.editorConfigIndentID, workflow, language: "plain", fileName: "ci.yaml", facts: toTabs) == nil)
+        // Mixed indentation in YAML with a tab config: not "Convert to tabs" either.
+        let mixed = "a:\n  b: 1\n\tc: 2\n  d: 3\n"
+        #expect(find(RulesHintProvider.mixedIndentID, mixed, language: "yaml", fileName: "a.yml", facts: toTabs).map { !$0.title.contains("tabs?") } ?? true)
+        #expect(find(RulesHintProvider.mixedIndentID, mixed, language: "plain", fileName: "a.yaml", facts: toTabs).map { !$0.title.contains("tabs?") } ?? true)
+        // INI / .env: whitespace is the data.
+        #expect(find(RulesHintProvider.editorConfigIndentID, "[a]\n  x = 1\n  y = 2\n  z = 3\n", language: "ini", fileName: "a.ini", facts: toTabs) == nil)
+        // The same file under a JavaScript name still gets the offer (the guard is YAML's, not every file's).
+        #expect(find(RulesHintProvider.editorConfigIndentID, "f(\n  a,\n  b,\n  c\n)\n", language: "javascript", fileName: "a.js", facts: toTabs) != nil)
     }
 
     // MARK: Style tier

@@ -68,7 +68,9 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         moreHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
         languageHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
         let ec = facts.editorConfig
-        if !table, !Self.isPatch(c), let r = editorConfigIndent(text, lines: lines, fileName: c.fileName, config: ec) {
+        // Not where whitespace is the data (INI/.env, logs), and never tabs where tabs are invalid (YAML).
+        if !table, !Self.isPatch(c), Self.mayTidyWhitespace(c), let r = editorConfigIndent(text, lines: lines, fileName: c.fileName, config: ec),
+           !(r.toTabs && Self.forbidsTabIndent(c)) {
             hint(Self.editorConfigIndentID, .fix,
                  r.toTabs ? String(localized: ".editorconfig says tabs; this file uses spaces. Convert?")
                           : String(localized: ".editorconfig says spaces; this file uses tabs. Convert?"),
@@ -78,7 +80,8 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
         }
         if !table, !Self.isPatch(c), c.language != "yaml" || !out.contains(where: { $0.id == Self.yamlTabsID }),
            !out.contains(where: { $0.id == Self.editorConfigIndentID }),
-           let r = mixedIndent(text, lines: lines, fileName: c.fileName, style: ec?.indentStyle, width: ec?.width) {
+           let r = mixedIndent(text, lines: lines, fileName: c.fileName, style: ec?.indentStyle, width: ec?.width),
+           !(r.toTabs && Self.forbidsTabIndent(c)) {
             hint(Self.mixedIndentID, .fix,
                  r.toTabs ? String(localized: "Mixed tabs and spaces. Convert to tabs?") : String(localized: "Mixed tabs and spaces. Convert to spaces?"),
                  r.toTabs ? String(localized: "\(r.tabs) lines indent with tabs and \(r.spaces) with spaces. Every \(tabWidth) spaces become a tab.")
@@ -207,6 +210,14 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
             out += changed[i] ?? s.substring(with: lines[i])
         }
         return Rewrite(range: span, replacement: out, count: count)
+    }
+
+    /// YAML forbids tabs for indentation: never offered "Convert to tabs"
+    /// there, whatever .editorconfig says (by language or by name).
+    static func forbidsTabIndent(_ c: OwlContext) -> Bool {
+        if c.language == Language.yaml.rawValue { return true }
+        guard let n = c.fileName?.lowercased() else { return false }
+        return n.hasSuffix(".yml") || n.hasSuffix(".yaml") || n == ".clang-format" || n == ".clang-tidy"
     }
 
     /// Makefiles need tabs: never offered "Convert to spaces" there.
