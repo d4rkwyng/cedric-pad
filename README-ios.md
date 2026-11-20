@@ -192,6 +192,13 @@ xcodebuild -project ios/Owlink.xcodeproj -scheme Owlink -destination 'platform=m
 python3 ios/Scripts/gen-xcodeproj.py   # back to the committed project
 ```
 
+**Warning:** launching a Catalyst build registers it with LaunchServices,
+and it can become the Mac's default app for a file type (it took `.csv`
+on geonosis once). Run it in a test VM, not on a Mac people use; if it ran
+on one, unregister it afterwards with
+`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u <path>/Owlink.app`
+and delete the build.
+
 Catalyst draws the iOS layouts in a Mac window (sizes forced to an
 iPhone and an iPad in landscape); the bars look slightly more Mac-like
 than on a device.
