@@ -212,10 +212,9 @@ struct SettingsView: View {
         }
     }
 
-    static var version: String {
-        let i = Bundle.main.infoDictionary
-        return "\(i?["CFBundleShortVersionString"] as? String ?? "?") (\(i?["CFBundleVersion"] as? String ?? "?"))"
-    }
+    /// "Owlink 0.3.0": the marketing version only. The build number is
+    /// for App Store Connect, not for people (TestFlight still shows it).
+    static var version: String { "Owlink \(CedricVersion.string)" }
 }
 
 extension BuiltInModel: @retroactive Hashable {
