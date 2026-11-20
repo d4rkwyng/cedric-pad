@@ -1,5 +1,5 @@
 #!/bin/zsh
-# The owl's tool eval: 48 fixed prompts over seven sample documents
+# The owl's tool eval: 50 fixed prompts over seven sample documents
 # (Sources/CedricAI/OwlToolEval.swift). Ask Cedric gives a model tools
 # only if it scores >= 80% here (Resources/AI/owl-tool-scores.json);
 # weaker or unmeasured models get the quick actions without tools.

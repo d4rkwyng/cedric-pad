@@ -10,7 +10,7 @@ import CedricCore
 /// Resources/AI/owl-tool-scores.json.
 @Suite struct OwlToolEvalTests {
     @Test func theSetHasFortySixCasesOverSevenDocuments() {
-        #expect(OwlToolEval.cases.count == 48)
+        #expect(OwlToolEval.cases.count == 50)
         #expect(Set(OwlToolEval.cases.map(\.doc)) == ["md", "swift", "json", "csv", "prose", "html", "svg"])
         #expect(OwlToolEval.cases.filter { $0.expect.isEmpty }.count >= 8)   // abstain cases
         for t in OwlToolName.allCases { #expect(OwlToolEval.cases.contains { $0.expect.contains(t) }, "\(t) is covered") }
@@ -22,11 +22,11 @@ import CedricCore
 
     @Test func fakeEngineScoresAndTheScorerRejectsWrongMoves() async {
         let (score, results) = await OwlToolEval.runAll(engine: FakeChatEngine(delay: 0))
-        #expect(results.count == 48)
+        #expect(results.count == 50)
         #expect(score >= 0.8, "fake engine scored \(score): \(results.filter { !$0.pass }.map { "\($0.question) → \($0.got)" })")
         // A model that always answers passes only the abstain cases.
         let (never, _) = await OwlToolEval.runAll(engine: AlwaysAnswers())
-        #expect(never == Double(OwlToolEval.cases.filter { $0.expect.isEmpty }.count) / 48)
+        #expect(never == Double(OwlToolEval.cases.filter { $0.expect.isEmpty }.count) / 50)
         // describe_image: picked for the SVG's picture questions, never for a text document.
         for r in results where r.expected == "describe_image" { #expect(r.pass, "\(r.question) → \(r.got)") }
         let textDocs = OwlToolEval.cases.filter { !OwlPicture.isPicture(fileName: OwlToolEval.docs[$0.doc]!.file) }.map(\.question)

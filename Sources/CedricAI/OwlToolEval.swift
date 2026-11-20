@@ -2,7 +2,7 @@ import Foundation
 import CedricCore
 
 /// The fixed tool-prompt set behind model gating (Scripts/owl-tools-eval.sh):
-/// 48 questions over seven sample documents (Markdown, Swift, JSON, CSV,
+/// 50 questions over seven sample documents (Markdown, Swift, JSON, CSV,
 /// prose, HTML, and an SVG icon). The model sees only lines 1–12 (as in
 /// the panel's "Visible text"), offered the tools the panel offers for
 /// that question (`OwlTools.typedTools`: a few, picked by the question)
@@ -141,6 +141,9 @@ public enum OwlToolEval {
             // check_document (0.4.0): the offline checks' findings.
             c("md", "What problems does this document have?", [.checkDocument]),
             c("swift", "Are there any errors or warnings in this file? Run the checks.", [.checkDocument]),
+            // read_section (0.4.0): a Markdown section by its heading.
+            c("md", "What does the Pests section say?", [.readSection], ("heading", "Pests")),
+            c("md", "Read me the Budget section.", [.readSection], ("heading", "Budget")),
             // describe_image: an SVG's picture; never for a text document.
             c("svg", "What is it a picture of?", [.describeImage]),
             c("svg", "What does this image show?", [.describeImage]),
@@ -198,7 +201,7 @@ public enum OwlToolEval {
                     // A range that includes the line counts.
                     let s = v?.int ?? -1, e = call.arguments["end"]?.int ?? s
                     pass = (s...max(s, e)).contains(Int(arg.value)!) || abs(s - Int(arg.value)!) <= 1
-                } else if arg.key == "query" {
+                } else if arg.key == "query" || arg.key == "heading" {
                     pass = (v?.string ?? "").lowercased().contains(arg.value.lowercased())
                 }
             }

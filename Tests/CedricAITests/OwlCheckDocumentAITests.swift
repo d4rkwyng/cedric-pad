@@ -63,3 +63,28 @@ import CedricCore
         var tools: [String] { lock.withLock { _tools } }
     }
 }
+
+/// read_section in Ask Cedric (0.4.0): offered to models trusted with
+/// tools for a question about a section; Apple Intelligence keeps the
+/// digest and gets no tools.
+@Suite struct OwlReadSectionAITests {
+    @Test func gatedModelsReadASectionAppleKeepsTheDigest() async throws {
+        let s = OwlAskScopeAITests.snap()
+        let ctx = OwlChatContext.build(s, scope: .visible, budget: 5_000)!
+        let q = "What does the Genesis section list?"
+        let gated = OwlChatRequest(question: q, context: ctx, snapshot: s, useTools: true, prose: true)
+        #expect(gated.tools.contains(.readSection))
+        let probe = OwlAskScopeAITests.Probe(call: OwlToolCall(name: "read_section", arguments: .object(["heading": .string("genesis")])))
+        let out = try await OwlChatRunner.run(gated, engine: probe) { _ in }
+        // The section's lines count as seen (Genesis starts at line 124; cut to what fit).
+        let note = try #require(out.coverageNote)
+        #expect(note.contains("1–20") && note.contains(" 124–"))
+        // Apple: no tools, and the digest instead.
+        let apple = OwlChatRequest(question: q, context: ctx, snapshot: s, useTools: false, prose: true)
+        #expect(apple.tools.isEmpty)
+        #expect(apple.digest(budget: 2_000) != nil)
+        // The fake engine (the eval's CI mode) picks it with the heading.
+        let call = FakeChatEngine.choose("What does the Pests section say?", tools: Set(gated.tools), first: 1, last: 12)
+        #expect(call?.name == "read_section" && call?.arguments["heading"]?.string == "Pests")
+    }
+}

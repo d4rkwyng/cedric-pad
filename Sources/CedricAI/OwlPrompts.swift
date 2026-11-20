@@ -275,6 +275,8 @@ public enum OwlPrompts {
         let lookExample = sees ? #" "What is this a picture of?" (an SVG) → {"tool":"describe_image","args":{}}."# : ""
         let checkRule = tools.contains { $0.name == .checkDocument }
             ? "\n- It asks about problems, errors, broken links, headings, footnotes or grammar in the document: call check_document." : ""
+        let sectionRule = tools.contains { $0.name == .readSection }
+            ? "\n- It asks what one named section says, or to read a section: call read_section with its heading." : ""
         var s = "\n\nTools:\n"
         for t in tools {
             var params: [String] = []
@@ -287,7 +289,7 @@ public enum OwlPrompts {
         You were shown only some lines of the document: the "Shown: … lines A-B" line says which. Rules, in order:
         - The question names a line number outside A-B, or asks to read lines: call get_lines for those lines.
         - It says "selected", "selection" or "my selection": call get_selection (you were not shown the selection).
-        - It asks to find, search, or where or how often a word appears: call search_document with that word.
+        - It asks to find, search, or where or how often a word appears: call search_document with that word.\(sectionRule)
         - It asks for headings, sections, structure, keys or which functions exist: call get_outline.
         - It asks how many words, lines or characters, or the file name or language: call document_stats.
         - It asks to change, rename, rewrite or propose an edit: call propose_edit (or get_lines first).\(look)\(checkRule)
