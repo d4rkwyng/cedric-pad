@@ -727,13 +727,32 @@ only, with **Copy as Markdown** and **Clear**.
 Cedric can also use six read-only tools on a frozen copy of the
 document (get the selection or lines, search, outline, counts, and
 propose an edit), at most three rounds per question, but only with
-models that score at least 80% on a fixed 40-prompt set
+models that score at least 80% on a fixed 46-prompt set
 (`Scripts/owl-tools-eval.sh`, scores in
 `Resources/AI/owl-tool-scores.json`). Other models get the quick
 actions without tools. Measured 2026-11-18: the built-in Qwen3 4B
 Instruct 90%, so it gets tools; Apple Intelligence 72.5%, Qwen2.5-Coder
 1.5B on LM Studio 75% and the built-in Qwen2.5-Coder 3B 65% stay
 without.
+
+**Pictures.** Asked about an SVG ("What is it a picture of?"), Cedric
+can look at the picture the preview shows: the **describe_image** tool
+renders the file as it is in the editor (unsaved changes included) with
+the preview's own renderer, page scripts and network off, then Apple's
+Vision framework reads it on this Mac: what it looks like (with how
+sure it is), any text in it, faces, its size and main colours. Vision's
+labels are a photo classifier's guesses and are often wrong for icons
+and line art; Cedric is told so and weighs them against the file's
+code. On macOS 27 with Apple Intelligence, the model also gets the
+rendered picture itself and can say what it shows. describe_image is
+read-only, looks only at the open document, sends nothing anywhere
+(the picture never leaves your Mac, even when the chat uses an LM
+Studio / Ollama server: only its short text description goes to the
+model, like the rest of the chat), and is offered only for SVG files,
+even to models that get no other tools. Nothing loads until it is
+used; the picture is drawn at most 512 pixels across (larger ones are
+scaled down) and the look is given up after 20 seconds. Image and PDF
+tabs don't have Ask Cedric.
 
 The owl in the editor follows the conversation (the panel has no owl
 of its own): he waves when the panel opens, glances toward it while you

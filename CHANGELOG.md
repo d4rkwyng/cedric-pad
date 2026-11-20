@@ -4,6 +4,14 @@ All notable changes to Owlink. The format follows [Keep a Changelog](https://kee
 and Owlink uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
+## [Unreleased]
+
+### Added
+- **Cedric can look at pictures.** Ask about an SVG ("What is it a picture of?") and Cedric calls a new read-only tool, describe_image: the file is rendered by the preview's own renderer and read by Apple's Vision framework on your Mac (what it looks like, any text in it, faces, its size and main colours). On macOS 27 with Apple Intelligence, the model also sees the rendered picture itself. The picture never leaves your Mac and only the open document is looked at. It is offered for SVG files only, even to models that get no other tools, and loads nothing until it is used.
+
+### Changed
+- **The tool eval has 46 prompts** (was 40): an SVG icon whose picture questions should call describe_image, and text files where it must not.
+
 ## [0.2.1]
 
 ### Added
