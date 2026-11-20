@@ -18,8 +18,10 @@ extension EditorWindowController {
     /// A standalone page, light style, with no script: raw HTML blocks'
     /// `<script>`, frames and `on…=` handlers are removed (it is opened
     /// in a browser later), and a CSP forbids script as a second layer.
-    nonisolated static func exportPage(markdown: String, title: String) -> String {
-        PreviewController.page(body: HTMLScrub.noScript(Markdown.render(markdown, options: .preview)), palette: EditorPalettes.light,
+    /// Wikilinks and `![[embeds]]` resolve in `vault` and point at their
+    /// files relative to the document's folder; notes are inlined.
+    nonisolated static func exportPage(markdown: String, title: String, vault: WikiVault? = nil) -> String {
+        PreviewController.page(body: HTMLScrub.noScript(Markdown.render(markdown, options: .export(vault: vault))), palette: EditorPalettes.light,
                                csp: "script-src 'none'; object-src 'none'; frame-src 'none'", title: title)
     }
 
@@ -33,9 +35,10 @@ extension EditorWindowController {
     func exportHTML() {
         guard doc.language == .markdown else { NSSound.beep(); return }
         let text = textView.string, title = exportBaseName
+        let vault = PreviewController.exportVault(for: doc.fileURL?.deletingLastPathComponent())
         // Rendered off the main thread (a crafted document must not hang
         // the app), then the save panel.
-        MarkdownWork.run({ Self.exportPage(markdown: text, title: title) }) { [weak self] html in
+        MarkdownWork.run({ Self.exportPage(markdown: text, title: title, vault: vault) }) { [weak self] html in
             guard let self else { return }
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.html]
@@ -76,7 +79,8 @@ extension EditorWindowController {
     func copyAsHTML(done: (@MainActor () -> Void)? = nil) {
         guard doc.language == .markdown else { NSSound.beep(); return }
         let md = exportSelectionMarkdown
-        MarkdownWork.run({ HTMLScrub.noScript(Markdown.render(md, options: .preview)) }) { html in
+        let vault = PreviewController.exportVault(for: doc.fileURL?.deletingLastPathComponent())
+        MarkdownWork.run({ HTMLScrub.noScript(Markdown.render(md, options: .export(vault: vault))) }) { html in
             let pb = NSPasteboard.general
             pb.clearContents()
             pb.setString(html, forType: .string)
@@ -94,7 +98,8 @@ extension EditorWindowController {
         defer { done?() }
         guard doc.language == .markdown else { NSSound.beep(); return }
         // Nothing remote: the HTML importer must not fetch a tracking image.
-        let page = HTMLScrub.noScriptNoRemote(Self.exportPage(markdown: exportSelectionMarkdown, title: exportBaseName))
+        let page = HTMLScrub.noScriptNoRemote(Self.exportPage(markdown: exportSelectionMarkdown, title: exportBaseName,
+                                                                         vault: PreviewController.exportVault(for: doc.fileURL?.deletingLastPathComponent())))
         guard let attributed = NSAttributedString(html: Data(page.utf8), options: [.characterEncoding: String.Encoding.utf8.rawValue],
                                                   documentAttributes: nil) else { NSSound.beep(); return }
         let pb = NSPasteboard.general
@@ -157,6 +162,7 @@ final class MarkdownPDFExport: NSObject {
     static func run(markdown: String, folder: URL?, title: String, to url: URL, done: @escaping (Error?) -> Void) {
         let job = MarkdownPDFExport(url: url, done: done)
         running.append(job)
+        job.preview.exportLinks = true
         job.preview.onLoaded = { [weak job] in
             // Let images settle a moment before printing.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { job?.print() }
@@ -222,12 +228,25 @@ final class MarkdownPDFExport: NSObject {
                     if box.height < full {
                         page.setBounds(NSRect(x: box.minX, y: box.maxY - full, width: box.width, height: full), for: .mediaBox)
                     }
+                    Self.relink(page, savedIn: self.url.deletingLastPathComponent())
                     doc.insert(page, at: doc.pageCount)
                     next()
                 }
             }
         }
         next()
+    }
+
+    /// The page's links into the app (`cedric-doc:`, as WebKit resolves a
+    /// relative link against the preview's base) made relative to the
+    /// folder the PDF is saved in, so they still work beside the files.
+    static func relink(_ page: PDFPage, savedIn folder: URL) {
+        for a in page.annotations {
+            guard let u = a.url, u.scheme == PreviewFolder.scheme, let file = PreviewFolder.fileURL(for: u) else { continue }
+            var rel = WikiVault.relativeHref(file, from: folder)
+            if let f = u.fragment, !f.isEmpty { rel += "#" + f }
+            a.url = URL(string: rel)
+        }
     }
 
     /// Ends the job (once): stops the page, takes the web view out of the

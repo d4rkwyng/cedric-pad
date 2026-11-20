@@ -26,15 +26,23 @@ public enum Markdown {
         public var vault: WikiVault?
         /// Embeds inside an embedded note stay links (transclusion is one level).
         var embedDepth = 0
-        public init(highlightCode: Bool = false, obsidian: Bool = false, vault: WikiVault? = nil) {
+        /// For a file that leaves the app (exported HTML or PDF, copied
+        /// HTML): wikilinks and embeds point at their files by a path
+        /// relative to the document's folder, not by a `cedric-doc:` URL,
+        /// and an unresolved wikilink is plain text.
+        public var exportLinks = false
+        public init(highlightCode: Bool = false, obsidian: Bool = false, vault: WikiVault? = nil, exportLinks: Bool = false) {
             self.highlightCode = highlightCode
             self.obsidian = obsidian
             self.vault = vault
+            self.exportLinks = exportLinks
         }
         /// The live preview's (and export's) options.
         public static let preview = Options(highlightCode: true, obsidian: true)
         /// `preview`, resolving wikilinks in `vault`.
         public static func preview(vault: WikiVault?) -> Options { Options(highlightCode: true, obsidian: true, vault: vault) }
+        /// `preview(vault:)` for export (see `exportLinks`).
+        public static func export(vault: WikiVault?) -> Options { Options(highlightCode: true, obsidian: true, vault: vault, exportLinks: true) }
     }
 
     public static func render(_ source: String, options: Options = Options()) -> String {
@@ -980,11 +988,16 @@ final class MarkdownRenderer {
         let (name, fragment) = WikiVault.split(target)
         let vault = options.vault
         let file = name.isEmpty ? nil : vault?.resolve(name)
+        let exporting = options.exportLinks
+        func href(_ file: URL) -> String? {
+            guard exporting else { return WikiVault.href(file) }
+            return vault.map { WikiVault.relativeHref(file, from: $0.documentFolder) }
+        }
         if embed {
             guard let vault, let file else { return nil }
             let ext = file.pathExtension.lowercased()
             if WikiVault.imageExtensions.contains(ext) {
-                guard let src = WikiVault.href(file) else { return nil }
+                guard let src = href(file) else { return nil }
                 var size = ""
                 if let alias, let m = alias.wholeMatch(of: #/(\d{1,5})(?:x(\d{1,5}))?/#) {
                     size = " width=\"\(m.1)\""
@@ -994,7 +1007,7 @@ final class MarkdownRenderer {
                 return "<img class=\"embed\" src=\"\(escape(src))\" alt=\"\(escape(alt))\"\(size)>"
             }
             guard ext == "md" || ext == "markdown" else { return nil }
-            let link = WikiVault.href(file).map { " href=\"\(escape($0))\"" } ?? ""
+            let link = href(file).map { " href=\"\(escape($0))\"" } ?? ""
             let label = escape(name + (fragment.flatMap { $0.hasPrefix("^") ? nil : " › " + $0 } ?? ""))
             // Inside an embedded note, or too big: a link, not a second copy.
             guard options.embedDepth == 0, let text = vault.embedText(file, fragment: fragment) else {
@@ -1008,9 +1021,11 @@ final class MarkdownRenderer {
         let shown = alias.flatMap { $0.isEmpty ? nil : $0 } ?? (fragment.map { name.isEmpty ? $0 : name + " › " + $0 } ?? name)
         guard !shown.isEmpty else { return nil }
         let text = emphasis(Array(shown))
-        if let file, let href = WikiVault.href(file) {
+        if let file, let href = href(file) {
             return "<a class=\"wikilink\" href=\"\(escape(href))\">\(text)</a>"
         }
+        // Exported: no link to nowhere, just the words.
+        if exporting { return text }
         return "<a class=\"wikilink is-unresolved\" title=\"\(escape(name)) (not found)\">\(text)</a>"
     }
 

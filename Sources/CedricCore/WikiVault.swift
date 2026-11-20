@@ -166,5 +166,18 @@ public final class WikiVault: @unchecked Sendable {
     /// The `cedric-doc:` link for a resolved file.
     public static func href(_ file: URL) -> String? { PreviewFolder.pageURL(forFile: file)?.absoluteString }
 
+    /// A link to `file` relative to `folder` (`../attachments/a%20b.png`),
+    /// percent-encoded, for an exported page saved beside the document.
+    public static func relativeHref(_ file: URL, from folder: URL) -> String {
+        let to = file.standardizedFileURL.pathComponents
+        let from = folder.standardizedFileURL.pathComponents
+        var common = 0
+        while common < to.count - 1, common < from.count, to[common] == from[common] { common += 1 }
+        let parts = Array(repeating: "..", count: from.count - common) + to[common...]
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#;")
+        return parts.map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? $0 }.joined(separator: "/")
+    }
+
     public static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "avif", "heic", "heif", "bmp", "svg", "tif", "tiff", "ico"]
 }

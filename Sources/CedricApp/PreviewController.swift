@@ -50,6 +50,22 @@ final class PreviewController: NSObject, WKNavigationDelegate {
     /// its name index is rebuilt at most every few seconds).
     private var vault: WikiVault?
     private var vaultOpenedRoot: URL?
+    /// Rendering for a PDF export: wikilinks and embeds by relative path
+    /// (Markdown.Options.exportLinks), not `cedric-doc:` links.
+    var exportLinks = false
+
+    /// The folder open in the sidebar, when it holds `folder`.
+    static func openedRoot(for folder: URL?) -> URL? {
+        let opened = FolderSidebar.shared?.rootURL.standardizedFileURL
+        return folder.flatMap { f in
+            opened.flatMap { (f.standardizedFileURL.path + "/").hasPrefix($0.path.hasSuffix("/") ? $0.path : $0.path + "/") ? $0 : nil }
+        }
+    }
+
+    /// The vault an exported copy of a document in `folder` resolves wikilinks in.
+    static func exportVault(for folder: URL?) -> WikiVault? {
+        folder.map { WikiVault(documentFolder: $0, openedRoot: openedRoot(for: $0)) }
+    }
     /// The last link clicked (for checks).
     private(set) var lastLinkAction: PreviewLinkAction?
 
@@ -104,10 +120,7 @@ final class PreviewController: NSObject, WKNavigationDelegate {
         folderFiles.folder = folder
         // The folder open in the sidebar, when the document is inside it:
         // the last place a site-root path (`/images/x.webp`) is looked for.
-        let opened = FolderSidebar.shared?.rootURL.standardizedFileURL
-        folderFiles.openedRoot = folder.flatMap { f in
-            opened.flatMap { (f.standardizedFileURL.path + "/").hasPrefix($0.path.hasSuffix("/") ? $0.path : $0.path + "/") ? $0 : nil }
-        }
+        folderFiles.openedRoot = Self.openedRoot(for: folder)
         if let folder {
             if vault?.documentFolder != folder.standardizedFileURL || vaultOpenedRoot != folderFiles.openedRoot {
                 vault = WikiVault(documentFolder: folder, openedRoot: folderFiles.openedRoot)
@@ -118,6 +131,7 @@ final class PreviewController: NSObject, WKNavigationDelegate {
         }
         folderFiles.vaultRoot = vault?.root
         let vault = self.vault
+        let exportLinks = self.exportLinks
         let baseURL = folder.flatMap(DocumentFolderFiles.pageURL(for:))
         generation += 1
         let gen = generation
@@ -136,7 +150,7 @@ final class PreviewController: NSObject, WKNavigationDelegate {
             // Skip a render a newer one has already replaced.
             guard ticket.value == gen else { return }
             let t0 = DispatchTime.now()
-            let body = Markdown.render(text, options: .preview(vault: vault))
+            let body = Markdown.render(text, options: exportLinks ? .export(vault: vault) : .preview(vault: vault))
             let ms = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1e6
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {

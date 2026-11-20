@@ -752,6 +752,36 @@ extension DevChecks {
                     next()
                 }
             },
+            // Obsidian syntax leaves the app: wikilinks and embeds by relative
+            // path (no cedric-doc: links), notes inlined, unresolved as text.
+            { next in
+                let wiki = dir.appendingPathComponent("wiki", isDirectory: true)
+                try? FileManager.default.createDirectory(at: wiki.appendingPathComponent("att"), withIntermediateDirectories: true)
+                try? png.write(to: wiki.appendingPathComponent("att/dot.png"))
+                _ = write("wiki/Other Note.md", "# Other\n\n## Part\n\nTranscluded words.\n")
+                let md = "# Wiki export\n\nSee [[Other Note|the other]] and [[Gone]].\n\n![[dot.png|40]]\n\n![[Other Note#Part]]\n"
+                let vault = WikiVault(documentFolder: wiki)
+                let html = EditorWindowController.exportPage(markdown: md, title: "wiki", vault: vault)
+                expect(!html.contains("cedric-doc") && html.contains("href=\"Other%20Note.md\">the other</a>") && html.contains("src=\"att/dot.png\"")
+                       && html.contains("Transcluded words.") && html.contains(" and Gone."),
+                       "exported HTML: wikilinks and embeds by relative path, the note inlined, unresolved as text")
+                let u = dir.appendingPathComponent("out/wiki.pdf")
+                MarkdownPDFExport.run(markdown: md, folder: wiki, title: "wiki", to: u) { error in
+                    let pdf = PDFDocument(url: u)
+                    let text = pdf?.string ?? ""
+                    var urls: [String] = []
+                    for k in 0..<(pdf?.pageCount ?? 0) {
+                        for a in pdf?.page(at: k)?.annotations ?? [] { if let s = a.url?.absoluteString { urls.append(s) } }
+                    }
+                    print("check: note: wiki PDF link annotations \(urls)")
+                    expect(error == nil && text.contains("Transcluded words.") && text.contains("the other") && !text.contains("[["),
+                           "exported PDF: the note inlined, wikilinks as text", String(text.prefix(120)))
+                    expect(!urls.isEmpty && urls.allSatisfy { $0 == "../wiki/Other%20Note.md" }, "exported PDF: links relative to the PDF, no cedric-doc:", "\(urls)")
+                    try? FileManager.default.removeItem(at: out.appendingPathComponent("export-wiki.pdf"))
+                    try? FileManager.default.copyItem(at: u, to: out.appendingPathComponent("export-wiki.pdf"))
+                    next()
+                }
+            },
             // 20 exports in a row: each one tears its offscreen page down cleanly.
             { next in
                 var k = 0, ok = 0
