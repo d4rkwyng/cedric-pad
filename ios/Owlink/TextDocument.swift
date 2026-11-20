@@ -34,6 +34,10 @@ final class TextDocument: UIDocument {
     private(set) var onDisk: DiskState?
     /// What the save in progress writes (becomes `onDisk` if it succeeds).
     private var writing: (state: DiskState, layout: LineEndingLayout?)?
+    /// The file's bytes as read, until they are backed up before the first
+    /// write (not kept for files over the copy store's cap).
+    private var bytesAsRead: Data?
+    private var backedUpSinceRead = false
     var language = LanguageChoice()
     /// Allows opening a file that looks binary (asked once).
     var openBinaryAnyway = false
@@ -99,6 +103,8 @@ final class TextDocument: UIDocument {
         if decoded.looksBinary && !openBinaryAnyway { throw OpenError.binary }
         // The bytes as first opened (not on a reload after a change elsewhere).
         if openedCopy == nil { openedCopy = SaveSafetyStores.revert.keep(data, id: openedCopyID) }
+        bytesAsRead = data.count <= SafetyCopyStore.maxBytes ? data : nil
+        backedUpSinceRead = false
         text = decoded.text
         encoding = decoded.encoding
         lineEnding = decoded.lineEnding
@@ -155,6 +161,7 @@ final class TextDocument: UIDocument {
             return
         }
         writing = nil
+        backUpBeforeFirstWrite()
         super.save(to: url, for: saveOperation) { ok in
             if ok {
                 self.firstUnsavedEdit = nil
@@ -170,6 +177,18 @@ final class TextDocument: UIDocument {
             completionHandler?(ok)
             if ok { self.onSaved?() }
             self.notifyEdited()
+        }
+    }
+
+    /// Before the first write after a read: the file as read goes to the
+    /// safety copies (7 days; Restore Previous Version).
+    private func backUpBeforeFirstWrite() {
+        guard BackupPolicy.shouldBackUp(needsWrite: true, backedUpSinceRead: backedUpSinceRead, haveBytes: bytesAsRead != nil),
+              let data = bytesAsRead else { return }
+        let copy = SafetyCopy(documentPath: recoveryPath, displayName: displayName, kind: .original, sourceDate: fileModificationDate)
+        if (try? SaveSafetyStores.copies.keep(data, as: copy)) != nil {
+            backedUpSinceRead = true
+            bytesAsRead = nil
         }
     }
 

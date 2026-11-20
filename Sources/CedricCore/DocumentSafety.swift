@@ -47,6 +47,35 @@ public struct SafetyCopy: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+extension SafetyCopy {
+    /// The copy's text: in the encoding Owlink wrote it in, or detected
+    /// (a file's own bytes).
+    public func decode(_ data: Data) -> DecodedText? {
+        TextCodec.decode(data, as: encoding)
+    }
+
+    /// What it is, for Restore Previous Version.
+    public var kindTitle: String {
+        switch kind {
+        case .original: return String(localized: "Before Owlink saved")
+        case .conflictVersion:
+            if let device { return String(localized: "Conflict version from \(device)") }
+            return String(localized: "Conflict version")
+        case .unsavedText: return String(localized: "Your unsaved text")
+        case .externalVersion: return String(localized: "Changed elsewhere")
+        }
+    }
+}
+
+/// When the iOS app keeps the file as it is on disk before writing over
+/// it: before the first write after each read (open, or a reload), so
+/// every version Owlink replaces can be restored for 7 days.
+public enum BackupPolicy {
+    public static func shouldBackUp(needsWrite: Bool, backedUpSinceRead: Bool, haveBytes: Bool) -> Bool {
+        needsWrite && !backedUpSinceRead && haveBytes
+    }
+}
+
 public struct SafetyCopyStore: Sendable {
     /// How long copies are kept.
     public static let keepDays = 7

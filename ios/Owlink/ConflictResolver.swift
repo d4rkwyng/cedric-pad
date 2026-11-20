@@ -164,7 +164,7 @@ import CedricCore
         }
         var lines = [line(String(localized: "This version"), v.current), line(String(localized: "Other version"), v.others.first)]
         if v.others.count > 1 { lines.append(String(localized: "\(v.others.count - 1) more other versions are kept as copies too.")) }
-        lines.append(String(localized: "A safety copy of every version is already kept in Owlink."))
+        lines.append(String(localized: "Every version is already copied: Restore Previous Version in the menu has them for 7 days."))
         if let note { lines.insert(note, at: 0) }
         let a = UIAlertController(title: String(localized: "\(name) was changed on another device too"),
                                   message: lines.joined(separator: "\n"), preferredStyle: .alert)

@@ -257,4 +257,30 @@ import Testing
         #expect(DiskState.includeBOM(encoding: .utf16LE, onDisk: disk))
         #expect(DiskState.includeBOM(encoding: .utf16LE, onDisk: nil))
     }
+
+    // MARK: Backups
+
+    @Test func backupOnlyBeforeTheFirstWriteAfterARead() {
+        #expect(BackupPolicy.shouldBackUp(needsWrite: true, backedUpSinceRead: false, haveBytes: true))
+        #expect(!BackupPolicy.shouldBackUp(needsWrite: true, backedUpSinceRead: true, haveBytes: true))
+        #expect(!BackupPolicy.shouldBackUp(needsWrite: false, backedUpSinceRead: false, haveBytes: true))
+        #expect(!BackupPolicy.shouldBackUp(needsWrite: true, backedUpSinceRead: false, haveBytes: false))
+    }
+
+    @Test func restoredCopyDecodesInItsOwnEncoding() throws {
+        let t = try temp(); defer { try? fm.removeItem(at: t) }
+        let store = SafetyCopyStore(directory: t)
+        // Unsaved text Owlink encoded as Mac Roman: read back as Mac Roman,
+        // not guessed.
+        let bytes = try #require("caf\u{e9} \u{2020}\r\n".data(using: .macOSRoman))
+        let c = try store.keep(bytes, as: SafetyCopy(documentPath: "/a", displayName: "a", kind: .unsavedText, encoding: .macRoman))
+        let stored = try #require(store.data(for: c))
+        let d = try #require(c.decode(stored))
+        #expect(d.text == "caf\u{e9} \u{2020}\n")
+        #expect(d.encoding == .macRoman)
+        #expect(d.lineEnding == .crlf)
+        // A file's own bytes: detected.
+        let o = SafetyCopy(documentPath: "/a", displayName: "a", kind: .original)
+        #expect(o.decode(Data([0xFF, 0xFE, 0x61, 0x00]))?.encoding == .utf16LE)
+    }
 }

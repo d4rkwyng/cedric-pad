@@ -426,7 +426,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             first.insert(focus, at: 0)
         }
         if UIApplication.shared.supportsMultipleScenes { first.append(Self.newWindowAction()) }
-        return [UIMenu(options: .displayInline, children: first), UIMenu(options: .displayInline, children: [revert]),
+        return [UIMenu(options: .displayInline, children: first), UIMenu(options: .displayInline, children: [revert, previousVersionsMenu()]),
                 languageMenu(), formatMenu(),
                 UIMenu(options: .displayInline, children: [settings])]
     }
@@ -1586,6 +1586,55 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         return a
     }
 
+    /// Restore Previous Version: the safety copies of this file (before
+    /// Owlink first saved it, conflict versions, text kept before a
+    /// reload), newest first, kept 7 days.
+    private func previousVersionsMenu() -> UIMenuElement {
+        let copies = SaveSafetyStores.copies.copies(forDocumentPath: document.recoveryPath)
+        let title = String(localized: "Restore Previous Version…")
+        let image = UIImage(systemName: "archivebox")
+        guard !copies.isEmpty, editGate.button != .readOnly else {
+            let a = UIAction(title: title, image: image, attributes: .disabled) { _ in }
+            a.subtitle = String(localized: "No previous versions kept")
+            a.accessibilityIdentifier = "editor.previousVersions"
+            return a
+        }
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        f.doesRelativeDateFormatting = true
+        let items = copies.map { c in
+            UIAction(title: f.string(from: c.sourceDate ?? c.savedAt), subtitle: c.kindTitle) { [weak self] _ in
+                self?.confirmRestore(c)
+            }
+        }
+        let m = UIMenu(title: title, image: image, children: items)
+        m.accessibilityIdentifier = "editor.previousVersions"
+        return m
+    }
+
+    private func confirmRestore(_ c: SafetyCopy) {
+        let a = UIAlertController(title: String(localized: "Restore this version?"),
+                                  message: String(localized: "The text is replaced with \(c.kindTitle.lowercased()) (\(c.byteCount) bytes). You can undo this with Undo."),
+                                  preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+        a.addAction(UIAlertAction(title: String(localized: "Restore"), style: .destructive) { [weak self] _ in self?.restore(c) })
+        present(a, animated: true)
+    }
+
+    private func restore(_ c: SafetyCopy) {
+        guard explicitChangeAllowed() else { return }
+        guard let data = SaveSafetyStores.copies.data(for: c), let decoded = c.decode(data) else {
+            toast(String(localized: "Couldn’t read that version."))
+            return
+        }
+        replaceAllText(with: decoded.text)
+        let change = FormatChange(from: currentFormat, to: .init(encoding: decoded.encoding, lineEnding: decoded.lineEnding,
+                                                                 mixedLineEndings: decoded.mixedLineEndings))
+        if change.changesEverything { applyFormat(change, actionName: String(localized: "Restore")) }
+        toast(String(localized: "Restored the previous version. Undo brings back the text before it."))
+    }
+
     private func confirmRevert() {
         let a = UIAlertController(title: String(localized: "Revert to the version you opened?"),
                                   message: String(localized: "The text goes back to how \(document.displayName) was when you opened it. You can undo this with Undo."),
@@ -1713,7 +1762,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             case .success(let savedName):
                 switch choice {
                 case .keepThis:
-                    self.toast(String(localized: "Kept this version. A copy of the other version is kept in Owlink."))
+                    self.toast(String(localized: "Kept this version. The other is in Restore Previous Version for 7 days."))
                     self.endConflict()
                 case .keepBoth:
                     self.toast(String(localized: "Kept this version and saved the other as “\(savedName ?? "")”."))
@@ -1723,7 +1772,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
                     // shown here (saved or not) is copied already.
                     self.recoveryWriter.clear()
                     self.document.revertAfterChoice { [weak self] _ in
-                        self?.toast(String(localized: "Kept the other version. A copy of this one is kept in Owlink."))
+                        self?.toast(String(localized: "Kept the other version. This one is in Restore Previous Version for 7 days."))
                         self?.endConflict()
                     }
                 }
@@ -1749,7 +1798,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     private func askExternalChange() {
         guard !closing else { return }
         let a = UIAlertController(title: String(localized: "\(document.displayName) was changed somewhere else"),
-                                  message: String(localized: "You have unsaved changes here. Keep Mine saves your version over the other one; Use Theirs shows the other one. A copy of both is kept in Owlink."),
+                                  message: String(localized: "You have unsaved changes here. Keep Mine saves your version over the other one; Use Theirs shows the other one. Both are kept in Restore Previous Version for 7 days."),
                                   preferredStyle: .alert)
         a.addAction(UIAlertAction(title: String(localized: "Keep Mine"), style: .default) { [weak self] _ in
             guard let self else { return }
@@ -1762,7 +1811,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             self.recoveryWriter.clear()
             self.document.revertAfterChoice { [weak self] _ in
                 self?.setEditLock(.externalChange, false)
-                self?.toast(String(localized: "Showing the other version. Your text is kept in Owlink."))
+                self?.toast(String(localized: "Showing the other version. Your text is in Restore Previous Version for 7 days."))
             }
         })
         present(a, animated: true)
