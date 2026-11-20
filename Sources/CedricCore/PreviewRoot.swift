@@ -1,0 +1,172 @@
+import Foundation
+
+/// Where a site-root-absolute path (`/images/logo.webp`, as a static site
+/// generator writes it) lives on disk, for the preview. Files only, never
+/// the network.
+///
+/// The search, first hit wins:
+/// 1. the document's own folder, then each folder above it (up to
+///    `maxLevels`, never `/`, a top-level folder such as `/Users`, or the
+///    home folder itself), stopping at the opened folder when there is one;
+/// 2. at each of those folders, the site layouts' own roots as well:
+///    `static/`, `public/`, `quartz/static/` and `content/` (Hugo, Jekyll,
+///    Quartz and the like);
+/// 3. the opened folder (and its site layouts), when the walk didn't reach it.
+public enum PreviewRoot {
+    /// Sub-folders a site generator serves at its root ("" is the folder itself).
+    public static let siteFolders = ["", "static", "public", "quartz/static", "content"]
+    public static let maxLevels = 8
+
+    /// The folders to try, nearest first.
+    public static func searchFolders(from folder: URL, openedRoot: URL?) -> [URL] {
+        let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
+        let rootPath = openedRoot?.standardizedFileURL.path
+        var dirs: [URL] = []
+        var dir = folder.standardizedFileURL
+        for _ in 0..<maxLevels {
+            let p = dir.path
+            if p == "/" || dir.pathComponents.count < 3 || (p == home && p != rootPath) { break }
+            dirs.append(dir)
+            if p == rootPath { break }
+            dir = dir.deletingLastPathComponent()
+        }
+        if let openedRoot, !dirs.contains(where: { $0.path == rootPath }) { dirs.append(openedRoot.standardizedFileURL) }
+        return dirs
+    }
+
+    /// The parts of a root-absolute path, decoded; nil for one that isn't
+    /// (relative, a scheme, `//host`) or that climbs with `..`.
+    public static func parts(of path: String) -> [String]? {
+        var p = path
+        if let cut = p.firstIndex(where: { $0 == "?" || $0 == "#" }) { p = String(p[..<cut]) }
+        guard p.hasPrefix("/"), !p.hasPrefix("//") else { return nil }
+        p = p.removingPercentEncoding ?? p
+        let parts = p.split(separator: "/").map(String.init).filter { $0 != "." }
+        guard !parts.isEmpty, !parts.contains("..") else { return nil }
+        return parts
+    }
+
+    /// The file `path` stands for, and the root it was found under.
+    /// `pages`: a link may also name a page (`/projects/intelbrew` is
+    /// `projects/intelbrew.md` or `projects/intelbrew/index.md`).
+    public static func resolve(_ path: String, from folder: URL, openedRoot: URL?, pages: Bool = false,
+                               fileManager fm: FileManager = .default) -> (root: URL, file: URL)? {
+        guard let parts = parts(of: path) else { return nil }
+        let rel = parts.joined(separator: "/")
+        var tries = [rel]
+        if pages, (rel as NSString).pathExtension.isEmpty { tries += [rel + ".md", rel + "/index.md"] }
+        for dir in searchFolders(from: folder, openedRoot: openedRoot) {
+            for sub in siteFolders {
+                let root = sub.isEmpty ? dir : dir.appendingPathComponent(sub, isDirectory: true)
+                for t in tries {
+                    let file = root.appendingPathComponent(t)
+                    var isDir: ObjCBool = false
+                    if fm.fileExists(atPath: file.path, isDirectory: &isDir), !isDir.boolValue { return (root, file) }
+                }
+            }
+        }
+        return nil
+    }
+}
+
+extension PreviewFolder {
+    /// The `cedric-doc:` URL a page uses for `file`.
+    public static func pageURL(forFile file: URL) -> URL? {
+        var c = URLComponents()
+        c.scheme = scheme
+        c.host = "doc"
+        c.path = file.standardizedFileURL.path
+        return c.url
+    }
+
+    /// What the preview's file handler serves for `url`: a file inside
+    /// `folder` as before, or else a site-root-absolute path
+    /// (`cedric-doc://doc/images/x.webp`, from `src="/images/x.webp"`)
+    /// found by `PreviewRoot`, under the same rules (symbolic links, and
+    /// with `scriptOn` images, fonts and CSS only, no dotfiles) judged
+    /// against the root it was found under.
+    /// `vaultRoot`: the Obsidian vault's folder, for `![[embeds]]` found there.
+    public static func file(for url: URL, in folder: URL, openedRoot: URL?, vaultRoot: URL? = nil, scriptOn: Bool) -> URL? {
+        if let f = file(for: url, in: folder, scriptOn: scriptOn) { return f }
+        for root in [openedRoot, vaultRoot].compactMap({ $0 }) {
+            if let f = file(for: url, in: root, scriptOn: scriptOn) { return f }
+        }
+        guard let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath,
+              let hit = PreviewRoot.resolve(path, from: folder, openedRoot: openedRoot),
+              let page = pageURL(forFile: hit.file) else { return nil }
+        return file(for: page, in: hit.root, scriptOn: scriptOn)
+    }
+}
+
+/// Images the preview can't show because the app may not read the
+/// document's folder (iOS, a file opened on its own from Files): they are
+/// taken out and one quiet hint is shown in their place, rather than empty
+/// boxes.
+public enum PreviewImageAccess {
+    nonisolated(unsafe) static let img = try! NSRegularExpression(
+        pattern: #"<img\b(?:"[^"]*"|'[^']*'|[^'">])*?\ssrc\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)(?:"[^"]*"|'[^']*'|[^'">])*>"#,
+        options: [.caseInsensitive])
+
+    /// The local `src`s of `html`'s images (not `data:`, not web URLs).
+    public static func localSources(_ html: String) -> [String] {
+        let ns = html as NSString
+        return img.matches(in: html, range: NSRange(location: 0, length: ns.length)).compactMap { m in
+            let v = unquote(ns.substring(with: m.range(at: 1)))
+            return isLocal(v) ? v : nil
+        }
+    }
+
+    static func unquote(_ v: String) -> String {
+        guard let f = v.first, f == "\"" || f == "'", v.count >= 2 else { return v }
+        return MarkdownRenderer.unescapeEntities(String(v.dropFirst().dropLast()))
+    }
+
+    static func isLocal(_ src: String) -> Bool {
+        let t = src.trimmingCharacters(in: .whitespaces).lowercased()
+        if t.isEmpty || t.hasPrefix("data:") || t.hasPrefix("//") { return false }
+        if let colon = t.firstIndex(of: ":"), !t[..<colon].contains("/") {
+            return t.hasPrefix(PreviewFolder.scheme + ":") || t.hasPrefix("file:")
+        }
+        return true
+    }
+
+    /// Whether the preview can read `src`, for a document in `folder`.
+    public static func readable(_ src: String, folder: URL, openedRoot: URL?, fileManager fm: FileManager = .default) -> Bool {
+        if src.lowercased().hasPrefix(PreviewFolder.scheme + ":") || src.lowercased().hasPrefix("file:") {
+            guard let u = URL(string: src) else { return false }
+            let path = u.isFileURL ? u.path : (PreviewFolder.fileURL(for: u)?.path ?? "")
+            return fm.isReadableFile(atPath: path)
+        }
+        if src.hasPrefix("/") {
+            guard let hit = PreviewRoot.resolve(src, from: folder, openedRoot: openedRoot, fileManager: fm) else { return false }
+            return fm.isReadableFile(atPath: hit.file.path)
+        }
+        var p = src
+        if let cut = p.firstIndex(where: { $0 == "?" || $0 == "#" }) { p = String(p[..<cut]) }
+        p = p.removingPercentEncoding ?? p
+        return fm.isReadableFile(atPath: folder.appendingPathComponent(p).standardizedFileURL.path)
+    }
+
+    /// `html` with the images it can't read taken out and `hint` (HTML) put
+    /// first, when `folderReadable` is false (the app has no access to the
+    /// document's folder); unchanged otherwise, so a genuinely missing
+    /// image still shows its alt text as it would on the site.
+    public static func hideUnreadable(_ html: String, folder: URL, openedRoot: URL?, folderReadable: Bool, hint: String,
+                                      fileManager fm: FileManager = .default) -> (html: String, hidden: Int) {
+        guard !folderReadable, html.range(of: "<img", options: .caseInsensitive) != nil else { return (html, 0) }
+        let ns = html as NSString
+        var out = ""
+        var last = 0
+        var hidden = 0
+        for m in img.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
+            let v = unquote(ns.substring(with: m.range(at: 1)))
+            guard isLocal(v), !readable(v, folder: folder, openedRoot: openedRoot, fileManager: fm) else { continue }
+            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            last = m.range.location + m.range.length
+            hidden += 1
+        }
+        guard hidden > 0 else { return (html, 0) }
+        out += ns.substring(from: last)
+        return (hint + out, hidden)
+    }
+}
