@@ -11,6 +11,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     let document: TextDocument
     let textView = UITextView(usingTextLayoutManager: true)
     private(set) var lineIndex = LineIndex()
+    /// Left inset of the text before line numbers claim any of it.
+    private let editorTextInsetLeft: CGFloat = 8
+    /// This tab only. Off until a jump (a citation, Find next, Go to Line)
+    /// needs the numbers. Not written to the saved setting.
+    private var showLineNumbers = false
+    /// 1-based line drawn stronger in the gutter, the one just jumped to.
+    private var markedLine: Int?
+    private let lineNumberGutter = LineNumberGutter()
     private var colorizer: SyntaxColorizer!
     let owl = EditorOwl()
     let hintBar = OwlHintBar()
@@ -210,7 +218,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         textView.isFindInteractionEnabled = true
         textView.alwaysBounceVertical = true
         textView.keyboardDismissMode = .interactive
-        textView.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 80, right: 8)
+        textView.textContainerInset = UIEdgeInsets(top: 10, left: editorTextInsetLeft, bottom: 80, right: 8)
         textView.accessibilityIdentifier = "editor.text"
         textView.allowsEditingTextAttributes = false
     }
@@ -267,6 +275,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             v.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(v)
         }
+        // Not an arranged subview, and not inside the text view: the numbers
+        // stay on screen while the text scrolls.
+        split.addSubview(lineNumberGutter)
         // Frame-based, placed in viewDidLayoutSubviews: the owl and his bubble.
         view.addSubview(owlSprite)
         view.addSubview(hintBar)
@@ -317,6 +328,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         updateAskPanelWidth()
         layoutOwl()
         layoutDivider()
+        layoutGutter()
     }
 
     /// Home-indicator inset, ignoring a keyboard that has been added to the
@@ -597,6 +609,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         updateUndoItems()
         updateStatus()
         scheduleOwl()
+        if showLineNumbers { layoutGutter() }
         if previewOn || DetachedPreviews.hasPreviews(forPath: document.recoveryPath) {
             previewTimer?.invalidate()
             previewTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
@@ -632,11 +645,19 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     func textViewDidChangeSelection(_ textView: UITextView) {
         updateStatus()
         fadeOwlNearCaret()
+        // Find's Next moves the selection with the find bar up. That is the
+        // "click next" jump: show the line number it landed on.
+        guard textView.findInteraction?.isFindNavigatorVisible == true else { return }
+        let line = lineIndex.line(containing: min(textView.selectedRange.location, lineIndex.length)) + 1
+        showLineNumbers = true
+        markedLine = line
+        layoutGutter()
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         colorizer?.scheduleViewport()
         fadeOwlNearCaret()
+        if scrollView === textView, showLineNumbers { layoutGutter() }
         // A detached preview window follows the text's place, roughly.
         if scrollView === textView, !textView.isHidden, DetachedPreviews.hasPreviews(forPath: document.recoveryPath) {
             DetachedPreviews.scroll(path: document.recoveryPath, fraction: textScrollFraction)
@@ -1108,8 +1129,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         UIDevice.current.userInterfaceIdiom == .pad && traitCollection.horizontalSizeClass == .regular
     }
 
+    /// The sheet and the side panel share the jump-to-line hook.
+    private func askRoot(_ model: AskCedricModel) -> AskCedricView {
+        var root = AskCedricView(model: model)
+        root.onJumpToLine = { [weak self] line in self?.revealLine(line) }
+        return root
+    }
+
     private func presentAskSheet(_ model: AskCedricModel) {
-        let host = UIHostingController(rootView: AskCedricView(model: model))
+        let host = UIHostingController(rootView: askRoot(model))
         // Default sizing uses the SwiftUI ideal size. A ScrollView's ideal
         // size is its whole transcript, so the sheet clipped long answers
         // instead of scrolling them.
@@ -1135,7 +1163,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         // Drop a previous panel without stopping: `askModel` is already the
         // conversation we're about to show.
         detachAskPanel()
-        var root = AskCedricView(model: model)
+        var root = askRoot(model)
         root.onDone = { [weak self] in self?.closeAskPanel() }
         root.onPopOut = { [weak self] in self?.popOutAskPanel() }
         let host = UIHostingController(rootView: root)
@@ -1655,13 +1683,76 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
         alert.addAction(UIAlertAction(title: String(localized: "Go"), style: .default) { [weak self, weak alert] _ in
             guard let self, let n = Int(alert?.textFields?.first?.text ?? ""), n >= 1 else { return }
-            let line = min(n, self.lineIndex.lineCount) - 1
-            let r = NSRange(location: self.lineIndex.starts[line], length: 0)
-            self.textView.selectedRange = r
-            self.textView.scrollRangeToVisible(r)
-            self.textView.becomeFirstResponder()
+            self.revealLine(n)
+            // Go to Line puts the caret there. A citation jump does not: it
+            // only moves the selection, so a read-only document stays read-only.
+            if self.textView.isEditable { self.textView.becomeFirstResponder() }
         })
         present(alert, animated: true)
+    }
+
+    /// Moves the caret to a 1-based line and turns line numbers on for this
+    /// tab. Does not change the text and does not start editing.
+    private func revealLine(_ line: Int) {
+        guard line >= 1, lineIndex.lineCount > 0 else { return }
+        if focusOn { exitFocusPreview() }
+        if textView.isHidden {
+            previewOn = false
+            layoutPreview()
+        }
+        showLineNumbers = true
+        let index = min(line, lineIndex.lineCount) - 1
+        markedLine = index + 1
+        let r = NSRange(location: lineIndex.starts[index], length: 0)
+        textView.selectedRange = r
+        textView.scrollRangeToVisible(r)
+        if let sheet = askSheet?.sheetPresentationController, sheet.selectedDetentIdentifier == .large {
+            sheet.animateChanges { sheet.selectedDetentIdentifier = .medium }
+        }
+        layoutGutter()
+    }
+
+    /// Places the gutter over the text's left inset and fills it with the
+    /// visible line numbers. Hidden while the text itself is hidden.
+    private func layoutGutter() {
+        guard showLineNumbers else {
+            lineNumberGutter.isHidden = true
+            return
+        }
+        let font = (textView.font ?? AppSettings.font(for: traitCollection)).withSize(
+            max(10, (textView.font?.pointSize ?? 13) * 0.85))
+        let width = LineNumberGutter.width(lineCount: lineIndex.lineCount, font: font)
+        let inset = editorTextInsetLeft + width
+        if abs(textView.textContainerInset.left - inset) > 0.5 {
+            textView.textContainerInset.left = inset
+        }
+        lineNumberGutter.isHidden = textView.isHidden || textView.superview == nil
+        guard !lineNumberGutter.isHidden else { return }
+        let frame = textView.convert(textView.bounds, to: split)
+        let next = CGRect(x: frame.minX, y: frame.minY, width: width, height: frame.height)
+        if lineNumberGutter.frame != next { lineNumberGutter.frame = next }
+        lineNumberGutter.font = font
+        lineNumberGutter.numberColor = UIColor(hex: palette.gutterForeground)
+        lineNumberGutter.highlightColor = UIColor(hex: palette.foreground)
+        lineNumberGutter.bandColor = UIColor(hex: palette.currentLine)
+        lineNumberGutter.highlight = markedLine
+        guard let vr = SyntaxColorizer.visibleRange(textView), lineIndex.length == (textView.text as NSString).length else {
+            lineNumberGutter.rows = []
+            lineNumberGutter.setNeedsDisplay()
+            return
+        }
+        let first = lineIndex.line(containing: vr.location)
+        let last = lineIndex.line(containing: min(lineIndex.length, NSMaxRange(vr)))
+        var rows: [LineNumberGutter.Row] = []
+        rows.reserveCapacity(last - first + 1)
+        for i in first...last {
+            guard let pos = textView.position(from: textView.beginningOfDocument, offset: lineIndex.starts[i]) else { continue }
+            let y = textView.caretRect(for: pos).midY
+            guard y >= -20, y <= textView.bounds.height + 20 else { continue }
+            rows.append(LineNumberGutter.Row(line: i + 1, midY: y))
+        }
+        lineNumberGutter.rows = rows
+        lineNumberGutter.setNeedsDisplay()
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {

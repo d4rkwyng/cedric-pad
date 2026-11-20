@@ -143,6 +143,8 @@ struct AskCedricView: View {
     /// The iPad side panel, offered as a sheet over the editor instead.
     /// Nil in the sheet itself.
     var onPopOut: (() -> Void)? = nil
+    /// A "Line N" citation was tapped. The editor jumps; the text is not changed.
+    var onJumpToLine: ((Int) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focused: Bool
@@ -192,6 +194,11 @@ struct AskCedricView: View {
         .tint(c.accent)
         .background(c.background.ignoresSafeArea())
         .environment(\.colorScheme, palette.isDark ? .dark : .light)
+        .environment(\.openURL, OpenURLAction { [onJumpToLine] url in
+            guard let line = LineCitations.line(from: url) else { return .systemAction }
+            onJumpToLine?(line)
+            return .handled
+        })
         .presentationBackground(c.background)
         .onReceive(NotificationCenter.default.publisher(for: AppSettings.changed)) { _ in theme = AppSettings.theme }
         .task { await model.prepare() }
@@ -335,8 +342,9 @@ struct AskCedricView: View {
                 if e.text.isEmpty && model.running {
                     ProgressView().accessibilityIdentifier("ask.thinking")
                 } else {
-                    Text(.init(e.text)).font(.body).textSelection(.enabled)
+                    Text(.init(LineCitations.linked(e.text))).font(.body).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
+                        .tint(c.accent)
                         .accessibilityIdentifier("ask.answer")
                 }
                 if let p = e.proposal {
