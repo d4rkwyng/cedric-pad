@@ -72,11 +72,9 @@ enum SVGSnapshotter {
         config.afterScreenUpdates = true
         // Points; the snapshot is drawn at this width (vector, so sharp).
         config.snapshotWidth = NSNumber(value: max(1, side * box[2] / max(box[2], box[3])))
-        let image: NSImage = try await withCheckedThrowingContinuation { c in
-            web.takeSnapshot(with: config) { img, err in
-                if let img { c.resume(returning: img) } else { c.resume(throwing: err ?? OwlImageError.unreadable) }
-            }
-        }
+        // The async form, on the main actor like the rest: no non-Sendable
+        // NSImage handed across a continuation (strict concurrency, Swift 6.1).
+        let image = try await web.takeSnapshot(configuration: config)
         var rect = CGRect(origin: .zero, size: image.size)
         guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { throw OwlImageError.unreadable }
         count += 1
