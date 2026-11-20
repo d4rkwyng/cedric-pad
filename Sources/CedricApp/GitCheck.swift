@@ -95,12 +95,15 @@ extension DevChecks {
             let m = markers.path
             let real = realpath(h.path, nil).map { p -> String in defer { free(p) }; return String(cString: p) } ?? h.path
             _ = write("hostile/.git/evil.inc", "[core]\n\tfsmonitor = \"touch \(m)/inc-fsmonitor; false\"\n[filter \"inc\"]\n\tclean = \"touch \(m)/inc-clean; cat\"\n")
+            // Include-only gc hook (GHSA-h2g3): must still mark the repo hostile.
+            _ = write("hostile/.git/gc.inc", "[gc]\n\trecentObjectsHook = \"touch \(m)/gc-hook; false\"\n")
             let cfg = h.appendingPathComponent(".git/config")
             var c = (try? String(contentsOf: cfg, encoding: .utf8)) ?? ""
             c += "[core]\n\tfsmonitor = \"touch \(m)/fsmonitor; false\"\n"
             c += "[filter \"evil\"]\n\tclean = \"touch \(m)/clean; cat\"\n\tsmudge = \"touch \(m)/smudge; cat\"\n\tprocess = \"touch \(m)/process\"\n"
             c += "[diff \"evil\"]\n\ttextconv = \"touch \(m)/textconv; cat\"\n"
             c += "[includeIf \"gitdir:\(real)/.git\"]\n\tpath = evil.inc\n"
+            c += "[include]\n\tpath = gc.inc\n"
             try? c.write(to: cfg, atomically: true, encoding: .utf8)
             // Stat data and content no longer match the index (as after an unzip).
             try? "# hi\nchanged\n".write(to: f, atomically: true, encoding: .utf8)

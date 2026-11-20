@@ -309,10 +309,25 @@ public enum GitRunner {
     /// make git run a program (a hostile repo's `core.fsmonitor`, hooks,
     /// diff drivers, pager or credential helper). Cedric also never runs a
     /// command that reads work-tree files through filters (`status`,
-    /// `diff`, `add`); see `GitProbe`.
+    /// `diff`, `add`); see `GitProbe`. Auto gc/maintenance are off so a
+    /// `gc.recentObjectsHook` cannot fire; lazy fetch is disabled in env.
     public static let safetyArgs = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=",
                                     "-c", "core.pager=cat", "-c", "credential.helper=", "-c", "protocol.allow=never",
-                                    "-c", "core.untrackedCache=false"]
+                                    "-c", "core.untrackedCache=false",
+                                    "-c", "gc.auto=0", "-c", "maintenance.auto=false"]
+
+    /// Env keys set or cleared for every git invocation (not xcode-select).
+    public static func applyGitSafety(to env: inout [String: String]) {
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
+        env["GIT_NO_LAZY_FETCH"] = "1"
+        env.removeValue(forKey: "GIT_EXTERNAL_DIFF")
+        env.removeValue(forKey: "GIT_CONFIG_PARAMETERS")
+        env.removeValue(forKey: "GIT_CONFIG_COUNT")
+        env.removeValue(forKey: "GIT_INDEX_FILE")
+        env.removeValue(forKey: "GIT_OBJECT_DIRECTORY")
+        env.removeValue(forKey: "GIT_ALTERNATE_OBJECT_DIRECTORIES")
+        env.removeValue(forKey: "GIT_COMMON_DIR")
+    }
 
     /// Runs `git args` in `cwd`. Nil if git is missing or couldn't start.
     public static func run(_ args: [String], cwd: URL, timeout: TimeInterval = 10) -> Result? {
@@ -330,14 +345,7 @@ public enum GitRunner {
         // Git only: no system config, no external diff (see `safetyArgs`).
         if path != "/usr/bin/xcode-select" {
             p.arguments = safetyArgs + args
-            env["GIT_CONFIG_NOSYSTEM"] = "1"
-            env.removeValue(forKey: "GIT_EXTERNAL_DIFF")
-            env.removeValue(forKey: "GIT_CONFIG_PARAMETERS")
-            env.removeValue(forKey: "GIT_CONFIG_COUNT")
-            env.removeValue(forKey: "GIT_INDEX_FILE")
-            env.removeValue(forKey: "GIT_OBJECT_DIRECTORY")
-            env.removeValue(forKey: "GIT_ALTERNATE_OBJECT_DIRECTORIES")
-            env.removeValue(forKey: "GIT_COMMON_DIR")
+            applyGitSafety(to: &env)
         }
         env["GIT_OPTIONAL_LOCKS"] = "0"
         env["GIT_TERMINAL_PROMPT"] = "0"
@@ -417,6 +425,9 @@ public enum GitConfigSafety {
             switch name {
             // A boolean fsmonitor is git's own daemon, not a command.
             case "fsmonitor": return !isBool(value)
+            // core.hooksPath is not here: safetyArgs pins it to /dev/null, and
+            // husky-style repos set it routinely (refusing them would turn
+            // git info off for ordinary JavaScript projects).
             case "sshcommand", "gitproxy", "askpass", "editor", "pager", "alternaterefscommand": return true
             default: return false
             }
@@ -431,6 +442,7 @@ public enum GitConfigSafety {
         case "gpg": return name == "program"
         case "sequence": return name == "editor"
         case "uploadpack": return name == "packobjectshook"
+        case "gc": return name == "recentobjectshook"
         case "pager": return true
         case "remote": return hasSub && ["uploadpack", "receivepack", "vcs"].contains(name)
         case "ssh": return name == "variant"

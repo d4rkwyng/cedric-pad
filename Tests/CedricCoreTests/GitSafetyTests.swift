@@ -26,8 +26,9 @@ import Testing
         #expect(bad("diff.evil.textconv") && bad("diff.evil.command") && bad("diff.external"))
         #expect(bad("merge.x.driver") && bad("credential.helper") && bad("credential.https://h.helper"))
         #expect(bad("gpg.program") && bad("gpg.ssh.program") && bad("pager.log") && bad("remote.origin.uploadpack"))
+        #expect(bad("uploadpack.packObjectsHook") && bad("gc.recentObjectsHook"))
         #expect(bad("Filter.Evil.CLEAN"), "section and name are case-insensitive")
-        #expect(!bad("core.bare") && !bad("remote.origin.url") && !bad("branch.main.merge") && !bad("core.hooksPath", "/x"))
+        #expect(!bad("core.bare") && !bad("remote.origin.url") && !bad("branch.main.merge") && !bad("core.hooksPath", "/x"), "hooksPath is pinned to /dev/null; husky repos set it")
         #expect(!bad("filter.evil.required") && !bad("diff.evil.binary"))
     }
 
@@ -35,6 +36,13 @@ import Testing
         #expect(GitRunner.safetyArgs.contains("core.fsmonitor=false"))
         #expect(GitRunner.safetyArgs.contains("core.hooksPath=/dev/null"))
         #expect(GitRunner.safetyArgs.contains("diff.external="))
+        #expect(GitRunner.safetyArgs.contains("gc.auto=0"))
+        #expect(GitRunner.safetyArgs.contains("maintenance.auto=false"))
+        var env = ["GIT_CONFIG_PARAMETERS": "x", "GIT_EXTERNAL_DIFF": "y", "PATH": "/usr/bin"]
+        GitRunner.applyGitSafety(to: &env)
+        #expect(env["GIT_NO_LAZY_FETCH"] == "1")
+        #expect(env["GIT_CONFIG_NOSYSTEM"] == "1")
+        #expect(env["GIT_CONFIG_PARAMETERS"] == nil && env["GIT_EXTERNAL_DIFF"] == nil)
     }
 
     /// The audit's PoC repo plus a textconv driver and an includeIf'd file.
@@ -98,6 +106,34 @@ import Testing
         try plain.run()
         plain.waitUntilExit()
         #expect(!markersIn(markers).isEmpty, "an unprotected git status does run them (the PoC)")
+    }
+
+    /// An `[include]`'d file that sets `gc.recentObjectsHook` must be refused
+    /// by the real probe (`git config --list --includes`), and the hook must
+    /// not run (GHSA-h2g3-rwxm-xfm3).
+    @Test func includedRecentObjectsHookIsHostile() throws {
+        guard GitRunner.executable != nil else { return }
+        let root = tempDir(), markers = root.appendingPathComponent("markers")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: markers, withIntermediateDirectories: true)
+        let repo = root.appendingPathComponent("repo")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        #expect(GitRunner.run(["init", "-q", "-b", "main"], cwd: repo)?.status == 0)
+        try "x\n".write(to: repo.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        let marker = markers.appendingPathComponent("gc-hook").path
+        try "[gc]\n\trecentObjectsHook = \"touch \(marker); false\"\n"
+            .write(to: repo.appendingPathComponent(".git/evil.inc"), atomically: true, encoding: .utf8)
+        let cfg = repo.appendingPathComponent(".git/config")
+        var c = try String(contentsOf: cfg, encoding: .utf8)
+        c += "[include]\n\tpath = evil.inc\n"
+        try c.write(to: cfg, atomically: true, encoding: .utf8)
+        let file = repo.appendingPathComponent("a.txt")
+        let loc = try #require(GitLocation.find(for: file))
+        let p = try #require(GitProbe.probe(file: file, location: loc))
+        #expect(p.refused)
+        let refused = Set(p.refusedKeys.map { $0.lowercased() })
+        #expect(refused.contains("gc.recentobjectshook"), "included hook is seen: \(refused.sorted())")
+        #expect(markersIn(markers).isEmpty, "the hook did not run: \(markersIn(markers))")
     }
 
     @Test func probeWithoutStatus() throws {
