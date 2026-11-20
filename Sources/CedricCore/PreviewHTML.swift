@@ -54,6 +54,18 @@ public enum PreviewHTML {
         .markdown-alert-note { --alert: #4493f8; } .markdown-alert-tip { --alert: #3fa34d; }
         .markdown-alert-important { --alert: #a371f7; } .markdown-alert-warning { --alert: #d29922; }
         .markdown-alert-caution { --alert: #e5534b; }
+        .markdown-alert-abstract, .markdown-alert-info, .markdown-alert-todo { --alert: #4493f8; }
+        .markdown-alert-success { --alert: #3fa34d; } .markdown-alert-question { --alert: #d29922; }
+        .markdown-alert-failure, .markdown-alert-danger, .markdown-alert-bug { --alert: #e5534b; }
+        .markdown-alert-example { --alert: #a371f7; } .markdown-alert-quote { --alert: #8b949e; }
+        details.callout > summary { cursor: pointer; } .callout-icon { font-style: normal; }
+        a.wikilink { text-decoration: none; border-bottom: 1px solid; }
+        a.wikilink.is-unresolved { opacity: .6; border-bottom-style: dashed; cursor: default; }
+        mark { background: #f2cc6066; color: inherit; border-radius: 2px; padding: 0 .1em; }
+        span.tag { color: \(hex(p.color(for: .link))); background: \(hex(p.currentLine)); border-radius: 1em; padding: 0 .5em; font-size: .9em; }
+        blockquote.embed { border-left-color: \(hex(p.color(for: .link))); }
+        .embed-title { font-size: 12px; margin: .5em 0; }
+        p.preview-hint { font-size: 12px; color: \(hex(p.color(for: .comment))); text-align: center; margin: 0 0 1em; }
         sup.footnote-ref a { text-decoration: none; }
         section.footnotes { font-size: 13px; color: \(hex(p.color(for: .comment))); }
         \(TokenKind.allCases.filter { $0 != .plain }.map { ".tk-\($0) { color: \(hex(p.color(for: $0))); }" }.joined(separator: " "))
