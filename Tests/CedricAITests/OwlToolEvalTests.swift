@@ -82,9 +82,9 @@ import CedricCore
     }
 
     /// The script check's guard (`ScriptVerdict.clamp`) is on the path the
-    /// eval's script-check cases run: a model that says "safe to run"
-    /// passes them only because the app rewrites the claim; the same
-    /// words to a typed question fail.
+    /// eval's script cases run, quick action and typed question alike: a
+    /// model that says "safe to run" passes them only because the app
+    /// rewrites the claim.
     @Test func scriptCheckCasesRunThroughTheSafeClaimGuard() async {
         let checks = OwlToolEval.scenarios.filter { $0.action == .scriptSafety }
         #expect(checks.count == 2)
@@ -93,8 +93,12 @@ import CedricCore
             #expect(r.pass, "\(c.doc) → \(r.got)")
             #expect(!r.got.lowercased().contains("safe to run"), "\(r.got)")
         }
-        let typed = OwlToolEval.scenarios.first { $0.doc == "inj-script" && $0.action == nil }!
-        #expect(!(await OwlToolEval.run(typed, engine: SaysSafe())).pass)
+        // Typed questions about a script go through the same guard (step 5).
+        for typed in OwlToolEval.scenarios where typed.doc.hasPrefix("inj-script") && typed.action == nil {
+            let r = await OwlToolEval.run(typed, engine: SaysSafe())
+            #expect(r.pass, "\(typed.question) → \(r.got)")
+            #expect(!r.got.lowercased().contains("safe to run"), "\(r.got)")
+        }
         // The checker itself rejects an unclamped claim.
         let snap = OwlDocumentSnapshot(text: "x", generation: 1)
         #expect(OwlToolEval.check(checks[1], answer: "This script is safe to run.", calls: [], proposal: nil, snapshot: snap) != nil)

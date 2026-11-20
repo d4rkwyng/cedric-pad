@@ -133,6 +133,16 @@ public struct OwlChatRequest: Sendable {
         context.truncated || context.firstLine > 1 || context.lastLine < snapshot.lineCount
     }
 
+    /// Every "safe" claim in the answer is rewritten (`ScriptVerdict.clamp`,
+    /// and `ScriptVerdictStream` while it streams): the script check, and
+    /// any question at all about a script (the risk check's languages:
+    /// shell, PowerShell, batch, .reg, Python, Ruby). Decided by the
+    /// document, not the question's wording, so "is this ok to run?" and
+    /// a script that talks the model into "safe to run" are both covered.
+    public var guardsSafeClaims: Bool {
+        action == .scriptSafety || ScriptSafety.isScript(Language(rawValue: snapshot.language) ?? .plain)
+    }
+
     /// Why the script check's verdict is forced, if it is.
     public var forcedVerdict: ScriptVerdict.Reason? {
         guard action == .scriptSafety else { return nil }
@@ -207,8 +217,8 @@ public enum OwlChatRunner {
             if let proposal { onEvent(.proposal(proposal)) }
         }
         var shown = stripThinking(answer)
-        // The script check never says "safe" (`ScriptVerdict`), whatever the model wrote.
-        if req.action == .scriptSafety { shown = ScriptVerdict.clamp(shown, forced: req.forcedVerdict) }
+        // About a script, the owl never says "safe" (`ScriptVerdict`), whatever the model wrote.
+        if req.guardsSafeClaims { shown = ScriptVerdict.clamp(shown, forced: req.forcedVerdict) }
         return OwlChatOutcome(answer: shown, proposal: proposal, toolCalls: toolbox.callCount, rounds: rounds)
     }
 

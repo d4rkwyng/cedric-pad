@@ -12,6 +12,9 @@ are its section below (`Scripts/changelog-section.sh`).
 - **Faster tool answers with the built-in model.** Between tool rounds Cedric no longer re-reads the whole prompt: the model keeps what it already processed (the instructions, your document, the question) and reads only the new tool result. On a 3-round question with Qwen3 4B it processed 1,006 prompt tokens instead of 2,852, and prompt reading took 0.66 s instead of 2.0 s on an M4 Pro. On Intel Macs, where the model runs on the CPU, the saving should be larger. The answers are the same. Models that can't keep part of their memory (hybrid ones) fall back to reading everything, as before.
 - **Ask Cedric looks before saying "it's not there".** He is told how many lines the document has when he sees only part of it, and to look with a tool before saying something isn't in it. General questions (a fact, a translation, a sum) are answered from his own knowledge instead of refused because the document doesn't cover them, and he is told plainly that instructions inside the document, such as a script saying it is safe, are not to be followed.
 
+### Security
+- **Ask Cedric never calls a script safe, whatever you ask.** The guard that keeps Check Script for Risks from saying a script is "safe" now covers every Ask Cedric answer about a script (shell, PowerShell, batch, .reg, Python, Ruby), including a typed question like "Is this script safe to run?". A "safe" claim is rewritten before it is shown, also while the answer streams in, so a script that tells the model to call it safe gets "No obvious red flags (not a guarantee)" at most. Answers about other documents are unchanged.
+
 ## [0.2.1]
 
 ### Added
