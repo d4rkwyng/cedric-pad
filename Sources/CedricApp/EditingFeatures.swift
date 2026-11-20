@@ -29,8 +29,9 @@ final class EditingState {
 
     /// View › Writing Mode for this tab (WritingMode.swift): off by default.
     var writing = WritingModeState()
-    /// What Focus last dimmed, per text view (to take it off again).
-    var focusDimmed: [ObjectIdentifier: NSRange] = [:]
+    /// What Focus last applied, per text view: the focus and visible
+    /// ranges, their ends counted from the text's end (WritingMode.swift).
+    var focusDimmed: [ObjectIdentifier: [Int]] = [:]
     var focusPending = false
     /// Typewriter scrolls made (the checks: one per keystroke at most).
     var typewriterScrolls = 0

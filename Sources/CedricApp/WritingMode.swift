@@ -33,7 +33,7 @@ extension EditorWindowController {
         editing.writing = w
         for pane in panes { wireWriting(pane) }
         if w.typewriter && !old.typewriter { typewriterScroll(animated: false) }
-        if w.focus { applyFocusNow() } else if old.focus { clearFocus() }
+        if w.focus { applyFocusNow(force: true) } else if old.focus { clearFocus() }
         (NSApp.delegate as? AppDelegate)?.scheduleSessionSave()
     }
 
@@ -105,7 +105,7 @@ extension EditorWindowController {
         updateTypewriterInset(pane)
         let visible = clip.bounds
         guard let target = Typewriter.scrollTarget(caretMidY: Double(mid), visibleHeight: Double(visible.height), currentY: Double(visible.minY),
-                                                   documentHeight: Double(tv.frame.height), bottomInset: Double(sv.contentInsets.bottom))
+                                                   documentHeight: Double(max(tv.frame.height, mid + visible.height / 2)), bottomInset: Double(sv.contentInsets.bottom))
         else { return }
         let p = NSPoint(x: visible.minX, y: CGFloat(target))
         editing.typewriterScrolls += 1
@@ -152,8 +152,9 @@ extension EditorWindowController {
         return FocusRange.range(Settings.shared.focusUnit, in: textView.string as NSString, caret: sel.location)
     }
 
-    func applyFocusNow() {
+    func applyFocusNow(force: Bool = false) {
         guard editing.writing.focus, !textView.hasMarkedText() else { return }
+        if force { editing.focusDimmed = [:] }
         let focus = focusRange
         for pane in panes { applyFocus(focus, to: pane.textView) }
     }
@@ -165,14 +166,28 @@ extension EditorWindowController {
         guard let tlm = tv.textLayoutManager, let vis = tv.visibleCharacterRange else { return }
         let len = tv.textStorage?.length ?? 0
         let id = ObjectIdentifier(tv)
+        // Typing inside the focus moves nothing that is dimmed: the text
+        // before the focus is the same, and so is the text after it counted
+        // from the end (TextKit moves the attribute with its text). Then
+        // there is nothing to do, and nothing is redrawn.
+        let key = [focus.location, len - NSMaxRange(focus), vis.location, len - NSMaxRange(vis)]
+        if editing.focusDimmed[id] == key { return }
         let color = NSColor(hex: tv.palette.foreground).withAlphaComponent(WritingMode.dimAlpha)
         let dims = FocusRange.dimmed(visible: vis, focus: focus)
-        let bright = NSIntersectionRange(focus, NSRange(location: 0, length: len))
-        if bright.length > 0, let tr = tv.textRange(for: bright) { tlm.removeRenderingAttribute(.foregroundColor, for: tr) }
-        for r in dims where NSMaxRange(r) <= len {
-            if let tr = tv.textRange(for: r) { tlm.addRenderingAttribute(.foregroundColor, value: color, for: tr) }
+        // Only what is in view; locations from the viewport's start, not the
+        // document's (that walk grows with the offset: 6 MB in, it cost ms).
+        let bright = NSIntersectionRange(NSIntersectionRange(focus, vis), NSRange(location: 0, length: len))
+        guard let tcm = tlm.textContentManager, let vp = tlm.textViewportLayoutController.viewportRange else { return }
+        let vpStart = tv.offset(of: vp.location)
+        func textRange(_ r: NSRange) -> NSTextRange? {
+            guard let a = tcm.location(vp.location, offsetBy: r.location - vpStart), let b = tcm.location(a, offsetBy: r.length) else { return nil }
+            return NSTextRange(location: a, end: b)
         }
-        editing.focusDimmed[id] = vis
+        if bright.length > 0, let tr = textRange(bright) { tlm.removeRenderingAttribute(.foregroundColor, for: tr) }
+        for r in dims where NSMaxRange(r) <= len {
+            if let tr = textRange(r) { tlm.addRenderingAttribute(.foregroundColor, value: color, for: tr) }
+        }
+        editing.focusDimmed[id] = key
     }
 
     func clearFocus() {

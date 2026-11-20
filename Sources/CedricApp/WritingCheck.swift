@@ -165,6 +165,9 @@ extension DevChecks {
             sync {
                 let typed = (focusTab.text as NSString).range(of: "fine truly!")
                 expect(typed.location != NSNotFound && !touched(typed), "typed text in the focus is bright", "\(dims())")
+                // The dimming after the focus moved with its text.
+                let third = (focusTab.text as NSString).range(of: "Third paragraph here.")
+                expect(covered(third) && covered(p1), "the dimmed text before and after the focus stays dimmed", "\(dims()) vs \(third)")
             },
             snapshot("writing-focus-sentence.png"),
             sync {

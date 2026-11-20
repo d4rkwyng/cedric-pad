@@ -336,7 +336,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             MainActor.assumeIsolated { self?.updateContextBar() }
         })
         observers.append(nc.addObserver(forName: .cedricFocusUnitChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyFocusNow() }
+            MainActor.assumeIsolated { self?.applyFocusNow(force: true) }
         })
     }
 
@@ -587,7 +587,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         for pane in panes { applyPaneAppearance(pane, palette: p) }
         statusBar.background = NSColor(hex: p.statusBar)
         contextBar?.applyPalette(p)
-        if editing.writing.focus { applyFocusNow() }
+        if editing.writing.focus { applyFocusNow(force: true) }
         // Font and foreground over the whole text: one attribute run.
         let attrs = baseAttributes()
         if let storage = textView.textStorage, storage.length > 0,
