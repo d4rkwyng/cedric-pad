@@ -144,6 +144,33 @@ final class Settings {
         set { defaults.set(newValue, forKey: "owlStyleTips"); changed() }
     }
 
+    /// Settings › Style Check (0.4.0): filler words, redundancies and
+    /// clichés in Markdown and Plain Text prose. Off by default.
+    /// CEDRIC_STYLE_CHECK=1/0 overrides it (checks, perf runs).
+    var styleCheck: Bool {
+        get {
+            if let v = DevEnvironment.values["CEDRIC_STYLE_CHECK"] { return v == "1" }
+            return defaults.bool(forKey: "styleCheck")
+        }
+        set { defaults.set(newValue, forKey: "styleCheck"); changed() }
+    }
+
+    /// Style Check's own phrases to flag, and the ones never flagged
+    /// ("Ignore this word" adds there).
+    var styleCheckExtra: [String] {
+        get { defaults.stringArray(forKey: "styleCheckExtra") ?? [] }
+        set { defaults.set(newValue, forKey: "styleCheckExtra"); changed() }
+    }
+    var styleCheckExceptions: [String] {
+        get { defaults.stringArray(forKey: "styleCheckExceptions") ?? [] }
+        set { defaults.set(newValue, forKey: "styleCheckExceptions"); changed() }
+    }
+
+    /// What the owl's rules get (`OwlDocumentFacts.styleCheck`): nil when off.
+    var styleCheckSettings: StyleCheck.Settings? {
+        styleCheck ? StyleCheck.Settings(language: "en", extra: styleCheckExtra, exceptions: styleCheckExceptions) : nil
+    }
+
     /// The user turned Ask Cedric off themselves (the owl then doesn't
     /// offer to set it up).
     var owlChatTurnedOff: Bool {

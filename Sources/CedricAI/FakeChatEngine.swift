@@ -108,11 +108,17 @@ public struct FakeChatEngine: OwlChatEngine {
             if tools.contains(.getLines) { return OwlToolCall(name: "get_lines", arguments: .object(["start": .number(Double(lineRef ?? first)), "end": .number(Double(lineRef ?? last))])) }
             if tools.contains(.getSelection) { return OwlToolCall(name: "get_selection") }
         }
+        if tools.contains(.checkDocument), OwlChecks.asksAboutProblems(q), !has(["line "]) {
+            return OwlToolCall(name: "check_document")
+        }
         if tools.contains(.documentStats), has(["how many words", "how many lines", "word count", "how long is", "how many characters", "what language", "file name"]) {
             return OwlToolCall(name: "document_stats")
         }
         if tools.contains(.getOutline), has(["outline", "headings", "sections", "structure", "table of contents", "functions are defined"]) {
             return OwlToolCall(name: "get_outline")
+        }
+        if tools.contains(.readSection), let name = sectionName(q) {
+            return OwlToolCall(name: "read_section", arguments: .object(["heading": .string(name)]))
         }
         if tools.contains(.getSelection), has(["selected", "selection", "highlighted"]) {
             return OwlToolCall(name: "get_selection")
@@ -125,6 +131,13 @@ public struct FakeChatEngine: OwlChatEngine {
             return OwlToolCall(name: "get_lines", arguments: .object(["start": .number(Double(n)), "end": .number(Double(max(n, end)))]))
         }
         return nil
+    }
+
+    /// "the Pests section" → "Pests" (a capitalised name before "section").
+    static func sectionName(_ q: String) -> String? {
+        let re = try! NSRegularExpression(pattern: #"\b([A-Z][\w’'-]*(?: [A-Z][\w’'-]*)*) section\b"#)
+        guard let m = re.firstMatch(in: q, range: NSRange(location: 0, length: (q as NSString).length)) else { return nil }
+        return (q as NSString).substring(with: m.range(at: 1))
     }
 
     static func firstNumber(after word: String, in s: String) -> Int? {

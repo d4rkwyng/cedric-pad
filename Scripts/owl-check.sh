@@ -39,6 +39,12 @@ printf '# Notes\n\nSee [the guide](docs/gide.md#setup) first.\n' > "$WORK/md/not
 CEDRIC_SESSION_DIR="$WORK/session-md" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
 CEDRIC_OPEN="$WORK/md/notes.md" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_PAUSE=0.5 CEDRIC_OWL_INTERVAL=1 \
 CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/markdown" CEDRIC_OWL_CHECK_RULES=markdown "$BIN" || status=1
+# Style Check (OwlRulesCheck.runStyle): a redundancy fixed and undone, a
+# typed filler ignored; the code block's word never flagged.
+printf '# Notes\n\nThe past history is long.\n\n```\nlet very = 1\n```\n' > "$WORK/md/style.md"
+CEDRIC_SESSION_DIR="$WORK/session-style" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
+CEDRIC_OPEN="$WORK/md/style.md" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_PAUSE=0.5 CEDRIC_OWL_INTERVAL=1 CEDRIC_STYLE_CHECK=1 \
+CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/style" CEDRIC_OWL_CHECK_RULES=style "$BIN" || status=1
 # Typos on the owl's schedule: an opened diary, a log, typing an email.
 printf 'Monday\n\nToday I walked to the shop agian and ofcourse it was closed. It definately rains too much here, and shes not happy about it.\nTomorrow I will try agian.\n' > "$WORK/diary.txt"
 for i in 1 2 3 4 5 6 7 8; do printf '2026-11-18T10:00:0%sZ INFO recieved request id=%s dur=0ms statsu=200  \n' $i $i; done > "$WORK/server.log"

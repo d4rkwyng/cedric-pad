@@ -180,6 +180,53 @@ enum OwlRulesCheck {
         }
     }
 
+    // MARK: Style Check (0.4.0)
+
+    /// CEDRIC_OWL_CHECK_RULES=style with CEDRIC_STYLE_CHECK=1: a saved
+    /// Markdown file holding `styleText`. The owl offers the redundancy
+    /// (Fix it, Ignore this word, Not now); Fix it shortens it and one ⌘Z
+    /// puts it back. "very" in the code block is never flagged; typed in
+    /// prose it is, and Ignore this word adds it to the exceptions (the
+    /// user's own list is put back at the end).
+    static let styleText = "# Notes\n\nThe past history is long.\n\n```\nlet very = 1\n```\n"
+
+    static func runStyle(_ tab: EditorWindowController, out: String) {
+        guard let window = tab.window else { OwlCheck.finish(out); return }
+        let saved = Settings.shared.styleCheckExceptions
+        Settings.shared.styleCheckExceptions = []
+        func done() { Settings.shared.styleCheckExceptions = saved; OwlCheck.finish(out) }
+        check(tab.text == styleText, "opened the Markdown file (\(tab.text.debugDescription))")
+        check(Settings.shared.styleCheck, "Style Check is on (CEDRIC_STYLE_CHECK=1)")
+        func styleIDs() -> [String] {
+            RulesHintProvider().check(tab.owlContextWindow().context, facts: tab.owlFacts(wholeDocument: true)).map(\.id).filter(StyleCheck.isStyleHint)
+        }
+        check(styleIDs() == ["rules.style.redundancy:past history"], "only the prose is checked, not the code block (\(styleIDs()))")
+        waitFor("rules.style.redundancy:past history", in: tab, timeout: 30) { bubble in
+            guard let bubble else { done(); return }
+            let titles = bubble.buttons.map(\.title)
+            check(titles == ["Fix it", "Ignore this word", "Not now"].map { String(localized: String.LocalizationValue($0)) },
+                  "Fix it, Ignore this word, Not now (\(titles))")
+            guard let fix = button(bubble, String(localized: "Fix it")) else { done(); return }
+            OwlCheck.snapshot(window, "\(out)/style-1-redundancy.png") {
+                click(fix)
+                check(tab.text.contains("The history is long."), "Fix it made it “The history” (\(tab.text.debugDescription))")
+                OwlCheck.key(window, "z", code: 6, [.command])
+                check(tab.text == styleText, "one ⌘Z restores it")
+                typeAtEnd(tab, "It was very nice.\n")
+                waitFor("rules.style.filler:very", in: tab, timeout: 30) { b2 in
+                    guard let b2, let ignore = button(b2, String(localized: "Ignore this word")) else { done(); return }
+                    OwlCheck.snapshot(window, "\(out)/style-2-filler.png") {
+                        click(ignore)
+                        check(Settings.shared.styleCheckExceptions == ["very"], "Ignore this word added “very” (\(Settings.shared.styleCheckExceptions))")
+                        check(!styleIDs().contains("rules.style.filler:very"), "and it is no longer flagged")
+                        check(tab.owl?.bubble == nil, "bubble closed")
+                        done()
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: AI only when asked
 
     static func runAI(_ tab: EditorWindowController, out: String) {

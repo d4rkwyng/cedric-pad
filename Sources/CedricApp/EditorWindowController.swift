@@ -1032,7 +1032,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
                          unsavedSince: doc.isDirty ? doc.unsavedSince : nil, lineEnding: doc.lineEnding,
                          mixedLineEndings: doc.mixedLineEndings, languageIsManual: doc.languageIsManual,
                          styleTips: Settings.shared.owlStyleTips, fileExists: owlFileProbe(),
-                         isQuarantined: owlQuarantined, editorConfig: owlEditorConfig())
+                         isQuarantined: owlQuarantined, editorConfig: owlEditorConfig(),
+                         styleCheck: Settings.shared.styleCheckSettings)
     }
 
     // MARK: Closing

@@ -625,7 +625,9 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         let tv = tab.textView
         return OwlDocumentSnapshot(text: tv.string, generation: tab.doc.changeCount, selection: tv.selectedRange(),
                                    visible: tv.visibleCharacterRange, fileName: tab.doc.fileURL?.lastPathComponent,
-                                   language: tab.doc.language.rawValue)
+                                   language: tab.doc.language.rawValue,
+                                   // For check_document: the owl's facts and the grammar checker's findings now.
+                                   facts: tab.owlFacts(wholeDocument: true), grammar: tab.grammar.issues)
     }
 
     /// `selection` and `scope` override the document's and the chip's;
@@ -643,7 +645,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         var snap = snapshot()
         if let selection {
             snap = OwlDocumentSnapshot(text: snap.text, generation: snap.generation, selection: selection, visible: snap.visible,
-                                       fileName: snap.fileName, language: snap.language)
+                                       fileName: snap.fileName, language: snap.language, facts: snap.facts, grammar: snap.grammar)
         }
         let scope = forced ?? selectedScope
         let prose = isProse

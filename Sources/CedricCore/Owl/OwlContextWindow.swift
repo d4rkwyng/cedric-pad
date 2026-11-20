@@ -97,10 +97,16 @@ public struct OwlDocumentFacts: Sendable, Equatable {
     /// yet). The whitespace rules follow them: `false` turns the matching
     /// rule off, and indent_style picks the side mixed indentation goes to.
     public var editorConfig: EditorConfig.Values?
+    /// Settings › Style Check (filler words, redundancies, clichés in
+    /// prose): its language, extra phrases and exceptions. nil: off (the
+    /// default).
+    public var styleCheck: StyleCheck.Settings?
 
     public init(isWholeDocument: Bool = true, changedOnDisk: Bool = false, unsavedSince: Date? = nil, lineEnding: LineEnding = .lf,
                 mixedLineEndings: Bool = false, languageIsManual: Bool = false, now: Date? = nil, styleTips: Bool = false,
-                fileExists: OwlFileProbe? = nil, isQuarantined: Bool = false, editorConfig: EditorConfig.Values? = nil) {
+                fileExists: OwlFileProbe? = nil, isQuarantined: Bool = false, editorConfig: EditorConfig.Values? = nil,
+                styleCheck: StyleCheck.Settings? = nil) {
+        self.styleCheck = styleCheck
         self.editorConfig = editorConfig
         self.fileExists = fileExists
         self.isQuarantined = isQuarantined

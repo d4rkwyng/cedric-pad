@@ -1117,6 +1117,16 @@ backticks (Fix it: `$(…)`), and a Markdown image without alt text (Fix
 it starts one from the file name). The checks above are always on; each
 hint still has its own **Don't show again**.
 
+**Settings › Style Check** (off by default; like iA Writer's and
+Ulysses') points out filler words ("very", "basically"), redundancies
+("past history": Fix it makes it "history") and clichés ("at the end of
+the day") in Markdown and plain-text prose, one phrase at a time. Code
+blocks, code spans, links, URLs, tables and data files are never
+checked. Each hint says why, and **Ignore this word** adds it to the
+**Never flag** list; **Also flag** takes your own words or phrases (a
+final `*` matches any ending: `utiliz*`). Offline, no AI. The list is
+English for now; other languages can be added.
+
 **Secrets.** When the text in view has something that looks like a key or
 a token (AWS, GitHub, GitLab, Slack and Slack webhooks, Stripe, OpenAI or
 Anthropic, Google API keys, npm tokens, a private key, or a password
@@ -1184,17 +1194,23 @@ made by the model: it comes back as a diff with **Apply** / **Discard**,
 applied as one undo step only if the document hasn't changed since you
 asked (otherwise **Ask Again**). History is per document, in memory
 only, with **Copy as Markdown** and **Clear**.
-Cedric can also use six read-only tools on a frozen copy of the
-document (get the selection or lines, search, outline, counts, and
-propose an edit), plus describe_image for an SVG's picture (below),
-at most three rounds per question, but only with
-models that score at least 80% on a fixed 46-prompt set
+Cedric can also use read-only tools on a frozen copy of the
+document (get the selection or lines, search, outline, counts, the
+offline checks' findings with check_document, one Markdown section by
+its heading with read_section, and propose an edit), plus describe_image
+for an SVG's picture (below), at most three rounds per question. A
+question is offered only the few tools it needs (get_lines, search and
+outline, and the others when the question or the document calls for
+them). Tools go only to
+models that score at least 80% on a fixed 50-prompt set
 (`Scripts/owl-tools-eval.sh`, scores in
 `Resources/AI/owl-tool-scores.json`). Other models get the quick
 actions without tools. Measured 2026-11-18: the built-in Qwen3 4B
 Instruct 90%, so it gets tools; Apple Intelligence 72.5%, Qwen2.5-Coder
 1.5B on LM Studio 75% and the built-in Qwen2.5-Coder 3B 65% stay
-without.
+without. A model without tools asked about problems ("what problems
+does this file have?") gets the offline checks' list in its prompt
+instead.
 
 **Pictures.** Asked about an SVG ("What is it a picture of?"), Cedric
 can look at the picture the preview shows: the **describe_image** tool

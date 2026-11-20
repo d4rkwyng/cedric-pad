@@ -113,10 +113,19 @@ public struct OwlDocumentSnapshot: Sendable {
     /// `Language.rawValue`.
     public let language: String
     public let lines: LineIndex
+    /// What the offline checks need beyond the text (check_document): the
+    /// document facts the owl's rules read (Style Check's settings too).
+    public let facts: OwlDocumentFacts
+    /// The grammar checker's current findings (document ranges), as the
+    /// editor has them; the checker itself runs in the app.
+    public let grammar: [GrammarIssue]
 
     public init(text: String, generation: Int, selection: NSRange = NSRange(location: 0, length: 0),
-                visible: NSRange? = nil, fileName: String? = nil, language: String = "plain") {
+                visible: NSRange? = nil, fileName: String? = nil, language: String = "plain",
+                facts: OwlDocumentFacts = OwlDocumentFacts(), grammar: [GrammarIssue] = []) {
         let ns = text as NSString
+        self.facts = facts
+        self.grammar = grammar
         self.text = text
         self.generation = generation
         func clamp(_ r: NSRange) -> NSRange {
@@ -298,7 +307,7 @@ public enum OwlQuickAction: String, Sendable, CaseIterable {
         switch self {
         case .explain: return [.getLines, .searchDocument, .getOutline]
         case .summarise: return [.getOutline, .getLines, .documentStats]
-        case .findProblems: return [.getLines, .searchDocument]
+        case .findProblems: return [.getLines, .searchDocument, .checkDocument]
         case .rewrite: return [.getSelection, .getLines, .proposeEdit]
         case .addComments: return [.getLines, .proposeEdit]
         case .explainLine: return [.getLines, .searchDocument]
@@ -316,6 +325,12 @@ public enum OwlToolName: String, Sendable, CaseIterable {
     case getOutline = "get_outline"
     case documentStats = "document_stats"
     case proposeEdit = "propose_edit"
+    /// The offline checks' current findings (OwlChecks): writing checks,
+    /// code checks, grammar (and Style Check when it is on).
+    case checkDocument = "check_document"
+    /// One Markdown section, by its heading (a close match counts); the
+    /// headings when none matches.
+    case readSection = "read_section"
     /// Renders the document's picture and reads it with Apple Vision, on
     /// this Mac (CedricAI's `OwlVision`). Offered only for a document that
     /// draws a picture (`OwlPicture`); `OwlTools.run` can't run it (no
@@ -475,6 +490,12 @@ public enum OwlTools {
         case .proposeEdit:
             return OwlToolSpec(name: name, description: "Proposes replacing lines start to end with new_text. The user reviews and applies it.",
                                parameters: obj(["start": int, "end": int, "new_text": str, "reason": str], required: ["start", "end", "new_text"]))
+        case .checkDocument:
+            return OwlToolSpec(name: name, description: "Problems Owlink's offline checks found in the document (links, headings, footnotes, code rules, grammar), with line numbers.",
+                               parameters: obj([:], required: []))
+        case .readSection:
+            return OwlToolSpec(name: name, description: "The text of one Markdown section, found by its heading (a close match is enough), with line numbers.",
+                               parameters: obj(["heading": .object(["type": .string("string"), "maxLength": .number(Double(maxPatternLength))])], required: ["heading"]))
         case .describeImage:
             return OwlToolSpec(name: name, description: "Looks at the picture this document draws (rendered on this Mac): what it shows, any text in it, its size and colours.",
                                parameters: obj([:], required: []))
@@ -482,6 +503,138 @@ public enum OwlTools {
     }
 
     public static func specs(_ names: [OwlToolName]) -> [OwlToolSpec] { names.map(spec) }
+
+    /// The tools offered for a typed question (a model trusted with tools):
+    /// get_lines, search_document and get_outline always, and each other
+    /// tool only when the question or the document calls for it, so a
+    /// small model chooses among few (Apple's TN3193: 3–5 tools at most)
+    /// and a document's text can't talk the model into an edit nobody
+    /// asked for. The tool eval offers the same set (`OwlToolEval`).
+    public static func typedTools(question: String, snapshot s: OwlDocumentSnapshot) -> [OwlToolName] {
+        let q = question.lowercased()
+        let words = Set(q.components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty })
+        var out: [OwlToolName] = [.getLines, .searchDocument, .getOutline]
+        if s.hasSelection || !words.isDisjoint(with: ["select", "selected", "selection", "highlighted"]) { out.insert(.getSelection, at: 0) }
+        if !words.isDisjoint(with: statsWords) || q.contains("how many") || q.contains("how long") || q.contains("file name") {
+            out.append(.documentStats)
+        }
+        if OwlChecks.asksAboutProblems(question) { out.append(.checkDocument) }
+        if asksAboutSection(words, snapshot: s) { out.append(.readSection) }
+        if !words.isDisjoint(with: editWords) { out.append(.proposeEdit) }
+        return out
+    }
+
+    /// A Markdown document with headings, and a question that names a
+    /// section ("section", "heading", "chapter"…) or a word of a heading's title.
+    static func asksAboutSection(_ words: Set<String>, snapshot s: OwlDocumentSnapshot) -> Bool {
+        guard isMarkdown(s) else { return false }
+        let heads = MarkdownOutline.headings(in: s.text, limit: 200)
+        guard !heads.isEmpty else { return false }
+        if !words.isDisjoint(with: ["section", "sections", "heading", "headings", "chapter", "chapters", "part", "subsection"]) { return true }
+        let titleWords = Set(heads.flatMap { normalizedWords($0.title) }.filter { $0.count >= 4 })
+        return !words.isDisjoint(with: titleWords)
+    }
+
+    static func isMarkdown(_ s: OwlDocumentSnapshot) -> Bool {
+        s.language == "markdown" || (s.fileName?.lowercased().hasSuffix(".md") ?? false)
+    }
+
+    static func normalizedWords(_ t: String) -> [String] {
+        t.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
+    }
+
+    /// Words in a read_section argument that aren't part of the heading.
+    static let sectionFillers: Set<String> = ["the", "section", "heading", "chapter", "part", "called", "named", "a", "an", "of", "on", "about"]
+
+    /// The best-matching heading for `query`: the same words, then one
+    /// containing the other, then most words in common, then a small typo.
+    /// nil when nothing is close.
+    public static func matchHeading(_ query: String, _ heads: [MarkdownOutline.Heading]) -> MarkdownOutline.Heading? {
+        let qw = normalizedWords(query).filter { !sectionFillers.contains($0) }
+        let q = qw.joined(separator: " ")
+        guard !q.isEmpty else { return nil }
+        var best: (score: Double, h: MarkdownOutline.Heading)?
+        for h in heads {
+            let hw = normalizedWords(h.title)
+            let t = hw.joined(separator: " ")
+            guard !t.isEmpty else { continue }
+            var score = 0.0
+            if t == q { score = 100 }
+            else if t.contains(q) || q.contains(t) { score = 80 - Double(abs(t.count - q.count)) / 10 }
+            else {
+                let common = Set(qw).intersection(hw).count
+                if common > 0 { score = 60 * Double(common) / Double(max(qw.count, hw.count)) }
+                let d = editDistance(q, t, limit: 3)
+                if d <= max(1, min(3, q.count / 4)) { score = max(score, 50 - Double(d)) }
+            }
+            if score >= 30, score > (best?.score ?? 0) { best = (score, h) }
+        }
+        return best?.h
+    }
+
+    /// Levenshtein distance, giving up (limit + 1) once it is over `limit`.
+    static func editDistance(_ a: String, _ b: String, limit: Int) -> Int {
+        let x = Array(a), y = Array(b)
+        guard abs(x.count - y.count) <= limit else { return limit + 1 }
+        var prev = Array(0...y.count)
+        for i in 1...max(1, x.count) where !x.isEmpty {
+            var cur = [i] + Array(repeating: 0, count: y.count)
+            var rowMin = cur[0]
+            for j in stride(from: 1, through: y.count, by: 1) {
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] == y[j - 1] ? 0 : 1))
+                rowMin = min(rowMin, cur[j])
+            }
+            if rowMin > limit { return limit + 1 }
+            prev = cur
+        }
+        return x.isEmpty ? y.count : prev[y.count]
+    }
+
+    /// read_section: the heading's line through the line before the next
+    /// heading of the same or a higher level (its subsections included),
+    /// numbered and capped; the headings when none matches.
+    static func readSection(_ query: String, in s: OwlDocumentSnapshot) -> OwlToolResult {
+        let summary = String(localized: "Read the section “\(String(query.prefix(40)))”")
+        guard isMarkdown(s) else {
+            return OwlToolResult(text: "error: read_section reads Markdown sections; use get_outline and get_lines", proposal: nil, summary: summary, ok: false)
+        }
+        let heads = MarkdownOutline.headings(in: s.text)
+        guard !heads.isEmpty else {
+            return OwlToolResult(text: "This document has no headings; use get_lines or search_document.", proposal: nil, summary: summary, ok: true)
+        }
+        guard let h = matchHeading(query, heads), let i = heads.firstIndex(of: h) else {
+            let list = heads.prefix(60).map { "\($0.line + 1)| " + String(repeating: "#", count: $0.level) + " " + $0.title }.joined(separator: "\n")
+            return OwlToolResult(text: cap("No heading matches “\(query.prefix(60))”. The headings are:\n" + list), proposal: nil, summary: summary, ok: true)
+        }
+        let first = h.line + 1
+        let next = heads[(i + 1)...].first { $0.level <= h.level }
+        var last = next.map { $0.line } ?? s.countedLines
+        last = max(first, last)
+        // Trailing blank lines are not part of it.
+        while last > first, s.lines.contentRange(ofLine: last - 1).length == 0 { last -= 1 }
+        let body = s.numbered(lines: first, last)
+        let room = maxOutputBytes - 120
+        if body.utf8.count <= room {
+            return OwlToolResult(text: "Section (lines \(first)-\(last)):\n" + body, proposal: nil, summary: summary, ok: true, lines: first...last)
+        }
+        // Too long: the lines that fit whole, and where the rest is.
+        var shown = first, used = 0
+        for l in first...last {
+            let n = s.numbered(lines: l, l).utf8.count + 1
+            if used + n > room { break }
+            used += n
+            shown = l
+        }
+        let text = "Section (lines \(first)-\(last)), first part:\n" + s.numbered(lines: first, shown)
+            + "\n[… cut: the section goes on to line \(last); call get_lines from line \(shown + 1) for the rest]"
+        return OwlToolResult(text: text, proposal: nil, summary: summary, ok: true, lines: first...shown)
+    }
+
+    static let statsWords: Set<String> = ["words", "characters", "chars", "count", "length", "long", "filename", "language", "size", "stats", "statistics"]
+    static let editWords: Set<String> = ["change", "edit", "rewrite", "rename", "replace", "fix", "correct", "propose", "update", "add", "insert",
+                                         "remove", "delete", "make", "turn", "convert", "shorten", "shorter", "longer", "reword", "rephrase",
+                                         "translate", "simplify", "improve", "format", "reformat", "capitalize", "sort", "swap", "move", "put",
+                                         "set", "write", "comment", "tidy", "clean", "polish", "edits"]
 
     /// Caps `s` at `maxOutputBytes` of UTF-8 on a line boundary where possible.
     public static func cap(_ s: String, bytes: Int = maxOutputBytes) -> String {
@@ -590,6 +743,14 @@ public enum OwlTools {
             }
             return OwlToolResult(text: "proposed: the user will review the change to lines \(p.firstLine)-\(p.lastLine). Now briefly say what you changed.",
                                  proposal: p, summary: String(localized: "Proposed a change to lines \(p.firstLine)–\(p.lastLine)"), ok: true)
+        case .checkDocument:
+            let r = OwlChecks.run(s)
+            return OwlToolResult(text: OwlChecks.listing(r, bytes: maxOutputBytes), proposal: nil,
+                                 summary: String(localized: "Ran the document checks"), ok: true)
+        case .readSection:
+            guard let q = a["heading"]?.string, !q.trimmingCharacters(in: .whitespaces).isEmpty else { return fail("read_section needs a heading") }
+            guard q.count <= maxPatternLength else { return fail("heading too long") }
+            return readSection(q, in: s)
         case .describeImage:
             // Needs a renderer: OwlToolbox runs it, with the document's picture.
             return fail(OwlPicture.isPicture(fileName: s.fileName) ? "describe_image is not available here" : "this document is text, not a picture")
