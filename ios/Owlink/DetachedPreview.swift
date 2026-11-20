@@ -156,6 +156,8 @@ final class DetachedPreviewViewController: UIViewController {
     private let preview = PreviewController()
     private let blankLabel = UILabel()
     private var scrollFollow = PreviewScrollFollow()
+    /// The editor's palette for this document, once a snapshot has arrived.
+    private var palette: EditorPalette?
 
     init(target: PreviewWindows.Target) {
         self.target = target
@@ -196,10 +198,40 @@ final class DetachedPreviewViewController: UIViewController {
             blankLabel.trailingAnchor.constraint(equalTo: g.trailingAnchor),
             blankLabel.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
         ])
+        NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged), name: AppSettings.changed, object: nil)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _: UITraitCollection) in
+            self.applyBarStyle()
+        }
+        applyBarStyle()
     }
+
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        applyBarStyle()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        applyBarStyle()
+    }
+
+    /// The same title treatment as the editor: every theme, System follows
+    /// this window's phone appearance.
+    private func applyBarStyle() {
+        let p = palette ?? AppSettings.theme.palette(systemIsDark: traitCollection.userInterfaceStyle == .dark)
+        EditorBarStyle.apply(navigationController: navigationController,
+                             item: navigationItem,
+                             window: view.window,
+                             foreground: UIColor(hex: p.foreground),
+                             interfaceStyle: EditorBarStyle.interfaceStyle(theme: AppSettings.theme, isDark: p.isDark))
+    }
+
+    @objc private func settingsChanged() { applyBarStyle() }
 
     func show(_ s: DetachedPreviews.Snapshot) {
         loadViewIfNeeded()
+        palette = s.palette
+        applyBarStyle()
         blankLabel.isHidden = true
         preview.view.isHidden = false
         preview.documentURL = s.url

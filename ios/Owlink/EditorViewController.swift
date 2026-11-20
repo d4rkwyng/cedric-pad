@@ -171,6 +171,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        // The window is nil until the editor is on screen, so the scene-level
+        // title colour is applied again here.
+        applyBarStyle()
         updateEdited()
         colorizer.colorViewport()
         if let r = pendingRecovery {
@@ -697,24 +700,37 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         refreshPreview()
     }
 
-    /// The navigation bar (file name, buttons, menus) and the status bar
-    /// draw in system colours, which follow the system appearance, not the
-    /// theme: a dark theme on a light-mode phone gave a black title over a
-    /// dark editor. A fixed theme sets the whole navigation controller to
-    /// its own light/dark; System leaves it to the system. A fixed theme's
-    /// palette ignores the trait, so the trait change this causes settles.
+    /// The window the theme overrode, so dismissing the editor can put the
+    /// document browser back on the phone's appearance. `view.window` is
+    /// already nil by the time the editor has disappeared.
+    private weak var themedWindow: UIWindow?
+
+    /// Title, bar tint and the window's interface style follow the theme.
+    /// System leaves the window unspecified so it tracks the phone; the
+    /// title colour is still the palette's foreground, recomputed when the
+    /// trait changes. See `EditorBarStyle`.
     private func applyBarStyle() {
-        guard let nav = navigationController else { return }
-        let style: UIUserInterfaceStyle = AppSettings.theme == .system ? .unspecified : (palette.isDark ? .dark : .light)
-        if nav.overrideUserInterfaceStyle != style {
-            nav.overrideUserInterfaceStyle = style
-            nav.setNeedsStatusBarAppearanceUpdate()
-        }
+        let style = EditorBarStyle.interfaceStyle(theme: AppSettings.theme, isDark: palette.isDark)
+        if let window = view.window { themedWindow = window }
+        EditorBarStyle.apply(navigationController: navigationController,
+                             item: navigationItem,
+                             window: view.window,
+                             foreground: UIColor(hex: palette.foreground),
+                             interfaceStyle: style)
     }
 
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         applyBarStyle()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            themedWindow?.overrideUserInterfaceStyle = .unspecified
+            themedWindow?.traitOverrides.userInterfaceStyle = .unspecified
+            themedWindow = nil
+        }
     }
 
     private func applyWrap() {
