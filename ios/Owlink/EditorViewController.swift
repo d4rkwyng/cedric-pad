@@ -32,6 +32,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     /// His bubble (the hint bar) is showing the current hint.
     private(set) var bubbleOpen = false
     private var lastHintCount = 0
+    private var autoOpenedHint: String?
     private var textWidth: NSLayoutConstraint!
     /// Selection, scroll and keyboard while the preview covers the text
     /// (an iPhone Duo folded shut with the preview on).
@@ -487,8 +488,11 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     /// The hints changed: his badge and pose; the bubble if it is open
     /// (rules hints wait for a tap; a check you asked for opens it).
     private func showHint() {
-        let asked = owl.visible.map { $0.hint.source != "rules" } ?? false
-        if asked, !bubbleOpen { bubbleOpen = true }
+        // A check you asked for opens his bubble, once per hint.
+        if let v = owl.visible, v.hint.source != "rules", v.hint.id != autoOpenedHint {
+            autoOpenedHint = v.hint.id
+            bubbleOpen = true
+        }
         updateOwlBadge()
         guard bubbleOpen, let shown = owl.visible, AppSettings.owlHints || shown.hint.source != "rules" else {
             bubbleOpen = false
