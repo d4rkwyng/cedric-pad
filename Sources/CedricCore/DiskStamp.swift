@@ -36,4 +36,28 @@ public struct DiskStamp: Equatable, Sendable {
         if let ks = known.size, let cs = current.size, ks != cs { return true }
         return false
     }
+
+    /// What happened to an open file since Cedric last read or wrote it.
+    public enum Status: Equatable, Sendable {
+        /// Still what Cedric last saw (or nothing is known to compare).
+        case same
+        /// Another app rewrote it.
+        case changed
+        /// Deleted, or moved or renamed away: nothing at its path any more.
+        case missing
+    }
+
+    /// `changed`, plus a file that has gone. Missing needs a known date
+    /// (the file was really on disk when read or saved; a path never
+    /// written yet isn't "deleted") and `exists` false: a stamp that can't
+    /// be read while the file is still there (no access) is not missing.
+    public static func status(known: DiskStamp?, current: DiskStamp?, exists: Bool) -> Status {
+        if !exists, current == nil, known?.modified != nil { return .missing }
+        return changed(known: known, current: current) ? .changed : .same
+    }
+
+    /// `status` for the file at `url` now.
+    public static func status(known: DiskStamp?, at url: URL) -> Status {
+        status(known: known, current: of(url), exists: FileManager.default.fileExists(atPath: url.path))
+    }
 }

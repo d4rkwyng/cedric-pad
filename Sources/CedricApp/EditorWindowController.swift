@@ -915,9 +915,22 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     /// Reloads from disk if the file changed and the tab has no unsaved
     /// edits; with unsaved edits, shows the "Changed on disk" bar (and
-    /// flags it for the owl's "Reload?"). Never drops unsaved edits.
+    /// flags it for the owl's "Reload?"). A file deleted or moved away
+    /// shows the "deleted" bar and makes the tab unsaved. Never drops
+    /// unsaved edits.
     func reloadIfChangedOnDisk() {
-        guard tail == nil, let url = doc.fileURL, fileChangedOnDisk(url) else { return }
+        guard tail == nil, let url = doc.fileURL else { return }
+        switch DiskStamp.status(known: doc.diskStamp, at: url) {
+        case .missing:
+            showFileMissing()
+            return
+        case .same:
+            // Moved back untouched: nothing was lost, drop the bar.
+            if doc.missingOnDisk { doc.missingOnDisk = false; hideDiskBar() }
+            return
+        case .changed:
+            doc.missingOnDisk = false
+        }
         if doc.isDirty {
             if !doc.changedOnDisk {
                 doc.changedOnDisk = true
