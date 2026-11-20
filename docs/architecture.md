@@ -823,6 +823,34 @@ table: the check then sends the matching menu item's action along the front
 window's responder chain, and selects the clicked row and sends the table's
 action, and says so in its output.
 
+## Command palette
+
+View › Command Palette… (⇧⌘P, `CommandPalette.swift`). There is no command
+registry: each open walks `NSApp.mainMenu` and makes one row per leaf item
+(skipping separators, hidden and view items, the Services menu, window
+items, and the palette's own item). Each row is validated the way AppKit
+validates the menu bar for the window the palette opened over: the item's
+target, else the first responder of *that window's* chain (then the window,
+its delegate and controller, NSApp and its delegate) that implements the
+action, then `validateMenuItem`/`validateUserInterfaceItem`. Running a row
+closes the panel, makes that window key again and sends the action to the
+same target, so the search field never takes Copy or Select All.
+
+- `AppDelegate.withValidationPass` fixes `currentTab`/`currentViewerTab`
+  for the walk: without a key window each was an `orderedWindows` round
+  trip per item (20–40 ms an open); with it the walk is ~1.7 ms for ~200
+  items.
+- `CommandMatcher`/`CommandIndex` (CedricCore) score and rank. An empty
+  query needs no scoring (`emptyQueryOrder`); the index is prepared on the
+  first keystroke. Scores: best-alignment subsequence (DP) with word-start,
+  run and first-character bonuses and a gap penalty, plus prefix /
+  word-prefix / substring bonuses; a title match beats a path match.
+  Recent commands (`CommandRecents`, 5, in memory) come first.
+- The panel is a borderless `NSPanel` child of the window that can become
+  key but not main. Nothing is built until the first open; closing drops
+  the rows. `CEDRIC_CHECK=palette` (Scripts/palette-check.sh) drives it
+  with real key events and fails an open over 50 ms.
+
 ## Folder sidebar
 
 File › Open Folder… (⇧⌘O), a folder dropped on the Dock icon or on an
