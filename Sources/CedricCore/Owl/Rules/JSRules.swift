@@ -130,13 +130,22 @@ enum JSRules {
         let code = input.codeNS
         guard code.range(of: "typeof").location != NSNotFound, let mask = input.mask else { return nil }
         var hits: [(NSRange, String?, String)] = []
+        var seen: Set<NSRange> = []
+        // The nearest type name per value: a file repeats the same typo,
+        // and eight edit distances per hit are the cost (debug builds most).
+        var nearest: [String: String?] = [:]
         func check(stringAt k: Int) {
             guard let sp = mask.string(startingAt: k), sp.range.length >= 2 else { return }
             let inner = NSRange(location: sp.range.location + 1, length: sp.range.length - 2)
             let value = input.text.substring(with: inner)
-            guard !typeNames.contains(value), !hits.contains(where: { $0.0 == inner }) else { return }
-            let near = typeNames.map { ($0, distance(value.lowercased(), $0)) }.min { $0.1 < $1.1 }
-            let fix = near.flatMap { $0.1 <= 2 ? $0.0 : nil }
+            guard !typeNames.contains(value), !seen.contains(inner) else { return }
+            let fix: String?
+            if let known = nearest[value] { fix = known } else {
+                let near = typeNames.map { ($0, distance(value.lowercased(), $0)) }.min { $0.1 < $1.1 }
+                fix = near.flatMap { $0.1 <= 2 ? $0.0 : nil }
+                nearest[value] = .some(fix)
+            }
+            seen.insert(inner)
             hits.append((inner, fix, value))
         }
         for m in RulesHintProvider.matches(typeofThenString, input.code) { check(stringAt: m.range(at: 1).location) }

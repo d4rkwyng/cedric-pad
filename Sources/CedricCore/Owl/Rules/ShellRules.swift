@@ -125,10 +125,12 @@ enum ShellRules {
     static func words(_ code: NSString, _ cmd: Command) -> [NSRange] {
         var out: [NSRange] = []
         var i = cmd.start
+        // (No array literal per character: a debug build allocates one each time.)
+        func isSpace(_ c: unichar) -> Bool { c == 32 || c == 9 || c == 10 || c == 13 }
         while i < cmd.end {
-            while i < cmd.end, [32, 9, 10, 13].contains(code.character(at: i)) { i += 1 }
+            while i < cmd.end, isSpace(code.character(at: i)) { i += 1 }
             let a = i
-            while i < cmd.end, ![32, 9, 10, 13].contains(code.character(at: i)) { i += 1 }
+            while i < cmd.end, !isSpace(code.character(at: i)) { i += 1 }
             if i > a { out.append(NSRange(location: a, length: i - a)) }
         }
         return out
@@ -178,25 +180,25 @@ enum ShellRules {
         var edits: [(NSRange, String)] = []
         var firstName = ""
         var used: [String: Bool] = [:]
-        for cmd in input.shellCommands where cmd.lead != "!" {
-            let w = words(code, cmd)
+        for (cmd, w) in zip(input.shellCommands, input.shellWords) where cmd.lead != "!" {
             guard w.count >= 2 else { continue }
             let name = code.substring(with: w[0])
             guard isName(name), !notAssignments.contains(name) else { continue }
             let second = code.substring(with: w[1])
             guard second.hasPrefix("="), !second.hasPrefix("==") else { continue }
+            // A shell variable is meant to be used: `$NAME` or `${NAME` somewhere.
+            // (Python or awk that a window shows as code never says $name.)
+            // (`$NAME`, not `$NAMES`.) Checked first: it's memoised, the line below isn't.
+            if used[name] == nil { used[name] = isUsed(name, in: input.text) }
+            guard used[name] == true else { continue }
             // Another language's code (awk, Python, C) reaching here through
             // a window: `x = f(y);`. A shell value doesn't call or end in ;.
             let lineEnd = RulesHintProvider.lineRange(input.lines, containing: w[1].location).map(NSMaxRange) ?? cmd.end
             let rest = code.substring(with: NSRange(location: w[1].location, length: max(cmd.end, lineEnd) - w[1].location))
                 .trimmingCharacters(in: .whitespaces)
             if rest.hasSuffix(";") || rest.hasSuffix("{") || callParen.firstMatch(in: rest, range: NSRange(location: 0, length: (rest as NSString).length)) != nil { continue }
-            // A shell variable is meant to be used: `$NAME` or `${NAME` somewhere.
-            // (Python or awk that a window shows as code never says $name.)
-            // (`$NAME`, not `$NAMES`; a Python set or dict `NAME = {…}` isn't shell.)
-            if used[name] == nil { used[name] = isUsed(name, in: input.text) }
-            guard used[name] == true,
-                  !rest.dropFirst().trimmingCharacters(in: .whitespaces).hasPrefix("{"),
+            // A Python set or dict `NAME = {…}` isn't shell.
+            guard !rest.dropFirst().trimmingCharacters(in: .whitespaces).hasPrefix("{"),
                   !rest.dropFirst().trimmingCharacters(in: .whitespaces).hasPrefix("[") else { continue }
             // From the end of the name to the start of the value: no spaces.
             var valueStart = NSMaxRange(w[1])
@@ -288,6 +290,15 @@ enum ShellRules {
     static let shebangExtensions: Set<String> = ["sh", "bash", "zsh", "ksh"]
     static let bashisms = try! NSRegularExpression(pattern: #"\[\[|^\s*function\s|\w=\(|\$\{\w+\[|<<<|\bsource\s|\bdeclare\s|\(\(|\$'"#, options: [.anchorsMatchLines])
 
+    /// Every match of `bashisms` contains one of these: without any, the
+    /// regex (eight alternatives tried at every offset) needn't run.
+    static let bashismLiterals = ["[[", "function", "=(", "${", "<<<", "source", "declare", "((", "$'"]
+
+    static func hasBashism(_ code: NSString) -> Bool {
+        guard bashismLiterals.contains(where: { code.range(of: $0, options: .literal).location != NSNotFound }) else { return false }
+        return bashisms.firstMatch(in: code as String, range: NSRange(location: 0, length: code.length)) != nil
+    }
+
     static let functionHeader = try! NSRegularExpression(pattern: #"^\s*(function\s+[\w:-]+|[\w:-]+\s*\(\s*\))"#)
     static let settingOrFunction = try! NSRegularExpression(pattern: #"^((export|readonly)\s+)?[A-Za-z_]\w*(\+?=|$)|^[)}{'"]|^[\w:-]+\s*\(\s*\)|^function\s"#)
 
@@ -323,7 +334,7 @@ enum ShellRules {
         // And something only a script run on its own does: read its
         // arguments, exit, or run commands at the top level. A fragment
         // that sets variables for the script sourcing it doesn't.
-        guard RulesHintProvider.matches(programSignals, input.code).count > 0 else { return nil }
+        guard programSignals.firstMatch(in: input.code, range: NSRange(location: 0, length: input.codeNS.length)) != nil else { return nil }
         let e = RulesHintProvider.ext(input.fileName)
         let line: String
         switch e {
@@ -331,7 +342,7 @@ enum ShellRules {
         case "ksh": line = "#!/bin/ksh"
         case "bash": line = "#!/bin/bash"
         default:
-            line = RulesHintProvider.matches(bashisms, input.code).isEmpty ? "#!/bin/sh" : "#!/bin/bash"
+            line = hasBashism(input.codeNS) ? "#!/bin/bash" : "#!/bin/sh"
         }
         return LintFinding(kind: .fix, title: String(localized: "No #! line. Add “\(line)”?"),
                            detail: String(localized: "Without one, the script runs in whatever shell starts it, and “./script” may not run it at all."),
@@ -352,13 +363,12 @@ enum ShellRules {
     static let cdUnchecked = LintRule(cdID, wholeDocument: true, applies: shell) { input in
         let code = input.codeNS
         guard code.range(of: "cd ").location != NSNotFound,
-              RulesHintProvider.matches(errexit, input.string).isEmpty else { return nil }
-        let cmds = input.shellCommands
+              // (The NSString, not the Swift string: no bridging; first match only.)
+              errexit.firstMatch(in: input.text as String, range: NSRange(location: 0, length: input.text.length)) == nil else { return nil }
         var lastCD: Command?
         var flagged: [Int: Command] = [:]
         var firstTarget = ""
-        for cmd in cmds {
-            let w = words(code, cmd)
+        for (cmd, w) in zip(input.shellCommands, input.shellWords) {
             guard let first = w.first else { continue }
             let name = code.substring(with: first)
             if name == "cd" || name == "pushd" {
@@ -391,8 +401,7 @@ enum ShellRules {
         guard code.range(of: "$").location != NSNotFound else { return nil }
         var edits: [(NSRange, String)] = []
         var example = ""
-        for cmd in input.shellCommands {
-            let w = words(code, cmd)
+        for w in input.shellWords {
             guard let first = w.first, destructive.contains(code.substring(with: first)) else { continue }
             for word in w.dropFirst() {
                 let vars = variables(code, in: word)
@@ -401,7 +410,7 @@ enum ShellRules {
                 if example.isEmpty { example = input.text.substring(with: vars[0]) }
                 // The whole word in quotes when nothing in it needs to stay
                 // unquoted (a glob, a quote, a backslash); else each variable.
-                if original.rangeOfCharacter(from: CharacterSet(charactersIn: "*?[]\"'\\`{}~")) == nil || vars.count == 1 && vars[0] == word {
+                if original.rangeOfCharacter(from: mustStayUnquoted) == nil || vars.count == 1 && vars[0] == word {
                     edits.append((word, "\"" + original + "\""))
                 } else if !original.contains("`") {
                     for v in vars { edits.append((v, "\"" + input.text.substring(with: v) + "\"")) }
@@ -413,6 +422,8 @@ enum ShellRules {
                            detail: String(localized: "Without quotes, a value with spaces or * becomes several paths, or none: “rm -rf $DIR/out” with an empty DIR is “rm -rf /out”. Quoting keeps it one path.\(RulesHintProvider.andMore(edits.count))"),
                            range: fix.range, replacement: fix.replacement)
     }
+
+    static let mustStayUnquoted = CharacterSet(charactersIn: "*?[]\"'\\`{}~")
 
     /// The unquoted variable expansions in a word of code (`$x`, `${x…}`,
     /// `$1`, `$@`, `$*`); not `$#`, `$?`, `$$`, `$!`, `${#x}` (numbers) or
@@ -484,4 +495,6 @@ extension RulesHintProvider {
 extension LintInput {
     /// The shell's simple commands, split once per query.
     var shellCommands: [ShellRules.Command] { shared("shell.commands") { ShellRules.commands(codeNS) } }
+    /// The words of each of `shellCommands` (same order), split once per query.
+    var shellWords: [[NSRange]] { shared("shell.words") { shellCommands.map { ShellRules.words(codeNS, $0) } } }
 }
