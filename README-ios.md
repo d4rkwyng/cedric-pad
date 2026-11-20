@@ -25,6 +25,18 @@ Source files can be added in Xcode or Finder: `ios/Owlink`,
 - Syntax colouring (the core's highlighter), the seven themes including
   Dracula, font size, wrap.
 - Find and replace (`⌘F`, `⌥⌘F`, or the magnifier and the ⋯ menu).
+- Data safety: "Edited" under the title while there are unsaved changes
+  (UIDocument's `hasUnsavedChanges`); Undo and Redo in the bar; Revert to
+  Opened Version in the ⋯ menu (a private copy of the file as opened, in
+  Caches, not kept over 20 MB, deleted on close; the revert is one Undo).
+  Settings › Saving › Save Automatically (on by default): off, the file
+  changes only on Save (`⌘S` or the bar's Save) and closing asks Save /
+  Don't Save / Cancel. Either way, unsaved text is copied every 3 s at most
+  to Application Support/Owlink/Recovery (out of backups) and offered after
+  a crash or a forced quit. Rules and stores: `SavePolicy`, `RecoveryStore`,
+  `RevertStore` in CedricCore (`SaveSafetyTests`). Debug builds:
+  `-OwlinkSaveCheck <dir>` runs these in the app and writes `savecheck.txt`
+  and PNGs.
 - Markdown preview (`⇧⌘P`), side by side on iPad.
 - Cedric's offline hints with **Fix it**; Ask Cedric (`⇧⌘K`) and Check
   with Cedric (`⌥⌘H`).

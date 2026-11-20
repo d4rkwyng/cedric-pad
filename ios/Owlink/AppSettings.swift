@@ -12,6 +12,7 @@ enum AppSettings {
         static let wrap = "ios.wrap"
         static let owlHints = "ios.owlHints"
         static let lineNumbers = "ios.lineNumbers"
+        static let saveAutomatically = "ios.saveAutomatically"
         static let theme = EditorTheme.defaultsKey
     }
 
@@ -58,6 +59,13 @@ enum AppSettings {
     static var owlHints: Bool {
         get { defaults.object(forKey: Key.owlHints) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Key.owlHints); post() }
+    }
+
+    /// Save automatically (UIDocument's autosave): on by default. Off, the
+    /// file changes only on Save; closing with changes asks.
+    static var saveAutomatically: Bool {
+        get { defaults.object(forKey: Key.saveAutomatically) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.saveAutomatically); post() }
     }
 
     static var theme: EditorTheme {

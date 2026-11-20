@@ -32,6 +32,17 @@ final class TextDocument: UIDocument {
     /// Set by the editor: returns its current text before a save.
     var currentText: (() -> String)?
     private(set) var firstUnsavedEdit: Date?
+    /// Called on the main queue when `hasUnsavedChanges` may have changed
+    /// (an edit, a save, a revert): the editor's "Edited" mark.
+    var onEditedChange: (() -> Void)?
+    /// Called on the main queue after a save that succeeded.
+    var onSaved: (() -> Void)?
+    /// "Save automatically" (Settings): read at each autosave.
+    var saveAutomatically: () -> Bool = { AppSettings.saveAutomatically }
+    /// This document's copy of the file as opened (Revert to Opened Version).
+    let openedCopyID = UUID().uuidString
+    /// What happened to that copy (nil: not opened yet).
+    private(set) var openedCopy: RevertStore.Kept?
 
     override func contents(forType typeName: String) throws -> Any {
         if let t = currentText?() { text = t }
@@ -46,6 +57,8 @@ final class TextDocument: UIDocument {
         if let d = contents as? Data { data = d } else if let w = contents as? FileWrapper, let d = w.regularFileContents { data = d } else { data = Data() }
         guard let decoded = TextCodec.decode(data) else { throw OpenError.undecodable }
         if decoded.looksBinary && !openBinaryAnyway { throw OpenError.binary }
+        // The bytes as first opened (not on a reload after a change elsewhere).
+        if openedCopy == nil { openedCopy = SaveSafetyStores.revert.keep(data, id: openedCopyID) }
         text = decoded.text
         encoding = decoded.encoding
         lineEnding = decoded.lineEnding
@@ -59,12 +72,37 @@ final class TextDocument: UIDocument {
         super.updateChangeCount(change)
         if change == .done, firstUnsavedEdit == nil { firstUnsavedEdit = Date() }
         if change == .cleared { firstUnsavedEdit = nil }
+        notifyEdited()
     }
+
+    private func notifyEdited() {
+        guard let onEditedChange else { return }
+        if Thread.isMainThread { onEditedChange() } else { DispatchQueue.main.async(execute: onEditedChange) }
+    }
+
+    /// UIKit autosaves on a timer, when the app goes to the background and
+    /// when the document closes; with "Save automatically" off it doesn't.
+    /// Nothing is lost: the editor keeps a recovery copy while there are
+    /// unsaved changes, and closing asks Save / Don't Save / Cancel.
+    override func autosave(completionHandler: ((Bool) -> Void)? = nil) {
+        guard SavePolicy.shouldAutosave(saveAutomatically: saveAutomatically(), hasUnsavedChanges: hasUnsavedChanges) else {
+            completionHandler?(true)
+            return
+        }
+        super.autosave(completionHandler: completionHandler)
+    }
+
+    /// The private copy of the file as opened, if one was kept.
+    func openedBytes() -> Data? { SaveSafetyStores.revert.load(id: openedCopyID) }
+
+    func discardOpenedCopy() { SaveSafetyStores.revert.clear(id: openedCopyID) }
 
     override func save(to url: URL, for saveOperation: UIDocument.SaveOperation, completionHandler: ((Bool) -> Void)? = nil) {
         super.save(to: url, for: saveOperation) { ok in
             if ok { self.firstUnsavedEdit = nil }
             completionHandler?(ok)
+            if ok { self.onSaved?() }
+            self.notifyEdited()
         }
     }
 

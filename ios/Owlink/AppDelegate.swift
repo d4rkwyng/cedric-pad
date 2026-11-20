@@ -7,8 +7,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         BuiltInSetup.install()
+        // No document is open yet: opened-version copies left by a crash go.
+        SaveSafetyStores.revert.clearAll()
         if ProcessInfo.processInfo.arguments.contains("-OwlinkResetSettings") {
-            for k in [AppSettings.Key.fontSize, AppSettings.Key.wrap, AppSettings.Key.owlHints, AppSettings.Key.theme] {
+            for k in [AppSettings.Key.fontSize, AppSettings.Key.wrap, AppSettings.Key.owlHints, AppSettings.Key.theme,
+                      AppSettings.Key.saveAutomatically] {
                 UserDefaults.standard.removeObject(forKey: k)
             }
         }

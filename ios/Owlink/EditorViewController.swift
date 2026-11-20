@@ -42,10 +42,33 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private var askPanelWidth: NSLayoutConstraint?
     private var askModel: AskCedricModel?
     private var splitTrailing: NSLayoutConstraint!
+    /// Undo and Redo in the bar, enabled from the text view's undo manager.
+    private lazy var undoItem = barItem(String(localized: "Undo"), "arrow.uturn.backward", "editor.undo") { [weak self] in
+        self?.textView.undoManager?.undo()
+    }
+    private lazy var redoItem = barItem(String(localized: "Redo"), "arrow.uturn.forward", "editor.redo") { [weak self] in
+        self?.textView.undoManager?.redo()
+    }
+    /// Save, in the bar while "Save automatically" is off.
+    private lazy var saveItem = barItem(String(localized: "Save"), "square.and.arrow.down", "editor.save") { [weak self] in
+        self?.saveDocument()
+    }
+    /// Unsaved text from a crash, for this document.
+    enum Recovery {
+        /// Ask Restore / Discard when the editor appears.
+        case offer(RecoveryRecord)
+        /// Restore was chosen already (at launch).
+        case restore(RecoveryRecord)
+    }
+    private var pendingRecovery: Recovery?
+    private var recoveryWriter: RecoveryWriter!
+    private var closing = false
 
-    init(document: TextDocument) {
+    init(document: TextDocument, recovery: Recovery? = nil) {
         self.document = document
+        self.pendingRecovery = recovery
         super.init(nibName: nil, bundle: nil)
+        OpenDocuments.paths.insert(document.recoveryPath)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -61,6 +84,13 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         colorizer.lineIndex = { [weak self] in self?.lineIndex ?? LineIndex() }
         document.currentText = { [weak self] in self?.textView.text ?? "" }
         document.onReload = { [weak self] in self?.loadText() }
+        document.onEditedChange = { [weak self] in self?.updateEdited() }
+        recoveryWriter = RecoveryWriter(document: document) { [weak self] in self?.textView.text ?? "" }
+        document.onSaved = { [weak self] in
+            guard let self, !self.closing else { return }
+            // Edits made while it saved keep their copy.
+            if self.document.hasUnsavedChanges { self.recoveryWriter.textChanged() } else { self.recoveryWriter.clear() }
+        }
         owl.onChange = { [weak self] in self?.showHint() }
         owl.onNote = { [weak self] note in self?.toast(note) }
         applySettings()
@@ -71,6 +101,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
                                                name: NSTextStorage.didProcessEditingNotification, object: textView.textStorage)
         NotificationCenter.default.addObserver(self, selector: #selector(documentStateChanged),
                                                name: UIDocument.stateChangedNotification, object: document)
+        for n in [NSNotification.Name.NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange,
+                  .NSUndoManagerWillCloseUndoGroup] {
+            NotificationCenter.default.addObserver(self, selector: #selector(undoChanged(_:)), name: n, object: nil)
+        }
+        // With "Save automatically" off nothing saves on the way out: the
+        // recovery copy is written now rather than up to 3 s later.
+        NotificationCenter.default.addObserver(self, selector: #selector(enteredBackground),
+                                               name: UIApplication.didEnterBackgroundNotification, object: nil)
         // Opening or closing an iPhone Duo is a size-class change (compact
         // outside, regular inside; outer landscape is compact both ways).
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self,
@@ -83,8 +121,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        view.window?.windowScene?.title = document.displayName
+        updateEdited()
         colorizer.colorViewport()
+        if let r = pendingRecovery {
+            pendingRecovery = nil
+            switch r {
+            case .restore(let rec): restoreRecovered(rec)
+            case .offer(let rec): offerRecovered(rec)
+            }
+        }
     }
 
     // MARK: Setup
@@ -242,6 +287,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         // Cedric himself is the owl in the editor's corner (OwlSprite), not
         // a small bar icon; Ask Cedric is also in the overflow menu.
         var items = [find]
+        updateUndoItems()
+        if SavePolicy.showsSaveButton(saveAutomatically: AppSettings.saveAutomatically) { items.insert(saveItem, at: 0) }
         if document.language.language == .markdown {
             let p = UIBarButtonItem(image: UIImage(systemName: previewOn ? "eye.fill" : "eye"), primaryAction: UIAction { [weak self] _ in
                 self?.togglePreview()
@@ -252,10 +299,13 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
         // Which stay when a vertical bar (iPhone Duo) runs out of room.
         if #available(iOS 27.0, *) {
-            find.visibilityPriority = .high
-            items.dropFirst().forEach { $0.visibilityPriority = .standard }
+            items.forEach { $0.visibilityPriority = .standard }
+            for i in [find, undoItem, redoItem, saveItem] { i.visibilityPriority = .high }
         }
+        // Undo and Redo first (leading), then Save, Find, Preview.
+        items.insert(contentsOf: [undoItem, redoItem], at: 0)
         navigationItem.rightBarButtonItems = items.reversed()
+        updateEdited()
         // The rest in the system's own overflow menu (the ellipsis is
         // reserved for it), not an app-made "More" menu.
         navigationItem.additionalOverflowItems = UIDeferredMenuElement.uncached { [weak self] done in
@@ -267,6 +317,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         let save = UIAction(title: String(localized: "Save"), image: UIImage(systemName: "square.and.arrow.down")) { [weak self] _ in
             self?.saveDocument()
         }
+        let revert = revertAction()
         let replace = UIAction(title: String(localized: "Find and Replace"), image: UIImage(systemName: "arrow.left.arrow.right")) { [weak self] _ in
             self?.textView.findInteraction?.presentFindNavigator(showingReplace: true)
         }
@@ -284,7 +335,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
         var first: [UIMenuElement] = [save, replace, goTo, ask, check]
         if UIApplication.shared.supportsMultipleScenes { first.append(Self.newWindowAction()) }
-        return [UIMenu(options: .displayInline, children: first), languageMenu(), formatMenu(),
+        return [UIMenu(options: .displayInline, children: first), UIMenu(options: .displayInline, children: [revert]),
+                languageMenu(), formatMenu(),
                 UIMenu(options: .displayInline, children: [settings])]
     }
 
@@ -322,6 +374,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         generation += 1
         document.updateChangeCount(.done)
+        recoveryWriter.textChanged()
+        updateUndoItems()
         updateStatus()
         scheduleOwl()
         if previewOn {
@@ -423,6 +477,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     @objc private func settingsChanged() {
         applySettings()
+        updateBarButtons()
         scheduleOwl()
         showHint()
     }
@@ -871,11 +926,45 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
     }
 
+    /// With "Save automatically" off and unsaved changes: Save / Don't
+    /// Save / Cancel. Otherwise it closes (autosave saves first when on).
     @objc func closeDocument() {
+        guard !closing else { return }
+        switch SavePolicy.onClose(saveAutomatically: AppSettings.saveAutomatically, hasUnsavedChanges: document.hasUnsavedChanges) {
+        case .close:
+            finishClose(saveFirst: false)
+        case .ask:
+            let a = UIAlertController(title: String(localized: "Save the changes to \(document.displayName)?"),
+                                      message: String(localized: "If you don’t save, your changes are lost."), preferredStyle: .alert)
+            a.addAction(UIAlertAction(title: String(localized: "Save"), style: .default) { [weak self] _ in self?.finishClose(saveFirst: true) })
+            a.addAction(UIAlertAction(title: String(localized: "Don’t Save"), style: .destructive) { [weak self] _ in
+                self?.finishClose(saveFirst: false, discarding: true)
+            })
+            a.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+            a.preferredAction = a.actions.first
+            present(a, animated: true)
+        }
+    }
+
+    private func finishClose(saveFirst: Bool, discarding: Bool = false) {
+        if saveFirst {
+            document.save(to: document.fileURL, for: .forOverwriting) { [weak self] ok in
+                guard let self else { return }
+                if ok { self.finishClose(saveFirst: false) } else { self.toast(String(localized: "Couldn’t save \(self.document.displayName)")) }
+            }
+            return
+        }
+        closing = true
         owl.cancel()
         textView.resignFirstResponder()
         document.close { [weak self] _ in
-            self?.dismiss(animated: true)
+            guard let self else { return }
+            // A clean close: the opened copy goes, and the recovery copy
+            // unless the changes are still unsaved (a save that failed).
+            self.recoveryWriter.stop(keepingCopy: !discarding && self.document.hasUnsavedChanges)
+            self.document.discardOpenedCopy()
+            OpenDocuments.paths.remove(self.document.recoveryPath)
+            self.dismiss(animated: true)
         }
     }
 
@@ -922,6 +1011,125 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(togglePreview) { return document.language.language == .markdown }
         return super.canPerformAction(action, withSender: sender)
+    }
+
+    // MARK: Data safety
+
+    private func barItem(_ title: String, _ symbol: String, _ id: String, _ action: @escaping () -> Void) -> UIBarButtonItem {
+        let i = UIBarButtonItem(image: UIImage(systemName: symbol), primaryAction: UIAction { _ in action() })
+        i.title = title
+        i.accessibilityLabel = title
+        i.accessibilityIdentifier = id
+        return i
+    }
+
+    @objc private func undoChanged(_ note: Notification) {
+        guard let um = note.object as? UndoManager, um === textView.undoManager else { return }
+        // After the group is closed (WillClose comes before it is counted).
+        DispatchQueue.main.async { [weak self] in self?.updateUndoItems() }
+    }
+
+    private func updateUndoItems() {
+        let um = textView.undoManager
+        undoItem.isEnabled = um?.canUndo ?? false
+        redoItem.isEnabled = um?.canRedo ?? false
+    }
+
+    /// "Edited" as soon as there are unsaved changes, gone once saved:
+    /// UIDocument's own hasUnsavedChanges, no separate flag.
+    func updateEdited() {
+        let edited = document.hasUnsavedChanges
+        let name = document.displayName
+        if #available(iOS 26.0, *) {
+            navigationItem.title = name
+            navigationItem.subtitle = edited ? String(localized: "Edited") : nil
+        } else {
+            navigationItem.title = edited ? String(localized: "\(name) — Edited") : name
+        }
+        view.window?.windowScene?.title = edited ? String(localized: "\(name) — Edited") : name
+        saveItem.isEnabled = edited
+    }
+
+    var undoBarItem: UIBarButtonItem { undoItem }
+    var redoBarItem: UIBarButtonItem { redoItem }
+    var saveBarItem: UIBarButtonItem { saveItem }
+    /// The Edited mark is showing (the subtitle, or the title before iOS 26).
+    var editedShown: Bool {
+        let edited = String(localized: "Edited")
+        if #available(iOS 26.0, *), navigationItem.subtitle == edited { return true }
+        return navigationItem.title?.hasSuffix(edited) == true
+    }
+
+    @objc private func enteredBackground() {
+        recoveryWriter.writeNow()
+    }
+
+    /// Replaces the whole text as one undoable edit (Undo brings it back).
+    private func replaceAllText(with text: String) {
+        guard let all = textView.textRange(from: textView.beginningOfDocument, to: textView.endOfDocument) else { return }
+        let g = generation
+        textView.replace(all, withText: text)
+        if generation == g { textViewDidChange(textView) }
+        textView.selectedRange = NSRange(location: 0, length: 0)
+        textView.scrollRangeToVisible(textView.selectedRange)
+    }
+
+    private func revertAction() -> UIAction {
+        let a = UIAction(title: String(localized: "Revert to Opened Version…"), image: UIImage(systemName: "clock.arrow.circlepath")) { [weak self] _ in
+            self?.confirmRevert()
+        }
+        a.accessibilityIdentifier = "editor.revert"
+        switch document.openedCopy {
+        case .kept?:
+            break
+        case .tooLarge?:
+            a.attributes = .disabled
+            a.subtitle = String(localized: "Not available for files over 20 MB")
+        case .failed?, nil:
+            a.attributes = .disabled
+            a.subtitle = String(localized: "No copy of the opened version")
+        }
+        return a
+    }
+
+    private func confirmRevert() {
+        let a = UIAlertController(title: String(localized: "Revert to the version you opened?"),
+                                  message: String(localized: "The text goes back to how \(document.displayName) was when you opened it. You can undo this with Undo."),
+                                  preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+        a.addAction(UIAlertAction(title: String(localized: "Revert"), style: .destructive) { [weak self] _ in self?.revertToOpened() })
+        present(a, animated: true)
+    }
+
+    func revertToOpened() {
+        guard let data = document.openedBytes(), let decoded = TextCodec.decode(data) else {
+            toast(String(localized: "Couldn’t read the opened version."))
+            return
+        }
+        replaceAllText(with: decoded.text)
+        if document.encoding != decoded.encoding || document.lineEnding != decoded.lineEnding {
+            document.encoding = decoded.encoding
+            document.lineEnding = decoded.lineEnding
+            updateStatus()
+        }
+        toast(String(localized: "Reverted to the opened version."))
+    }
+
+    private func offerRecovered(_ r: RecoveryRecord) {
+        let a = RecoveryOffer.alert(for: r) { [weak self] restore in
+            if restore { self?.restoreRecovered(r) } else { SaveSafetyStores.recovery.clear(documentPath: r.documentPath) }
+        }
+        present(a, animated: true)
+    }
+
+    /// The unsaved text comes back as an edit (Undo shows the file's text).
+    private func restoreRecovered(_ r: RecoveryRecord) {
+        replaceAllText(with: r.text)
+        document.encoding = r.encoding
+        document.lineEnding = r.lineEnding
+        updateStatus()
+        recoveryWriter.writeNow()
+        toast(String(localized: "Restored the unsaved changes."))
     }
 
     @objc private func documentStateChanged() {

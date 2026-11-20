@@ -18,10 +18,17 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         ws.sizeRestrictions?.minimumSize = CGSize(width: 320, height: 400)
         #if DEBUG
         if let out = SelfCheck.outDir {
+            RecoveryOffer.skipLaunchOffer()
             SelfCheck.run(in: w, browser: browser, out: out)
             return
         }
+        if let out = SaveCheck.outDir {
+            RecoveryOffer.skipLaunchOffer()
+            SaveCheck.run(in: w, browser: browser, out: out)
+            return
+        }
         #endif
+        if !options.urlContexts.isEmpty || TestLaunch.active { RecoveryOffer.skipLaunchOffer() }
         if let ctx = options.urlContexts.first {
             browser.open(ctx.url, importIfNeeded: !ctx.options.openInPlace)
         } else if let url = TestLaunch.documentToOpen() {
@@ -40,6 +47,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 /// of that name there first if it isn't there yet (`-OwlinkFreshSample`
 /// copies it again).
 enum TestLaunch {
+    static var active: Bool { ProcessInfo.processInfo.arguments.contains("-OwlinkOpen") }
+
     static func documentToOpen() -> URL? {
         let args = ProcessInfo.processInfo.arguments
         guard let i = args.firstIndex(of: "-OwlinkOpen"), i + 1 < args.count else { return nil }
@@ -76,6 +85,12 @@ final class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDo
         })
         settings.accessibilityIdentifier = "browser.settings"
         additionalTrailingNavigationBarButtonItems = [settings]
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // Unsaved text left by a crash or a forced quit (once per launch).
+        if presentedViewController == nil { RecoveryOffer.offerLeftovers(from: self) }
     }
 
     // MARK: Delegate
@@ -117,7 +132,8 @@ final class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDo
         }
     }
 
-    func presentDocument(at url: URL, binaryOK: Bool = false) {
+    /// `recovered`: unsaved text to put back (Restore at launch chosen).
+    func presentDocument(at url: URL, binaryOK: Bool = false, recovered: RecoveryRecord? = nil) {
         let doc = TextDocument(fileURL: url)
         doc.openBinaryAnyway = binaryOK
         doc.open { [weak self] ok in
@@ -128,7 +144,7 @@ final class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDo
                                               message: String(localized: "Open it as text anyway? Saving it may damage it."), preferredStyle: .alert)
                     a.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
                     a.addAction(UIAlertAction(title: String(localized: "Open as Text"), style: .destructive) { _ in
-                        self.presentDocument(at: url, binaryOK: true)
+                        self.presentDocument(at: url, binaryOK: true, recovered: recovered)
                     })
                     self.present(a, animated: true)
                 } else {
@@ -136,7 +152,16 @@ final class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDo
                 }
                 return
             }
-            let editor = EditorViewController(document: doc)
+            // Unsaved text from a crash, newer than the file: restored if
+            // asked for at launch, else offered when the editor appears.
+            var recovery: EditorViewController.Recovery?
+            if let recovered {
+                recovery = .restore(recovered)
+            } else if !OpenDocuments.paths.contains(doc.recoveryPath),
+                      let r = SaveSafetyStores.recovery.pending(documentPath: doc.recoveryPath, documentModified: doc.fileModificationDate) {
+                recovery = .offer(r)
+            }
+            let editor = EditorViewController(document: doc, recovery: recovery)
             let nav = UINavigationController(rootViewController: editor)
             nav.modalPresentationStyle = .fullScreen
             nav.navigationBar.prefersLargeTitles = false
