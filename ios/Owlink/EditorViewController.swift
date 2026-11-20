@@ -1082,6 +1082,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             let pct = Int((z * 100).rounded())
             self?.zoomNote(String(localized: "Text \(pct)%"))
         }
+        p.onOpenFile = { [weak self] url in self?.openLinked(url) }
         preview = p
     }
 
@@ -1310,7 +1311,19 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
 
     private func refreshPreview() {
         guard previewOn, let p = preview else { return }
+        p.documentURL = document.fileURL
         p.show(markdown: textView.text, palette: palette)
+    }
+
+    /// Opens a note a preview link names: this document closes the usual
+    /// way (saved, or asked about), then the browser opens the note.
+    private var afterClose: (() -> Void)?
+
+    private func openLinked(_ url: URL) {
+        guard url.standardizedFileURL != document.fileURL.standardizedFileURL else { return }
+        let browser = navigationController?.presentingViewController as? DocumentBrowserViewController
+        afterClose = { [weak browser] in browser?.presentDocument(at: url) }
+        closeDocument()
     }
 
     // MARK: Commands
@@ -1330,7 +1343,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             let a = UIAlertController(title: String(localized: "\(document.displayName) isn’t saved"),
                                       message: (saveErrorBanner.message ?? "") + "\n\n" + String(localized: "If you close it, the text is kept as a recovery copy and offered when you open the file again."),
                                       preferredStyle: .alert)
-            a.addAction(UIAlertAction(title: String(localized: "Keep Editing"), style: .cancel))
+            a.addAction(UIAlertAction(title: String(localized: "Keep Editing"), style: .cancel) { [weak self] _ in self?.afterClose = nil })
             a.addAction(UIAlertAction(title: String(localized: "Close"), style: .destructive) { [weak self] _ in
                 self?.finishClose(saveFirst: false)
             })
@@ -1347,7 +1360,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             a.addAction(UIAlertAction(title: String(localized: "Don’t Save"), style: .destructive) { [weak self] _ in
                 self?.finishClose(saveFirst: false, discarding: true)
             })
-            a.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+            a.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel) { [weak self] _ in self?.afterClose = nil })
             a.preferredAction = a.actions.first
             present(a, animated: true)
         }
@@ -1371,7 +1384,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             self.recoveryWriter.stop(keepingCopy: !discarding && self.document.hasUnsavedChanges)
             self.document.discardOpenedCopy()
             OpenDocuments.registry.unregister(path: self.document.recoveryPath, window: self.windowID)
-            self.dismiss(animated: true)
+            let after = self.afterClose
+            self.afterClose = nil
+            self.dismiss(animated: true) { after?() }
         }
     }
 

@@ -1,5 +1,6 @@
 import UIKit
 import WebKit
+import UniformTypeIdentifiers
 import CedricCore
 
 /// The Markdown preview: the core's renderer and page (`Markdown.render`,
@@ -11,11 +12,29 @@ import CedricCore
 /// view's page zoom so the text reflows. The scroll position survives the
 /// reloads that follow typing, and can be set as a share of the page
 /// (Focus Preview keeps text and preview at the same place).
-final class PreviewController: UIViewController, WKNavigationDelegate, UIGestureRecognizerDelegate {
+///
+/// Images and wikilinks resolve on disk only: the page's base URL is
+/// `cedric-doc://doc/<folder>/` and `PreviewFiles` serves files from the
+/// document's folder, the site root `PreviewRoot` finds for `/images/…`,
+/// and the Obsidian vault, read in this process (which holds the
+/// security-scoped access), so the web view itself needs no file access.
+/// A file opened on its own from Files grants only itself: its images
+/// then show a quiet "Open the folder" hint, which asks for the folder.
+final class PreviewController: UIViewController, WKNavigationDelegate, UIGestureRecognizerDelegate, UIDocumentPickerDelegate {
     private(set) var web: WKWebView!
     private let queue = DispatchQueue(label: "owlink.preview", qos: .userInitiated)
     private var generation = 0
-    static let csp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; script-src 'none'; connect-src 'none'"
+    static let csp = "default-src 'none'; img-src data: \(PreviewFolder.scheme):; media-src data: \(PreviewFolder.scheme):; style-src 'unsafe-inline'; font-src data:; script-src 'none'; connect-src 'none'"
+    /// The hint's link: asks for the document's folder.
+    static let grantURL = "owlink-preview:open-folder"
+    /// The open document (its folder is the page's base).
+    var documentURL: URL?
+    /// A text file a preview link names, to open in Owlink.
+    var onOpenFile: ((URL) -> Void)?
+    private let files = PreviewFiles()
+    private var vault: WikiVault?
+    private var vaultKey: String?
+    private var last: (markdown: String, palette: EditorPalette)?
     /// A scroll share to apply once the page has loaded (and laid out).
     private var pendingFraction: Double?
     private var loaded = false
@@ -28,6 +47,7 @@ final class PreviewController: UIViewController, WKNavigationDelegate, UIGesture
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = false
         config.websiteDataStore = .nonPersistent()
+        config.setURLSchemeHandler(files, forURLScheme: PreviewFolder.scheme)
         web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = self
         web.isOpaque = false
@@ -53,15 +73,35 @@ final class PreviewController: UIViewController, WKNavigationDelegate, UIGesture
         generation += 1
         let gen = generation
         web.backgroundColor = UIColor(hex: palette.background)
+        last = (markdown, palette)
+        let folder = documentURL?.deletingLastPathComponent().standardizedFileURL
+        let opened = folder.flatMap(PreviewFolderGrants.shared.root(for:))
+        let key = "\(folder?.path ?? "-")|\(opened?.path ?? "-")"
+        if key != vaultKey {
+            vaultKey = key
+            vault = folder.map { WikiVault(documentFolder: $0, openedRoot: opened) }
+        }
+        let vault = self.vault
+        files.folder = folder
+        files.openedRoot = opened
+        files.vaultRoot = vault?.root
+        let baseURL = folder.flatMap(PreviewFolder.pageURL(for:))
+        let hint = "<p class=\"preview-hint\"><a href=\"\(Self.grantURL)\">" + Markdown.escape(String(localized: "Open the folder to see its images")) + "</a></p>\n"
         queue.async { [weak self] in
-            let body = HTMLScrub.noScriptNoRemote(Markdown.render(markdown, options: .preview))
+            var body = HTMLScrub.noScriptNoRemote(Markdown.render(markdown, options: .preview(vault: vault)))
+            if let folder {
+                // No access to the folder (a file opened on its own): its
+                // images can't load, so a hint instead of empty boxes.
+                let readable = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) != nil
+                body = PreviewImageAccess.hideUnreadable(body, folder: folder, openedRoot: opened, folderReadable: readable, hint: hint).html
+            }
             let page = PreviewHTML.page(body: body, palette: palette, csp: Self.csp, viewport: true)
             DispatchQueue.main.async {
                 guard let self, gen == self.generation else { return }
                 // A reload goes back to the top: keep the reader's place.
                 if self.loaded, self.pendingFraction == nil { self.pendingFraction = self.scrollFraction }
                 self.loaded = false
-                self.web.loadHTMLString(page, baseURL: nil)
+                self.web.loadHTMLString(page, baseURL: baseURL)
             }
         }
     }
@@ -148,12 +188,49 @@ final class PreviewController: UIViewController, WKNavigationDelegate, UIGesture
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { false }
 
-    /// Links open in Safari (asked for), never inside the preview.
+    static func withoutFragment(_ u: URL) -> String {
+        var c = URLComponents(url: u, resolvingAgainstBaseURL: false)
+        c?.fragment = nil
+        return c?.string ?? u.absoluteString
+    }
+
+    // MARK: Folder access
+
+    /// Asks for the document's folder (or one above it, a site's root).
+    private func askForFolder() {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+        picker.directoryURL = documentURL?.deletingLastPathComponent()
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else { return }
+        PreviewFolderGrants.shared.add(url)
+        if let last { show(markdown: last.markdown, palette: last.palette) }
+    }
+
+    /// Links open in Safari (asked for), never inside the preview; a
+    /// wikilink or a link to a text file in the folder opens it in Owlink.
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
         if action.navigationType == .linkActivated, let url = action.request.url, ["http", "https"].contains(url.scheme ?? "") {
             UIApplication.shared.open(url)
             decisionHandler(.cancel)
+            return
+        }
+        if action.navigationType == .linkActivated, let url = action.request.url {
+            if url.absoluteString == Self.grantURL {
+                decisionHandler(.cancel)
+                askForFolder()
+                return
+            }
+            if url.fragment != nil, let page = webView.url, Self.withoutFragment(url) == Self.withoutFragment(page) {
+                decisionHandler(.allow)
+                return
+            }
+            decisionHandler(.cancel)
+            if let file = files.linkTarget(url), PreviewFiles.notes.contains(file.pathExtension.lowercased()) { onOpenFile?(file) }
             return
         }
         decisionHandler(action.navigationType == .other ? .allow : .cancel)
