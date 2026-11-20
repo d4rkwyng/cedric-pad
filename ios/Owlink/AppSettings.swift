@@ -13,6 +13,7 @@ enum AppSettings {
         static let owlHints = "ios.owlHints"
         static let lineNumbers = "ios.lineNumbers"
         static let saveAutomatically = "ios.saveAutomatically"
+        static let openReadOnly = "ios.openReadOnly"
         static let theme = EditorTheme.defaultsKey
     }
 
@@ -66,6 +67,15 @@ enum AppSettings {
     static var saveAutomatically: Bool {
         get { defaults.object(forKey: Key.saveAutomatically) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Key.saveAutomatically); post() }
+    }
+
+    /// Open documents read-only, with an Edit button: on by default on
+    /// iPhone (a stray tap or key in a pocket edits nothing), off on iPad.
+    static var openReadOnlyDefault: Bool { UIDevice.current.userInterfaceIdiom == .phone }
+
+    static var openReadOnly: Bool {
+        get { defaults.object(forKey: Key.openReadOnly) as? Bool ?? openReadOnlyDefault }
+        set { defaults.set(newValue, forKey: Key.openReadOnly); post() }
     }
 
     static var theme: EditorTheme {

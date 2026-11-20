@@ -179,4 +179,62 @@ import Testing
         #expect(!r.contains(path: real.path) && !r.contains(path: "/other"))
         #expect(r.contains(path: "/kept"))
     }
+
+    // MARK: Read mode
+
+    @Test func readModeOpensReadOnlyEditAndDoneToggle() {
+        var g = EditGate(readModeOnOpen: true)
+        #expect(!g.isEditable)
+        #expect(g.button == .edit)
+        do { let ok = g.beginEditing(); #expect(ok) }
+        #expect(g.isEditable)
+        #expect(g.button == .done)
+        g.endEditing()
+        #expect(!g.isEditable)
+        #expect(g.button == .edit)
+    }
+
+    @Test func readModeOffHasNoButtonAndDoneDoesNothing() {
+        var g = EditGate(readModeOnOpen: false)
+        #expect(g.isEditable)
+        #expect(g.button == .none)
+        g.endEditing()
+        #expect(g.isEditable)
+    }
+
+    @Test func binaryIsAlwaysReadOnly() {
+        for setting in [true, false] {
+            var g = EditGate(readModeOnOpen: setting, binary: true)
+            #expect(!g.isEditable)
+            #expect(g.button == .readOnly)
+            do { let ok = g.beginEditing(); #expect(!ok) }
+            do { let ok = g.allowExplicitChange(); #expect(!ok) }
+            #expect(!g.isEditable)
+        }
+    }
+
+    @Test func editInReadModeStillWaitsForOtherLocks() {
+        var g = EditGate(readModeOnOpen: true)
+        g.set(.conflict, true)
+        do { let ok = g.beginEditing(); #expect(!ok) }
+        #expect(g.button == .done) // read mode left; the conflict still holds it
+        g.set(.conflict, false)
+        #expect(g.isEditable)
+    }
+
+    @Test func explicitChangeLeavesReadModeButNotLocks() {
+        var g = EditGate(readModeOnOpen: true)
+        do { let ok = g.allowExplicitChange(); #expect(ok) }
+        #expect(g.isEditable)
+        g.set(.documentLocked, true)
+        do { let ok = g.allowExplicitChange(); #expect(!ok) }
+    }
+
+    @Test func formatChangeKeepsTheUndoPair() {
+        let a = FormatChange(from: .init(encoding: .utf8, lineEnding: .lf), to: .init(encoding: .latin1, lineEnding: .crlf))
+        #expect(a.undo == FormatChange(from: .init(encoding: .latin1, lineEnding: .crlf), to: .init(encoding: .utf8, lineEnding: .lf)))
+        #expect(a.undo.undo == a)
+        #expect(a.changesEverything)
+        #expect(!FormatChange(from: .init(encoding: .utf8, lineEnding: .lf), to: .init(encoding: .utf8, lineEnding: .lf)).changesEverything)
+    }
 }

@@ -27,6 +27,9 @@ final class OwlinkUITests: XCTestCase {
         var tv = editor(app)
         XCTAssertTrue((tv.value as? String ?? "").contains("struct Owl"))
         XCTAssertTrue(app.buttons["editor.language"].label.contains("Swift"))
+        // Opened read-only on iPhone (the default): Edit first.
+        let edit = app.buttons["editor.edit"]
+        if edit.exists, edit.label == "Edit" { edit.tap() }
         tv.tap()
         tv.typeText("\n// typed by the UI test\n")
         XCTAssertTrue((tv.value as? String ?? "").contains("typed by the UI test"))

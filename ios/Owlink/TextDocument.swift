@@ -174,6 +174,11 @@ final class TextDocument: UIDocument {
         revert(toContentsOf: fileURL, completionHandler: done)
     }
 
+    /// The encoding or line ending was chosen (menu, Undo, Revert).
+    func formatChanged() {
+        mixedLineEndings = false
+    }
+
     /// Keep Mine: the edits stay unsaved, and the next save replaces theirs.
     func keepMineAfterExternalChange() {
         externalChangePending = false

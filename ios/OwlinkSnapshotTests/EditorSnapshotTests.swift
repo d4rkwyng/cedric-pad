@@ -55,7 +55,7 @@ final class EditorSnapshotTests: XCTestCase {
     }
 
     func show(_ doc: TextDocument, size: CGSize, dark: Bool, regular: Bool = false) -> (UIWindow, EditorViewController) {
-        let editor = EditorViewController(document: doc)
+        let editor = EditorViewController(document: doc, readModeOnOpen: false)
         let nav = UINavigationController(rootViewController: editor)
         let w = UIWindow(frame: CGRect(origin: .zero, size: size))
         w.overrideUserInterfaceStyle = dark ? .dark : .light

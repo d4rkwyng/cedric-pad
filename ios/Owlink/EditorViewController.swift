@@ -83,7 +83,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     private var recoveryWriter: RecoveryWriter!
     private var closing = false
     /// Why the text is read-only right now (nothing: editable).
-    private(set) var editGate = EditGate()
+    private(set) var editGate: EditGate
     /// An iCloud conflict is being dealt with (copied, then asked).
     private var conflictResolver: ConflictResolver?
     /// A save failed: shown until one succeeds.
@@ -91,11 +91,22 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
 
     /// The window (scene session) the editor is in, for `OpenDocuments`.
     let windowID: String
+    /// Edit / Done (read mode), or a disabled Read Only (a binary file).
+    private lazy var editItem: UIBarButtonItem = {
+        let i = UIBarButtonItem(title: String(localized: "Edit"), image: nil, primaryAction: UIAction { [weak self] _ in
+            self?.toggleEditing()
+        })
+        i.style = .done
+        i.accessibilityIdentifier = "editor.edit"
+        return i
+    }()
 
-    init(document: TextDocument, recovery: Recovery? = nil, windowID: String = UUID().uuidString) {
+    /// `readModeOnOpen`: nil follows the "Open Files Read-Only" setting.
+    init(document: TextDocument, recovery: Recovery? = nil, windowID: String = UUID().uuidString, readModeOnOpen: Bool? = nil) {
         self.document = document
         self.pendingRecovery = recovery
         self.windowID = windowID
+        self.editGate = EditGate(readModeOnOpen: readModeOnOpen ?? AppSettings.openReadOnly, binary: document.openBinaryAnyway)
         super.init(nibName: nil, bundle: nil)
         _ = OpenDocuments.registry.register(path: document.recoveryPath, window: windowID)
     }
@@ -128,6 +139,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         owl.onNote = { [weak self] note in self?.toast(note) }
         applySettings()
         loadText()
+        applyEditGate()
         NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged), name: AppSettings.changed, object: nil)
         // As the Mac does: TextKit 2's content storage owns the storage's delegate.
         NotificationCenter.default.addObserver(self, selector: #selector(storageEdited),
@@ -372,8 +384,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             items.forEach { $0.visibilityPriority = .standard }
             for i in [find, undoItem, redoItem, saveItem] { i.visibilityPriority = .high }
         }
-        // Undo and Redo first (leading), then Save, Find, Preview.
+        // Undo and Redo first (leading), then Save, Find, Preview, and
+        // Edit / Done at the trailing end.
         items.insert(contentsOf: [undoItem, redoItem], at: 0)
+        if let edit = configuredEditItem() { items.append(edit) }
         navigationItem.rightBarButtonItems = items.reversed()
         updateEdited()
         // The rest in the system's own overflow menu (the ellipsis is
@@ -544,11 +558,12 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         }
         let ends = LineEnding.allCases.map { le in
             UIAction(title: le.displayName, state: le == document.lineEnding ? .on : .off) { [weak self] _ in
-                guard let self, self.document.lineEnding != le else { return }
-                self.document.lineEnding = le
-                self.document.updateChangeCount(.done)
-                self.updateStatus()
+                self?.setLineEnding(le)
             }
+        }
+        // They rewrite the whole file: not while it can't be edited.
+        if !editGate.isEditable {
+            for a in enc + ends where a.state != .on { a.attributes = .disabled }
         }
         return UIMenu(title: String(localized: "Encoding and Line Endings"), image: UIImage(systemName: "doc.text"), children: [
             UIMenu(title: String(localized: "Save As Encoding"), options: .displayInline, children: enc),
@@ -565,15 +580,50 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         scheduleOwl()
     }
 
+    /// Asks first (it rewrites the whole file when saved); Undo puts it back.
     private func setEncoding(_ e: TextEncoding) {
-        guard e != document.encoding else { return }
+        guard e != document.encoding, editGate.isEditable else { return }
         guard TextCodec.canEncode(textView.text, as: e) else {
             toast(String(localized: "Some characters can’t be saved as \(e.displayName)."))
             return
         }
-        document.encoding = e
+        let change = FormatChange(from: currentFormat, to: .init(encoding: e, lineEnding: document.lineEnding))
+        confirmFormatChange(change, title: String(localized: "Save \(document.displayName) as \(e.displayName)?"),
+                            message: String(localized: "When it is saved, the whole file is rewritten in \(e.displayName). You can undo this with Undo."))
+    }
+
+    private func setLineEnding(_ le: LineEnding) {
+        guard le != document.lineEnding || document.mixedLineEndings, editGate.isEditable else { return }
+        let change = FormatChange(from: currentFormat, to: .init(encoding: document.encoding, lineEnding: le))
+        let message = document.mixedLineEndings
+            ? String(localized: "This file mixes line endings. When it is saved, every line ends with \(le.displayName). You can undo this with Undo.")
+            : String(localized: "When it is saved, every line ending in the file is rewritten as \(le.displayName). You can undo this with Undo.")
+        confirmFormatChange(change, title: String(localized: "Use \(le.displayName) line endings?"), message: message)
+    }
+
+    private var currentFormat: FormatChange.Format { .init(encoding: document.encoding, lineEnding: document.lineEnding) }
+
+    private func confirmFormatChange(_ change: FormatChange, title: String, message: String) {
+        let a = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+        a.addAction(UIAlertAction(title: String(localized: "Change"), style: .default) { [weak self] _ in
+            self?.applyFormat(change, actionName: String(localized: "Change Encoding or Line Endings"))
+        })
+        present(a, animated: true)
+    }
+
+    /// Sets the encoding and line ending as one undoable step.
+    func applyFormat(_ change: FormatChange, actionName: String) {
+        document.encoding = change.to.encoding
+        document.lineEnding = change.to.lineEnding
+        document.formatChanged()
         document.updateChangeCount(.done)
+        if let um = textView.undoManager {
+            um.registerUndo(withTarget: self) { $0.applyFormat(change.undo, actionName: actionName) }
+            um.setActionName(actionName)
+        }
         updateStatus()
+        updateUndoItems()
     }
 
     // MARK: Settings and theme
@@ -854,6 +904,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             owl.dismissCurrent()
             return
         }
+        guard editableOrSay() else { return }
         guard let fix = owl.fix(in: textView.textStorage.string as NSString),
               let start = textView.position(from: textView.beginningOfDocument, offset: fix.range.location),
               let end = textView.position(from: start, offset: fix.range.length),
@@ -994,6 +1045,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
 
     /// Applies an Ask Cedric edit if the text it replaces is unchanged.
     private func apply(_ p: OwlEditProposal) -> Bool {
+        guard editableOrSay() else { return false }
         let ns = textView.textStorage.string as NSString
         guard NSMaxRange(p.range) <= ns.length, ns.substring(with: p.range) == p.original,
               let start = textView.position(from: textView.beginningOfDocument, offset: p.range.location),
@@ -1401,6 +1453,73 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             textView.isEditable = editable
         }
         updateUndoItems()
+        _ = configuredEditItem()
+        if isViewLoaded { updateStatus() }
+    }
+
+    /// Edit / Done / Read Only for the bar (nil: read mode not in use).
+    private func configuredEditItem() -> UIBarButtonItem? {
+        switch editGate.button {
+        case .none:
+            return nil
+        case .edit:
+            editItem.title = String(localized: "Edit")
+            editItem.isEnabled = true
+            editItem.accessibilityHint = String(localized: "Lets you change the text.")
+        case .done:
+            editItem.title = String(localized: "Done")
+            editItem.isEnabled = true
+            editItem.accessibilityHint = String(localized: "Back to reading: the text can’t be changed until you tap Edit.")
+        case .readOnly:
+            editItem.title = String(localized: "Read Only")
+            editItem.isEnabled = false
+            editItem.accessibilityHint = String(localized: "This file looks binary, so Owlink opened it read-only.")
+        }
+        return editItem
+    }
+
+    /// The Edit / Done button.
+    @objc func toggleEditing() {
+        switch editGate.button {
+        case .edit: startEditing()
+        case .done: stopEditing()
+        case .none, .readOnly: break
+        }
+    }
+
+    /// Edit: leaves read mode and puts the caret in the text.
+    func startEditing() {
+        let editable = editGate.beginEditing()
+        applyEditGate()
+        if editable { textView.becomeFirstResponder() }
+    }
+
+    /// Done: back to read mode.
+    func stopEditing() {
+        editGate.endEditing()
+        applyEditGate()
+    }
+
+    /// For changes that come from a command rather than typing (Fix it, an
+    /// Ask Cedric edit): only while the text is editable.
+    private func editableOrSay() -> Bool {
+        if editGate.isEditable { return true }
+        switch editGate.button {
+        case .edit: toast(String(localized: "Tap Edit to change the text."))
+        case .readOnly: toast(String(localized: "This file is open read-only."))
+        default: toast(String(localized: "The text can’t be changed right now."))
+        }
+        return false
+    }
+
+    /// For a confirmed change to the whole text (Revert, Restore): leaves
+    /// read mode, but not while the file is binary, locked or in conflict.
+    private func explicitChangeAllowed() -> Bool {
+        if editGate.allowExplicitChange() {
+            applyEditGate()
+            return true
+        }
+        return editableOrSay()
     }
 
     /// "Edited" as soon as there are unsaved changes, gone once saved:
@@ -1419,6 +1538,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     }
 
     var undoBarItem: UIBarButtonItem { undoItem }
+    var editBarItem: UIBarButtonItem { editItem }
     var redoBarItem: UIBarButtonItem { redoItem }
     var saveBarItem: UIBarButtonItem { saveItem }
     /// The Edited mark is showing (the subtitle, or the title before iOS 26).
@@ -1447,6 +1567,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             self?.confirmRevert()
         }
         a.accessibilityIdentifier = "editor.revert"
+        if editGate.button == .readOnly { a.attributes = .disabled; return a }
         switch document.openedCopy {
         case .kept?:
             break
@@ -1470,16 +1591,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     }
 
     func revertToOpened() {
+        guard explicitChangeAllowed() else { return }
         guard let data = document.openedBytes(), let decoded = TextCodec.decode(data) else {
             toast(String(localized: "Couldn’t read the opened version."))
             return
         }
         replaceAllText(with: decoded.text)
-        if document.encoding != decoded.encoding || document.lineEnding != decoded.lineEnding {
-            document.encoding = decoded.encoding
-            document.lineEnding = decoded.lineEnding
-            updateStatus()
-        }
+        let change = FormatChange(from: currentFormat, to: .init(encoding: decoded.encoding, lineEnding: decoded.lineEnding))
+        // In the same undo group as the text: one Undo brings both back.
+        if change.changesEverything { applyFormat(change, actionName: String(localized: "Revert")) }
         toast(String(localized: "Reverted to the opened version."))
     }
 
@@ -1492,10 +1612,11 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
 
     /// The unsaved text comes back as an edit (Undo shows the file's text).
     private func restoreRecovered(_ r: RecoveryRecord) {
+        // Kept for later if the file can't be changed now (it stays offered).
+        guard explicitChangeAllowed() else { return }
         replaceAllText(with: r.text)
-        document.encoding = r.encoding
-        document.lineEnding = r.lineEnding
-        updateStatus()
+        let change = FormatChange(from: currentFormat, to: .init(encoding: r.encoding, lineEnding: r.lineEnding))
+        if change.changesEverything { applyFormat(change, actionName: String(localized: "Restore")) }
         recoveryWriter.writeNow()
         toast(String(localized: "Restored the unsaved changes."))
     }
@@ -1540,9 +1661,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     }
 
     private func saveAsUTF8() {
-        document.encoding = .utf8
-        document.updateChangeCount(.done)
-        updateStatus()
+        applyFormat(FormatChange(from: currentFormat, to: .init(encoding: .utf8, lineEnding: document.lineEnding)),
+                    actionName: String(localized: "Save as UTF-8"))
         saveDocument()
     }
 

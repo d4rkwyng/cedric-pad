@@ -57,6 +57,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.Key.owlHints) private var owlHints = true
     @AppStorage(AppSettings.Key.theme) private var theme = EditorTheme.system.rawValue
     @AppStorage(AppSettings.Key.saveAutomatically) private var saveAutomatically = true
+    @AppStorage(AppSettings.Key.openReadOnly) private var openReadOnly = AppSettings.openReadOnlyDefault
     @State private var ai = LocalAISettings.load()
     @State private var address = ""
     @State private var testResult: String?
@@ -89,12 +90,15 @@ struct SettingsView: View {
                 Section {
                     Toggle(String(localized: "Save Automatically"), isOn: $saveAutomatically)
                         .accessibilityIdentifier("settings.saveAutomatically")
+                    Toggle(String(localized: "Open Files Read-Only"), isOn: $openReadOnly)
+                        .accessibilityIdentifier("settings.openReadOnly")
                 } header: {
                     Text(String(localized: "Saving"))
                 } footer: {
-                    Text(String(localized: "On: changes are saved to the file as you work. Off: the file changes only when you tap Save, and closing asks first. Either way, until changes are saved, Owlink keeps a copy of the unsaved text on this device (not in backups) to offer after a crash, and deletes it when you save or close."))
+                    Text(String(localized: "Save Automatically on: changes are saved to the file as you work. Off: the file changes only when you tap Save, and closing asks first. Either way, until changes are saved, Owlink keeps a copy of the unsaved text on this device (not in backups) to offer after a crash, and deletes it when you save or close.\n\nOpen Files Read-Only: files open for reading, and you tap Edit to change them (Done goes back). Files that look binary always open read-only."))
                 }
                 .onChange(of: saveAutomatically) { AppSettings.post() }
+                .onChange(of: openReadOnly) { AppSettings.post() }
 
                 Section {
                     LabeledContent(String(localized: "Apple Intelligence"), value: AIStatus.appleLine)

@@ -65,7 +65,7 @@ enum SaveCheck {
         check(opened, "opened the sample")
         guard opened else { return }
         check(doc.openedCopy == .kept && doc.openedBytes() == original, "kept a private copy of the bytes as opened")
-        let editor = EditorViewController(document: doc)
+        let editor = EditorViewController(document: doc, readModeOnOpen: true)
         let nav = UINavigationController(rootViewController: editor)
         nav.modalPresentationStyle = .fullScreen
         // The document browser may still be starting: wait for the editor
@@ -78,6 +78,9 @@ enum SaveCheck {
         try? await Task.sleep(for: .seconds(1))
         let tv = editor.textView
         check(!doc.hasUnsavedChanges && !editor.editedShown, "not Edited after opening")
+        check(!tv.isEditable && editor.editBarItem.title == String(localized: "Edit"), "opens read-only, with Edit")
+        editor.startEditing()
+        check(tv.isEditable && editor.editBarItem.title == String(localized: "Done"), "Edit makes it editable, with Done")
         info("after open", tv)
         check(editor.undoBarItem.isEnabled == false, "Undo disabled before any edit")
         SelfCheck.render(window, out.appendingPathComponent("save-opened.png"))

@@ -160,7 +160,7 @@ enum SelfCheck {
         let opened = await withCheckedContinuation { c in doc.open { c.resume(returning: $0) } }
         check(opened, "\(name): opened \(sample)")
         guard opened else { return }
-        let editor = EditorViewController(document: doc)
+        let editor = EditorViewController(document: doc, readModeOnOpen: false)
         let nav = UINavigationController(rootViewController: editor)
         nav.modalPresentationStyle = .fullScreen
         nav.traitOverrides.horizontalSizeClass = sizeClass

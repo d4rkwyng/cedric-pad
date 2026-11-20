@@ -181,8 +181,17 @@ public enum ConflictResolution {
 
 /// Why the editor is read-only right now. Editing is allowed only with no
 /// reason left.
+///
+/// Read mode: with "Open Read-Only" on (the default on iPhone), a document
+/// opens read-only with an Edit button; Edit leaves read mode, Done goes
+/// back to it. A file opened with "Open as Text anyway" (it looks binary)
+/// is always read-only.
 public struct EditGate: Equatable, Sendable {
     public enum Reason: Hashable, Sendable {
+        /// Opened read-only; Edit leaves it.
+        case readMode
+        /// Opened as text though it looks binary: never editable.
+        case binary
         /// An iCloud conflict is waiting for a choice.
         case conflict
         /// Another app changed the file while there were unsaved edits:
@@ -194,10 +203,59 @@ public struct EditGate: Equatable, Sendable {
     }
 
     public private(set) var reasons: Set<Reason> = []
+    /// "Open Read-Only" was on when the document opened: Done returns to read mode.
+    public let readModeSetting: Bool
 
-    public init() {}
+    public init(readModeOnOpen: Bool = false, binary: Bool = false) {
+        readModeSetting = readModeOnOpen
+        if readModeOnOpen { reasons.insert(.readMode) }
+        if binary { reasons.insert(.binary) }
+    }
 
     public var isEditable: Bool { reasons.isEmpty }
+
+    /// The button in the bar.
+    public enum Button: Equatable, Sendable {
+        /// Read mode isn't used (the setting is off).
+        case none
+        /// In read mode: Edit.
+        case edit
+        /// Editing, with read mode on: Done goes back.
+        case done
+        /// Never editable (a binary file): a disabled "Read Only".
+        case readOnly
+    }
+
+    public var button: Button {
+        if reasons.contains(.binary) { return .readOnly }
+        if !readModeSetting { return .none }
+        return reasons.contains(.readMode) ? .edit : .done
+    }
+
+    /// Edit: leaves read mode (a binary file stays read-only). Whether the
+    /// text is editable now (another reason may still hold it).
+    @discardableResult
+    public mutating func beginEditing() -> Bool {
+        guard !reasons.contains(.binary) else { return false }
+        reasons.remove(.readMode)
+        return isEditable
+    }
+
+    /// Done: back to read mode (only with the setting on).
+    public mutating func endEditing() {
+        if readModeSetting { reasons.insert(.readMode) }
+    }
+
+    /// An explicit, confirmed change to the whole text (Revert, Restore):
+    /// allowed if only read mode stands in the way (it leaves read mode),
+    /// not while the file is binary, locked or in a conflict.
+    public mutating func allowExplicitChange() -> Bool {
+        if reasons.subtracting([.readMode]).isEmpty {
+            reasons.remove(.readMode)
+            return true
+        }
+        return false
+    }
 
     public mutating func set(_ reason: Reason, _ on: Bool) {
         if on { reasons.insert(reason) } else { reasons.remove(reason) }
@@ -278,4 +336,30 @@ public struct OpenDocumentRegistry: Sendable {
     public mutating func removeAll(window: String) {
         owners = owners.filter { $0.value != window }
     }
+}
+
+/// A change of the file's encoding or line endings: it rewrites every
+/// line when saved, so the app confirms it first and registers `undo`.
+public struct FormatChange: Equatable, Sendable {
+    public struct Format: Equatable, Sendable {
+        public var encoding: TextEncoding
+        public var lineEnding: LineEnding
+        public init(encoding: TextEncoding, lineEnding: LineEnding) {
+            self.encoding = encoding
+            self.lineEnding = lineEnding
+        }
+    }
+
+    public var from: Format
+    public var to: Format
+
+    public init(from: Format, to: Format) {
+        self.from = from
+        self.to = to
+    }
+
+    public var undo: FormatChange { FormatChange(from: to, to: from) }
+
+    /// Anything changes at all.
+    public var changesEverything: Bool { from != to }
 }
