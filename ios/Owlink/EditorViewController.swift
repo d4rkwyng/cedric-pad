@@ -154,6 +154,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         // recovery copy is written now rather than up to 3 s later.
         NotificationCenter.default.addObserver(self, selector: #selector(enteredBackground),
                                                name: UIApplication.didEnterBackgroundNotification, object: nil)
+        // A detached preview window of this document wants its text.
+        NotificationCenter.default.addObserver(self, selector: #selector(detachedPreviewNeedsText(_:)),
+                                               name: DetachedPreviews.needsText, object: nil)
         // Opening or closing an iPhone Duo is a size-class change (compact
         // outside, regular inside; outer landscape is compact both ways).
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self,
@@ -354,6 +357,11 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             })
             p.title = String(localized: "Preview")
             p.accessibilityIdentifier = "editor.preview"
+            // Long-press (or a secondary click): the full-screen and
+            // new-window ways in, which a tap on the eye doesn't reach.
+            p.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] done in
+                done(self?.previewMenuItems() ?? [])
+            }])
             items.append(p)
             let f = UIBarButtonItem(image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"), primaryAction: UIAction { [weak self] _ in
                 self?.toggleFocusPreview()
@@ -424,11 +432,33 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             }
             focus.accessibilityIdentifier = "editor.menu.focusPreview"
             first.insert(focus, at: 0)
+            // Stays in this menu whatever the bar has room for (the bar's
+            // own Focus Preview button drops off a narrow iPhone bar).
+            if let detach = detachPreviewAction() { first.insert(detach, at: 1) }
         }
         if UIApplication.shared.supportsMultipleScenes { first.append(Self.newWindowAction()) }
         return [UIMenu(options: .displayInline, children: first), UIMenu(options: .displayInline, children: [revert, previousVersionsMenu()]),
                 languageMenu(), formatMenu(),
                 UIMenu(options: .displayInline, children: [settings])]
+    }
+
+    /// The preview button's long-press menu.
+    private func previewMenuItems() -> [UIMenuElement] {
+        let focus = UIAction(title: String(localized: "Focus Preview"), image: UIImage(systemName: "arrow.up.left.and.arrow.down.right")) { [weak self] _ in
+            self?.toggleFocusPreview()
+        }
+        focus.accessibilityIdentifier = "editor.previewMenu.focus"
+        return [focus] + [detachPreviewAction()].compactMap { $0 }
+    }
+
+    /// "Open Preview in New Window": iPad only (hidden on an iPhone).
+    private func detachPreviewAction() -> UIAction? {
+        guard document.language.language == .markdown, DetachedPreviews.available else { return nil }
+        let a = UIAction(title: String(localized: "Open Preview in New Window"), image: UIImage(systemName: "macwindow.badge.plus")) { [weak self] _ in
+            self?.openPreviewInNewWindow()
+        }
+        a.accessibilityIdentifier = "editor.menu.detachPreview"
+        return a
     }
 
     /// The overflow menu in Focus Preview: back to the text, the text size.
@@ -489,7 +519,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         updateUndoItems()
         updateStatus()
         scheduleOwl()
-        if previewOn {
+        if previewOn || DetachedPreviews.hasPreviews(forPath: document.recoveryPath) {
             previewTimer?.invalidate()
             previewTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshPreview() }
@@ -529,6 +559,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         colorizer?.scheduleViewport()
         fadeOwlNearCaret()
+        // A detached preview window follows the text's place, roughly.
+        if scrollView === textView, !textView.isHidden, DetachedPreviews.hasPreviews(forPath: document.recoveryPath) {
+            DetachedPreviews.scroll(path: document.recoveryPath, fraction: textScrollFraction)
+        }
     }
 
     private func updateStatus() {
@@ -1084,6 +1118,48 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         }
         p.onOpenFile = { [weak self] url in self?.openLinked(url) }
         preview = p
+        updatePreviewHeader()
+    }
+
+    /// The preview's own corner controls: Focus Preview in and out, and on
+    /// iPad Open Preview in New Window (also dragged out to make one).
+    private func updatePreviewHeader() {
+        guard let p = preview else { return }
+        let detach = document.language.language == .markdown && DetachedPreviews.available
+        p.configureHeader(focusOn: focusOn,
+                          onFocus: { [weak self] in self?.toggleFocusPreview() },
+                          onDetach: detach ? { [weak self] in self?.openPreviewInNewWindow() } : nil,
+                          detachActivity: detach ? { [weak self] in self?.detachedPreviewActivity() } : nil)
+    }
+
+    // MARK: Detached preview (iPad)
+
+    private var detachedTarget: PreviewWindows.Target {
+        PreviewWindows.Target(documentPath: document.recoveryPath, editorWindow: windowID, title: document.displayName)
+    }
+
+    private var detachedSnapshot: DetachedPreviews.Snapshot {
+        DetachedPreviews.Snapshot(url: document.fileURL, markdown: textView.text, palette: palette)
+    }
+
+    private func detachedPreviewActivity() -> NSUserActivity {
+        DetachedPreviews.activity(for: detachedTarget, snapshot: detachedSnapshot)
+    }
+
+    /// A window with the preview alone, following this text live. It never
+    /// writes the document (it has none of its own).
+    @objc func openPreviewInNewWindow() {
+        guard document.language.language == .markdown, DetachedPreviews.available else { return }
+        DetachedPreviews.open(detachedTarget, snapshot: detachedSnapshot, from: view.window?.windowScene) { [weak self] error in
+            self?.toast(String(localized: "Couldn’t open a new window: \(error.localizedDescription)"))
+        }
+    }
+
+    @objc private func detachedPreviewNeedsText(_ n: Notification) {
+        guard let path = n.userInfo?["path"] as? String,
+              OpenDocumentRegistry.key(forPath: path) == OpenDocumentRegistry.key(forPath: document.recoveryPath), !closing else { return }
+        DetachedPreviews.publish(path: document.recoveryPath, snapshot: detachedSnapshot)
+        if !textView.isHidden { DetachedPreviews.scroll(path: document.recoveryPath, fraction: textScrollFraction) }
     }
 
     /// iPad (regular width): side by side. iPhone: the preview replaces the
@@ -1175,6 +1251,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         makePreview()
         closeHint()
         setFocusChrome(true)
+        updatePreviewHeader()
         layoutPreview()
         refreshPreview()
         updateBarButtons()
@@ -1190,6 +1267,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         let regular = traitCollection.horizontalSizeClass == .regular
         previewOn = regular && previewOnBeforeFocus
         setFocusChrome(false)
+        updatePreviewHeader()
         layoutPreview()
         updateBarButtons()
         updateOwlBadge()
@@ -1210,7 +1288,18 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         focusGestures.forEach { $0.isEnabled = focus }
         divider.isHidden = true
         view.setNeedsLayout()
+        // The status bar and home indicator step aside where the system
+        // lets them (not while a hardware status bar is forced, or in a
+        // Split View / Stage Manager window).
+        navigationController?.setNeedsStatusBarAppearanceUpdate()
+        setNeedsStatusBarAppearanceUpdate()
+        navigationController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
     }
+
+    override var prefersStatusBarHidden: Bool { focusOn }
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .fade }
+    override var prefersHomeIndicatorAutoHidden: Bool { focusOn }
 
     /// Ways back besides Edit and Esc: a swipe down with the preview at its
     /// top, and a swipe in from the leading edge.
@@ -1310,6 +1399,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     }
 
     private func refreshPreview() {
+        if DetachedPreviews.hasPreviews(forPath: document.recoveryPath) {
+            DetachedPreviews.publish(path: document.recoveryPath, snapshot: detachedSnapshot)
+        }
         guard previewOn, let p = preview else { return }
         p.documentURL = document.fileURL
         p.show(markdown: textView.text, palette: palette)
@@ -1384,6 +1476,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             self.recoveryWriter.stop(keepingCopy: !discarding && self.document.hasUnsavedChanges)
             self.document.discardOpenedCopy()
             OpenDocuments.registry.unregister(path: self.document.recoveryPath, window: self.windowID)
+            // Its detached preview windows close with it.
+            DetachedPreviews.documentClosed(path: self.document.recoveryPath)
             let after = self.afterClose
             self.afterClose = nil
             self.dismiss(animated: true) { after?() }
@@ -1434,6 +1528,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(togglePreview) || action == #selector(toggleFocusPreview) {
             return document.language.language == .markdown
+        }
+        if action == #selector(openPreviewInNewWindow) {
+            return document.language.language == .markdown && DetachedPreviews.available
         }
         return super.canPerformAction(action, withSender: sender)
     }

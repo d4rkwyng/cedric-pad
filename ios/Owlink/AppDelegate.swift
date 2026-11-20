@@ -24,7 +24,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         let c = UISceneConfiguration(name: "Default", sessionRole: session.role)
-        c.delegateClass = SceneDelegate.self
+        // "Open Preview in New Window" (or a preview dragged out, or one
+        // restored after a relaunch): a preview-only window.
+        let route = PreviewWindows.route(activities: options.userActivities.map { ($0.activityType, $0.userInfo) },
+                                         sessionUserInfo: session.userInfo)
+        if case .preview = route {
+            c.delegateClass = PreviewSceneDelegate.self
+        } else {
+            c.delegateClass = SceneDelegate.self
+        }
         return c
     }
 
@@ -60,7 +68,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                                   input: "0", modifierFlags: .command)
         let wrap = UIKeyCommand(title: String(localized: "Wrap Lines"), action: #selector(EditorViewController.toggleWrap),
                                 input: "w", modifierFlags: [.command, .alternate])
-        builder.insertChild(UIMenu(options: .displayInline, children: [preview, focus, bigger, bigger2, smaller, actual, wrap]), atStartOfMenu: .view)
+        let detach = UICommand(title: String(localized: "Open Preview in New Window"),
+                               action: #selector(EditorViewController.openPreviewInNewWindow))
+        builder.insertChild(UIMenu(options: .displayInline, children: [preview, focus, detach, bigger, bigger2, smaller, actual, wrap]), atStartOfMenu: .view)
 
         let ask = UIKeyCommand(title: String(localized: "Ask Cedric…"), action: #selector(EditorViewController.askCedric),
                                input: "k", modifierFlags: [.command, .shift])

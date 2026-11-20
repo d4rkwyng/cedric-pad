@@ -39,6 +39,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// The window went away: its documents are no longer open in it.
     func sceneDidDisconnect(_ scene: UIScene) {
         OpenDocuments.registry.removeAll(window: scene.session.persistentIdentifier)
+        // Its documents' detached previews go blank (or follow another
+        // window that has the document open).
+        DetachedPreviews.editorWindowGone(scene.session.persistentIdentifier)
     }
 
     func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
@@ -186,7 +189,7 @@ final class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDo
                 recovery = .offer(r)
             }
             let editor = EditorViewController(document: doc, recovery: recovery, windowID: self.windowID)
-            let nav = UINavigationController(rootViewController: editor)
+            let nav = EditorNavigationController(rootViewController: editor)
             nav.modalPresentationStyle = .fullScreen
             nav.navigationBar.prefersLargeTitles = false
             self.present(nav, animated: true)
@@ -208,4 +211,12 @@ enum UIHostingSettings {
         host.modalPresentationStyle = .formSheet
         return host
     }
+}
+
+/// The editor's navigation controller: the editor decides whether the
+/// status bar and home indicator show (hidden in Focus Preview).
+final class EditorNavigationController: UINavigationController {
+    override var childForStatusBarHidden: UIViewController? { topViewController }
+    override var childForHomeIndicatorAutoHidden: UIViewController? { topViewController }
+    override var childForScreenEdgesDeferringSystemGestures: UIViewController? { topViewController }
 }

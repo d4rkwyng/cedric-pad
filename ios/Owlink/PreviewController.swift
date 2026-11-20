@@ -58,7 +58,69 @@ final class PreviewController: UIViewController, WKNavigationDelegate, UIGesture
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
         pinch.delegate = self
         web.addGestureRecognizer(pinch)
-        view = web
+        let container = UIView()
+        web.frame = container.bounds
+        web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.addSubview(web)
+        setUpHeader(in: container)
+        view = container
+    }
+
+    // MARK: Header (Focus Preview, Open in New Window)
+
+    /// Small controls in the preview's own top corner: Focus Preview (or
+    /// back out of it) and, where there can be more windows (iPad), Open
+    /// Preview in New Window, which can also be dragged out to make one.
+    private let header = UIStackView()
+    private let focusButton = UIButton(configuration: .gray())
+    private let detachButton = UIButton(configuration: .gray())
+    private var onFocus: (() -> Void)?
+    private var onDetach: (() -> Void)?
+    private var detachActivity: (() -> NSUserActivity?)?
+
+    private func setUpHeader(in container: UIView) {
+        header.axis = .horizontal
+        header.spacing = 6
+        header.translatesAutoresizingMaskIntoConstraints = false
+        for (b, id) in [(focusButton, "preview.header.focus"), (detachButton, "preview.header.detach")] {
+            var c = b.configuration ?? .gray()
+            c.cornerStyle = .capsule
+            c.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(textStyle: .footnote, scale: .medium)
+            c.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 9, bottom: 7, trailing: 9)
+            b.configuration = c
+            b.alpha = 0.85
+            b.accessibilityIdentifier = id
+            b.pointerStyleProvider = { button, _, _ in UIPointerStyle(effect: .highlight(UITargetedPreview(view: button))) }
+            header.addArrangedSubview(b)
+        }
+        focusButton.addAction(UIAction { [weak self] _ in self?.onFocus?() }, for: .primaryActionTriggered)
+        detachButton.addAction(UIAction { [weak self] _ in self?.onDetach?() }, for: .primaryActionTriggered)
+        detachButton.configuration?.image = UIImage(systemName: "macwindow.badge.plus")
+        detachButton.accessibilityLabel = String(localized: "Open Preview in New Window")
+        detachButton.accessibilityHint = String(localized: "Or drag it out to make a window.")
+        detachButton.addInteraction(UIDragInteraction(delegate: self))
+        container.addSubview(header)
+        let g = container.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: g.topAnchor, constant: 8),
+            header.trailingAnchor.constraint(equalTo: g.trailingAnchor, constant: -10),
+        ])
+        header.isHidden = true
+    }
+
+    /// Shows the header with what it can do here (nothing: hidden, as in a
+    /// detached preview window). `focusOn`: the button leaves Focus Preview.
+    func configureHeader(focusOn: Bool, onFocus: (() -> Void)?, onDetach: (() -> Void)?,
+                         detachActivity: (() -> NSUserActivity?)?) {
+        loadViewIfNeeded()
+        self.onFocus = onFocus
+        self.onDetach = onDetach
+        self.detachActivity = detachActivity
+        focusButton.isHidden = onFocus == nil
+        detachButton.isHidden = onDetach == nil
+        focusButton.configuration?.image = UIImage(systemName: focusOn ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+        focusButton.accessibilityLabel = focusOn ? String(localized: "Exit Focus Preview") : String(localized: "Focus Preview")
+        header.isHidden = onFocus == nil && onDetach == nil
     }
 
     override func viewDidLoad() {
@@ -234,5 +296,18 @@ final class PreviewController: UIViewController, WKNavigationDelegate, UIGesture
             return
         }
         decisionHandler(action.navigationType == .other ? .allow : .cancel)
+    }
+}
+
+/// Dragging Open Preview in New Window out of the preview makes the window
+/// where it is dropped (iPad, Stage Manager, an external display).
+extension PreviewController: UIDragInteractionDelegate {
+    func dragInteraction(_ interaction: UIDragInteraction, itemsForBeginning session: any UIDragSession) -> [UIDragItem] {
+        guard let activity = detachActivity?() else { return [] }
+        let provider = NSItemProvider()
+        provider.registerObject(activity, visibility: .all)
+        let item = UIDragItem(itemProvider: provider)
+        item.localObject = activity
+        return [item]
     }
 }
