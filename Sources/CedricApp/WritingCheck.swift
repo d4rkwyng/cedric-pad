@@ -148,6 +148,70 @@ extension DevChecks {
                 WritingMode.reduceMotionOverride = nil
             },
             sync {
+                // View › Split Editor: typing in the second pane keeps its caret line centred.
+                focus(essay)
+                essay.toggleSplit()
+                guard let second = essay.splitEditor?.second, let w = essay.window else { expect(false, "the essay splits"); return }
+                essay.window?.layoutIfNeeded()
+                w.makeFirstResponder(second.textView)
+                expect(essay.activePane === second, "the second pane is the active one")
+                expect(second.textView.onScrollRangeToVisible != nil && second.scrollView.contentInsets.bottom > 0,
+                       "the second pane has typewriter scrolling too", "inset \(second.scrollView.contentInsets.bottom)")
+                second.textView.setSelectedRange(NSRange(location: (essay.text as NSString).length, length: 0))
+                var worst: CGFloat = 0, counted = 0
+                for n in 1...14 {
+                    for ch in "Split line \(n)" { TypingCheck.key(w, String(ch)) }
+                    TypingCheck.key(w, "\r", keyCode: 36)
+                    w.displayIfNeeded()
+                    guard let mid = essay.caretLineMidY(second.textView) else { continue }
+                    let b = second.scrollView.contentView.bounds
+                    if mid > b.height / 2 + lineHeight { counted += 1; worst = max(worst, abs(mid - b.midY)) }
+                }
+                print(String(format: "check: typewriter in the second pane: %d lines, worst offset %.1f pt", counted, worst))
+                expect(counted >= 10 && worst <= lineHeight, "the second pane's caret line stays at the middle",
+                       String(format: "%d lines, %.1f pt off", counted, worst))
+                essay.toggleSplit()
+                expect(essay.splitEditor == nil, "unsplit again")
+            },
+            sync {
+                // Large-document mode pauses Writing Mode (as it does the colouring), with a note; the switches stay on.
+                let long = String(repeating: "x", count: LargeDocument.lineThreshold + 500)
+                let big = app.open(write("bigline.md", "Para one.\n\n" + long + "\n\nPara three.\n"))!
+                sized(big)
+                focus(big)
+                big.setWriting(WritingModeState(typewriter: true, focus: true))
+                expect(big.isLargeDocument && big.writingPaused, "a very long line: large-document mode")
+                expect(big.editing.writing == WritingModeState(typewriter: true, focus: true), "the switches stay on")
+                expect(big.textView.onScrollRangeToVisible == nil && big.scrollView.contentInsets.bottom == 0, "typewriter scrolling is paused")
+                expect(big.focusDimmedRanges(in: big.textView).isEmpty, "Focus is paused")
+                let note = big.largeBar.label.stringValue
+                expect(!big.largeBar.isHidden && note == "Very long lines: colouring, spell check, the owl and Writing Mode are paused for speed.",
+                       "the large-document bar says Writing Mode is paused", note)
+                if let i = menu(typewriter) { _ = CommandPalette.validate(i, in: big.window); expect(i.state == .on, "the menu item stays checked") }
+                // Small again (the text replaced, as a reload does): it resumes.
+                big.setText("Para one.\n\nPara two is short now.\n\nPara three.\n")
+                big.textView.setSelectedRange(NSRange(location: 14, length: 0))
+                expect(!big.isLargeDocument && big.largeBar.isHidden, "the document is small again")
+                expect(big.textView.onScrollRangeToVisible != nil && big.scrollView.contentInsets.bottom > 0, "typewriter scrolling resumes")
+            },
+            sync {
+                let tab = app.tabs.first { $0.doc.fileURL?.lastPathComponent == "bigline.md" }
+                expect(tab.map { !$0.focusDimmedRanges(in: $0.textView).isEmpty } == true, "Focus resumes")
+                // A long line typed in pauses it at once, and "Turn On Anyway" resumes it.
+                guard let tab else { return }
+                tab.textView.setSelectedRange(NSRange(location: 14, length: 0))
+                tab.textView.insertText(String(repeating: "y", count: LargeDocument.lineThreshold + 10), replacementRange: tab.textView.selectedRange())
+            },
+            sync {
+                guard let tab = app.tabs.first(where: { $0.doc.fileURL?.lastPathComponent == "bigline.md" }) else { return }
+                expect(tab.writingPaused && tab.textView.onScrollRangeToVisible == nil && tab.focusDimmedRanges(in: tab.textView).isEmpty,
+                       "a long line typed in pauses Writing Mode")
+                tab.turnOnExtras()
+                expect(!tab.writingPaused && tab.textView.onScrollRangeToVisible != nil, "Turn On Anyway resumes it")
+                tab.setWriting(WritingModeState())
+                essay.window.map { _ in focus(essay) }
+            },
+            sync {
                 // Focus on Paragraph, in another tab.
                 focus(focusTab)
                 focusTab.textView.setSelectedRange(NSRange(location: p2.location + 5, length: 0))

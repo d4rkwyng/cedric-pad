@@ -32,7 +32,8 @@ extension EditorWindowController {
         let old = editing.writing
         editing.writing = w
         for pane in panes { wireWriting(pane) }
-        if w.typewriter && !old.typewriter { typewriterScroll(animated: false) }
+        if let reason = largeReason, writingPaused { largeBar.show(reason, writingMode: !w.isOff) }
+        if typewriterActive && !old.typewriter { typewriterScroll(animated: false) }
         if w.focus { applyFocusNow(force: true) } else if old.focus { clearFocus() }
         (NSApp.delegate as? AppDelegate)?.scheduleSessionSave()
     }
@@ -43,7 +44,7 @@ extension EditorWindowController {
     /// One pane's hooks and inset for the current switches (at a switch, and
     /// for the second pane of a split when it is made).
     func wireWriting(_ pane: EditorPane) {
-        let on = editing.writing.typewriter
+        let on = typewriterActive
         pane.textView.onScrollRangeToVisible = on ? { [weak self, weak pane] _ in
             guard let self, let pane else { return false }
             self.typewriterScroll(in: pane, animated: false)
@@ -52,12 +53,25 @@ extension EditorWindowController {
         updateTypewriterInset(pane)
     }
 
+    /// Writing Mode pauses in large-document mode, as the colouring does
+    /// (`extrasPaused`: "Turn On Anyway" resumes it). The switches stay as
+    /// they are and act again once the document isn't large.
+    var writingPaused: Bool { extrasPaused }
+    var typewriterActive: Bool { editing.writing.typewriter && !writingPaused }
+
+    /// Large mode came or went (LargeDocumentMode.swift), or a switch changed.
+    func writingLargeModeChanged() {
+        guard !editing.writing.isOff || !editing.focusDimmed.isEmpty || panes.contains(where: { $0.textView.onScrollRangeToVisible != nil }) else { return }
+        for pane in panes { wireWriting(pane) }
+        if writingPaused { if !editing.focusDimmed.isEmpty { clearFocus() } } else { applyFocusNow(force: true) }
+    }
+
     /// The bottom inset that lets the last line reach the middle (0 when off).
     func updateTypewriterInset(_ pane: EditorPane) {
         let sv = pane.scrollView
         let font = pane.textView.font ?? Settings.shared.font
         let line = ceil(font.ascender - font.descender + font.leading)
-        let inset = editing.writing.typewriter
+        let inset = typewriterActive
             ? CGFloat(Typewriter.bottomInset(visibleHeight: Double(sv.contentView.bounds.height), lineHeight: Double(line))) : 0
         guard sv.contentInsets.bottom != inset else { return }
         sv.automaticallyAdjustsContentInsets = false
@@ -97,7 +111,7 @@ extension EditorWindowController {
     func typewriterScroll(in pane: EditorPane? = nil, animated: Bool) {
         let pane = pane ?? activePane
         let tv = pane.textView
-        guard editing.writing.typewriter else { return }
+        guard typewriterActive else { return }
         guard var mid = caretLineMidY(tv, layout: true) else { return }
         let sv = pane.scrollView, clip = sv.contentView
         updateTypewriterInset(pane)
@@ -106,7 +120,9 @@ extension EditorWindowController {
         // only when the middle is past what it lets us scroll to is that
         // done here (a Return at the end, say), not on every key.
         let inset = sv.contentInsets.bottom
-        if mid - visible.height / 2 > tv.frame.height + inset - visible.height + 0.5, let tlm = tv.textLayoutManager {
+        let font = tv.font ?? Settings.shared.font
+        let halfLine = ceil(font.ascender - font.descender + font.leading) / 2
+        if mid - visible.height / 2 > tv.frame.height + inset - visible.height + halfLine, let tlm = tv.textLayoutManager {
             tlm.textViewportLayoutController.layoutViewport()
             mid = caretLineMidY(tv) ?? mid
         }
@@ -161,7 +177,7 @@ extension EditorWindowController {
     func applyFocusNow(force: Bool = false) {
         guard editing.writing.focus, !textView.hasMarkedText() else { return }
         // Large-document mode (a 636 K-character line…): paused, like the colouring.
-        if isLargeDocument {
+        if writingPaused {
             if !editing.focusDimmed.isEmpty { clearFocus() }
             return
         }

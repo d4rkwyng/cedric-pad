@@ -460,10 +460,13 @@ too.
   between blank lines) or **Focus on Sentence** (just the sentence at the
   caret; "Dr." or "3.5" don't end a sentence) in the same menu; the choice
   is for every tab. Focus changes only how the text is drawn: nothing in
-  the file, undo or Find changes. Like syntax colouring, it pauses in
-  large-document mode.
+  the file, undo or Find changes.
 
-Typing is as fast with either on as with both off.
+Typing is as fast with either on as with both off. Like syntax colouring,
+both pause in large-document mode (a line over 20,000 characters, or a
+file over about 25 MB): the bar above the text says "…the owl and Writing
+Mode are paused for speed", the menu items stay ticked, and they work again
+after **Turn On Anyway** or once the document isn't large.
 
 ## Spelling and grammar
 

@@ -914,6 +914,12 @@ View › Writing Mode (`WritingMode.swift`, pure parts in CedricCore's
   bottom `contentInsets` (half the view) let the last line reach the
   middle. Animated only for a mouse selection with Reduce Motion off.
   Off, the hook is nil and the inset 0.
+- **Large documents.** Both pause while `extrasPaused` (large-document
+  mode, unless Turn On Anyway), as the colouring does:
+  `typewriterActive` / `writingPaused`; `applyLargeMode` calls
+  `writingLargeModeChanged`, which unhooks or rehooks the panes and clears
+  or reapplies Focus. The switches stay on, and the large-document bar
+  names Writing Mode when the tab has it on.
 - **Focus.** `FocusRange.paragraph` (lines between blank lines, at most
   5 K characters either way of the caret, read once into a buffer) or `.sentence` (NLTokenizer on
   that paragraph). The dimming is `NSTextLayoutManager` rendering
@@ -927,9 +933,9 @@ View › Writing Mode (`WritingMode.swift`, pure parts in CedricCore's
   visible ranges with their ends counted from the text's end, and when
   that matches the pass does nothing (TextKit moves the attribute with
   its text; the check reads it back after an edit). Ranges are found from
-  the viewport's start, not the document's. Paused in large-document mode,
-  as the colouring is (a 5 K window on a 636 K-character line moves with
-  the caret, so every key would redraw the view). (Colours stay storage
+  the viewport's start, not the document's. (A 5 K window on a 636
+  K-character line moves with the caret, so every key would redraw the
+  view: one reason it pauses in large-document mode.) (Colours stay storage
   attributes: the v0 note in `SyntaxColorizer` is about colouring every
   token that way; Focus sets one attribute on two ranges, and the checks
   read it back and look at the snapshot.)

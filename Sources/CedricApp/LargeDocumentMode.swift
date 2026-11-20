@@ -40,12 +40,17 @@ final class LargeDocumentBar: NSView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    func show(_ reason: LargeDocument.Reason) {
-        switch reason {
-        case .longLine: label.stringValue = String(localized: "Very long lines: colouring, spell check and the owl are paused for speed.")
-        case .size: label.stringValue = String(localized: "Large file: colouring, spell check and the owl are paused for speed.")
+    /// `writingMode`: the tab has View › Writing Mode on, paused here too.
+    func show(_ reason: LargeDocument.Reason, writingMode: Bool = false) {
+        switch (reason, writingMode) {
+        case (.longLine, false): label.stringValue = String(localized: "Very long lines: colouring, spell check and the owl are paused for speed.")
+        case (.size, false): label.stringValue = String(localized: "Large file: colouring, spell check and the owl are paused for speed.")
+        case (.longLine, true): label.stringValue = String(localized: "Very long lines: colouring, spell check, the owl and Writing Mode are paused for speed.")
+        case (.size, true): label.stringValue = String(localized: "Large file: colouring, spell check, the owl and Writing Mode are paused for speed.")
         }
-        button.toolTip = String(localized: "Colour this document and let the owl look at it. Typing may lag.")
+        button.toolTip = writingMode
+            ? String(localized: "Colour this document, let the owl look at it and turn Writing Mode back on. Typing may lag.")
+            : String(localized: "Colour this document and let the owl look at it. Typing may lag.")
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -90,7 +95,7 @@ extension EditorWindowController {
                 tv.needsDisplay = true
             }
         }
-        if let reason, extrasPaused { largeBar.show(reason) }
+        if let reason, extrasPaused { largeBar.show(reason, writingMode: !editing.writing.isOff) }
         largeBar.isHidden = !extrasPaused
         colorizer.paused = extrasPaused
         if !newText { updateGutterWidth() } // the fold column comes and goes
@@ -98,6 +103,7 @@ extension EditorWindowController {
         spelling.apply()
         grammar.apply()
         if extrasPaused != wasPaused { OwlHub.shared.largeModeChanged(self) }
+        writingLargeModeChanged()
     }
 
     /// "Turn On Anyway".
