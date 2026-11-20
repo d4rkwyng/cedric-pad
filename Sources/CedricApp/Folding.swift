@@ -385,7 +385,8 @@ func foldingMenu() -> NSMenuItem {
         item(String(localized: "Fold All"), #selector(AppDelegate.foldAllMenu(_:)), left, [.command, .option, .shift]),
         item(String(localized: "Unfold All"), #selector(AppDelegate.unfoldAllMenu(_:)), right, [.command, .option, .shift]),
         .separator(),
-    ] + (1...3).map {
-        item(String(localized: "Fold to Level \($0)"), #selector(AppDelegate.foldToLevelMenu(_:)), represented: $0)
+    ] + (1...3).map { (level: Int) in
+        // Typed: Swift 6.1 can't pick an appendInterpolation for an untyped range literal's $0.
+        item(String(localized: "Fold to Level \(level)"), #selector(AppDelegate.foldToLevelMenu(_:)), represented: level)
     })
 }
