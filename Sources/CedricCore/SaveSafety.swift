@@ -4,9 +4,13 @@ import Foundation
 /// decisions the app and the tests share.
 public enum SavePolicy {
     /// UIDocument's autosave (its timer, going to the background, closing)
-    /// saves only with the setting on and something to save.
-    public static func shouldAutosave(saveAutomatically: Bool, hasUnsavedChanges: Bool) -> Bool {
-        saveAutomatically && hasUnsavedChanges
+    /// saves only with the setting on and something to save, and not again
+    /// after a save failed for a reason that can't change until the text or
+    /// the encoding does (a character the encoding can't hold): it would
+    /// only fail again.
+    public static func shouldAutosave(saveAutomatically: Bool, hasUnsavedChanges: Bool,
+                                      blockedUntilEdited: Bool = false) -> Bool {
+        saveAutomatically && hasUnsavedChanges && !blockedUntilEdited
     }
 
     public enum CloseAction: Equatable, Sendable {

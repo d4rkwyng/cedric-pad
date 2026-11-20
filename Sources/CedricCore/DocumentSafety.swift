@@ -188,6 +188,9 @@ public struct EditGate: Equatable, Sendable {
         /// Another app changed the file while there were unsaved edits:
         /// waiting for Keep Mine / Use Theirs.
         case externalChange
+        /// UIDocument disabled editing (`disableEditing()`: a revert, a
+        /// conflict, another writer).
+        case documentLocked
     }
 
     public private(set) var reasons: Set<Reason> = []

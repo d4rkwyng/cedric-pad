@@ -45,6 +45,14 @@ final class TextDocument: UIDocument {
     var onEditedChange: (() -> Void)?
     /// Called on the main queue after a save that succeeded.
     var onSaved: (() -> Void)?
+    /// Called on the main queue when a save failed (the error as UIDocument
+    /// handed it over; the text stays, unsaved).
+    var onSaveError: ((Error) -> Void)?
+    /// Called on the main queue when UIDocument disables or enables editing.
+    var onEditingAllowed: ((Bool) -> Void)?
+    /// The last save failed for a reason only an edit can change (a
+    /// character the encoding can't hold): autosave waits for an edit.
+    private(set) var saveBlockedUntilEdited = false
     /// "Save automatically" (Settings): read at each autosave.
     var saveAutomatically: () -> Bool = { AppSettings.saveAutomatically }
     /// This document's copy of the file as opened (Revert to Opened Version).
@@ -79,6 +87,7 @@ final class TextDocument: UIDocument {
     override func updateChangeCount(_ change: UIDocument.ChangeKind) {
         super.updateChangeCount(change)
         if change == .done, firstUnsavedEdit == nil { firstUnsavedEdit = Date() }
+        if change == .done { saveBlockedUntilEdited = false }
         if change == .cleared { firstUnsavedEdit = nil }
         notifyEdited()
     }
@@ -93,7 +102,8 @@ final class TextDocument: UIDocument {
     /// Nothing is lost: the editor keeps a recovery copy while there are
     /// unsaved changes, and closing asks Save / Don't Save / Cancel.
     override func autosave(completionHandler: ((Bool) -> Void)? = nil) {
-        guard SavePolicy.shouldAutosave(saveAutomatically: saveAutomatically(), hasUnsavedChanges: hasUnsavedChanges) else {
+        guard SavePolicy.shouldAutosave(saveAutomatically: saveAutomatically(), hasUnsavedChanges: hasUnsavedChanges,
+                                        blockedUntilEdited: saveBlockedUntilEdited) else {
             completionHandler?(true)
             return
         }
@@ -108,10 +118,35 @@ final class TextDocument: UIDocument {
     override func save(to url: URL, for saveOperation: UIDocument.SaveOperation, completionHandler: ((Bool) -> Void)? = nil) {
         super.save(to: url, for: saveOperation) { ok in
             if ok { self.firstUnsavedEdit = nil }
+            // A failed save leaves the text unsaved (the Edited mark, the
+            // recovery copy), whatever UIDocument's count says.
+            if !ok, !self.hasUnsavedChanges { super.updateChangeCount(.done) }
             completionHandler?(ok)
             if ok { self.onSaved?() }
             self.notifyEdited()
         }
+    }
+
+    /// Save (and revert) errors: UIDocument's default only logs them. The
+    /// editor shows them; nothing is presented modally.
+    override func handleError(_ error: Error, userInteractionPermitted: Bool) {
+        if case OpenError.unencodable = error { saveBlockedUntilEdited = true }
+        let report = onSaveError
+        DispatchQueue.main.async { report?(error) }
+        finishedHandlingError(error, recovered: false)
+    }
+
+    /// The default "does nothing": the editor makes the text read-only.
+    override func disableEditing() {
+        super.disableEditing()
+        let f = onEditingAllowed
+        DispatchQueue.main.async { f?(false) }
+    }
+
+    override func enableEditing() {
+        super.enableEditing()
+        let f = onEditingAllowed
+        DispatchQueue.main.async { f?(true) }
     }
 
     /// UIDocument reverts when the file changed elsewhere, which discards

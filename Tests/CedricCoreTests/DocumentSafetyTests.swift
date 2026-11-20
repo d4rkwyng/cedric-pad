@@ -130,4 +130,20 @@ import Testing
         g.set(.conflict, false)
         #expect(g.isEditable)
     }
+
+    // MARK: Locked editing, failed saves
+
+    @Test func editGateFollowsUIDocumentDisableEditing() {
+        var g = EditGate()
+        g.set(.documentLocked, true)
+        #expect(!g.isEditable)
+        g.set(.documentLocked, true)
+        g.set(.documentLocked, false)
+        #expect(g.isEditable)
+    }
+
+    @Test func autosaveStopsAfterUnencodableFailureUntilEdited() {
+        #expect(SavePolicy.shouldAutosave(saveAutomatically: true, hasUnsavedChanges: true, blockedUntilEdited: false))
+        #expect(!SavePolicy.shouldAutosave(saveAutomatically: true, hasUnsavedChanges: true, blockedUntilEdited: true))
+    }
 }

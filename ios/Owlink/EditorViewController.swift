@@ -86,6 +86,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     private(set) var editGate = EditGate()
     /// An iCloud conflict is being dealt with (copied, then asked).
     private var conflictResolver: ConflictResolver?
+    /// A save failed: shown until one succeeds.
+    let saveErrorBanner = SaveErrorBanner()
 
     init(document: TextDocument, recovery: Recovery? = nil) {
         self.document = document
@@ -108,12 +110,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         document.currentText = { [weak self] in self?.textView.text ?? "" }
         document.onReload = { [weak self] in self?.loadText() }
         document.onExternalChange = { [weak self] in self?.externalChange() }
+        document.onSaveError = { [weak self] error in self?.saveFailed(error) }
+        document.onEditingAllowed = { [weak self] allowed in self?.setEditLock(.documentLocked, !allowed) }
         document.onEditedChange = { [weak self] in self?.updateEdited() }
         recoveryWriter = RecoveryWriter(document: document) { [weak self] in self?.textView.text ?? "" }
         document.onSaved = { [weak self] in
             guard let self, !self.closing else { return }
             // Edits made while it saved keep their copy.
             if self.document.hasUnsavedChanges { self.recoveryWriter.textChanged() } else { self.recoveryWriter.clear() }
+            self.saveErrorBanner.hide()
         }
         owl.onChange = { [weak self] in self?.showHint() }
         owl.onNote = { [weak self] note in self?.toast(note) }
@@ -242,6 +247,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         hintBar.onFix = { [weak self] in self?.applyFix() }
         setUpOwlSprite()
         setUpDivider()
+        setUpSaveErrorBanner()
         setUpFocusGestures()
         let g = view.safeAreaLayoutGuide
         splitTrailing = split.trailingAnchor.constraint(equalTo: g.trailingAnchor)
@@ -1250,7 +1256,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
 
     @objc func saveDocument() {
         document.save(to: document.fileURL, for: .forOverwriting) { [weak self] ok in
-            if !ok { self?.toast(String(localized: "Couldn’t save \(self?.document.displayName ?? "")")) }
+            if !ok { self?.saveFailed(nil) }
         }
     }
 
@@ -1258,6 +1264,18 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     /// Save / Cancel. Otherwise it closes (autosave saves first when on).
     @objc func closeDocument() {
         guard !closing else { return }
+        // The last save failed and the text is still unsaved: say so first.
+        if !saveErrorBanner.isHidden, document.hasUnsavedChanges {
+            let a = UIAlertController(title: String(localized: "\(document.displayName) isn’t saved"),
+                                      message: (saveErrorBanner.message ?? "") + "\n\n" + String(localized: "If you close it, the text is kept as a recovery copy and offered when you open the file again."),
+                                      preferredStyle: .alert)
+            a.addAction(UIAlertAction(title: String(localized: "Keep Editing"), style: .cancel))
+            a.addAction(UIAlertAction(title: String(localized: "Close"), style: .destructive) { [weak self] _ in
+                self?.finishClose(saveFirst: false)
+            })
+            present(a, animated: true)
+            return
+        }
         switch SavePolicy.onClose(saveAutomatically: AppSettings.saveAutomatically, hasUnsavedChanges: document.hasUnsavedChanges) {
         case .close:
             finishClose(saveFirst: false)
@@ -1278,7 +1296,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         if saveFirst {
             document.save(to: document.fileURL, for: .forOverwriting) { [weak self] ok in
                 guard let self else { return }
-                if ok { self.finishClose(saveFirst: false) } else { self.toast(String(localized: "Couldn’t save \(self.document.displayName)")) }
+                if ok { self.finishClose(saveFirst: false) } else { self.saveFailed(nil) }
             }
             return
         }
@@ -1479,7 +1497,49 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     }
 
     @objc private func documentStateChanged() {
-        if document.documentState.contains(.inConflict), conflictResolver == nil, !closing { beginConflict() }
+        let state = document.documentState
+        setEditLock(.documentLocked, state.contains(.editingDisabled))
+        if state.contains(.savingError), saveErrorBanner.isHidden { saveFailed(nil) }
+        if state.contains(.inConflict), conflictResolver == nil, !closing { beginConflict() }
+    }
+
+    // MARK: Failed saves
+
+    private func setUpSaveErrorBanner() {
+        saveErrorBanner.isHidden = true
+        saveErrorBanner.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(saveErrorBanner)
+        let g = view.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            saveErrorBanner.topAnchor.constraint(equalTo: g.topAnchor, constant: 6),
+            saveErrorBanner.leadingAnchor.constraint(equalTo: g.leadingAnchor, constant: 10),
+            saveErrorBanner.trailingAnchor.constraint(equalTo: g.trailingAnchor, constant: -10),
+        ])
+    }
+
+    /// A save failed: the text stays here, unsaved (and in the recovery
+    /// copy), and a strip says why until a save succeeds. Not an alert:
+    /// typing goes on.
+    func saveFailed(_ error: Error?) {
+        guard !closing else { return }
+        let name = document.displayName
+        recoveryWriter.writeNow()
+        if let error, case TextDocument.OpenError.unencodable(let enc) = error {
+            saveErrorBanner.show(String(localized: "\(name) isn’t saved: some characters can’t be saved as \(enc.displayName). Your text is kept here."),
+                                 actionTitle: String(localized: "Save as UTF-8")) { [weak self] in
+                self?.saveAsUTF8()
+            }
+            return
+        }
+        let why = error.map { " " + $0.localizedDescription } ?? ""
+        saveErrorBanner.show(String(localized: "Couldn’t save \(name).\(why) Your text is kept here, unsaved."))
+    }
+
+    private func saveAsUTF8() {
+        document.encoding = .utf8
+        document.updateChangeCount(.done)
+        updateStatus()
+        saveDocument()
     }
 
     // MARK: iCloud conflicts
