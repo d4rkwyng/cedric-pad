@@ -70,7 +70,8 @@ extension AppDelegate {
                                selectionLocation: sel.location, selectionLength: sel.length, topLine: t.primaryTopLine,
                                fileModified: d.fileModified,
                                bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines,
-                               indentation: d.indentation, folds: t.sessionFolds, split: t.sessionSplit)
+                               indentation: d.indentation, folds: t.sessionFolds, split: t.sessionSplit,
+                               writing: t.sessionWriting, wordGoal: d.fileURL == nil ? t.editing.wordGoal : nil)
         let r = ClosedTabs.push(entry, onto: closedTabs)
         closedTabs = r.list
         for gone in r.dropped {
@@ -129,6 +130,8 @@ extension AppDelegate {
             doc.languageChoice = .untitled(content: body)
         }
         let tab = makeTab(doc, text: body)
+        if let goal = st.wordGoal { tab.editing.wordGoal = goal }
+        if let w = st.writing, !w.isOff { tab.setWriting(w) }
         if st.hasBuffer || url == nil && st.path != nil {
             doc.markDirtyFromSession()
             // The buffer on disk already holds this text.

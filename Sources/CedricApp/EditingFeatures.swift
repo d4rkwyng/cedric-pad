@@ -27,6 +27,19 @@ final class EditingState {
     /// The newest background count asked for; older ones are dropped.
     var countsRequest = 0
 
+    /// View › Writing Mode for this tab (WritingMode.swift): off by default.
+    var writing = WritingModeState()
+    /// What Focus last dimmed, per text view (to take it off again).
+    var focusDimmed: [ObjectIdentifier: NSRange] = [:]
+    var focusPending = false
+    /// Typewriter scrolls made (the checks: one per keystroke at most).
+    var typewriterScrolls = 0
+    /// The stats popover's word goal (a file's is also in the session's
+    /// `wordGoals`, by path); never written into the text.
+    var wordGoal: Int?
+    /// The stats popover while it is shown (StatsPopover.swift).
+    var statsPopover: StatsPopover?
+
     func stop() {
         countsTimer?.invalidate()
         countsTimer = nil

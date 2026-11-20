@@ -36,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// buffer files. `closedTexts` holds the text in memory instead when
     /// session saving is off (the checks).
     var closedTabs: [SessionTab] = []
+    /// Files' word goals (the stats popover), from and to the session.
+    var fileWordGoals: [FileWordGoal] = []
     var closedTexts: [UUID: String] = [:]
 
     // MARK: Launch
@@ -303,6 +305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func makeTab(_ doc: EditorDocument, text: String, in group: NSWindow? = nil, newWindow: Bool = false, show: Bool = true,
                  tabIndex: Int? = nil) -> EditorWindowController {
         let tab = EditorWindowController(doc: doc, text: text)
+        if let path = doc.fileURL?.path { tab.editing.wordGoal = FileWordGoals.goal(for: path, in: fileWordGoals) }
         tab.onChange = { [weak self] _ in self?.scheduleSessionSave() }
         tab.onClose = { [weak self] t in
             self?.releaseWaiters(for: t.doc.id)
@@ -553,7 +556,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                               indentation: d.indentation,
                                               previewDetached: t.previewDetached ? true : nil,
                                               previewFrame: t.previewWindow?.window?.frameDescriptor,
-                                              folds: t.sessionFolds, split: t.sessionSplit))
+                                              folds: t.sessionFolds, split: t.sessionSplit, writing: t.sessionWriting,
+                                              wordGoal: d.fileURL == nil ? t.editing.wordGoal : nil))
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
             }
             if !sessionTabs.isEmpty {
@@ -561,7 +565,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
         for c in closedTabs where c.hasBuffer { keep.insert(c.id) }
-        let session = Session(windows: windows, closedTabs: closedTabs.isEmpty ? nil : closedTabs, folder: folderSessionState)
+        let session = Session(windows: windows, closedTabs: closedTabs.isEmpty ? nil : closedTabs, folder: folderSessionState,
+                              wordGoals: fileWordGoals.isEmpty ? nil : fileWordGoals)
         let store = self.store
         let toWrite = buffers, keeping = keep
         let write: @Sendable () -> Set<UUID> = {
@@ -633,6 +638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Closed tabs past ClosedTabs.keepDays go, with their unsaved text.
         let kept = ClosedTabs.expire(session.closedTabs ?? [])
         closedTabs = kept.list
+        fileWordGoals = session.wordGoals ?? []
         for gone in kept.dropped where gone.hasBuffer { store.removeBuffer(gone.id) }
         restoreFolder(session.folder)
         for w in session.windows {
@@ -697,6 +703,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         tab.updateTitle()
         let len = (body as NSString).length
         tab.textView.setSelectedRange(NSRange(location: min(st.selectionLocation, len), length: min(st.selectionLength, max(0, len - st.selectionLocation))))
+        if let goal = st.wordGoal { tab.editing.wordGoal = goal }
+        if let w = st.writing, !w.isOff { tab.setWriting(w) }
         if let marks = st.bookmarks {
             tab.editing.bookmarks = Bookmarks(marks)
             tab.editing.bookmarks.clamp(lineCount: tab.lineIndex.lineCount)
@@ -905,7 +913,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
              #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(useSelectionForFind(_:)),
              #selector(printDocument(_:)):
             return tab != nil
-        default: return validateSplitItem(item) ?? validateReplaceInFilesItem(item) ?? validateFolderItem(item) ?? validateMultiCaretItem(item) ?? validateFoldingItem(item) ?? validateGitItem(item) ?? validateMarkdownItem(item) ?? validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
+        default: return validateWritingItem(item) ?? validateSplitItem(item) ?? validateReplaceInFilesItem(item) ?? validateFolderItem(item) ?? validateMultiCaretItem(item) ?? validateFoldingItem(item) ?? validateGitItem(item) ?? validateMarkdownItem(item) ?? validateEditingItem(item) ?? validateIndentationItem(item) ?? validateFileItem(item) ?? validateFilterItem(item) ?? validateToolItem(item)
         }
         return true
     }

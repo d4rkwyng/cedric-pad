@@ -265,6 +265,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             guard let git = self?.gitState, git.showsGutter else { return nil }
             return git.changes
         }
+        if !editing.writing.isOff { wireWriting(pane) }
     }
 
     private func buildViews() {
@@ -334,6 +335,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observers.append(nc.addObserver(forName: .cedricContextBarChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateContextBar() }
         })
+        observers.append(nc.addObserver(forName: .cedricFocusUnitChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyFocusNow() }
+        })
     }
 
     /// One pane's scrolling and resizing (its observers live and go with the pane).
@@ -346,7 +350,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         })
         scrollView.postsFrameChangedNotifications = true
         pane.observers.append(nc.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView, queue: .main) { [weak self, weak pane] _ in
-            MainActor.assumeIsolated { if let pane { self?.keepAnchor(pane) } }
+            MainActor.assumeIsolated {
+                guard let pane, let self else { return }
+                if self.editing.writing.typewriter { self.updateTypewriterInset(pane) }
+                self.keepAnchor(pane)
+            }
         })
         pane.observers.append(nc.addObserver(forName: NSView.frameDidChangeNotification, object: textView, queue: .main) { [weak self, weak pane] _ in
             MainActor.assumeIsolated {
@@ -536,6 +544,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         scheduleHighlights()
         updateBracketMatch()
         updateOutlineCurrent()
+        if !editing.writing.isOff { writingSelectionChanged() }
     }
 
     /// A pane's top line when the user last scrolled it (`pane.anchorLine`)
@@ -556,6 +565,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             self?.colorizer.colorViewport()
             pane?.gutter.needsDisplay = true
             if pane === self?.activePane { self?.refreshHighlights() }
+            self?.scheduleFocus()
         }
         pane.gutter.needsDisplay = true
         // The preview and the owl follow the active pane (the owl's
@@ -577,6 +587,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         for pane in panes { applyPaneAppearance(pane, palette: p) }
         statusBar.background = NSColor(hex: p.statusBar)
         contextBar?.applyPalette(p)
+        if editing.writing.focus { applyFocusNow() }
         // Font and foreground over the whole text: one attribute run.
         let attrs = baseAttributes()
         if let storage = textView.textStorage, storage.length > 0,
@@ -676,6 +687,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         statusBar.gitButton.action = #selector(showGitMenu(_:))
         statusBar.languageButton.target = self
         statusBar.encodingButton.target = self
+        statusBar.counts.onClick = { [weak self] in self?.toggleStatsPopover() }
+        statusBar.counts.toolTip = String(localized: "Words, reading time and a word goal")
     }
 
     func updateStatus() {
@@ -685,6 +698,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         var pos = String(localized: "Ln \(line + 1), Col \(col)")
         if let marks = editing.markCount { pos += "  " + String(localized: "\(marks) marked") }
         scheduleCounts()
+        editing.statsPopover?.scheduleRefresh()
         statusBar.position.stringValue = pos
         StatusBar.fill(statusBar.languageButton, title: doc.languageChoice.displayTitle,
                        items: Language.allCases.map { ($0.displayName, $0.rawValue, $0 == doc.language) },
@@ -884,6 +898,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if doc.languageChoice.saved(fileName: url.lastPathComponent, content: textView.string) { languageChanged() }
         hideDiskBar()
         (NSApp.delegate as? AppDelegate)?.noteRecent(url)
+        // A word goal follows the tab to its (new) path.
+        if let goal = editing.wordGoal { (NSApp.delegate as? AppDelegate)?.setFileWordGoal(goal, path: url.path) }
         updateTitle()
         updateStatus()
         owl?.noteSave()

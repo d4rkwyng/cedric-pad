@@ -40,6 +40,9 @@ for c in recent texttool findinfiles compare follow large highlight lineops book
         | grep -E "^check:" | tee "$OUT/$c.txt"; then fail=1; fi
     grep -q "check: done .* 0 failed" "$OUT/$c.txt" || { echo "tools-check: $c FAILED" >&2; fail=1; }
 done
+# Writing Mode and the stats popover: two launches on one session (a goal kept across a quit).
+echo "== writing"
+Scripts/writing-check.sh --out "$OUT" "$APP" || { echo "tools-check: writing FAILED" >&2; fail=1; }
 # Hot close after a failed session save: needs session saving on.
 echo "== closefail"
 if ! env -u CEDRIC_NO_SESSION_SAVE CEDRIC_SESSION_DIR="$W/session-closefail" CEDRIC_CHECK=closefail perl -e 'alarm 90; exec @ARGV' "$BIN" -ApplePersistenceIgnoreState YES 2>/dev/null \

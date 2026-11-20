@@ -15,6 +15,7 @@ extension Notification.Name {
     static let cedricOwlSettingsChanged = Notification.Name("CedricOwlSettingsChanged")
     /// View › Context Bar was switched on or off.
     static let cedricContextBarChanged = Notification.Name("CedricContextBarChanged")
+    static let cedricFocusUnitChanged = Notification.Name("CedricFocusUnitChanged")
 }
 
 /// App-wide view settings: theme, font size, wrap, invisibles, line
@@ -81,6 +82,18 @@ final class Settings {
         set {
             if contextBarOverride != nil { contextBarOverride = newValue } else { defaults.set(newValue, forKey: "showContextBar") }
             NotificationCenter.default.post(name: .cedricContextBarChanged, object: nil)
+        }
+    }
+
+    /// The checks (no session saving) switch it here without saving.
+    var focusUnitOverride: FocusUnit? = DevEnvironment.values["CEDRIC_NO_SESSION_SAVE"] == "1" ? .paragraph : nil
+
+    /// View › Writing Mode › Focus on Paragraph / Sentence (WritingMode.swift).
+    var focusUnit: FocusUnit {
+        get { focusUnitOverride ?? defaults.string(forKey: "focusUnit").flatMap(FocusUnit.init(rawValue:)) ?? .paragraph }
+        set {
+            if focusUnitOverride != nil { focusUnitOverride = newValue } else { defaults.set(newValue.rawValue, forKey: "focusUnit") }
+            NotificationCenter.default.post(name: .cedricFocusUnitChanged, object: nil)
         }
     }
 

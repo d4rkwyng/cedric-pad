@@ -48,6 +48,9 @@ enum LargeDocPerf {
         DevHooks.metric("open_total_ms", (t2 - t0) * 1000)
         PerfTrace.enabled = false
         if let w = env["CEDRIC_PERF_WRAP"] { tab.forceWrapForPerf(w == "1") }
+        // View › Writing Mode on (typewriter and Focus) for the whole run.
+        let writing = env["CEDRIC_PERF_WRITING"] == "1"
+        if writing { tab.setWriting(WritingModeState(typewriter: true, focus: true)) }
         let maxLine = tab.lineIndex.longestLine
         print("perf: lines=\(tab.lineIndex.lineCount) utf16=\(tab.lineIndex.length) longest_line=\(maxLine) large=\(tab.isLargeDocument) wrap=\(tab.wrapsLines)")
 
@@ -67,6 +70,7 @@ enum LargeDocPerf {
                 let s = DevHooks.now()
                 tab.textView.insertText(String(keys[k % keys.count]), replacementRange: tab.textView.selectedRange())
                 tab.colorizer.colorViewport()
+                if writing { tab.applyFocusNow() }   // its deferred pass, timed with the key
                 tab.window?.displayIfNeeded()
                 samples.append((DevHooks.now() - s) * 1000)
             }

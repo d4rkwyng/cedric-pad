@@ -237,6 +237,8 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Context Bar"), #selector(AppDelegate.toggleContextBarMenu(_:))),
         item(String(localized: "Show Outline"), #selector(AppDelegate.toggleOutlineMenu(_:)), "o", [.control, .command]),
         item(String(localized: "Show Folder Sidebar"), #selector(AppDelegate.toggleFolderSidebarMenu(_:)), "1", [.control, .command]),
+        // Typewriter scrolling and Focus, per tab, off by default (WritingMode.swift).
+        writingModeMenu(),
         .separator(),
         // ⌥⌘Z, not bare ⌥Z: that types Ω (and other letters on other keyboards).
         item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.command, .option]),

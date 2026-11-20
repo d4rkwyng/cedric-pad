@@ -21,6 +21,14 @@ enum DevChecks {
         fflush(stdout)
     }
 
+    /// As `finish`, but through a normal quit (the session is saved), for
+    /// checks that relaunch on what this run left.
+    static func finishAndQuit() {
+        print("check: done \(passed) passed, \(failed) failed")
+        fflush(stdout)
+        NSApp.terminate(nil)
+    }
+
     static func finish() {
         print("check: done \(passed) passed, \(failed) failed")
         fflush(stdout)
@@ -158,10 +166,10 @@ enum DevChecks {
 
     /// Runs `steps` one after another, `gap` seconds apart (each step may
     /// be async: it calls `next` when done).
-    static func run(_ steps: [(@escaping () -> Void) -> Void], gap: Double = 0.3) {
+    static func run(_ steps: [(@escaping () -> Void) -> Void], gap: Double = 0.3, quit: Bool = false) {
         var i = 0
         func step() {
-            guard i < steps.count else { finish(); return }
+            guard i < steps.count else { if quit { finishAndQuit() } else { finish() }; return }
             let s = steps[i]
             i += 1
             // An event through the app's event loop between steps: AppKit
@@ -224,6 +232,8 @@ enum DevChecks {
         case "defaulteditor": defaultEditorCheck(app)
         case "palette": paletteCheck(app)
         case "contextbar": contextBarCheck(app)
+        case "writing": writingCheck(app)
+        case "writingrestore": writingRestoreCheck(app)
         default:
             if !editingCheck(name, app), !pdfCheck(name, app), !imageCheck(name, app), !binaryCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
         }

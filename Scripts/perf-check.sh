@@ -12,6 +12,9 @@
 #
 #   Scripts/perf-check.sh [--file PATH] [APP]     default "dist/Owlink.app"
 #
+# CEDRIC_PERF_WRITING=1 runs it with View › Writing Mode on (typewriter
+# scrolling and Focus) in each file.
+#
 # Needs a GUI session (works with the screen locked). Numbers from a
 # loaded machine can be noisy: run it again before believing a failure.
 set -euo pipefail

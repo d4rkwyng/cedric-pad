@@ -182,7 +182,8 @@ final class ZoomPopUp: NSPopUpButton {
 final class StatusBar: NSView {
     let position = NSTextField(labelWithString: "")
     /// Words, lines and characters of the document or the selection.
-    let counts = NSTextField(labelWithString: "")
+    /// A click opens the stats popover (StatsPopover.swift).
+    let counts = CountsLabel(labelWithString: "")
     let languageButton = NSPopUpButton(frame: .zero, pullsDown: true)
     let encodingButton = NSPopUpButton(frame: .zero, pullsDown: true)
     let lineEndingButton = NSPopUpButton(frame: .zero, pullsDown: true)

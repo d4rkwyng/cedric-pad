@@ -88,6 +88,16 @@ final class EditorTextView: NSTextView {
 
     var contentStorage: ChunkedContentStorage? { textLayoutManager?.textContentManager as? ChunkedContentStorage }
 
+    /// View › Writing Mode › Typewriter Scrolling (WritingMode.swift): set
+    /// only while it is on; returns true when it scrolled in place of
+    /// NSTextView's minimal scroll to the caret.
+    var onScrollRangeToVisible: ((NSRange) -> Bool)?
+
+    override func scrollRangeToVisible(_ range: NSRange) {
+        if let hook = onScrollRangeToVisible, range == selectedRange(), hook(range) { return }
+        super.scrollRangeToVisible(range)
+    }
+
     /// This view became first responder (View › Split Editor: commands
     /// follow the focused pane).
     var onFocus: ((EditorTextView) -> Void)?
