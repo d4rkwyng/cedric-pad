@@ -32,11 +32,17 @@ extension EditorWindowController {
         let text = textView.string
         let language = doc.language.rawValue
         guard (text as NSString).length <= 4_000_000 else { NSSound.beep(); return }
-        let items = Todos.find(text, language: language)
-        let vc = TodoListController(items: items) { [weak self] item in
-            self?.goToLine(item.line)
+        // Off the main thread (a long file's lexing pass), on a copy of the text.
+        let generation = doc.changeCount
+        Task { @MainActor [weak self] in
+            let items = await Task.detached(priority: .userInitiated) { Todos.find(text, language: language) }.value
+            // Still the same text: the lines listed are the lines there.
+            guard let self, self.doc.changeCount == generation else { return }
+            let vc = TodoListController(items: items) { [weak self] item in
+                self?.goToLine(item.line)
+            }
+            self.showToolPopover(vc)
         }
-        showToolPopover(vc)
     }
 
     func showToolResult(title: String, body: String) {
