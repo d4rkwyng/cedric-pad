@@ -164,12 +164,15 @@ enum MarkdownRules {
         var image: Bool
         var whole: NSRange      // the whole link, for Show Me
         var altEmpty: Bool = false
+        enum Kind { case inline, reference, html }
+        var kind: Kind = .inline
     }
 
     /// `[text](dest)` / `![alt](dest "title")`, `[label]: dest` and
     /// `<img src="dest">` / `<a href="dest">`, outside code.
     static let inlineLink = try! NSRegularExpression(pattern: #"(!?)\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*)\]\(\s*(<[^<>\n]*>|[^\s()<>]*(?:\([^\s()]*\)[^\s()<>]*)*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)"#)
-    static let refDefinition = try! NSRegularExpression(pattern: #"(?m)^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^<>\n]*>|\S+)"#)
+    /// (Not a footnote's `[^1]: text`: that is a note, not a link.)
+    static let refDefinition = try! NSRegularExpression(pattern: #"(?m)^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(<[^<>\n]*>|\S+)"#)
     static let htmlLink = try! NSRegularExpression(pattern: #"(?i)<(img|a|source)\b[^>\n]*?\s(src|href)\s*=\s*(?:"([^"\n]*)"|'([^'\n]*)')"#)
 
     static func links(_ input: LintInput) -> [Link] {
@@ -177,28 +180,28 @@ enum MarkdownRules {
             let s = input.text, str = input.string
             let st = input.markdownStructure
             var out: [Link] = []
-            func add(_ target: NSRange, image: Bool, whole: NSRange, altEmpty: Bool = false) {
+            func add(_ target: NSRange, image: Bool, whole: NSRange, altEmpty: Bool = false, kind: Link.Kind) {
                 guard !st.isSkipped(whole.location) else { return }
                 var t = target
                 // <dest>: without the brackets.
                 if t.length >= 2, s.character(at: t.location) == 60, s.character(at: NSMaxRange(t) - 1) == 62 {
                     t = NSRange(location: t.location + 1, length: t.length - 2)
                 }
-                out.append(Link(target: t, image: image, whole: whole, altEmpty: altEmpty))
+                out.append(Link(target: t, image: image, whole: whole, altEmpty: altEmpty, kind: kind))
             }
             if s.range(of: "](").location != NSNotFound {
                 for m in RulesHintProvider.matches(inlineLink, str) {
                     let alt = s.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespaces)
-                    add(m.range(at: 3), image: m.range(at: 1).length > 0, whole: m.range, altEmpty: alt.isEmpty)
+                    add(m.range(at: 3), image: m.range(at: 1).length > 0, whole: m.range, altEmpty: alt.isEmpty, kind: .inline)
                 }
             }
             if s.range(of: "]:").location != NSNotFound {
-                for m in RulesHintProvider.matches(refDefinition, str) { add(m.range(at: 1), image: false, whole: m.range) }
+                for m in RulesHintProvider.matches(refDefinition, str) { add(m.range(at: 1), image: false, whole: m.range, kind: .reference) }
             }
             if s.range(of: "<").location != NSNotFound {
                 for m in RulesHintProvider.matches(htmlLink, str) {
                     let r = m.range(at: 3).location != NSNotFound ? m.range(at: 3) : m.range(at: 4)
-                    add(r, image: s.substring(with: m.range(at: 1)).lowercased() != "a", whole: m.range)
+                    add(r, image: s.substring(with: m.range(at: 1)).lowercased() != "a", whole: m.range, kind: .html)
                 }
             }
             return out.sorted { $0.whole.location < $1.whole.location }
@@ -219,7 +222,8 @@ enum MarkdownRules {
     /// A heading's text as the anchor is made from it: links become their
     /// text, tags and emphasis markers go.
     static func plainHeading(_ t: String) -> String {
-        inlineMarkup.stringByReplacingMatches(in: t, range: NSRange(location: 0, length: (t as NSString).length), withTemplate: "$1")
+        guard t.contains(where: { "[<*_`~".contains($0) }) else { return t }
+        return inlineMarkup.stringByReplacingMatches(in: t, range: NSRange(location: 0, length: (t as NSString).length), withTemplate: "$1")
     }
 
     /// Only letters and digits, lower case: anchors as GitHub, GitLab,
@@ -228,34 +232,76 @@ enum MarkdownRules {
         String(s.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init))
     }
 
+    struct Heading {
+        var level: Int
+        var line: Int           // index into the lines
+        var marks: NSRange?     // the run of #s (nil: an underlined heading)
+        var text: String        // as plain text (links as their text, no markup)
+        var base: String        // its anchor before -1, -2 for repeats
+    }
+
+    /// The headings outside code (`#` lines and underlined ones), with
+    /// their GitHub anchors as the preview makes them (`Markdown.slug`).
+    static func headings(_ input: LintInput) -> [Heading] {
+        input.shared("md.headings") {
+            let s = input.text, st = input.markdownStructure
+            var out: [Heading] = []
+            func add(_ text: String, level: Int, line: Int, marks: NSRange?) {
+                let plain = plainHeading(text)
+                let base = Markdown.slug(plain).replacingOccurrences(of: "&amp;", with: "").replacingOccurrences(of: "&lt;", with: "")
+                    .replacingOccurrences(of: "&gt;", with: "").replacingOccurrences(of: "&quot;", with: "")
+                out.append(Heading(level: level, line: line, marks: marks, text: plain, base: base))
+            }
+            /// The first character after up to three spaces (unichar), or 0.
+            func lead(_ r: NSRange) -> unichar {
+                var i = r.location
+                while i < NSMaxRange(r), i - r.location < 4, s.character(at: i) == 32 { i += 1 }
+                return i < NSMaxRange(r) ? s.character(at: i) : 0
+            }
+            for (k, r) in input.lines.enumerated() where r.length > 0 && !st.isSkipped(r.location) {
+                let c = lead(r)
+                // Only # (or a quote's >) can start a # heading; only a
+                // line followed by === or --- is an underlined one.
+                let atx = c == 35 || c == 62 && s.range(of: "#", options: [], range: r).location != NSNotFound
+                let under = k + 1 < input.lines.count && { let n = lead(input.lines[k + 1]); return n == 61 || n == 45 }()
+                guard atx || under else { continue }
+                let line = s.substring(with: r)
+                if atx, let m = atxHeading.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) {
+                    let l = line as NSString
+                    var i = 0
+                    while i < l.length, l.character(at: i) != 35 { i += 1 }
+                    var n = 0
+                    while i + n < l.length, l.character(at: i + n) == 35 { n += 1 }
+                    add(m.range(at: 1).location == NSNotFound ? "" : l.substring(with: m.range(at: 1)), level: n, line: k,
+                        marks: NSRange(location: r.location + i, length: n))
+                } else if under, !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                    // Setext: a line underlined with === or ---.
+                    let next = s.substring(with: input.lines[k + 1]).trimmingCharacters(in: .whitespaces)
+                    if next.count >= 1, next.allSatisfy({ $0 == "=" }) || (next.count >= 2 && next.allSatisfy({ $0 == "-" })) {
+                        add(line.trimmingCharacters(in: .whitespaces), level: next.first == "=" ? 1 : 2, line: k, marks: nil)
+                    }
+                }
+            }
+            return out
+        }
+    }
+
     /// The anchors the document defines: its headings' slugs (GitHub's,
     /// with -1, -2 for repeats) and explicit ids (`id=`, `name=`, `{#id}`).
     static func anchors(_ input: LintInput) -> (exact: Set<String>, loose: Set<String>, slugs: [String]) {
         let s = input.text, st = input.markdownStructure
         var exact: Set<String> = [], looseSet: Set<String> = [], slugs: [String] = [], seen: [String: Int] = [:]
-        func addHeading(_ text: String) {
-            let plain = plainHeading(text)
-            let base = Markdown.slug(plain).replacingOccurrences(of: "&amp;", with: "").replacingOccurrences(of: "&lt;", with: "")
-                .replacingOccurrences(of: "&gt;", with: "").replacingOccurrences(of: "&quot;", with: "")
-            let n = seen[base, default: 0]
-            seen[base] = n + 1
-            let slug = n == 0 ? base : "\(base)-\(n)"
+        for h in headings(input) {
+            let n = seen[h.base, default: 0]
+            seen[h.base] = n + 1
+            let slug = n == 0 ? h.base : "\(h.base)-\(n)"
             exact.insert(slug)
             slugs.append(slug)
-            looseSet.insert(loose(plain))
-            if n > 0 { looseSet.insert(loose(plain) + "\(n)") }
+            looseSet.insert(loose(h.text))
+            if n > 0 { looseSet.insert(loose(h.text) + "\(n)") }
         }
-        for (k, r) in input.lines.enumerated() where !st.isSkipped(r.location) {
+        for r in input.lines where !st.isSkipped(r.location) {
             let line = s.substring(with: r)
-            if line.contains("#"), let m = atxHeading.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) {
-                addHeading(m.range(at: 1).location == NSNotFound ? "" : (line as NSString).substring(with: m.range(at: 1)))
-            } else if k + 1 < input.lines.count, !line.trimmingCharacters(in: .whitespaces).isEmpty {
-                // Setext: a line underlined with === or ---.
-                let next = s.substring(with: input.lines[k + 1]).trimmingCharacters(in: .whitespaces)
-                if next.count >= 1, next.allSatisfy({ $0 == "=" }) || (next.count >= 2 && next.allSatisfy({ $0 == "-" })) {
-                    addHeading(line.trimmingCharacters(in: .whitespaces))
-                }
-            }
             if line.contains("id") || line.contains("name") || line.contains("{") {
                 for m in RulesHintProvider.matches(explicitID, line) {
                     for g in 1...3 where m.range(at: g).location != NSNotFound {
@@ -359,8 +405,12 @@ enum MarkdownRules {
         guard s.range(of: "](").location != NSNotFound || s.range(of: "]:").location != NSNotFound
                 || s.range(of: "src").location != NSNotFound || s.range(of: "href").location != NSNotFound else { return nil }
         var hits: [(Link, String)] = []
+        var listed = false
         for l in links(input) {
             guard let path = relativePath(s.substring(with: l.target)) else { continue }
+            // Start the folder's listing with the first look-up, so the
+            // query that knows a file is missing also knows its neighbours.
+            if !listed { listed = true; _ = probe.files?() }
             // Site generators link page (or page/) to page.md.
             var candidates = [path]
             let ext = (path as NSString).pathExtension.lowercased()
@@ -388,10 +438,124 @@ enum MarkdownRules {
         }
         guard let first = hits.first else { return nil }
         let name = String(first.1.prefix(32))
-        return LintFinding(kind: .warning,
-                           title: first.0.image ? String(localized: "No image at “\(name)”.") : String(localized: "No file at “\(name)”."),
+        // Fix it: each missing file's one clear nearest match in the
+        // document's folder tree (listed off the main thread; nil until then).
+        var fix: (range: NSRange, replacement: String)?
+        var firstTo: String?
+        if let list = probe.files {
+            // The listing isn't there yet: wait for the query that has it.
+            guard let files = list() else { return nil }
+            var nearest: [String: String?] = [:]
+            var edits: [(NSRange, String)] = []
+            for (l, path) in hits where !files.isEmpty {
+                let to: String?
+                if let known = nearest[path] { to = known } else if nearest.count < 8 {
+                    to = nearestFile(path, in: input)
+                    nearest[path] = .some(to)
+                } else { to = nil }
+                guard let to else { edits = []; break }
+                let angle = l.target.location > 0 && s.character(at: l.target.location - 1) == 60
+                edits.append((l.target, rewrite(s.substring(with: l.target), to: to, encode: l.kind != .html && !angle)))
+            }
+            if !edits.isEmpty, let e = RulesHintProvider.spanEdit(s, edits) {
+                fix = e
+                firstTo = nearest[first.1] ?? nil
+            }
+        }
+        let title: String
+        if let to = firstTo {
+            let missing = String((first.1 as NSString).lastPathComponent.prefix(16))
+            let shown = to.count > 22 ? "…" + to.suffix(21) : to
+            title = first.0.image ? String(localized: "No image “\(missing)”. Use “\(shown)”?")
+                : String(localized: "No file “\(missing)”. Link to “\(shown)”?")
+        } else {
+            title = first.0.image ? String(localized: "No image at “\(name)”.") : String(localized: "No file at “\(name)”.")
+        }
+        return LintFinding(kind: fix == nil ? .warning : .fix, title: title,
                            detail: String(localized: "The link \(input.at(first.0.target.location)) points to a file that isn’t there, relative to this document. Renamed or moved?\(RulesHintProvider.andMore(hits.count))"),
-                           range: first.0.target)
+                           range: fix?.range ?? first.0.target, replacement: fix?.replacement)
+    }
+
+    /// The file a broken relative link most likely meant: among the
+    /// Markdown or image files under the document's folder (the probe's
+    /// list), the same name elsewhere, or else the closest name (a few
+    /// letters off; another image extension counts one), ties broken by
+    /// the closest path. Nil unless exactly one is clearly best.
+    static func nearestFile(_ path: String, in input: LintInput) -> String? {
+        guard let probe = input.facts.fileExists, let files = probe.files?() else { return nil }
+        let index = input.shared("md.file-index") { FileIndexCache.shared.index(probe.id, files) }
+        return nearestFile(path, index: index)
+    }
+
+    typealias FileIndex = [(path: String, lower: String, stem: String, ext: String)]
+
+    /// The last listing's lower-cased names, kept between queries: the
+    /// listing changes at most every 2 min, the queries come every 30 s.
+    final class FileIndexCache: @unchecked Sendable {
+        static let shared = FileIndexCache()
+        private let lock = NSLock()
+        private var key: (UUID, Int, String?, String?)?
+        private var index: FileIndex = []
+
+        func index(_ probe: UUID, _ files: [String]) -> FileIndex {
+            lock.lock()
+            defer { lock.unlock() }
+            if let k = key, k.0 == probe, k.1 == files.count, k.2 == files.first, k.3 == files.last { return index }
+            index = files.map { f in
+                let lower = f.lowercased()
+                let name = (lower as NSString).lastPathComponent as NSString
+                return (f, lower, name.deletingPathExtension, name.pathExtension)
+            }
+            key = (probe, files.count, files.first, files.last)
+            return index
+        }
+    }
+
+    static func extGroup(_ ext: String) -> Int? {
+        if OwlFileProbe.markdownExtensions.contains(ext) { return 0 }
+        if ext == "pdf" { return 2 }
+        return OwlFileProbe.imageExtensions.contains(ext) ? 1 : nil
+    }
+
+    static func nearestFile(_ path: String, index: FileIndex) -> String? {
+        // The link's path inside the document's folder (none above it).
+        var comps: [Substring] = []
+        for c in path.split(separator: "/") {
+            if c == "." { continue }
+            if c == ".." { guard !comps.isEmpty else { return nil }; comps.removeLast() } else { comps.append(c) }
+        }
+        guard let last = comps.last else { return nil }
+        let target = comps.joined(separator: "/").lowercased()
+        let name = last.lowercased() as NSString
+        let stem = name.deletingPathExtension, ext = name.pathExtension
+        guard let group = extGroup(ext), !stem.isEmpty else { return nil }
+        let n = stem.utf16.count
+        let limit = n <= 3 ? 1 : n <= 8 ? 2 : 3
+        var ranked: [(name: Int, path: Int, file: String)] = []
+        for f in index where f.lower != target && abs(f.stem.utf16.count - n) <= limit && extGroup(f.ext) == group {
+            let d = (f.stem == stem ? 0 : JSRules.distance(stem, f.stem)) + (f.ext == ext ? 0 : 1)
+            guard d <= limit else { continue }
+            ranked.append((d, JSRules.distance(target, f.lower), f.path))
+        }
+        ranked.sort { ($0.name, $0.path) < ($1.name, $1.path) }
+        guard let best = ranked.first else { return nil }
+        // One clear best: nothing as close by name and nearly as close by path.
+        if let second = ranked.dropFirst().first, second.name == best.name, second.path - best.path < 2 { return nil }
+        return best.file
+    }
+
+    /// The link's destination with its path swapped for `to` (relative to
+    /// the document); a #fragment or ?query and a leading ./ are kept, and
+    /// the path is percent-encoded when the old one was or a space needs it.
+    static func rewrite(_ raw: String, to: String, encode: Bool) -> String {
+        let cut = raw.firstIndex { $0 == "#" || $0 == "?" } ?? raw.endIndex
+        let old = raw[..<cut], suffix = raw[cut...]
+        var path = to
+        if old.hasPrefix("./"), !path.hasPrefix("./") { path = "./" + path }
+        if old.contains("%") || encode && path.contains(where: { $0 == " " || $0 == "<" || $0 == ">" }) {
+            path = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
+        }
+        return path + suffix
     }
 
     // MARK: Style: an image without alt text (MD045)

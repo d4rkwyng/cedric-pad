@@ -1206,6 +1206,26 @@ offers hints in a speech bubble.
   (`OwlFileProbe.installedCopyFolders`); a bare file name isn't checked
   under an Obsidian vault or Quartz site (`.obsidian`, `quartz.config.*`
   up to four folders up).
+- **Markdown writing checks** (0.4.0, `MarkdownWritingRules.swift`): a
+  broken relative link's **Fix it** goes to its one clear nearest file.
+  `OwlFileProbe.files` lists the Markdown and image files under the
+  document's folder (`OwlFileProbe.scan`: no hidden files, packages or
+  installed copies, at most 2,000 entries, 6 folders deep), made by
+  `FileProbe.files()` on the utility queue and kept 2 min like the
+  answers; until the listing is there the rule waits (nil). The match is
+  the same name elsewhere or a name a few letters off, same kind of file
+  (Markdown, image, PDF), ties broken by path distance; two equally near
+  give no fix, and one unfixable link among several gives none (no
+  partial fix). The fragment, query and `./` are kept.
+  `MarkdownRules.headings` (shared by the anchors) feeds
+  `rules.md.heading-skip` (MD001: `##` then `####`; Fix it moves the
+  heading and the ones under it up, keeping the outline's shape) and
+  `rules.md.duplicate-heading` (same anchor under the same parent, or any
+  repeat whose anchor a link uses; Show Me). `rules.md.footnote` flags
+  `[^x]` with no `[^x]:` note (only numbered labels when the file has no
+  notes at all) and a note nothing cites; `rules.md.empty-link` flags
+  `[text]()` and `[](url)` (an image with no alt is the style tier's).
+  Bad `#anchors` stay `rules.md.broken-anchor`'s.
 - **SQL and PowerShell masks**: `CodeMask.scanSQL` (`'…'` with `''` and
   `\'`, `"…"` and `` `…` `` identifiers, `--` and `/* */` comments,
   `$$`/`$tag$` bodies) and `scanPowerShell(…, forMask: true)` (the
