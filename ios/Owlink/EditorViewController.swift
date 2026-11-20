@@ -570,6 +570,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     private func applySettings() {
         let dark = traitCollection.userInterfaceStyle == .dark
         palette = AppSettings.theme.palette(systemIsDark: dark)
+        applyBarStyle()
         let bg = UIColor(hex: palette.background)
         textView.backgroundColor = bg
         view.backgroundColor = bg
@@ -587,6 +588,26 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         applyWrap()
         colorizer?.setPalette(palette)
         refreshPreview()
+    }
+
+    /// The navigation bar (file name, buttons, menus) and the status bar
+    /// draw in system colours, which follow the system appearance, not the
+    /// theme: a dark theme on a light-mode phone gave a black title over a
+    /// dark editor. A fixed theme sets the whole navigation controller to
+    /// its own light/dark; System leaves it to the system. A fixed theme's
+    /// palette ignores the trait, so the trait change this causes settles.
+    private func applyBarStyle() {
+        guard let nav = navigationController else { return }
+        let style: UIUserInterfaceStyle = AppSettings.theme == .system ? .unspecified : (palette.isDark ? .dark : .light)
+        if nav.overrideUserInterfaceStyle != style {
+            nav.overrideUserInterfaceStyle = style
+            nav.setNeedsStatusBarAppearanceUpdate()
+        }
+    }
+
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        applyBarStyle()
     }
 
     private func applyWrap() {
