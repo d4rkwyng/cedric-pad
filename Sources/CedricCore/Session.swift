@@ -45,6 +45,13 @@ public struct SessionTab: Codable, Equatable, Sendable {
     /// A binary (DER) certificate or PKCS#7 bundle in a certificate tab. Nil otherwise.
     public var certificate: OfficeTabState?
 
+    /// View › Writing Mode's switches for this tab (nil: both off, and in
+    /// sessions saved before 0.4.0).
+    public var writing: WritingModeState?
+    /// The stats popover's word goal for an untitled tab (a file's goal is
+    /// in `Session.wordGoals`, by path). Never written into the text.
+    public var wordGoal: Int?
+
     /// When it was closed (closed tabs only; nil in 0.2.0 sessions).
     public var closed: Date?
 
@@ -56,7 +63,7 @@ public struct SessionTab: Codable, Equatable, Sendable {
                 selectionLocation: Int = 0, selectionLength: Int = 0, topLine: Int = 0, fileModified: Date? = nil,
                 bookmarks: [Int]? = nil, indentation: Indentation? = nil, previewDetached: Bool? = nil, previewFrame: String? = nil, pdf: PDFTabState? = nil,
                 image: ImageTabState? = nil, office: OfficeTabState? = nil, certificate: OfficeTabState? = nil, folds: [Int]? = nil,
-                split: SplitEditorState? = nil) {
+                split: SplitEditorState? = nil, writing: WritingModeState? = nil, wordGoal: Int? = nil) {
         self.id = id
         self.path = path
         self.untitledName = untitledName
@@ -78,6 +85,8 @@ public struct SessionTab: Codable, Equatable, Sendable {
         self.certificate = certificate
         self.folds = folds
         self.split = split
+        self.writing = writing
+        self.wordGoal = wordGoal
     }
 }
 
@@ -109,12 +118,17 @@ public struct Session: Codable, Equatable, Sendable {
     /// The folder open in the folder sidebar (File › Open Folder…). Nil
     /// with none open and in sessions saved before 0.2.0.
     public var folder: SessionFolder?
+    /// Files' word goals (the stats popover), by path, most recently set
+    /// last (`FileWordGoals`). Nil with none and in sessions before 0.4.0.
+    public var wordGoals: [FileWordGoal]?
 
-    public init(windows: [SessionWindow], untitledCounter: Int = 0, closedTabs: [SessionTab]? = nil, folder: SessionFolder? = nil) {
+    public init(windows: [SessionWindow], untitledCounter: Int = 0, closedTabs: [SessionTab]? = nil, folder: SessionFolder? = nil,
+                wordGoals: [FileWordGoal]? = nil) {
         self.windows = windows
         self.untitledCounter = untitledCounter
         self.closedTabs = closedTabs
         self.folder = folder
+        self.wordGoals = wordGoals
     }
 
     public var allTabs: [SessionTab] { windows.flatMap(\.tabs) }
