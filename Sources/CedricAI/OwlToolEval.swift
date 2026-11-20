@@ -25,6 +25,8 @@ public enum OwlToolEval {
         public var expected: String
         public var got: String
         public var pass: Bool
+        /// Wall time of the case (every model turn and tool run), seconds.
+        public var seconds: TimeInterval = 0
     }
 
     public static let shown = 12
@@ -147,6 +149,13 @@ public enum OwlToolEval {
 
     /// One case: the first move the model makes.
     public static func run(_ c: Case, engine: any OwlChatEngine) async -> Result {
+        let t0 = Date()
+        var r = await firstMove(c, engine: engine)
+        r.seconds = Date().timeIntervalSince(t0)
+        return r
+    }
+
+    private static func firstMove(_ c: Case, engine: any OwlChatEngine) async -> Result {
         let d = docs[c.doc]!
         let full = d.text as NSString
         let shownRange = OwlDocumentSnapshot(text: d.text, generation: 1).range(lines: 1, shown)!
@@ -156,7 +165,8 @@ public enum OwlToolEval {
         let toolbox = OwlToolbox(snapshot: snap, allowed: Set(OwlToolName.allCases))
         let messages = OwlPrompts.chatMessages(question: c.question, context: ctx, language: Language(rawValue: d.language)?.displayName ?? d.language,
                                                fileName: d.file, history: [], toolsOn: true, model: engine.scoreKey,
-                                               canDescribeImage: OwlPicture.isPicture(fileName: d.file))
+                                               canDescribeImage: OwlPicture.isPicture(fileName: d.file),
+                                               totalLines: snap.lineCount)
         let expected = c.expect.isEmpty ? "answer" : c.expect.map(\.rawValue).sorted().joined(separator: "|")
         let turn: OwlTurn
         do {

@@ -95,14 +95,18 @@ import CedricCore
 
     // MARK: The tool in Ask Cedric
 
-    @Test func specGrammarAndOfferRules() {
+    @Test func specGrammarAndOfferRules() throws {
         let spec = OwlTools.spec(.describeImage)
         #expect(spec.name.rawValue == "describe_image")
         #expect(spec.parameters["required"] == .array([]))
         #expect(spec.description.contains("picture"))
-        let g = EnvelopeStreamParser.grammar(tools: [.searchDocument, .describeImage])
-        #expect(g.contains(#""\"describe_image\"""#))
-        #expect(!EnvelopeStreamParser.grammar(tools: [.searchDocument]).contains("describe_image"))
+        // The typed grammar (OwlToolGrammar) generates its rule from the empty schema.
+        let g = OwlToolGrammar.envelope(OwlTools.specs([.searchDocument, .describeImage]))
+        #expect(g.contains("tool-describe-image ::="))
+        let m = try GBNFMatcher(g)
+        #expect(m.matches(#"{"tool":"describe_image","args":{}}"#))
+        #expect(!m.matches(#"{"tool":"describe_image","args":{"path":"stop.svg"}}"#))
+        #expect(!OwlToolGrammar.envelope(OwlTools.specs([.searchDocument])).contains("describe_image"))
         #expect(EnvelopeStreamParser.parse(#"{"tool":"describe_image","args":{}}"#) == .toolCalls([OwlToolCall(id: "call_0", name: "describe_image")]))
         // The built-in engine's rules mention it only when it is offered.
         #expect(OwlPrompts.envelopeInstructions(OwlTools.specs([.describeImage, .getLines])).contains("call describe_image"))

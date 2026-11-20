@@ -553,6 +553,8 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private var forcedVerdict: ScriptVerdict.Reason?
     /// The running script check's answer, clamped as it streams in.
     private var verdictStream: ScriptVerdictStream?
+    /// This answer is about a script: "safe" claims are rewritten (`OwlChatRequest.guardsSafeClaims`).
+    private var guardsSafeClaims = false
     /// What of the streamed answer the transcript shows now (script check).
     private var shownAnswer = ""
     /// Every text the script check's answer showed while streaming (checks).
@@ -623,6 +625,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         lastRequest = (question, action)
         forcedVerdict = nil
         verdictStream = nil
+        guardsSafeClaims = false
         shownAnswer = ""
         streamedRenders = []
         var snap = snapshot()
@@ -661,7 +664,9 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                                      history: history, useTools: tools, prose: prose, scan: scan,
                                      scanHasHigh: scanHasHigh, scanTruncated: scanTruncated, imageSource: picture)
             self.forcedVerdict = req.forcedVerdict
-            if action == .scriptSafety { self.verdictStream = ScriptVerdictStream(forced: req.forcedVerdict) }
+            // Any answer about a script: clamped before it shows (ScriptVerdictStream).
+            self.guardsSafeClaims = req.guardsSafeClaims
+            if req.guardsSafeClaims { self.verdictStream = ScriptVerdictStream(forced: req.forcedVerdict) }
             do {
                 let outcome = try await OwlChatRunner.run(req, engine: engine, model: engine.scoreKey) { [weak self] ev in
                     DispatchQueue.main.async { MainActor.assumeIsolated { self?.handle(ev) } }
@@ -727,7 +732,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         streamed += t
         flushes += 1
         if var vs = verdictStream {
-            // The script check: clamped before it shows (ScriptVerdictStream).
+            // About a script: clamped before it shows (ScriptVerdictStream).
             let shown = vs.append(t)
             verdictStream = vs
             streamedRenders.append(shown)
@@ -771,7 +776,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                                                              proposal: outcome.proposal), in: id)
             } else if let error {
                 // A script check cut short still never reads as "safe".
-                let partial = lastRequest?.action == .scriptSafety && !streamed.isEmpty
+                let partial = guardsSafeClaims && !streamed.isEmpty
                     ? ScriptVerdict.clamp(streamed, forced: forcedVerdict) : streamed
                 let text = partial.isEmpty ? error : partial + " (" + error + ")"
                 OwlChatStore.shared.replaceLast(OwlChatEntry(role: .note, text: text), in: id)
