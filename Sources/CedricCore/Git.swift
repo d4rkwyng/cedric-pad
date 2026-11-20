@@ -429,8 +429,10 @@ public enum GitConfigSafety {
             switch name {
             // A boolean fsmonitor is git's own daemon, not a command.
             case "fsmonitor": return !isBool(value)
-            case "sshcommand", "gitproxy", "askpass", "editor", "pager", "alternaterefscommand",
-                 "hookspath": return true
+            // core.hooksPath is not here: safetyArgs pins it to /dev/null, and
+            // husky-style repos set it routinely (refusing them would turn
+            // git info off for ordinary JavaScript projects).
+            case "sshcommand", "gitproxy", "askpass", "editor", "pager", "alternaterefscommand": return true
             default: return false
             }
         case "filter":

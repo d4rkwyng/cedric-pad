@@ -20,7 +20,6 @@ import Testing
         #expect(bad("core.fsmonitor", "touch /tmp/m"))
         #expect(!bad("core.fsmonitor", "true") && !bad("core.fsmonitor", "false"), "a boolean is git's own daemon")
         #expect(bad("core.sshCommand") && bad("core.gitProxy") && bad("core.pager") && bad("core.editor"))
-        #expect(bad("core.hooksPath", "/x"), "a custom hooks path runs repository programs")
         #expect(bad("filter.evil.clean") && bad("filter.evil.smudge") && bad("filter.evil.process"))
         #expect(bad("filter.lfs.clean", "sh -c evil"))
         #expect(!bad("filter.lfs.clean", "git-lfs clean -- %f") && !bad("filter.lfs.process", "git-lfs filter-process"))
@@ -29,7 +28,7 @@ import Testing
         #expect(bad("gpg.program") && bad("gpg.ssh.program") && bad("pager.log") && bad("remote.origin.uploadpack"))
         #expect(bad("uploadpack.packObjectsHook") && bad("gc.recentObjectsHook"))
         #expect(bad("Filter.Evil.CLEAN"), "section and name are case-insensitive")
-        #expect(!bad("core.bare") && !bad("remote.origin.url") && !bad("branch.main.merge"))
+        #expect(!bad("core.bare") && !bad("remote.origin.url") && !bad("branch.main.merge") && !bad("core.hooksPath", "/x"), "hooksPath is pinned to /dev/null; husky repos set it")
         #expect(!bad("filter.evil.required") && !bad("diff.evil.binary"))
     }
 
