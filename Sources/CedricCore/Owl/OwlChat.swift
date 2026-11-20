@@ -439,7 +439,8 @@ public enum OwlTools {
                                parameters: obj(["start": int, "end": int], required: ["start", "end"]))
         case .searchDocument:
             return OwlToolSpec(name: name, description: "Finds lines containing query (regex if regex is true); returns line numbers and text.",
-                               parameters: obj(["query": str, "regex": .object(["type": .string("boolean")])], required: ["query"]))
+                               parameters: obj(["query": .object(["type": .string("string"), "maxLength": .number(Double(maxPatternLength))]),
+                                                "regex": .object(["type": .string("boolean")])], required: ["query"]))
         case .getOutline:
             return OwlToolSpec(name: name, description: "The document's headings or top-level structure, with line numbers.", parameters: obj([:], required: []))
         case .documentStats:

@@ -56,8 +56,8 @@ import CedricCore
     }
 
     @Test func envelopeGrammarListsOnlyTheOfferedTools() {
-        let g = EnvelopeStreamParser.grammar(tools: [.getLines, .proposeEdit])
-        #expect(g.contains(#"toolname ::= "\"get_lines\"" | "\"propose_edit\"""#))
+        let g = OwlToolGrammar.envelope(OwlTools.specs([.getLines, .proposeEdit]))
+        #expect(g.contains(#"call ::= "{" ws "\"tool\"" ws ":" ws ( tool-get-lines | tool-propose-edit )"#))
         #expect(!g.contains("search_document"))
         #expect(g.hasPrefix("root ::= answer | call"))
     }

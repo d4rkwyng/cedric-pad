@@ -8,6 +8,7 @@ are its section below (`Scripts/changelog-section.sh`).
 
 ### Changed
 - **A harder tool eval for Ask Cedric** (`Scripts/owl-tools-eval.sh`, for developers). Besides the 40 first-move prompts that still decide which models get tools, it now runs 33 whole questions the way the panel does: end-to-end ones whose tool results feed the next step and whose final answer (or proposed edit, checked to apply) is scored, questions that need no tool, and prompt injections where the document tells Cedric to edit, search or answer something; he must not. Every case records how long it took.
+- **Built-in models' tool calls are typed.** The grammar that constrains the built-in engine's replies is now generated from each tool's argument list: exact argument names, required ones always present, whole numbers for line numbers, a capped search text. A small model can no longer send a line number as text, misspell an argument or leave one out. On the eval it changed no score: the current models already got the arguments right.
 
 ## [0.2.1]
 

@@ -233,6 +233,16 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
                                 promptSeconds: promptSeconds, generateSeconds: Date().timeIntervalSince(t1))
     }
 
+    /// llama.cpp parses `grammar` (live tests: a GBNF llama.cpp rejects
+    /// would leave the output unconstrained, see `makeSampler`).
+    func grammarCompiles(_ grammar: String) -> Bool {
+        Self.queue.sync {
+            guard let g = L.llama_sampler_init_grammar!(vocab, grammar, "root") else { return false }
+            L.llama_sampler_free!(g)
+            return true
+        }
+    }
+
     private func makeSampler(grammar: String?) -> UnsafeMutablePointer<llama_sampler> {
         let chain = L.llama_sampler_chain_init!(L.llama_sampler_chain_default_params!())!
         if let grammar, let g = L.llama_sampler_init_grammar!(vocab, grammar, "root") {

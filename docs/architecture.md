@@ -1253,6 +1253,36 @@ document doesn't mention it instead of looking. The user turn says "Shown: visib
 lines the document has. Apple Intelligence also refuses general questions ("I cannot find the capital of Norway in
 the document").
 
+### Ask Cedric tool calls: the typed grammar
+
+The built-in engine has no native tool calling: it answers in a JSON envelope, `{"answer":"…"}` or
+`{"tool":"<name>","args":{…}}`, constrained by a GBNF grammar (`EnvelopeStreamParser` parses it as it streams).
+Until 0.3.0 `args` was any flat object of strings, numbers and booleans, so a small model could write
+`{"start":"40"}`, misspell a key or leave out `end`. `OwlToolGrammar.envelope` now generates the grammar from
+each offered tool's JSON schema (`OwlToolSpec.parameters`):
+
+- `call ::= "{" ws "\"tool\"" ws ":" ws ( tool-get-lines | … )`, left-factored on the shared prefix, one
+  `tool-<name>` and one `args-<name>` rule per offered tool;
+- the argument names are exactly the schema's, required ones always present, in a fixed order (required first,
+  in the schema's order, then the optional ones alphabetically; a schema without required keys takes any
+  in-order subset);
+- values are typed: `integer` (≤ 6 digits), `number`, `boolean`, `string`, a JSON-schema `enum` as alternatives,
+  and `maxLength` as a bounded repetition (`search_document`'s `query` is capped at `OwlTools.maxPatternLength`,
+  200, as the tool itself enforces).
+
+Tests check the generated grammar with `GBNFMatcher` (Tests/CedricAITests), a small interpreter for the GBNF subset
+the grammars use: well-typed calls are accepted, quoted integers, misspelt, missing, extra or reordered keys and
+unknown tools are rejected, and what the grammar lets through parses into calls `OwlTools.run` accepts. The live
+eval checks llama.cpp itself compiles the grammar (`LlamaModel.grammarCompiles`); `makeSampler` would otherwise
+drop a grammar llama.cpp can't parse and decode unconstrained.
+
+Measured 2026-11-19 (M4 Pro, greedy, same 73 cases): no change in any score. Qwen3 4B 2507 stays at 0.925
+first move, 0.133 end-to-end, 1.000 no-tool, 0.875 injection; Qwen2.5 Coder 3B at 0.650, 0.000, 1.000,
+0.875. Every pass/fail is the same as with the untyped grammar, and the arguments differ in two cases only (an
+edit's indentation, a reason's full stop). Both models already wrote well-typed arguments; their misses are
+answering instead of calling a tool. The typed grammar stays as a guarantee (no quoted line numbers, no missing
+`end`, no invented keys) rather than a score gain.
+
 ## Dev hooks
 
 `DevHooks.swift` documents the `CEDRIC_*` launch variables used for

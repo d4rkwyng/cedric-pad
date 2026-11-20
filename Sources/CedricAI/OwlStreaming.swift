@@ -96,8 +96,8 @@ public struct OpenAIStreamAccumulator: Sendable {
 }
 
 /// The built-in engine's reply envelope, `{"answer":"…"}` or
-/// `{"tool":"name","args":{…}}`, parsed as it streams: `answerSoFar`
-/// is the decoded answer text generated so far.
+/// `{"tool":"name","args":{…}}` (its grammar: `OwlToolGrammar`), parsed
+/// as it streams: `answerSoFar` is the decoded answer text generated so far.
 public struct EnvelopeStreamParser: Sendable {
     public private(set) var raw = ""
     private var emitted = 0
@@ -154,24 +154,5 @@ public struct EnvelopeStreamParser: Sendable {
             return .toolCalls([OwlToolCall(id: "call_0", name: t, arguments: obj["args"] ?? obj["arguments"] ?? .object([:]))])
         }
         return nil
-    }
-
-    /// GBNF: either an answer string or one call to one of `tools` with a
-    /// flat JSON object of arguments (strings, numbers, booleans).
-    public static func grammar(tools: [OwlToolName]) -> String {
-        let names = tools.map { "\"\\\"\($0.rawValue)\\\"\"" }.joined(separator: " | ")
-        return #"""
-        root ::= answer | call
-        answer ::= "{" ws "\"answer\"" ws ":" ws string ws "}"
-        call ::= "{" ws "\"tool\"" ws ":" ws toolname ws "," ws "\"args\"" ws ":" ws args ws "}"
-        toolname ::= \#(names)
-        args ::= "{" ws ( pair ( ws "," ws pair )* )? ws "}"
-        pair ::= string ws ":" ws value
-        value ::= string | number | "true" | "false"
-        number ::= "-"? [0-9] [0-9]? [0-9]? [0-9]? [0-9]? [0-9]?
-        string ::= "\"" char* "\""
-        char ::= [^"\\\x00-\x1F] | "\\" ( ["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] )
-        ws ::= [ \t\n]? [ \t\n]?
-        """#
     }
 }

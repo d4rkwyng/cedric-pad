@@ -485,7 +485,7 @@ public struct BuiltInChatEngine: OwlChatEngine {
             let r = try await host.generate(modelAt: path, GenerationRequest(messages: chat, maxTokens: maxTokens), onText: onText)
             return .answer(r.text)
         }
-        let grammar = EnvelopeStreamParser.grammar(tools: tools.map(\.name))
+        let grammar = OwlToolGrammar.envelope(tools)
         let parser = Locked(EnvelopeStreamParser())
         let r = try await host.generate(modelAt: path, GenerationRequest(messages: chat, maxTokens: maxTokens, grammar: grammar)) { piece in
             let new = parser.mutate { $0.add(piece) }
