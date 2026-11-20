@@ -235,6 +235,13 @@ public enum OwlVision {
     /// `CancellationError` as soon as the caller is cancelled (Stop). Not a
     /// task group: that would wait for a Vision call that can't be
     /// interrupted. The work is cancelled and a late result dropped.
+    /// The deadline's own queue. Not a global one: `offMain` fills those
+    /// with Vision calls that block (on a machine with few cores or a
+    /// software GPU all of them), and a timer queued behind them fires
+    /// only after the work it should cut short. A private serial queue
+    /// gets a thread of its own.
+    static let deadlineQueue = DispatchQueue(label: "OwlVision.deadline", qos: .userInitiated)
+
     static func withDeadline<T: Sendable>(_ seconds: TimeInterval, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
         let once = ResumeOnce<T>()
         return try await withTaskCancellationHandler {
@@ -244,7 +251,7 @@ public enum OwlVision {
                     do { once.resume(.success(try await work())) } catch { once.resume(.failure(error)) }
                 }
                 once.onFinish = { task.cancel() }
-                DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { once.resume(.failure(OwlImageError.timedOut)) }
+                deadlineQueue.asyncAfter(deadline: .now() + seconds) { once.resume(.failure(OwlImageError.timedOut)) }
             }
         } onCancel: {
             once.resume(.failure(CancellationError()))

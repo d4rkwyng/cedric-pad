@@ -76,10 +76,17 @@ import CedricCore
         #expect(!bad.ok && bad.text.hasPrefix("error: ") && bad.text.contains("answer from the file's code"))
         let notSVG = await OwlVision.describe(OwlSVGImageSource(text: "plain words"))
         #expect(!notSVG.ok)
+        // The render never finishes until released, so only the deadline
+        // can end the call: no race against real render speed.
+        let held = Held()
+        // A safety net only: if the deadline never fires, fail instead of hanging.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10) { held.release() }
         let start = Date()
-        let slow = await OwlVision.describe(Slow(), timeLimit: 0.2)
-        #expect(!slow.ok && slow.text.contains("too long"))
+        let slow = await OwlVision.describe(held, timeLimit: 0.2)
+        #expect(!slow.ok && slow.text.contains("too long"), "\(slow.text)")
+        #expect(held.started, "the render was under way when the deadline passed")
         #expect(Date().timeIntervalSince(start) < 2, "the deadline returns without waiting for the work")
+        held.release()
     }
 
     @Test func coloursAreNamedPlainly() {
@@ -188,11 +195,34 @@ import CedricCore
 
     // MARK: Helpers
 
-    struct Slow: OwlImageSource {
+    /// A render that doesn't return until `release()` and ignores
+    /// cancellation, like a Vision call; then fails as unreadable, so a
+    /// result that came from it rather than the deadline shows.
+    final class Held: OwlImageSource, @unchecked Sendable {
+        private let lock = NSLock()
+        private var waiter: CheckedContinuation<Void, Never>?
+        private var released = false
+        private var began = false
+        var started: Bool { lock.withLock { began } }
         func render(maxPixels: Int) async throws -> OwlRenderedImage {
-            // Ignores cancellation, like a Vision call.
-            usleep(1_500_000)
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                let now: Bool = lock.withLock {
+                    began = true
+                    if released { return true }
+                    waiter = c
+                    return false
+                }
+                if now { c.resume() }
+            }
             throw OwlImageError.unreadable
+        }
+        func release() {
+            let c: CheckedContinuation<Void, Never>? = lock.withLock {
+                released = true
+                defer { waiter = nil }
+                return waiter
+            }
+            c?.resume()
         }
     }
 
