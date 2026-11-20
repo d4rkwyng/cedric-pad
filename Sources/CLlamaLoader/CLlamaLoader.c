@@ -42,6 +42,9 @@ const cedric_llama_api *cedric_llama_load(char *error, size_t error_len) {
     RESOLVE(llama_model_chat_template);
     RESOLVE(llama_free);
     RESOLVE(llama_memory_clear);
+    RESOLVE(llama_memory_seq_rm);
+    RESOLVE(llama_memory_seq_pos_min);
+    RESOLVE(llama_memory_seq_pos_max);
     RESOLVE(llama_get_memory);
     RESOLVE(llama_decode);
     RESOLVE(llama_batch_get_one);

@@ -23,6 +23,9 @@ typedef struct cedric_llama_api {
     CEDRIC_LLAMA_FN(llama_model_chat_template);
     CEDRIC_LLAMA_FN(llama_free);
     CEDRIC_LLAMA_FN(llama_memory_clear);
+    CEDRIC_LLAMA_FN(llama_memory_seq_rm);
+    CEDRIC_LLAMA_FN(llama_memory_seq_pos_min);
+    CEDRIC_LLAMA_FN(llama_memory_seq_pos_max);
     CEDRIC_LLAMA_FN(llama_get_memory);
     CEDRIC_LLAMA_FN(llama_decode);
     CEDRIC_LLAMA_FN(llama_batch_get_one);

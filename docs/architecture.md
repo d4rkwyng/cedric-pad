@@ -1283,6 +1283,51 @@ edit's indentation, a reason's full stop). Both models already wrote well-typed 
 answering instead of calling a tool. The typed grammar stays as a guarantee (no quoted line numbers, no missing
 `end`, no invented keys) rather than a score gain.
 
+### Ask Cedric tool calls: KV-cache reuse across rounds
+
+Until 0.3.0 `LlamaModel.run` called `llama_memory_clear` on every request, so each tool round (at most three
+per question) prefilled the whole prompt again: system prompt, numbered document, question and the growing
+tool transcript. Now the model remembers which tokens its KV cache holds (sequence 0: the last prompt plus the
+tokens decoded after it) and `prepareCache` keeps the longest common prefix with the new prompt:
+
+1. the common prefix, leaving at least one prompt token to decode (its logits pick the first new token);
+2. `llama_memory_seq_pos_max` must equal the last recorded position, else the cache isn't what we think
+   (a decode that failed half-way, a cancel) and it is cleared; after any error or cancel the record is dropped,
+   so the next request clears;
+3. `llama_memory_seq_rm(mem, 0, keep, -1)` drops the rest. It returns false when the memory can't remove part of
+   a sequence, which is how hybrid and recurrent models (Qwen3.5's Gated DeltaNet layers, Mamba) show up; that
+   request falls back to a full clear (`cacheFallbacks`). After a successful cut, `llama_memory_seq_pos_min`
+   must still be 0, otherwise (a sliding-window cache that dropped early positions, a recurrent cell) it clears
+   too.
+
+The three functions are resolved by `CLlamaLoader` like the rest, from the pinned b12360 framework. The
+decision is a pure function (`LlamaModel.cachePlan`, unit-tested in KVCacheTests). Hints share the model and the
+cache; their prompts differ from chat prompts, so they mostly reuse nothing and behave as before. The
+previous assistant turn is re-rendered by Owlink (`{"tool":…}` with sorted keys), so the shared prefix usually
+ends at that turn rather than after it: a round reprocesses the call, its result and the new turn's header.
+Nothing of this runs at launch: llama.cpp is still loaded with the first model.
+
+Measured 2026-11-19, M4 Pro, Metal, greedy, `CEDRIC_KV_LIVE=1 swift test --filter LiveKVCacheTests` (a fixed
+3-round tool conversation: the question, then a `search_document` and a `get_lines` result; grammar on):
+
+| Qwen3 4B 2507 | prompt tokens | processed, clear (0.2) | processed, reuse | prefill, clear | prefill, reuse |
+|---|---|---|---|---|---|
+| round 1 | 900 | 900 | 900 | 651 ms | 652 ms |
+| round 2 | 944 | 944 | 43 | 686 ms | 2 ms |
+| round 3 | 1008 | 1008 | 63 | 648 ms | 2 ms |
+| total | | 2852 | 1006 (−65 %) | 1985 ms | 656 ms (−67 %) |
+
+Qwen2.5 Coder 3B: the same token counts, prefill 1576 → 537 ms. The generated text was identical, round by
+round, with and without reuse, for both models. A hybrid model (Qwen3.5 2B, UD-IQ2_XXS, loaded outside the
+catalog with `CEDRIC_KV_HYBRID=<gguf>`): `llama_memory_seq_rm` refused both partial removals, both rounds fell
+back to a full clear, and the output was identical. Generation time per round is noisy on a busy machine and
+is not part of the claim; the gain is prefill. On the whole eval (73 cases) reuse changed no score and no answer
+(every output identical to the run before it), and the latency fell, partly because consecutive questions share
+the system prompt and tool list: Qwen3 4B mean per case 2.37 → 1.48 s first move, 4.92 → 1.02 s end-to-end,
+2.61 → 0.67 s no-tool, 4.84 → 1.50 s injection (the "before" run was on a busier machine, load average 30–65,
+so read these as direction, not size). On an Intel Mac prefill runs on the CPU, so the saving per round
+should be far larger in absolute terms; that is not measured (no Intel Mac here).
+
 ## Dev hooks
 
 `DevHooks.swift` documents the `CEDRIC_*` launch variables used for

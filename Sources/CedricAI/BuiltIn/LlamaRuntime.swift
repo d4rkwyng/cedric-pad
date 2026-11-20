@@ -32,6 +32,15 @@ public struct LlamaRuntime: BuiltInRuntime {
         return .success(L)
     }()
 
+    /// A GGUF loaded without the catalog check: live tests only (a model
+    /// that isn't in Owlink's list, such as a hybrid one for the KV-cache
+    /// fallback). Never called by the app.
+    static func loadForTesting(path: String) throws -> LlamaModel {
+        let model = try LlamaModel(path: path, api: api.get())
+        LlamaModel.registerForExit(model)
+        return model
+    }
+
     /// Loads llama.cpp now (it is not linked); nil if it works, else why
     /// not. For Scripts/launch-check.sh (the bundled framework must load).
     public static func loadCheck() -> String? {
@@ -78,6 +87,18 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
     private let template: String?
     private let cancelLock = NSLock()
     private var cancelFlag = false
+
+    /// What the KV cache holds (sequence 0), token by token: the last
+    /// request's prompt and the tokens decoded after it. nil when unknown
+    /// (after an error or a cancel): the next request clears the cache.
+    /// Only touched on `queue`.
+    private var cached: [llama_token]? = []
+    /// Requests whose cache couldn't be cut back (a hybrid or recurrent
+    /// model: `llama_memory_seq_rm` refused) and were cleared instead.
+    private(set) var cacheFallbacks = 0
+    /// Off: clear the cache on every request, as 0.2 did (the live
+    /// comparison in LiveKVCacheTests).
+    nonisolated(unsafe) static var reuseKVCache = true
 
     /// llama.cpp's functions (CLlamaLoader).
     private let L: cedric_llama_api
@@ -188,13 +209,21 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
         let limit = Int(LlamaRuntime.contextTokens) - request.maxTokens
         guard tokens.count <= limit else { throw BuiltInError.promptTooLong(tokens: tokens.count, limit: limit) }
 
-        L.llama_memory_clear!(L.llama_get_memory!(context), true)
         let sampler = makeSampler(grammar: request.grammar)
         defer { L.llama_sampler_free!(sampler) }
 
+        // Keep the prompt prefix the cache already holds (a tool round
+        // repeats the system prompt, the document and earlier rounds) and
+        // drop only what follows it.
+        let mem = L.llama_get_memory!(context)
+        let keep = prepareCache(mem, for: tokens)
+        var record = Array(tokens.prefix(keep))
+        cached = nil   // until this request finishes
+        record.reserveCapacity(tokens.count + request.maxTokens)
+
         // Prefill in batches.
         let t0 = Date()
-        var i = 0
+        var i = keep
         while i < tokens.count {
             if isCancelled { throw BuiltInError.cancelled }
             let n = min(Int(LlamaRuntime.batchTokens), tokens.count - i)
@@ -202,6 +231,7 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
                 L.llama_decode!(context, L.llama_batch_get_one!(buf.baseAddress! + i, Int32(n)))
             }
             guard rc == 0 else { throw BuiltInError.generationFailed("decode \(rc)") }
+            record.append(contentsOf: tokens[i..<(i + n)])
             i += n
         }
         let promptSeconds = Date().timeIntervalSince(t0)
@@ -225,12 +255,67 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
             generated += 1
             let rc = L.llama_decode!(context, L.llama_batch_get_one!(&token, 1))
             guard rc == 0 else { throw BuiltInError.generationFailed("decode \(rc)") }
+            record.append(token)
         }
+        let promptCount = tokens.count
         tokens.removeAll()
+        cached = record
         if let stream { let t = decoder.flush(); if !t.isEmpty { stream(t) } }
         return GenerationResult(text: String(decoding: bytes, as: UTF8.self),
-                                promptTokens: Int(i), completionTokens: generated,
-                                promptSeconds: promptSeconds, generateSeconds: Date().timeIntervalSince(t1))
+                                promptTokens: promptCount, completionTokens: generated,
+                                promptSeconds: promptSeconds, generateSeconds: Date().timeIntervalSince(t1),
+                                reusedTokens: keep)
+    }
+
+    /// Readies the KV cache for `prompt`: keeps the longest prefix it
+    /// already holds and removes the rest (`llama_memory_seq_rm`), or
+    /// clears it all. Returns how many leading tokens were kept.
+    ///
+    /// A full clear when: reuse is off; the cache's state is unknown or
+    /// its last position (`llama_memory_seq_pos_max`) is not the last
+    /// token we recorded; nothing is shared; or the memory can't keep a
+    /// partial prefix. Hybrid and recurrent models (Mamba, Gated DeltaNet
+    /// layers) keep a state, not per-position entries:
+    /// `llama_memory_seq_rm` returns false for a partial removal, and that
+    /// return value is the test, so no list of architectures is needed.
+    /// After a cut that succeeded, the first position
+    /// (`llama_memory_seq_pos_min`) must still be 0: a sliding-window cache
+    /// that dropped early positions, or a recurrent one whose only cell is
+    /// the last position (a pure append, nothing to remove), is cleared too.
+    private func prepareCache(_ mem: llama_memory_t?, for prompt: [llama_token]) -> Int {
+        let plan = Self.cachePlan(cached: cached, prompt: prompt, reuse: Self.reuseKVCache,
+                                  positions: { (Int(L.llama_memory_seq_pos_min!(mem, 0)), Int(L.llama_memory_seq_pos_max!(mem, 0))) },
+                                  removeFrom: { L.llama_memory_seq_rm!(mem, 0, llama_pos($0), -1) })
+        if plan.refused { cacheFallbacks += 1 }
+        if plan.keep == 0 { L.llama_memory_clear!(mem, true) }
+        return plan.keep
+    }
+
+    /// The decision behind `prepareCache`, without llama.cpp (unit-tested):
+    /// how many tokens to keep, and whether the memory refused to cut.
+    static func cachePlan<T: Equatable>(cached: [T]?, prompt: [T], reuse: Bool, positions: () -> (first: Int, last: Int),
+                                        removeFrom: (Int) -> Bool) -> (keep: Int, refused: Bool) {
+        guard reuse, let cached else { return (0, false) }
+        let keep = reusablePrefix(cached: cached, prompt: prompt)
+        guard keep > 0, positions().last == cached.count - 1 else { return (0, false) }
+        guard removeFrom(keep), positions().first == 0 else { return (0, true) }
+        return (keep, false)
+    }
+
+    /// How many leading tokens of `prompt` the cache can keep: the common
+    /// prefix with what it holds, leaving at least one prompt token to
+    /// decode (its logits pick the first new token). 0 when unknown.
+    static func reusablePrefix<T: Equatable>(cached: [T]?, prompt: [T]) -> Int {
+        guard let cached else { return 0 }
+        let limit = min(cached.count, prompt.count - 1)
+        var n = 0
+        while n < limit, cached[n] == prompt[n] { n += 1 }
+        return n
+    }
+
+    /// Forgets what the cache holds: the next request clears it.
+    func invalidateCache() {
+        Self.queue.sync { cached = nil }
     }
 
     /// llama.cpp parses `grammar` (live tests: a GBNF llama.cpp rejects

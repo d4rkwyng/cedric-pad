@@ -29,7 +29,11 @@ public struct GenerationRequest: Sendable, Equatable {
 
 public struct GenerationResult: Sendable, Equatable {
     public var text: String
+    /// The whole prompt, in tokens.
     public var promptTokens: Int
+    /// Of those, the leading tokens already in the KV cache from the
+    /// previous request (not processed again); 0 when it was cleared.
+    public var reusedTokens: Int
     public var completionTokens: Int
     /// Prompt processing (prefill) time.
     public var promptSeconds: TimeInterval
@@ -37,8 +41,9 @@ public struct GenerationResult: Sendable, Equatable {
     public var generateSeconds: TimeInterval
 
     public init(text: String, promptTokens: Int = 0, completionTokens: Int = 0,
-                promptSeconds: TimeInterval = 0, generateSeconds: TimeInterval = 0) {
+                promptSeconds: TimeInterval = 0, generateSeconds: TimeInterval = 0, reusedTokens: Int = 0) {
         self.text = text; self.promptTokens = promptTokens; self.completionTokens = completionTokens
+        self.reusedTokens = reusedTokens
         self.promptSeconds = promptSeconds; self.generateSeconds = generateSeconds
     }
 
