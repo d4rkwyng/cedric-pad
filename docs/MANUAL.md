@@ -455,6 +455,72 @@ numbers and highlight occurrences are in the View menu, auto-close
 brackets, spelling while typing and grammar in the Edit menu (all
 remembered, for every tab).
 
+### File types, default editor and document icons
+
+**Settings › Default editor for…** lists the text file types Owlink has
+its own icons for, with the app that opens each one now: plain text
+(.txt), Markdown, JSON, YAML, Swift, Python, JavaScript, TypeScript
+(.tsx), shell scripts (.sh, .zsh, .bash), logs, CSV, XML, CSS, TOML, INI,
+SQL and PowerShell.
+
+- **Tick a type** to make Owlink the app that opens it when you
+  double-click such a file. On macOS 26 and later, macOS asks you to
+  confirm ("Do you want all documents with the extension ".py" to open
+  with "Owlink", or to keep using "TextEdit"?"); if you keep the other
+  app, nothing changes and Settings says so. macOS 15 changes it without
+  asking.
+- **Untick it** to give the type back to the app Owlink took it from. If
+  Owlink doesn't know that app (Owlink already opened the type), choose
+  one in Finder: select a file, File › Get Info, Open with, pick the app,
+  **Change All…**.
+- **Use Owlink for All Text Files** goes through every type in the list,
+  one macOS prompt each on macOS 26 and later (shell scripts ask for .sh,
+  .zsh and .bash separately), and stops at the first one you decline.
+- **HTML is not in the list.** macOS treats the app for HTML files as your
+  web browser and asks whether Owlink should become it. Use Get Info ›
+  Change All on an .html file if you want that anyway.
+- **.ts files** are MPEG video to macOS before they are TypeScript, so the
+  TypeScript row covers .tsx files. For .ts, use Get Info › Change All on
+  one.
+
+Owlink never makes itself the default by being installed, updated or
+opened, and Settings only reads the defaults until you click. One thing
+predates 0.3.0 and is unchanged: on a Mac where nothing but TextEdit
+opens text, Markdown, JSON and YAML files open in Owlink once it's
+installed, because Owlink names those types and TextEdit only claims
+"text". (On macOS 15, where .md files opened in nothing before, they now
+open in Owlink for the same reason.) The labelled types never open in Owlink unless you choose it.
+Changes you make in Get Info show in Settings the next time its window
+comes to the front.
+
+**Document icons.** Files whose default app you set to Owlink show in
+Finder as a white page with Cedric and a coral label with the type (TXT,
+MD, JSON, YAML, SWIFT, PY, JS, TS, SH, LOG, CSV, XML, HTML, CSS, TOML,
+INI, SQL, PS1). Finder shows them:
+
+- only for types you chose Owlink for, in Settings or with Get Info ›
+  Change All. A type that opens in Owlink without your choice (Markdown,
+  JSON, YAML on a Mac with no other editor) shows the page and owl
+  without a label until you choose it; **Use Owlink for All Text Files**
+  does that for every type;
+- when Finder isn't showing a picture of the file's contents instead: in
+  icon view, View › Show View Options › **Show icon preview** draws the
+  text itself for many text files. Untick it to see the type icons;
+- on macOS 14, 15, 26 and later alike: they are plain `.icns` files named
+  in Owlink's Info.plist (`CFBundleTypeIconFile`), not composed by macOS.
+
+macOS caches file icons. A file Finder has already drawn may keep its old
+icon after a change for a while, even after you relaunch Finder; new
+files and the next restart show the new one.
+
+**Types macOS doesn't know.** macOS has no type for TypeScript, TOML,
+INI, SQL or PowerShell files on its own (Xcode adds some when installed),
+nor, before macOS 26, for Markdown, so Owlink declares them
+(`UTImportedTypeDeclarations`, with the identifiers Xcode and macOS 26
+use): .tsx/.ts, .toml, .ini, .sql, .ps1/.psm1/.psd1, .md/.markdown.
+Being text, they then open in TextEdit until you choose another app,
+where before they opened in nothing.
+
 ## Markdown and HTML
 
 ### Live preview

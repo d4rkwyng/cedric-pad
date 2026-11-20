@@ -31,6 +31,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let indentKind = NSPopUpButton()
     let tabWidth = NSPopUpButton()
     private var observer: NSObjectProtocol?
+    /// Default editor for… (0.3.0), below the form.
+    private(set) var defaultEditor: DefaultEditorPane!
 
     /// The font menu's families: fixed-pitch fonts installed (read when the
     /// window is built). Tag 0 is the system's monospaced font.
@@ -129,11 +131,25 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         grid.translatesAutoresizingMaskIntoConstraints = false
         let content = NSView()
         content.addSubview(grid)
+        defaultEditor = DefaultEditorPane()
+        let pane = defaultEditor.view
+        pane.translatesAutoresizingMaskIntoConstraints = false
+        let rule = NSBox()
+        rule.boxType = .separator
+        rule.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(rule)
+        content.addSubview(pane)
         NSLayoutConstraint.activate([
             grid.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
             grid.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -24),
             grid.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
-            grid.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
+            rule.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 16),
+            rule.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            rule.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            pane.topAnchor.constraint(equalTo: rule.bottomAnchor, constant: 12),
+            pane.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            pane.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -24),
+            pane.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
         ])
         window?.contentView = content
         // As tall as the form (the rows keep their natural spacing).
@@ -159,7 +175,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let ind = s.defaultIndentation
         indentKind.selectItem(at: ind.usesTabs ? 1 : 0)
         tabWidth.selectItem(withTag: ind.width)
+        defaultEditor?.refresh()
     }
+
+    /// Back from Finder's Get Info (or another app): show the defaults as they are now.
+    func windowDidBecomeKey(_ notification: Notification) { defaultEditor?.refresh() }
 
     @objc private func stepped(_ sender: NSStepper) {
         fontSize.integerValue = sender.integerValue

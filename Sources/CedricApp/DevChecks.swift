@@ -221,6 +221,7 @@ enum DevChecks {
         case "statuszoom": statusZoomCheck(app)
         case "folding": foldingCheck(app)
         case "split": splitCheck(app)
+        case "defaulteditor": defaultEditorCheck(app)
         default:
             if !editingCheck(name, app), !pdfCheck(name, app), !imageCheck(name, app), !binaryCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
         }

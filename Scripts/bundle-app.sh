@@ -90,6 +90,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # The app icon (Finder, Dock, About). Made by tools/icon/cedric_icon.py, committed.
 [ -f Resources/AppIcon.icns ] || { echo "bundle-app.sh: missing Resources/AppIcon.icns" >&2; exit 1; }
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Document icons, one per text file type (tools/icon/doc_icons.py, committed);
+# Info.plist names them below, from Resources/document-types.txt.
+# They sit next to AppIcon.icns, where Launch Services looks for them.
+cp Resources/DocIcons/*.icns "$APP/Contents/Resources/"
 # The assistant owl's poses and sprite strips (same generator).
 mkdir -p "$APP/Contents/Resources/Owl"
 cp Resources/Owl/*.png "$APP/Contents/Resources/Owl/"
@@ -125,6 +129,59 @@ cp Resources/AI/owl-tool-scores.json "$APP/Contents/Resources/AI/owl-tool-scores
 # The command-line launcher ships inside the app; see Scripts/cedric.
 cp Scripts/cedric "$APP/Contents/Resources/cedric"
 chmod +x "$APP/Contents/Resources/cedric"
+
+# The text file types (Resources/document-types.txt, which explains the
+# ranks): one document type each with its icon, LSHandlerRank None (they
+# never make Owlink a default; Settings › Default editor for… or Get Info
+# does, when the user asks), the catch-all "Text" type at Alternate as in
+# 0.2.x, and an imported declaration for the few types macOS lacks.
+TEXT_TYPES=""
+IMPORTED_TYPES=""
+while IFS='|' read -r label icon name utis decl; do
+    case "$label" in ''|'#'*) continue ;; esac
+    [ -f "Resources/DocIcons/$icon.icns" ] || { echo "bundle-app.sh: missing Resources/DocIcons/$icon.icns" >&2; exit 1; }
+    rank=None
+    [ "$label" = "*" ] && rank=Alternate
+    items=""
+    IFS=',' read -ra U <<<"$utis"
+    for u in "${U[@]}"; do items+="                <string>$u</string>
+"; done
+    TEXT_TYPES+="        <dict>
+            <key>CFBundleTypeName</key>
+            <string>$name</string>
+            <key>CFBundleTypeIconFile</key>
+            <string>$icon.icns</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>$rank</string>
+            <key>LSItemContentTypes</key>
+            <array>
+$items            </array>
+        </dict>
+"
+    if [ "$decl" != "-" ]; then
+        conf=""; exts=""
+        IFS=',' read -ra C <<<"${decl%%;*}"
+        for c in "${C[@]}"; do conf+="<string>$c</string>"; done
+        IFS=',' read -ra E <<<"${decl#*;}"
+        for e in "${E[@]}"; do exts+="<string>$e</string>"; done
+        IMPORTED_TYPES+="        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>${U[0]}</string>
+            <key>UTTypeDescription</key>
+            <string>$name</string>
+            <key>UTTypeConformsTo</key>
+            <array>$conf</array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>$exts</array>
+            </dict>
+        </dict>
+"
+    fi
+done < Resources/document-types.txt
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -237,30 +294,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
                 <string>com.apple.flat-rtfd</string>
             </array>
         </dict>
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>Text</string>
-            <key>CFBundleTypeRole</key>
-            <string>Editor</string>
-            <key>LSHandlerRank</key>
-            <string>Alternate</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>public.text</string>
-                <string>public.plain-text</string>
-                <string>public.source-code</string>
-                <string>public.script</string>
-                <string>public.json</string>
-                <string>public.yaml</string>
-                <string>public.html</string>
-                <string>public.xml</string>
-                <string>public.css</string>
-                <string>net.daringfireball.markdown</string>
-                <string>public.log</string>
-                <string>public.data</string>
-            </array>
-        </dict>
-    </array>
+$TEXT_TYPES    </array>
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+$IMPORTED_TYPES    </array>
 </dict>
 </plist>
 PLIST
@@ -269,6 +306,9 @@ SHORT=$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist
 LONG=$(plutil -extract CFBundleVersion raw "$APP/Contents/Info.plist")
 [ "$SHORT" = "$LONG" ] || { echo "bundle-app.sh: CFBundleVersion ($LONG) must equal CFBundleShortVersionString ($SHORT)" >&2; exit 1; }
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+# The document types and icons as designed (quiet unless something is off).
+Scripts/doctypes-check.sh "$APP" | grep -v ' PASS ' >&2 || true
+Scripts/doctypes-check.sh "$APP" >/dev/null
 
 if [ "$SIGN" = adhoc ]; then
     # Ad-hoc: no identity, no Gatekeeper approval. No App Sandbox: an
