@@ -44,7 +44,7 @@ else
 fi
 if grep -q 500 "$W/files/essay.md"; then echo "check: FAIL essay.md has no goal in it"; fail=1; else echo "check: PASS essay.md has no goal in it"; fi
 # 2. Relaunch on that session.
-env CEDRIC_SESSION_DIR="$W/session" CEDRIC_NO_SESSION_SAVE=1 CEDRIC_CHECK_OUT="$OUT" CEDRIC_CHECK=writingrestore \
+env -u CEDRIC_NO_RESTORE CEDRIC_SESSION_DIR="$W/session" CEDRIC_NO_SESSION_SAVE=1 CEDRIC_CHECK_OUT="$OUT" CEDRIC_CHECK=writingrestore \
     CEDRIC_WRITING_DIR="$W/files" CEDRIC_THEME=${CEDRIC_THEME:-dark} perl -e 'alarm 90; exec @ARGV' "$BIN" -ApplePersistenceIgnoreState YES 2>/dev/null \
     | grep -E '^check:' | tee "$OUT/writingrestore.txt"
 grep -q "check: done .* 0 failed" "$OUT/writingrestore.txt" || fail=1
