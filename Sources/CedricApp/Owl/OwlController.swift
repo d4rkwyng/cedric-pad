@@ -559,7 +559,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
     /// or moves the caret.
     private(set) var holdVisible = true
 
-    /// Called when the owl is turned on (View › Show Cedric the Owl, or a
+    /// Called when the owl is turned on (Cedric › Show Cedric, or a
     /// new tab with the owl on): lay it out and show it now.
     func appeared() {
         holdVisible = true
@@ -926,7 +926,7 @@ final class OwlController: NSObject, NSPopoverDelegate {
             stack.addArrangedSubview(g)
         }
         if let tab, tab.canCheckGrammarWithAI {
-            let g = NSButton(title: String(localized: "Check Grammar with AI"), target: self, action: #selector(grammarWithAI))
+            let g = NSButton(title: String(localized: "Check Grammar with Cedric"), target: self, action: #selector(grammarWithAI))
             g.controlSize = .small
             g.toolTip = String(localized: "Asks the AI engine about the grammar of the prose in view; the macOS checker stays on too.")
             stack.addArrangedSubview(g)

@@ -8,7 +8,7 @@ import CedricAI
 /// catalog model CEDRIC_BUILTIN_CHECK_MODEL (default: the 1.5B, the smallest)
 /// for real from Hugging Face.
 ///
-///   1. View › Cedric AI Settings…; pick "Built-in"; the catalog rows show
+///   1. Cedric › Cedric AI Settings…; pick "Built-in"; the catalog rows show
 ///      (snapshot 0-models).
 ///   2. Click Download; progress moves (snapshot 1-downloading).
 ///   3. Click Pause; the row says Paused, the partial file is on disk

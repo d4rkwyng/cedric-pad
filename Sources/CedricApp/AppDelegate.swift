@@ -70,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { _, _ in
             Task { @MainActor in NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil) }
         }
-        // The owl hub listens for View › Show Cedric the Owl; it must exist
+        // The owl hub listens for Cedric › Show Cedric; it must exist
         // before the first toggle (it was created lazily, so with the owl
         // off and only untitled tabs the menu item did nothing). Not needed
         // for the first frame (a tab with the owl on creates it at once).

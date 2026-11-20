@@ -74,7 +74,7 @@ struct FakeAIProvider: OwlHintProvider {
     }
 }
 
-/// View › Cedric AI Settings…: a sheet over the current tab.
+/// Cedric › Cedric AI Settings…: a sheet over the current tab.
 @MainActor
 final class AISettingsSheet: NSObject {
     static var current: AISettingsSheet?

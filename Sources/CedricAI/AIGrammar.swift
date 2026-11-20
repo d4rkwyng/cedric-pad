@@ -1,7 +1,7 @@
 import Foundation
 import CedricCore
 
-/// "Check Grammar with AI": asks the chat engine for grammar mistakes in
+/// "Check Grammar with Cedric": asks the chat engine for grammar mistakes in
 /// prose and turns its answer into the same `GrammarResult`s the system
 /// checker produces, so they become the usual green underlines, the owl's
 /// "Fix it" bubble and Fix Grammar… steps. Nothing is shown that can't be

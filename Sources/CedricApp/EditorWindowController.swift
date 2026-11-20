@@ -116,7 +116,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     private var loading = false
     var onChange: ((EditorWindowController) -> Void)?
     var onClose: ((EditorWindowController) -> Void)?
-    /// Cedric the owl, while View › Show Cedric the Owl is on.
+    /// Cedric the owl, while Cedric › Show Cedric is on.
     private(set) var owl: OwlController?
     /// Ask Cedric's panel, made on first use (OwlChatPanel.swift).
     private(set) var owlChat: OwlChatPanel?

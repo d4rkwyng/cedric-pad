@@ -70,6 +70,27 @@ func textToolItems() -> [NSMenuItem] {
     ]
 }
 
+/// The Cedric menu (0.4.0 UX polish, review #4): every command of Cedric,
+/// the assistant, in one place, after Format and before Window (HIG: an
+/// app's own menus go between View and Window). "Cedric" names the
+/// assistant everywhere; "Owlink" only the app.
+@MainActor
+func cedricMenu() -> NSMenuItem {
+    submenu(String(localized: "Cedric"), [
+        item(String(localized: "Ask Cedric…"), #selector(AppDelegate.askCedricMenu(_:)), "/", [.command, .option]),
+        item(String(localized: "Check Grammar with Cedric"), #selector(AppDelegate.checkGrammarWithAIMenu(_:))),
+        item(String(localized: "Check Script for Risks…"), #selector(AppDelegate.scriptSafetyMenu(_:))),
+        .separator(),
+        item(String(localized: "Show Cedric"), #selector(AppDelegate.toggleOwl(_:))),
+        submenu(String(localized: "Cedric’s Hints"), OwlHintSource.allCases.map {
+            item($0 == .rules ? String(localized: "Rules") : String(localized: "Rules + AI"),
+                 #selector(AppDelegate.pickOwlHintSource(_:)), represented: $0.rawValue)
+        }),
+        .separator(),
+        item(String(localized: "Cedric AI Settings…"), #selector(AppDelegate.showAISettings(_:))),
+    ])
+}
+
 /// F2, as a key equivalent (bookmarks, as in Notepad++: F2 / ⇧F2 / ⌘F2).
 let f2 = String(UnicodeScalar(UInt16(NSF2FunctionKey))!)
 
@@ -200,14 +221,11 @@ func buildMainMenu() -> NSMenu {
         ]),
         submenu(String(localized: "Text Tools"), textToolItems()),
         item(String(localized: "Auto-Close Brackets and Quotes"), #selector(AppDelegate.toggleAutoCloseBrackets(_:))),
-        item(String(localized: "Ask Cedric…"), #selector(AppDelegate.askCedricMenu(_:)), "/", [.command, .option]),
-        item(String(localized: "Check Script for Risks…"), #selector(AppDelegate.scriptSafetyMenu(_:))),
         submenu(String(localized: "Spelling and Grammar"), [
             item(String(localized: "Show Spelling and Grammar"), #selector(NSText.showGuessPanel(_:)), ":"),
             item(String(localized: "Check Document Now"), #selector(AppDelegate.checkDocumentNow(_:)), ";"),
             item(String(localized: "Fix Typos…"), #selector(AppDelegate.fixTyposMenu(_:)), ";", [.command, .option]),
             item(String(localized: "Fix Grammar…"), #selector(AppDelegate.fixGrammarMenu(_:))),
-            item(String(localized: "Check Grammar with AI"), #selector(AppDelegate.checkGrammarWithAIMenu(_:))),
             .separator(),
             item(String(localized: "Check Spelling While Typing"), #selector(AppDelegate.toggleSpellingWhileTyping(_:))),
             item(String(localized: "Check Grammar in Prose"), #selector(AppDelegate.toggleGrammar(_:))),
@@ -255,13 +273,6 @@ func buildMainMenu() -> NSMenu {
         // Two panes on one document (SplitEditor.swift).
     ] + splitEditorMenuItems() + [
         .separator(),
-        item(String(localized: "Show Cedric the Owl"), #selector(AppDelegate.toggleOwl(_:))),
-        submenu(String(localized: "Owl Hint Source"), OwlHintSource.allCases.map {
-            item($0 == .rules ? String(localized: "Rules") : String(localized: "Rules + AI"),
-                 #selector(AppDelegate.pickOwlHintSource(_:)), represented: $0.rawValue)
-        }),
-        item(String(localized: "Cedric AI Settings…"), #selector(AppDelegate.showAISettings(_:))),
-        .separator(),
         item(String(localized: "Compare With…"), #selector(AppDelegate.compareWithMenu(_:)), "c", [.command, .option]),
         item(String(localized: "Compare with Last Commit"), #selector(AppDelegate.compareWithLastCommitMenu(_:))),
         item(String(localized: "Next Difference"), #selector(CompareWindowController.nextDifference(_:)),
@@ -305,6 +316,8 @@ func buildMainMenu() -> NSMenu {
             item(String(localized: "Convert Indentation to Tabs"), #selector(AppDelegate.convertIndentationToTabsMenu(_:))),
         ]),
     ]))
+
+    main.addItem(cedricMenu())
 
     let window = submenu(String(localized: "Window"), [
         item(String(localized: "Minimize"), #selector(NSWindow.performMiniaturize(_:)), "m"),

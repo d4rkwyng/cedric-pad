@@ -1117,7 +1117,7 @@ dark theme; `session-check.sh` restores a saved folder after a kill -9.
 
 ## Cedric the owl
 
-View › Show Cedric the Owl (off by default, `Settings.showOwl`). A 72 pt owl
+Cedric › Show Cedric (off by default, `Settings.showOwl`). A 72 pt owl
 sits in the bottom-right corner of the editor, above the status bar, and
 offers hints in a speech bubble.
 
@@ -1304,7 +1304,7 @@ offers hints in a speech bubble.
   Nothing is built before the first frame: the regexes are lazy statics
   first touched by an owl query.
 - `OwlProviderRegistry`: providers in order; `register(_:isAI:)`. View ›
-  Owl Hint Source › Rules + AI is disabled until an AI provider registers.
+  Cedric’s Hints › Rules + AI is disabled until an AI provider registers.
 - `OwlCoordinator`: asks at most once per 30 s and only after 3 s without
   typing (activity = an edit, an open, a file changed on disk); shows each
   hint id once per document; "Not now" snoozes the id for an hour; "Don't
@@ -1565,7 +1565,7 @@ In the app, `OwlHub` owns the bridge:
   dedupe/snooze/never and quiet checks as a rules query) → the same bubble,
   with `OwlCoordinator.documentRange` (`range + textStart`) for Apply.
 
-**Settings sheet.** View › Cedric AI Settings… (`AISettingsSheet`): "Ask a
+**Settings sheet.** Cedric › Cedric AI Settings… (`AISettingsSheet`): "Ask a
 local model for hints" (off by default), "Where the AI runs" (the engines
 above; unavailable ones disabled), the address (Custom only; typed text
 gets `http://` and `/v1` as needed and must pass `LocalEndpointPolicy`),
@@ -1575,7 +1575,7 @@ quantisation, latency, the suggested model), a model picker (Automatic or
 a listed model), the weak-model note, and "Check at most every" (30 s–5
 min, default 90 s). Save stores `LocalAISettings` (UserDefaults
 `CedricLocalAISettings`), applies them and, once a provider registers,
-selects View › Owl Hint Source › Rules + AI.
+selects Cedric › Cedric’s Hints › Rules + AI.
 
 **Tests.** `Tests/CedricAITests` uses a URLProtocol stub server, a fake
 clock and a fake power source. `CEDRIC_AI_LIVE=1 Scripts/test.sh --filter

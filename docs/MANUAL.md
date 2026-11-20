@@ -917,9 +917,15 @@ changes" off, git never runs.
 
 ## Cedric the owl
 
+Everything Cedric does is in the **Cedric** menu (between Format and
+Window): Ask Cedric… (⌥⌘/), Check Grammar with Cedric, Check Script for
+Risks…, Show Cedric / Hide Cedric, Cedric’s Hints (Rules, or Rules + AI)
+and Cedric AI Settings…. "Cedric" is always the assistant; "Owlink" is
+the app.
+
 ### The owl and his hints
 
-**Cedric the owl** (View › Show Cedric the Owl, off by default): a small
+**Cedric the owl** (Cedric › Show Cedric, off by default): a small
 assistant in the corner that offers one hint at a time, with **Fix it**
 where a safe fix exists, **Show Me** where it points at something, **Not
 now** and **Don't show again**. He blinks and glances now and then,
@@ -965,7 +971,7 @@ at the text in view (at most 8 KB):
 
 The bubble keeps off the lines it is about when the window has room.
 
-Optional AI hints (View › Cedric AI Settings…, off by default) use a
+Optional AI hints (Cedric › Cedric AI Settings…, off by default) use a
 local model only. On Intel Macs automatic AI checks are **off** by
 default so typing stays fast: click the owl and choose **Ask AI Now**,
 or turn on "Check automatically when I pause typing" in the settings.
@@ -1127,7 +1133,7 @@ work offline.
 engine is ready: Apple Intelligence, a downloaded built-in model, or an
 LM Studio / Ollama / other-Mac server you set up and turned on; with
 none, clicking the owl offers **Set Up Ask Cedric…**). Click the owl:
-**Ask about this file…** is the first item; Edit › Ask Cedric… (⌥⌘/)
+**Ask about this file…** is the first item; Cedric › Ask Cedric… (⌥⌘/)
 does the same, and the owl says so once, a while after a new user's
 first launch. A small panel about the current document opens (a
 floating panel you can drag anywhere; it hides when you switch tabs and
@@ -1195,7 +1201,7 @@ window's bottom-right corner; opening it doesn't bring him back.
 
 ### Check Script for Risks…
 
-**Check Script for Risks…** (Edit menu, the owl, or **Check for
+**Check Script for Risks…** (Cedric menu, the owl, or **Check for
 Risks** in Ask Cedric) for shell, PowerShell, batch, `.reg`, Python and
 Ruby: an offline scan, no AI and nothing sent anywhere (so it works on
 any Mac, Intel included), lists the lines worth reading first:

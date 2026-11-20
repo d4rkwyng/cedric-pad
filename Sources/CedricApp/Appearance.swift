@@ -116,7 +116,7 @@ final class Settings {
     }
 
     /// Settings › "Ask Cedric": the owl's chat panel and its tools, and
-    /// Check Grammar with AI. Until the user sets it, on exactly when a
+    /// Check Grammar with Cedric. Until the user sets it, on exactly when a
     /// local engine is ready (`AskCedricEngine`): Apple Intelligence, a
     /// downloaded built-in model, or a server set up and turned on.
     /// CEDRIC_OWL_CHAT=0/1 for one run.
