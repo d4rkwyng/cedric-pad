@@ -413,6 +413,57 @@ selection when there is one (characters are Unicode scalars). Documents
 over a million characters show lines only, so typing never waits on a
 count; over 50,000 they are counted when typing pauses, in the background.
 
+How words are counted, in every kind of file:
+
+- A word is a run of letters and digits; an apostrophe or hyphen splits
+  it (`don't` is two words) and `_` doesn't (`snake_case` is one).
+- Chinese and Japanese characters (Han and kana) are one word each, as
+  word processors count them; Korean is counted by its spaces.
+- Emoji and symbols are characters, not words.
+- Markdown's markers (`#`, `*`, `_`, `>`, `-`, `|`, brackets, backticks,
+  a `___` rule) are never words. Text you typed counts as written: the
+  words in a link's address, in code, and the `x` of a ticked `- [x]`
+  box are counted too.
+- A Windows line ending (CR LF) is one character.
+
+### Stats and a word goal
+
+**Click the word count** in the status bar for the stats popover: the
+document's words, characters, lines and reading time, and the same for
+the selection beside them when there is one. Reading time is at 238 words
+a minute, the average for silent reading of non-fiction (Brysbaert, 2019).
+The numbers follow your typing while the popover is open; click outside
+it to close it.
+
+**Word goal:** type a number in the popover's Word goal field and press
+Return. The ring fills as you write (green once you reach it), with
+"279 of 500 words (55 %)" beside it. The goal belongs to the file: it
+comes back after a quit, and when you open the file again later, also in
+a new tab. It is kept in Owlink's session, never written into the file.
+Empty the field to clear it. An untitled tab keeps its own goal, and takes
+it to the file when you save it.
+
+### Writing Mode
+
+**View › Writing Mode** has two switches for writing prose, both off by
+default. Each is for the tab you are in (other tabs keep theirs), and comes
+back with the session. They are in the [command palette](#command-palette)
+too.
+
+- **Typewriter Scrolling** keeps the line you are typing on at the middle
+  of the window: the text scrolls up instead of the caret moving down.
+  Space is added below the last line so it can reach the middle too.
+  Clicking a line glides it to the middle; with **Reduce Motion** on
+  (System Settings › Accessibility › Display) it moves there at once.
+- **Focus** dims everything except the paragraph you are in, so the rest
+  of the text stays out of the way. Choose **Focus on Paragraph** (lines
+  between blank lines) or **Focus on Sentence** (just the sentence at the
+  caret; "Dr." or "3.5" don't end a sentence) in the same menu; the choice
+  is for every tab. Focus changes only how the text is drawn: nothing in
+  the file, undo or Find changes.
+
+Typing is as fast with either on as with both off.
+
 ## Spelling and grammar
 
 ### Fix Typos…

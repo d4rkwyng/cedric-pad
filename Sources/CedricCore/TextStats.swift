@@ -35,8 +35,9 @@ public enum TextStats {
     /// - Emoji and symbols are never words (they still count as characters).
     /// - Markdown: markers are punctuation (`#`, `*`, `>`, `-`, `|`, the
     ///   brackets and backticks), so they never count, nor does a "___"
-    ///   rule. Everything typed as text counts as written, link targets
-    ///   and code included: one scan for every file type, no parse.
+    ///   rule. Everything typed as text counts as written, link targets,
+    ///   code and a ticked box's "x" included: one scan for every file
+    ///   type, no parse.
     ///
     /// Lines are the lines the range touches; a range ending just after a
     /// newline doesn't touch the next line. An empty range is one (empty)

@@ -893,6 +893,57 @@ with mouse events, uses ⌘1–3 and ⌘Z, the pull-down, the preview toggle,
 VoiceOver press and labels, both themes and RTL, and times keystrokes in
 a Markdown tab with the bar hidden and shown in alternating rounds.
 
+## Writing Mode and the stats popover
+
+View › Writing Mode (`WritingMode.swift`, pure parts in CedricCore's
+`WritingMode.swift`, `WritingModeTests`) is per tab (`EditingState.writing`,
+`SessionTab.writing`), off by default; the Focus unit is an app setting
+(`Settings.focusUnit`).
+
+- **Typewriter scrolling.** On, each pane's `EditorTextView.onScrollRangeToVisible`
+  is set: NSTextView's own scroll-to-caret after a keystroke becomes ours,
+  and `textViewDidChangeSelection` calls the same `typewriterScroll`, so a
+  keystroke scrolls at most once (the second call finds the view in place:
+  `Typewriter.scrollTarget` returns nil within half a point). Mid-keystroke
+  the new text isn't laid out yet, so the caret's line is found after
+  `ensureLayout` for the caret and `layoutViewport()` (the display pass
+  then finds the viewport done). The scroll is a clip-view origin; the
+  bottom `contentInsets` (half the view) let the last line reach the
+  middle. Animated only for a mouse selection with Reduce Motion off.
+  Off, the hook is nil and the inset 0.
+- **Focus.** `FocusRange.paragraph` (lines between blank lines, at most
+  20 K characters either way of the caret) or `.sentence` (NLTokenizer on
+  that paragraph). The dimming is `NSTextLayoutManager` rendering
+  attributes (a foreground colour at 32 % of the theme's text colour) on
+  `visibleCharacterRange` only, the focus range cleared, the rest of the
+  visible text set: storage, undo and layout are untouched. Applied once
+  per run-loop turn after a selection change (after the colouring's pass),
+  after a scroll's deferred pass, and on a theme or unit change; off
+  removes the attribute from the document range. (Colours stay storage
+  attributes: the v0 note in `SyntaxColorizer` is about colouring every
+  token that way; Focus sets one attribute on two ranges, and the checks
+  read it back and look at the snapshot.)
+- **Stats popover** (`StatsPopover.swift`): the status bar's `counts` is a
+  `CountsLabel` whose click (or VoiceOver press) opens it; nothing is built
+  before. It reuses `editing.documentCounts` and refreshes 0.2 s after
+  edits while shown. `TextStats` (CedricCore) is the one counter for the
+  status bar, the popover and the owl: Han and kana are one word each,
+  emoji never, a word needs a letter or digit, CR LF is one character.
+  `ReadingTime` uses 238 wpm (Brysbaert 2019). The word goal is
+  `EditingState.wordGoal`; a file's is also in `Session.wordGoals` by path
+  (`FileWordGoals`, newest last, 500 at most), so a new tab on the file
+  finds it; an untitled tab's is `SessionTab.wordGoal`, moved to the path
+  on Save As. Nothing is written into the file.
+
+Checks: `CEDRIC_CHECK=writing` then `writingrestore` (`WritingCheck.swift`,
+`Scripts/writing-check.sh`, in tools-check.sh): 40 typed lines with the
+caret line measured against the middle and scrolls counted per key; a click
+with Reduce Motion forced on; Focus's rendering attributes read back for
+paragraph and sentence; typing timed off/on in alternating rounds; the
+popover opened by a click with its numbers checked; a goal typed into it;
+a real quit and a second launch on the session. `CEDRIC_PERF_WRITING=1
+Scripts/perf-check.sh` times the big files with Writing Mode on.
+
 ## Folder sidebar
 
 File › Open Folder… (⇧⌘O), a folder dropped on the Dock icon or on an
