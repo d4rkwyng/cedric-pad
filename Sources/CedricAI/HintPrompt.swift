@@ -45,7 +45,7 @@ public enum HintPrompt {
                         "type": "object",
                         "properties": [
                             "kind": ["type": "string", "enum": ["fix", "warning", "tip", "explain"]],
-                            "category": ["type": "string", "enum": HintVerifier.Category.allCases.map(\.rawValue)],
+                            "category": ["type": "string", "enum": HintVerifier.Category.modelCases.map(\.rawValue)],
                             "title": ["type": "string"],
                             "detail": ["type": "string"],
                             "line": ["type": "integer"],
@@ -117,6 +117,8 @@ public enum HintPrompt {
             // Contradicted by the code ("`<html>` is not closed" when it is)?
             let categories = HintVerifier.categories(model: item["category"] as? String, title: title, detail: detail)
             guard HintVerifier.holds(categories, title: title, detail: detail, find: find, text: text, language: language) else { continue }
+            // What an offline rule already says here: the rule's hint wins (it has a real Fix it).
+            if HintVerifier.duplicatesRule(categories, text: text, language: language, wholeDocument: wholeDocument) { continue }
             // "This JSON doesn't parse" about a window of a longer file: a
             // fragment never parses, so the claim can't be checked (and its
             // fix would only touch the window). Dropped.

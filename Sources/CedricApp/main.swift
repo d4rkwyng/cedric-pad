@@ -61,7 +61,13 @@ func textToolItems() -> [NSMenuItem] {
     textToolShortcuts.map { tool, key, mods in
         guard let tool else { return .separator() }
         return item(tool.displayName, #selector(AppDelegate.textToolMenu(_:)), key, mods, represented: tool.rawValue)
-    }
+    } + [
+        // Explain & tidy (OwlTools.swift): offline, on demand.
+        .separator(),
+        item(String(localized: "Explain Regex"), #selector(AppDelegate.explainRegexMenu(_:))),
+        item(String(localized: "Decode Selection"), #selector(AppDelegate.decodeSelectionMenu(_:))),
+        item(String(localized: "Find TODOs"), #selector(AppDelegate.findTodosMenu(_:))),
+    ]
 }
 
 /// F2, as a key equivalent (bookmarks, as in Notepad++: F2 / ⇧F2 / ⌘F2).

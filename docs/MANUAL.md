@@ -449,10 +449,11 @@ bar's items stay under the editor.
 **Settings** (Owlink › Settings…, ⌘,) holds the preferences that have
 no menu: theme, font and size, the default indentation for new files
 (Format › Indentation changes one tab), git changes in the gutter, Ask
-Cedric, and whether closing the last window quits. Each option lives in
-one place: wrap lines, invisibles, line numbers and highlight
-occurrences are in the View menu, auto-close brackets, spelling while
-typing and grammar in the Edit menu (all remembered, for every tab).
+Cedric, Cedric's style tips in code, and whether closing the last window
+quits. Each option lives in one place: wrap lines, invisibles, line
+numbers and highlight occurrences are in the View menu, auto-close
+brackets, spelling while typing and grammar in the Edit menu (all
+remembered, for every tab).
 
 ## Markdown and HTML
 
@@ -762,6 +763,152 @@ A one-word AI fix in prose ("definately" → "definitely") keeps its
 In very large documents the owl only looks when clicked.
 A network endpoint must resolve to a private address (loopback, LAN,
 Tailscale); redirects to another host are refused.
+
+### Cedric's checks
+
+On top of the hints above, Cedric knows mistakes particular to some
+languages: code that won't run, or runs and quietly does the wrong
+thing. They never fire on text inside a string or a comment, run only
+for their own language, and come one at a time like every other hint
+(the most serious first). Where a fix is safe there is **Fix it**;
+otherwise **Show Me** selects the place.
+
+- **Shell scripts** (`.sh`, `.bash`, `.zsh`, a `#!` line):
+  - Windows line endings: the script won't run ("bad interpreter").
+    **Use LF** switches the file's line endings (one ⌘Z).
+  - `NAME = value` where `$NAME` is used later: with spaces, the shell
+    runs `NAME` as a command. Fix it removes them.
+  - `if [$a = b ]` or `[ "$a" = "b"]`: `[` and `]` need spaces. Fix it
+    adds them.
+  - curly quotes and long dashes pasted from a web page or chat
+    (`echo “hi”`, `ls –la`). Fix it straightens them.
+  - a saved `.sh` file with no `#!` line that runs as a program (it reads
+    its arguments, exits or runs commands at the top level; not a library
+    of functions or settings another script sources, nor a file ShellCheck
+    already manages). Fix it adds
+    `#!/bin/sh`, or `#!/bin/bash` when the script uses bash features.
+  - `cd somewhere` without `|| exit`, followed by an `rm`, `mv` or `cp`
+    of a relative path: if the `cd` fails, they work on the wrong files.
+    Fix it adds `|| exit 1`. (Not in a script with `set -e`.)
+  - an unquoted `$var` in `rm`, `mv` or `cp`: a value with spaces or an
+    empty one changes what gets deleted. Fix it adds quotes. (Not in
+    zsh, which doesn't split variables.)
+- **Python**:
+  - `"\d"` and other backslashes that aren't escapes (a warning since
+    Python 3.12). Fix it makes a raw string, or doubles the backslash
+    when the string also has real escapes like `\n`. Docstrings are left
+    alone.
+  - a list, dict or set as a default argument (`def f(x=[])`): shared by
+    every call. Show Me.
+  - `x == None`: use `is None`. Fix it. (Not inside a call or a
+    subscript, where SQLAlchemy and pandas mean it.)
+  - `x is "a"`, `x is 0`: use `==`. Fix it.
+  - Python 2 `print "hi"`. Fix it makes it `print("hi")`.
+- **JavaScript and TypeScript**:
+  - a `debugger` statement left in. Fix it removes it.
+  - `x === NaN` (always false). Fix it uses `Number.isNaN(x)`.
+  - `typeof x === "undefnied"`. Fix it picks the type name it was meant
+    to be.
+- **Configuration files**:
+  - YAML: a key set twice in the same block (the second silently wins);
+    a version such as `python-version: 3.10`, which YAML reads as the
+    number 3.1 (Fix it quotes it).
+  - JSON: a key set twice in the same object.
+  - XML, `.plist` and `.svg` files that don't parse, with the line; a
+    plist that is valid XML but not a valid property list. Only in a
+    saved file.
+  - TOML: a table or key defined twice; a bare word as a value (Fix it
+    quotes it).
+  - `.env`: spaces around `=` (Fix it removes them); a key set twice.
+- **Markdown**:
+  - a code block (```` ``` ```` or `~~~`) that is never closed, so the
+    rest of the document shows as code. Show Me selects its opening line.
+  - a link to `#a-heading` that no heading in the file makes (GitHub's
+    anchors and the other common styles count, and so do `id=` and
+    `{#id}` anchors). Fix it changes it to the nearest heading's anchor
+    when one is close; otherwise Show Me.
+  - a relative link or image whose file isn't there, relative to the
+    document (`![logo](img/logo.png)`). Only in a saved document; the
+    files are looked up in the background, so this hint can come a
+    little after you open the file. Web links, `#anchors`, site-root
+    paths, links to GitHub's own pages (`../../issues`) and generated
+    `.html` aren't checked, nor the docs inside installed packages
+    (`node_modules` and the like), nor a bare file name in an Obsidian
+    vault or a Quartz site, which find files by name.
+- **CSV and TSV**:
+  - a field that opens with a quote and never closes: the rest of the
+    file reads as one field. Show Me.
+  - rows with more or fewer fields than the others (quoted separators
+    and line breaks inside quotes are understood). Show Me selects the
+    first such row.
+- **SQL**:
+  - `WHERE x = NULL` or `x <> NULL`: never true. Fix it uses `IS NULL` /
+    `IS NOT NULL`. (`SET x = NULL`, defaults and `SET ANSI_NULLS OFF`
+    scripts are left alone.)
+  - `UPDATE` or `DELETE` with no `WHERE`: it changes or removes every
+    row. Show Me.
+- **PowerShell**:
+  - `if ($a > 5)`: `>` writes `$a` to a file named `5`. Fix it uses `-gt`
+    (or `-ge` for `>=`).
+  - a space after the backtick at the end of a line: the line no longer
+    continues. Fix it removes the space.
+
+Generated scripts (`configure`, `config.status`, `libtool` and other
+autoconf output) and minified code get none of these checks.
+
+Some checks are about the whole file (a key set twice, a missing `#!`
+line, XML that doesn't parse, `cd` before a delete): in a file longer
+than Cedric's 8 KB view they wait until the whole file fits.
+
+**Settings › Style tips in code** (off by default) adds Cedric's style
+suggestions: a bare `except:` in Python (Fix it: `except Exception:`),
+`if x == True:` (Fix it: `if x:`, and `if not x:` for `== False`), shell
+backticks (Fix it: `$(…)`), and a Markdown image without alt text (Fix
+it starts one from the file name). The checks above are always on; each
+hint still has its own **Don't show again**.
+
+**Secrets.** When the text in view has something that looks like a key or
+a token (AWS, GitHub, GitLab, Slack and Slack webhooks, Stripe, OpenAI or
+Anthropic, Google API keys, npm tokens, a private key, or a password
+inside a URL, `scheme://user:password@host`, when the password isn't a
+placeholder), Cedric warns.
+**Fix it** replaces it with a placeholder (`<REDACTED>`, `<password>`, or
+for a private key the whole block) in one ⌘Z.
+
+**Downloaded scripts.** When you open a script that came from the
+internet (a shell, PowerShell, batch, Python or Ruby file with macOS's
+quarantine attribute), Cedric offers **Check Script for Risks…** once for
+that file.
+
+**.editorconfig.** For a saved file under a folder with an
+`.editorconfig`, Cedric follows it: `trim_trailing_whitespace = false`
+and `insert_final_newline = false` turn those hints off
+(`insert_final_newline = true` asks for the final newline in any file),
+`indent_style` decides which way mixed indentation is converted (at
+`indent_size`), and a file indented entirely the other way gets "Convert?"
+(not Makefiles or Go). The file is read in the background the first time
+Cedric looks at the document.
+
+### Explain Regex, Decode Selection, Find TODOs
+
+In Edit › Text Tools, and in the owl's menu when they apply. All three
+work offline.
+
+- **Explain Regex** (with a regular expression selected; a JavaScript
+  `/…/flags` literal works too): a breakdown, one line per piece, nested
+  under its group: anchors, classes, sets, groups (named, non-capturing,
+  lookahead and lookbehind), alternation, quantifiers (lazy, possessive),
+  back-references and flags. It warns about patterns that can take
+  exponential time, like `(a+)+`, and says what it doesn't know rather
+  than guessing.
+- **Decode Selection**: a JWT shows its header and payload as JSON and
+  when it expires (its signature is not checked, and it isn't sent
+  anywhere); base64 (standard or URL-safe) that is text shows the text;
+  a Unix time (10 digits, or 13 for milliseconds) shows the date, in your
+  time zone and in UTC. **Copy** copies the result.
+- **Find TODOs** lists the TODO, FIXME, HACK and XXX notes in the file
+  (in code, only in comments) with their line numbers; click one to go
+  there.
 
 ### Ask Cedric
 

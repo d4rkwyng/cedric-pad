@@ -77,11 +77,37 @@ extension RulesHintProvider {
             // for a random-looking mix below (not "sk-learn-model-…").
             (Self.apiKeyKind, "\\bsk-(ant|proj|svcacct|admin)-[A-Za-z0-9_-]{32,}"),
             (Self.apiKeyKind, "\\bsk-[A-Za-z0-9]{32,}\\b"),
+            // 0.3.0, from gitleaks' default rules: a fixed prefix and length.
+            (String(localized: "a Google API key"), "\\bAI" + "za[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])"),
+            (String(localized: "a GitLab token"), "\\bgl" + "pat-[0-9A-Za-z_-]{20,}(?![0-9A-Za-z_-])"),
+            (String(localized: "an npm token"), "\\bnp" + "m_[A-Za-z0-9]{36}\\b"),
+            (String(localized: "a Slack webhook"), "https://hooks\\.sl" + "ack\\.com/(services|workflows|triggers)/[A-Za-z0-9+/_-]{30,}"),
+            (Self.urlPasswordKind, "\\b[A-Za-z][A-Za-z0-9+.-]{1,20}://([^\\s:/?#@'\"`<>]{1,64}):([^\\s/?#@'\"`<>]{1,128})@[A-Za-z0-9_.-]+"),
         ]
         return raw.compactMap { name, p in (try? NSRegularExpression(pattern: p)).map { (name, $0) } }
     }()
 
     static let apiKeyKind = String(localized: "an OpenAI or Anthropic API key")
+    static let urlPasswordKind = String(localized: "a password in a URL")
+
+    /// Placeholder passwords in docs and samples: `user:password@`,
+    /// `${DB_PASS}`, `<pass>`, `****`, `%s`, `changeme`; or the user name
+    /// again (`postgres:postgres@`, a local default).
+    static let placeholderPasswords: Set<String> = ["password", "passwd", "pass", "pw", "pwd", "secret", "changeme", "change_me", "example",
+                                                    "xxx", "xxxx", "xxxxx", "xxxxxx", "test", "testing", "foo", "bar", "baz", "token", "apikey",
+                                                    "api_key", "your_password", "yourpassword", "mypassword", "my_password", "<password>",
+                                                    "redacted", "hidden", "dummy", "fake", "sample", "placeholder", "admin", "root", "guest",
+                                                    "anonymous", "user", "username", "secretpassword", "p@ssw0rd", "s3cret", "pa55word"]
+
+    static func isRealURLPassword(user: String, password: String) -> Bool {
+        let p = password.lowercased()
+        if p.count < 4 || p == user.lowercased() || placeholderPasswords.contains(p) { return false }
+        if p.contains("$") || p.contains("{") || p.contains("%") || p.contains("*") || p.contains("<") || p.contains("[") || p.contains("…") { return false }
+        if Set(p).count <= 2 { return false }   // xxxx, ****, 1111
+        if p.hasPrefix("your") || p.hasPrefix("my") || p.hasSuffix("password") || p.hasSuffix("pass") || p.hasSuffix("secret") { return false }
+        if ["user", "username", "login", "name", "u", "x"].contains(user.lowercased()) { return false }
+        return true
+    }
 
     /// A generated key mixes upper case, lower case and digits; a slug or
     /// a sentence of words doesn't.
@@ -100,11 +126,34 @@ extension RulesHintProvider {
         for (name, re) in secretPatterns {
             for m in re.matches(in: s, range: all) {
                 if name == apiKeyKind, !looksRandom(ns.substring(with: m.range).dropFirst(3)) { continue }
+                if name == urlPasswordKind {
+                    guard isRealURLPassword(user: ns.substring(with: m.range(at: 1)), password: ns.substring(with: m.range(at: 2))) else { continue }
+                    // Only the password is the secret.
+                    if best == nil || m.range.location < best!.1.location { best = (name, m.range(at: 2)) }
+                    break
+                }
                 if best == nil || m.range.location < best!.1.location { best = (name, m.range) }
                 break
             }
         }
         return best
+    }
+
+    /// Fix it for a secret (0.3.0): the secret replaced with a placeholder,
+    /// one undo step. A private key goes from its BEGIN line to its END
+    /// line (nil when the END isn't in the text); a password in a URL is
+    /// only the password.
+    static func secretPlaceholder(_ s: NSString, kind: String, range: NSRange) -> (range: NSRange, replacement: String)? {
+        if kind == String(localized: "a private key") {
+            let after = NSRange(location: NSMaxRange(range), length: s.length - NSMaxRange(range))
+            let end = s.range(of: PEM.dashes + "END ", options: [], range: after)
+            guard end.location != NSNotFound else { return nil }
+            let close = s.range(of: PEM.dashes, options: [], range: NSRange(location: NSMaxRange(end), length: s.length - NSMaxRange(end)))
+            guard close.location != NSNotFound, s.substring(with: NSRange(location: end.location, length: NSMaxRange(close) - end.location)).contains("PRIVATE") else { return nil }
+            return (NSRange(location: range.location, length: NSMaxRange(close) - range.location), "<private key removed>")
+        }
+        if kind == urlPasswordKind { return (range, "<password>") }
+        return (range, "<REDACTED>")
     }
 
     // MARK: Certificates about to expire
@@ -191,12 +240,18 @@ extension RulesHintProvider {
         var problem: Problem?
         /// UTF-16 offsets of “ ” ‘ ’ used as quotes in code (not in strings or comments).
         var curly: [Int] = []
+        /// Strings, comments and regex literals, in the order they end
+        /// (an interpolation's strings come before the string around them).
+        /// `CodeMask` sorts and merges them.
+        var spans: [CodeMask.Span] = []
     }
 
     /// A small lexer: skips strings, comments (and JS regex literals), and
     /// tracks (), [] and {} in what's left. Swift `\( )` and JS `${ }`
     /// interpolations are scanned as code. Stops at the first problem.
-    static func scanCode(_ s: NSString, language: String) -> CodeScan {
+    /// `forMask`: no bracket tracking, never stops: one pass for the
+    /// strings and comments of a window (`CodeMask`).
+    static func scanCode(_ s: NSString, language: String, forMask: Bool = false) -> CodeScan {
         var scan = CodeScan()
         let n = s.length
         let swift = language == "swift", python = language == "python", css = language == "css"
@@ -211,6 +266,8 @@ extension RulesHintProvider {
         /// Skips a quoted string starting at `i` (on the quote); handles escapes,
         /// Swift `#"…"#` raw strings, `"""` / `'''` blocks and interpolations.
         func skipString() {
+            let start = i
+            defer { scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .string, prefix: python ? pythonPrefix(s, start) : "")) }
             var hashes = 0
             while ch(i) == 35 { hashes += 1; i += 1 }   // Swift raw: #"
             let q = ch(i)
@@ -246,6 +303,8 @@ extension RulesHintProvider {
                 case 96 where js: skipString(); continue
                 case 35 where swift && swiftRegexHashes(at: i) > 0:   // #/ … /# (extended regex literal)
                     let hashes = swiftRegexHashes(at: i)
+                    let start = i
+                    defer { scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .string)) }
                     i += hashes + 1
                     while i < n {
                         if ch(i) == 92 { i += 2; continue }
@@ -255,12 +314,18 @@ extension RulesHintProvider {
                     continue
                 case 35 where swift && (ch(i + 1) == 34 || ch(i + 1) == 35): skipString(); continue
                 case 35 where python:
+                    let start = i
                     while i < n, ch(i) != 10 { i += 1 }
+                    scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .comment))
                     continue
                 case 47 where slashComments && ch(i + 1) == 47:
+                    let start = i
                     while i < n, ch(i) != 10 { i += 1 }
+                    scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .comment))
                     continue
                 case 47 where blockComments && ch(i + 1) == 42:
+                    let start = i
+                    defer { scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .comment)) }
                     var nest = 0
                     i += 2
                     while i < n {
@@ -272,8 +337,13 @@ extension RulesHintProvider {
                 case 47 where swift && regexCanStart(at: i):
                     // A bare /…/ regex literal: no space after the opening
                     // slash and closed on the same line, else it's division.
-                    if let end = swiftBareRegexEnd(from: i) { i = end; continue }
+                    if let end = swiftBareRegexEnd(from: i) {
+                        scan.spans.append(.init(range: NSRange(location: i, length: end - i), kind: .string))
+                        i = end; continue
+                    }
                 case 47 where js && regexCanStart(at: i):
+                    let start = i
+                    defer { scan.spans.append(.init(range: NSRange(location: start, length: i - start), kind: .string)) }
                     i += 1
                     var inClass = false
                     while i < n, ch(i) != 10 {
@@ -294,9 +364,10 @@ extension RulesHintProvider {
                     scan.curly.append(i)
                 case 40, 91, 123:
                     if closer != nil { depth += 1 }
-                    stack.append((Character(UnicodeScalar(k)!), i))
+                    if !forMask { stack.append((Character(UnicodeScalar(k)!), i)) }
                 case 41, 93, 125:
                     if closer != nil { depth -= 1 }
+                    if forMask { break }
                     let want: Character = k == 41 ? "(" : k == 93 ? "[" : "{"
                     let got = Character(UnicodeScalar(k)!)
                     guard let top = stack.popLast() else { scan.problem = .unexpected(got, at: i); return }
@@ -355,7 +426,7 @@ extension RulesHintProvider {
     /// `"@`), `${any name}` variables and backtick-escaped characters in
     /// code. Typographic quotes are quotes in PowerShell, so none are
     /// reported as curly.
-    static func scanPowerShell(_ s: NSString) -> CodeScan {
+    static func scanPowerShell(_ s: NSString, forMask: Bool = false) -> CodeScan {
         var scan = CodeScan()
         let n = s.length
         var stack: [(Character, Int)] = []
@@ -369,7 +440,13 @@ extension RulesHintProvider {
             return j >= n || ch(j) == 10
         }
 
+        func span(_ start: Int, _ kind: CodeMask.Span.Kind) {
+            if forMask { scan.spans.append(CodeMask.Span(range: NSRange(location: start, length: min(i, n) - start), kind: kind)) }
+        }
+
         func expandable() {   // on the opening quote
+            let start = i
+            defer { span(start, .string) }
             i += 1
             while i < n, scan.problem == nil {
                 let k = ch(i)
@@ -389,24 +466,31 @@ extension RulesHintProvider {
                 switch k {
                 case 96: i += 2; continue   // backtick escape
                 case 60 where ch(i + 1) == 35:   // <# … #>
+                    let start = i
                     i += 2
                     while i < n, !(ch(i) == 35 && ch(i + 1) == 62) { i += 1 }
                     i += 2
+                    span(start, .comment)
                     continue
                 case 35 where i == 0 || [32, 9, 10, 13, 59, 40, 123, 125, 124, 44, 61].contains(ch(i - 1)):
+                    let start = i
                     while i < n, ch(i) != 10 { i += 1 }
+                    span(start, .comment)
                     continue
                 case 64 where (isSQ(ch(i + 1)) || isDQ(ch(i + 1))) && restOfLineBlank(i + 2):   // here-string
-                    let single = isSQ(ch(i + 1))
+                    let single = isSQ(ch(i + 1)), start = i
                     i += 2
                     while i < n {
                         if ch(i) == 10, single ? isSQ(ch(i + 1)) : isDQ(ch(i + 1)), ch(i + 2) == 64 { i += 3; break }
                         i += 1
                     }
+                    span(start, .string)
                     continue
                 case _ where isSQ(k):
+                    let start = i
                     i += 1
                     while i < n { if isSQ(ch(i)) { if isSQ(ch(i + 1)) { i += 2; continue }; i += 1; break }; i += 1 }
+                    span(start, .string)
                     continue
                 case _ where isDQ(k):
                     expandable()
@@ -418,9 +502,10 @@ extension RulesHintProvider {
                     continue
                 case 40, 91, 123:
                     if closer != nil { depth += 1 }
-                    stack.append((Character(UnicodeScalar(k)!), i))
+                    if !forMask { stack.append((Character(UnicodeScalar(k)!), i)) }
                 case 41, 93, 125:
                     if closer != nil { depth -= 1 }
+                    if forMask { break }
                     let want: Character = k == 41 ? "(" : k == 93 ? "[" : "{"
                     let got = Character(UnicodeScalar(k)!)
                     guard let top = stack.popLast() else { scan.problem = .unexpected(got, at: i); return }
@@ -432,6 +517,7 @@ extension RulesHintProvider {
         }
 
         code(until: nil)
+        if forMask { return scan }
         if scan.problem == nil, let open = stack.last { scan.problem = .unclosed(open.0, at: open.1) }
         return scan
     }
@@ -689,9 +775,11 @@ extension RulesHintProvider {
                  r, nil)
         }
         if let found = Self.secret(c.text) {
+            let fix = Self.secretPlaceholder(text, kind: found.kind, range: found.range)
             hint(Self.secretID, .warning, String(localized: "That looks like a secret key. Careful where it goes."),
-                 String(localized: "This looks like \(found.kind) \(Self.whereText(text, found.range.location, whole: whole)). Don’t share, paste or commit this file with it in."),
-                 found.range, nil)
+                 String(localized: "This looks like \(found.kind) \(Self.whereText(text, found.range.location, whole: whole)). Don’t share, paste or commit this file with it in.")
+                    + (fix == nil ? "" : " " + String(localized: "Fix it replaces it with a placeholder (one undo).")),
+                 fix?.range ?? found.range, fix?.replacement)
         }
         if let r = Self.certificateExpiry(c.text, now: facts.now ?? Date()) {
             hint(Self.certificateExpiryID, .warning, r.title, r.detail, r.range, nil)
@@ -805,7 +893,9 @@ extension RulesHintProvider {
         let isCode = Self.codeLanguages.contains(lang) && lang != "json" && lang != "html"
         let n = text.length
         // A saved code file whose last line has no newline, with the caret elsewhere.
-        if isCode, facts.isWholeDocument, c.fileName != nil, facts.unsavedSince == nil, n > 0, text.character(at: n - 1) != 10,
+        // .editorconfig: insert_final_newline = false turns it off; true asks for it in any saved file.
+        let wantsNewline = facts.editorConfig?.insertFinalNewline
+        if isCode || wantsNewline == true, wantsNewline != false, facts.isWholeDocument, c.fileName != nil, facts.unsavedSince == nil, n > 0, text.character(at: n - 1) != 10,
            c.selection.map({ NSMaxRange($0) < n }) ?? true {
             hint(Self.finalNewlineID, .tip, String(localized: "No newline at the end of the file. Add one?"),
                  String(localized: "Git and many tools expect the last line to end with one."), NSRange(location: n, length: 0), "\n")

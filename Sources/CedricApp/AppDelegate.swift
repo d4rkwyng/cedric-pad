@@ -425,6 +425,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if d.looksBinary { tab.holdBinary(d.text) }
             blank?.window?.close()
             OwlHub.shared.activity(in: tab)
+            tab.readQuarantineForOwl()
             noteRecent(std)
             // A certificate file (or PEM text): the Certificate panel beside it, a turn later.
             if Certificates.isCertificateText(d.text, fileName: std.lastPathComponent), !CertificatePanel.closedByUser {
@@ -827,6 +828,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleLineNumbers(_:)): item.state = s.showLineNumbers ? .on : .off
         case #selector(toggleSpellingWhileTyping(_:)): item.state = s.checkSpellingWhileTyping ? .on : .off
         case #selector(checkDocumentNow(_:)): return tab != nil
+        // Explain & tidy (OwlTools.swift): on a selection that is one.
+        case #selector(explainRegexMenu(_:)): return tab?.canExplainRegex == true
+        case #selector(decodeSelectionMenu(_:)): return tab?.canDecodeSelection == true
+        case #selector(findTodosMenu(_:)): return tab != nil && tab?.isLargeDocument == false
         // Not in data files (JSON, YAML, INI, XML, CSV/TSV): nothing there is checked.
         case #selector(fixTyposMenu(_:)): return tab?.spellingChecksThisDocument == true
         // Plain Text and Markdown only, with grammar on, not in large mode.

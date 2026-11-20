@@ -87,6 +87,10 @@ extension AppDelegate: NSMenuDelegate {
 
     // MARK: Text tools
 
+    @objc func explainRegexMenu(_ sender: Any?) { currentTab?.explainRegexSelection() }
+    @objc func decodeSelectionMenu(_ sender: Any?) { currentTab?.decodeSelection() }
+    @objc func findTodosMenu(_ sender: Any?) { currentTab?.showTodos() }
+
     @objc func textToolMenu(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let tool = TextTool(rawValue: raw) else { return }
         currentTab?.applyTextTool(tool)

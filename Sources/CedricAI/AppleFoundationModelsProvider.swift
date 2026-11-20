@@ -105,7 +105,7 @@ public struct AppleFoundationModelsProvider: OwlHintProvider {
             .init(name: "kind", description: "fix: a bug with a fix; warning: a likely bug; tip; explain",
                   schema: DynamicGenerationSchema(name: "Kind", anyOf: ["fix", "warning", "tip", "explain"])),
             .init(name: "category", description: "what kind of problem",
-                  schema: DynamicGenerationSchema(name: "Category", anyOf: HintVerifier.Category.allCases.map(\.rawValue))),
+                  schema: DynamicGenerationSchema(name: "Category", anyOf: HintVerifier.Category.modelCases.map(\.rawValue))),
             .init(name: "title", description: "names the specific problem in a few words", schema: string),
             .init(name: "detail", description: "one or two plain sentences on why it is wrong", schema: string),
             .init(name: "line", description: "the line number the problem is on", schema: DynamicGenerationSchema(type: Int.self)),

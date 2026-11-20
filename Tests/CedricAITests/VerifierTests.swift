@@ -163,4 +163,35 @@ import CedricCore
         // The same claim about a whole document that really is broken is kept.
         #expect(HintPrompt.parse(json([claim]), text: fragment, source: "apple", language: "json").count == 1)
     }
+
+    // MARK: 0.3.0: the offline rules' categories
+
+    @Test func everyOfflineRuleHasACategory() {
+        let ids = RulesHintProvider.languageRuleIDs + [RulesHintProvider.secretID, RulesHintProvider.editorConfigIndentID,
+                                                       RulesHintProvider.mixedIndentID, RulesHintProvider.trailingID, RulesHintProvider.crlfID]
+        for id in ids { #expect(HintVerifier.ruleCategory[id] != nil, "\(id)") }
+        // The model's choices (its JSON schema) don't change.
+        #expect(HintVerifier.Category.modelCases.map(\.rawValue) == ["unclosed-tag", "brackets", "unused", "undefined", "json", "logic", "other"])
+        let schema = HintPrompt.messages(for: OwlContext(fileName: "a.sql", language: "sql", text: "x", textStart: 0,
+                                                         visibleRange: NSRange(location: 0, length: 0), selection: nil, documentID: UUID(),
+                                                         editGeneration: 0), text: "x", model: "m", server: true)
+        #expect(!schema.contains { $0.content.contains("null-compare") })
+    }
+
+    @Test func aiHintsThatRepeatAnOfflineRuleAreDropped() {
+        let sql = "SELECT * FROM users WHERE email = NULL;\n"
+        let claim: [String: Any] = ["kind": "fix", "category": "logic", "title": "Use IS NULL instead of = NULL",
+                                    "detail": "Comparing with = NULL is never true.", "line": 1, "find": "email = NULL",
+                                    "replacement": "email IS NULL", "confidence": 0.9]
+        #expect(HintVerifier.categories(model: "logic", title: "Use IS NULL instead of = NULL", detail: nil).contains(.nullCompare))
+        // The offline rule fires on this text: its hint (with its own Fix it) wins.
+        #expect(HintPrompt.parse(json([claim]), text: sql, source: "apple", language: "sql").isEmpty)
+        // Where no rule fires (a different claim, or text without the problem) the AI hint stays.
+        let other: [String: Any] = ["kind": "warning", "category": "logic", "title": "Index the email column",
+                                    "detail": "This lookup scans the table.", "line": 1, "find": "WHERE email", "confidence": 0.9]
+        #expect(HintPrompt.parse(json([other]), text: sql, source: "apple", language: "sql").count == 1)
+        #expect(!HintVerifier.duplicatesRule([.nullCompare], text: "SELECT * FROM users WHERE email IS NULL;\n", language: "sql"))
+        #expect(HintVerifier.duplicatesRule([.secret], text: "k = \"" + "gh" + "p_" + String(repeating: "x", count: 36) + "\"\n", language: "python"))
+        #expect(!HintVerifier.duplicatesRule([.logic], text: sql, language: "sql"))
+    }
 }
