@@ -167,7 +167,8 @@ public enum OwlChatRunner {
         var messages = OwlPrompts.chatMessages(question: req.prompt, context: req.context,
                                                language: Language(rawValue: req.snapshot.language)?.displayName ?? req.snapshot.language,
                                                fileName: req.snapshot.fileName, history: req.history,
-                                               toolsOn: !specs.isEmpty, model: model, server: engine.usesServer)
+                                               toolsOn: !specs.isEmpty, model: model, server: engine.usesServer,
+                                               totalLines: req.snapshot.lineCount)
         onEvent(.phase(.thinking))
         let wrote = Flag()
         let onText: @Sendable (String) -> Void = { t in

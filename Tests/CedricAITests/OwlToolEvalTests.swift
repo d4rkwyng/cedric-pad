@@ -81,6 +81,35 @@ import CedricCore
         for r in gullible[.injection]! { #expect(!r.pass, "\(r.question) → \(r.got)") }
     }
 
+    /// The script check's guard (`ScriptVerdict.clamp`) is on the path the
+    /// eval's script-check cases run: a model that says "safe to run"
+    /// passes them only because the app rewrites the claim; the same
+    /// words to a typed question fail.
+    @Test func scriptCheckCasesRunThroughTheSafeClaimGuard() async {
+        let checks = OwlToolEval.scenarios.filter { $0.action == .scriptSafety }
+        #expect(checks.count == 2)
+        for c in checks {
+            let r = await OwlToolEval.run(c, engine: SaysSafe())
+            #expect(r.pass, "\(c.doc) → \(r.got)")
+            #expect(!r.got.lowercased().contains("safe to run"), "\(r.got)")
+        }
+        let typed = OwlToolEval.scenarios.first { $0.doc == "inj-script" && $0.action == nil }!
+        #expect(!(await OwlToolEval.run(typed, engine: SaysSafe())).pass)
+        // The checker itself rejects an unclamped claim.
+        let snap = OwlDocumentSnapshot(text: "x", generation: 1)
+        #expect(OwlToolEval.check(checks[1], answer: "This script is safe to run.", calls: [], proposal: nil, snapshot: snap) != nil)
+    }
+
+    struct SaysSafe: OwlChatEngine {
+        var title: String { "safe" }
+        var scoreKey: String { "safe" }
+        var contextBudget: Int { 6000 }
+        func turn(_ messages: [OwlChatMessage], tools: [OwlToolSpec], toolbox: OwlToolbox?, maxTokens: Int,
+                  onText: @escaping @Sendable (String) -> Void) async throws -> OwlTurn {
+            .answer("It deletes old files in your home folder, as designed.\nThis script is safe to run.\nVerdict: safe to run")
+        }
+    }
+
     @Test func checkerSpotsEachKindOfMiss() {
         let snap = OwlDocumentSnapshot(text: OwlToolEval.docs["md"]!.text, generation: 1)
         let edit = OwlToolEval.scenarios.first { $0.edit?.line == 38 }!
@@ -116,7 +145,9 @@ import CedricCore
         func turn(_ messages: [OwlChatMessage], tools: [OwlToolSpec], toolbox: OwlToolbox?, maxTokens: Int,
                   onText: @escaping @Sendable (String) -> Void) async throws -> OwlTurn {
             let user = messages.compactMap { m -> String? in if case .user(let s) = m, !s.hasPrefix("Answer now") { return s }; return nil }.last ?? ""
-            let c = OwlToolEval.scenarios.first { user.hasSuffix($0.question) || user.hasSuffix($0.question + "\n/no_think") }!
+            let c = user.contains(OwlPrompts.scriptCheckTask)
+                ? OwlToolEval.scenarios.first { $0.action == .scriptSafety && user.contains("File: \(OwlToolEval.document($0.doc)!.file)") }!
+                : OwlToolEval.scenarios.first { user.contains("```\n\n" + $0.question) }!
             let ran = messages.contains { if case .toolResult = $0 { return true }; return false }
             if !ran, !c.referenceCalls.isEmpty, !tools.isEmpty { return .toolCalls(c.referenceCalls) }
             return .answer(c.reference)
@@ -194,5 +225,39 @@ struct OwlToolEvalLiveTests {
             try OwlToolEval.record(score: score, key: engine.scoreKey, cases: results.count, in: url)
             print("owl-eval: recorded in \(url.path)")
         }
+    }
+}
+
+/// Step 4 prompt fixes: the model is told the document's size and that a
+/// general question is answered from its own knowledge.
+@Suite struct OwlPromptPartialDocumentTests {
+    static func messages(lines: Int, toolsOn: Bool, total: Int?) -> String {
+        let text = (1...lines).map { "line \($0)" }.joined(separator: "\n")
+        let probe = OwlDocumentSnapshot(text: text, generation: 1)
+        let snap = OwlDocumentSnapshot(text: text, generation: 1, visible: probe.range(lines: 1, min(12, lines))!)
+        let ctx = OwlChatContext.build(snap, scope: .visible, budget: 6000)!
+        let m = OwlPrompts.chatMessages(question: "Q?", context: ctx, language: "Plain", fileName: nil, history: [],
+                                        toolsOn: toolsOn, model: "x", totalLines: total)
+        guard case .user(let u)? = m.last else { return "" }
+        return u
+    }
+
+    @Test func partOfALongerDocumentSaysSoAndAsksToLook() {
+        let u = Self.messages(lines: 40, toolsOn: true, total: 40)
+        #expect(u.contains("Shown: visible, lines 1-12 of 40"))
+        #expect(u.hasSuffix("Q?\n(You see lines 1-12 of 40. If the answer isn't in them, look with a tool before saying it isn't there.)"))
+        // Without tools: the size, no instruction to use one.
+        let off = Self.messages(lines: 40, toolsOn: false, total: 40)
+        #expect(off.contains("lines 1-12 of 40") && off.hasSuffix("Q?"))
+        // The whole document shown: nothing added.
+        let whole = Self.messages(lines: 8, toolsOn: true, total: 8)
+        #expect(whole.contains("Shown: visible, lines 1-8\n") && whole.hasSuffix("Q?"))
+        #expect(FakeChatEngine.shownLines(u) == (1, 12))
+    }
+
+    @Test func systemTextCoversGeneralKnowledgeAndLooking() {
+        let sys = OwlPrompts.chatSystem(toolsOn: true)
+        #expect(sys.contains("never refuse it because the document doesn't cover it"))
+        #expect(sys.contains("Before saying something isn't in the document, call search_document"))
     }
 }

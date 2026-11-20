@@ -142,7 +142,8 @@ public enum OwlToolEval {
         let ctx = OwlChatContext.build(snap, scope: .visible, budget: 6000)!
         let toolbox = OwlToolbox(snapshot: snap, allowed: Set(OwlToolName.allCases))
         let messages = OwlPrompts.chatMessages(question: c.question, context: ctx, language: Language(rawValue: d.language)?.displayName ?? d.language,
-                                               fileName: d.file, history: [], toolsOn: true, model: engine.scoreKey)
+                                               fileName: d.file, history: [], toolsOn: true, model: engine.scoreKey,
+                                               totalLines: snap.lineCount)
         let expected = c.expect.isEmpty ? "answer" : c.expect.map(\.rawValue).sorted().joined(separator: "|")
         let turn: OwlTurn
         do {
