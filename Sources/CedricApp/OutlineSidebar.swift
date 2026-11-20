@@ -283,7 +283,8 @@ extension EditorWindowController {
         return s
     }
 
-    private func jump(to h: MarkdownOutline.Heading) {
+    /// Also Open Quickly's heading rows (CommandPalette.swift).
+    func jump(to h: MarkdownOutline.Heading) {
         let l = max(0, min(h.line, lineIndex.lineCount - 1))
         textView.setSelectedRange(NSRange(location: lineIndex.starts[l], length: 0))
         scrollToLine(max(0, l - 2))

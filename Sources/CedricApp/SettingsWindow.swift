@@ -30,6 +30,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let styleTips = NSButton(checkboxWithTitle: String(localized: "Style tips in code"), target: nil, action: nil)
     let indentKind = NSPopUpButton()
     let tabWidth = NSPopUpButton()
+    /// View › Readable Width's column, in characters (ReadableWidthView.swift).
+    let readableColumns = NSTextField()
+    let readableStepper = NSStepper()
     private var observer: NSObjectProtocol?
     /// Default editor for… (0.3.0), below the form.
     private(set) var defaultEditor: DefaultEditorPane!
@@ -108,6 +111,17 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         note.textColor = .secondaryLabelColor
         note.preferredMaxLayoutWidth = 300
 
+        readableColumns.alignment = .right
+        readableColumns.target = self; readableColumns.action = #selector(changed(_:))
+        readableColumns.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        readableColumns.toolTip = String(localized: "How wide View › Readable Width's column is, in characters (\(ReadableWidth.columnRange.lowerBound)–\(ReadableWidth.columnRange.upperBound)).")
+        readableStepper.minValue = Double(ReadableWidth.columnRange.lowerBound)
+        readableStepper.maxValue = Double(ReadableWidth.columnRange.upperBound)
+        readableStepper.increment = 1
+        readableStepper.target = self; readableStepper.action = #selector(stepped(_:))
+        let readableRow = NSStackView(views: [readableColumns, readableStepper, NSTextField(labelWithString: String(localized: "characters"))])
+        readableRow.spacing = 6
+
         let elsewhere = NSTextField(wrappingLabelWithString: String(localized: "Wrap lines, invisibles, line numbers and occurrences are in the View menu; auto-close, spelling and grammar in the Edit menu."))
         elsewhere.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         elsewhere.textColor = .secondaryLabelColor
@@ -118,6 +132,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             [label(String(localized: "Font:")), fontRow],
             [label(String(localized: "Default indent:")), indentRow],
             [NSGridCell.emptyContentView, note],
+            [label(String(localized: "Readable width:")), readableRow],
             [label(String(localized: "Gutter:")), gitChanges],
             [label(String(localized: "Cedric:")), owlChat],
             [NSGridCell.emptyContentView, styleTips],
@@ -175,6 +190,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let ind = s.defaultIndentation
         indentKind.selectItem(at: ind.usesTabs ? 1 : 0)
         tabWidth.selectItem(withTag: ind.width)
+        readableColumns.integerValue = s.readableColumns
+        readableStepper.integerValue = s.readableColumns
         defaultEditor?.refresh()
     }
 
@@ -182,6 +199,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func windowDidBecomeKey(_ notification: Notification) { defaultEditor?.refresh() }
 
     @objc private func stepped(_ sender: NSStepper) {
+        if sender === readableStepper {
+            readableColumns.integerValue = sender.integerValue
+            changed(readableColumns)
+            return
+        }
         fontSize.integerValue = sender.integerValue
         changed(fontSize)
     }
@@ -192,6 +214,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         case theme: if let raw = theme.selectedItem?.representedObject as? String, let t = EditorTheme(rawValue: raw) { s.theme = t }
         case fontPopup: s.fontName = fontNames[max(0, fontPopup.indexOfSelectedItem)]
         case fontSize: if fontSize.integerValue >= 6 { s.fontSize = CGFloat(fontSize.integerValue) }
+        case readableColumns: if readableColumns.integerValue > 0 { s.readableColumns = readableColumns.integerValue }
         case gitChanges: s.showGitChanges = gitChanges.state == .on
         case quitOnLastClose: s.quitWhenLastWindowCloses = quitOnLastClose.state == .on
         case owlChat: s.owlChat = owlChat.state == .on

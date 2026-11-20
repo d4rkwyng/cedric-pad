@@ -173,6 +173,25 @@ and the Services menu. Nothing about it runs until you open it. With
 VoiceOver, the number of matching commands is read as you type, and the
 selected command (with its shortcut and menu) as you move.
 
+### Open Quickly
+
+**File › Open Quickly…** (⌥⌘O) opens the palette for files: with a folder
+open in the sidebar, type part of a file's name and its files are listed
+by fuzzy match, as in Xcode or VS Code. A match in the name ranks above a
+match that needs the folders, a name's word starts ("fs" for
+FolderSidebar.swift) and its beginning rank high, and on a tie the shorter
+name and the shallower file come first. Type a `/` to match the whole path
+("app/del"). Return opens the file in a tab (or selects its tab). The list
+follows the sidebar: hidden files only with Show Hidden Files, and nothing
+the folder's `.gitignore` files ignore. The folder is indexed in the
+background the first time you use it there (up to 20,000 files, nearest
+the top first) and kept current as files come and go.
+
+The current Markdown document's headings follow the files; start the query
+with `#` to search only them, and Return jumps to the heading. Start it
+with `>` for the menu commands. ⌥⌘O isn't Xcode's ⇧⌘O (that is Open
+Folder… here) or ⌘P (Print…).
+
 Page Setup… gave up ⇧⌘P for it (VS Code, iA Writer and Drafts use ⇧⌘P for
 their palettes); it has no shortcut now.
 
@@ -471,6 +490,18 @@ file over about 25 MB): the bar above the text says "…the owl and Writing
 Mode are paused for speed", the menu items stay ticked, and they work again
 after **Turn On Anyway** or once the document isn't large.
 
+### Readable width
+
+**View › Readable Width** keeps the text in a centred column about 72
+characters wide, as in iA Writer, however wide the window is; a window
+narrower than that wraps as usual. It is on by default for Markdown and
+plain text and off for code, and the menu item switches it for the
+current tab. The width is in Settings › Readable width (60–100
+characters). It needs View › Wrap Lines. Line numbers, folds and git bars
+stay beside their lines, and Typewriter Scrolling and Focus work the same
+in the column. Typing is as fast with it on: the column only moves when
+the window, the font or the setting changes.
+
 ## Spelling and grammar
 
 ### Fix Typos…
@@ -552,8 +583,8 @@ bar's items stay under the editor (both panes of a split).
 
 **Settings** (Owlink › Settings…, ⌘,) holds the preferences that have
 no menu: theme, font and size, the default indentation for new files
-(Format › Indentation changes one tab), git changes in the gutter, Ask
-Cedric, Cedric's style tips in code, and whether closing the last window
+(Format › Indentation changes one tab), the readable width's column,
+git changes in the gutter, Ask Cedric, Cedric's style tips in code, and whether closing the last window
 quits. Each option lives in one place: wrap lines, invisibles, line
 numbers and highlight occurrences are in the View menu, auto-close
 brackets, spelling while typing and grammar in the Edit menu (all

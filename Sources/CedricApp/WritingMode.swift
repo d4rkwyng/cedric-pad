@@ -283,6 +283,7 @@ extension AppDelegate {
     }
 
     func validateWritingItem(_ item: NSMenuItem) -> Bool? {
+        if let r = validateReadableWidthItem(item) { return r }
         let tab = currentTab
         switch item.action {
         case #selector(toggleTypewriterMenu(_:)):

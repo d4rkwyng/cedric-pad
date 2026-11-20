@@ -100,6 +100,9 @@ func buildMainMenu() -> NSMenu {
         hiddenAlias(item(String(localized: "New Tab"), #selector(AppDelegate.newTab(_:)), "t")),
         item(String(localized: "New Window"), #selector(AppDelegate.newWindow(_:)), "n", [.command, .shift]),
         item(String(localized: "Open…"), #selector(AppDelegate.openDocument(_:)), "o"),
+        // The folder's files and the document's headings, by fuzzy name (QuickOpenFiles.swift). ⌥⌘O:
+        // ⌘P is Print… and ⇧⌘O Open Folder… (Xcode's Open Quickly key).
+        item(String(localized: "Open Quickly…"), #selector(AppDelegate.openQuicklyMenu(_:)), "o", [.command, .option]),
         // Filled by AppDelegate.rebuildRecentMenu from the system recent-documents list.
         submenu(AppDelegate.recentMenuTitle, []),
         // The folder sidebar (FolderSidebar.swift).
@@ -245,6 +248,8 @@ func buildMainMenu() -> NSMenu {
         .separator(),
         // ⌥⌘Z, not bare ⌥Z: that types Ω (and other letters on other keyboards).
         item(String(localized: "Wrap Lines"), #selector(AppDelegate.toggleWrap(_:)), "z", [.command, .option]),
+        // A centred column of text, per tab; on for Markdown and plain text (ReadableWidthView.swift).
+        item(String(localized: "Readable Width"), #selector(AppDelegate.toggleReadableWidthMenu(_:))),
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
         item(String(localized: "Show Line Numbers"), #selector(AppDelegate.toggleLineNumbers(_:))),
         item(String(localized: "Highlight Occurrences"), #selector(AppDelegate.toggleHighlightOccurrences(_:))),

@@ -88,6 +88,26 @@ final class EditorTextView: NSTextView {
 
     var contentStorage: ChunkedContentStorage? { textLayoutManager?.textContentManager as? ChunkedContentStorage }
 
+    /// View › Readable Width (ReadableWidthView.swift): the text column's
+    /// width in points, centred by the horizontal inset; nil when off.
+    var readableColumnWidth: CGFloat? {
+        didSet { if oldValue != readableColumnWidth { updateReadableInset() } }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        // Typing grows the height only: nothing to do then.
+        if widthChanged, readableColumnWidth != nil { updateReadableInset() }
+    }
+
+    func updateReadableInset() {
+        let w = CGFloat(readableColumnWidth.map { ReadableWidth.inset(viewWidth: Double(bounds.width), column: Double($0)) }
+            ?? ReadableWidth.minimumInset)
+        guard textContainerInset.width != w else { return }
+        textContainerInset = NSSize(width: w, height: textContainerInset.height)
+    }
+
     /// View › Writing Mode › Typewriter Scrolling (WritingMode.swift): set
     /// only while it is on; returns true when it scrolled in place of
     /// NSTextView's minimal scroll to the caret.
