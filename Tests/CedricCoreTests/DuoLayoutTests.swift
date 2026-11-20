@@ -55,7 +55,7 @@ import Testing
         let edge = CGRect(x: 10, y: 0, width: 20, height: 880)
         let flatBand = CGRect(x: 0, y: 430, width: 620, height: 20)
         #expect(FoldLayout.crossingFolds([edge, flatBand], content: screen).isEmpty)
-        #expect(FoldLayout.split(content: screen, folds: [edge, flatBand]).leading == (620 - 1) / 2)
+        #expect(FoldLayout.split(content: screen, folds: [edge, flatBand]).leading == 309.5)
     }
 
     // MARK: Lanes (toast, bubble)
