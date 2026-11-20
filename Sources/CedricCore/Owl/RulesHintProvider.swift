@@ -95,6 +95,8 @@ public struct RulesHintProvider: OwlFactsAwareProvider {
                  String(localized: "Removes spaces and tabs at the ends of lines."), range: r.range, replacement: r.replacement)
         }
         fileHints(c, facts: facts, text: text) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
+        // Style Check (off by default): after every other hint, one per phrase.
+        styleHints(c, facts: facts, text: text, lines: lines) { hint($0, $1, $2, $3, range: $4, replacement: $5) }
         if !facts.isWholeDocument {
             // A window of a longer file: say that a fix covers only it.
             let note = String(localized: "Only the part of the file around what’s on screen is changed.")

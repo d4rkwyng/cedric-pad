@@ -28,6 +28,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let quitOnLastClose = NSButton(checkboxWithTitle: String(localized: "Quit when the last window closes"), target: nil, action: nil)
     let owlChat = NSButton(checkboxWithTitle: String(localized: "Ask Cedric"), target: nil, action: nil)
     let styleTips = NSButton(checkboxWithTitle: String(localized: "Style tips in code"), target: nil, action: nil)
+    /// Style Check (0.4.0) and its two lists, comma-separated.
+    let styleCheck = NSButton(checkboxWithTitle: String(localized: "Style Check: filler words, redundancies, clichés"), target: nil, action: nil)
+    let styleExtra = NSTextField()
+    let styleExceptions = NSTextField()
     let indentKind = NSPopUpButton()
     let tabWidth = NSPopUpButton()
     private var observer: NSObjectProtocol?
@@ -96,7 +100,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let fontRow = NSStackView(views: [fontPopup, fontSize, fontStepper, NSTextField(labelWithString: "pt")])
         fontRow.spacing = 6
 
-        for b in [gitChanges, owlChat, styleTips, quitOnLastClose] { b.target = self; b.action = #selector(changed(_:)) }
+        for b in [gitChanges, owlChat, styleTips, styleCheck, quitOnLastClose] { b.target = self; b.action = #selector(changed(_:)) }
+        for (f, hint) in [(styleExtra, String(localized: "Also flag: words or phrases, comma-separated")),
+                          (styleExceptions, String(localized: "Never flag: words or phrases, comma-separated"))] {
+            f.placeholderString = hint
+            f.target = self; f.action = #selector(changed(_:))
+            f.widthAnchor.constraint(equalToConstant: 300).isActive = true
+        }
         indentKind.addItems(withTitles: [String(localized: "Spaces"), String(localized: "Tabs")])
         indentKind.target = self; indentKind.action = #selector(changed(_:))
         for wdt in Indentation.widths { tabWidth.addItem(withTitle: "\(wdt)"); tabWidth.lastItem?.tag = wdt }
@@ -121,6 +131,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             [label(String(localized: "Gutter:")), gitChanges],
             [label(String(localized: "Cedric:")), owlChat],
             [NSGridCell.emptyContentView, styleTips],
+            [label(String(localized: "Writing:")), styleCheck],
+            [NSGridCell.emptyContentView, styleExtra],
+            [NSGridCell.emptyContentView, styleExceptions],
             [label(String(localized: "App:")), quitOnLastClose],
             [NSGridCell.emptyContentView, elsewhere],
         ])
@@ -168,6 +181,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         quitOnLastClose.state = s.quitWhenLastWindowCloses ? .on : .off
         owlChat.state = s.owlChat ? .on : .off
         styleTips.state = s.owlStyleTips ? .on : .off
+        styleCheck.state = s.styleCheck ? .on : .off
+        styleCheck.toolTip = String(localized: "Cedric points out filler words, redundancies (“past history”) and clichés in Markdown and plain-text prose, one at a time, never in code. Offline, no AI. Off by default.")
+        styleExtra.stringValue = s.styleCheckExtra.joined(separator: ", ")
+        styleExceptions.stringValue = s.styleCheckExceptions.joined(separator: ", ")
+        styleExtra.isEnabled = s.styleCheck
+        styleExceptions.isEnabled = s.styleCheck
         styleTips.toolTip = String(localized: "Cedric’s style suggestions for code, on top of his checks for code that breaks or does the wrong thing (those are always on). Off by default.")
         let autoGrammar = s.checkGrammar && OwlHub.shared.ai.isActive && OwlHub.shared.ai.isAutomatic
         owlChat.toolTip = String(localized: "Ask Cedric… (⌥⌘/, or click the owl): questions, quick actions and proposed edits from a local AI engine (Apple Intelligence, the built-in model, or your LM Studio / Ollama). On by default when one is ready.")
@@ -180,6 +199,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     /// Back from Finder's Get Info (or another app): show the defaults as they are now.
     func windowDidBecomeKey(_ notification: Notification) { defaultEditor?.refresh() }
+
+    /// "very, kind of ,, actually" → ["very", "kind of", "actually"].
+    static func phrases(_ s: String) -> [String] {
+        var out: [String] = []
+        for p in s.split(separator: ",").map({ StyleCheck.normalize(String($0)) }) where !p.isEmpty && !out.contains(p) { out.append(p) }
+        return out
+    }
 
     @objc private func stepped(_ sender: NSStepper) {
         fontSize.integerValue = sender.integerValue
@@ -196,6 +222,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         case quitOnLastClose: s.quitWhenLastWindowCloses = quitOnLastClose.state == .on
         case owlChat: s.owlChat = owlChat.state == .on
         case styleTips: s.owlStyleTips = styleTips.state == .on
+        case styleCheck: s.styleCheck = styleCheck.state == .on
+        case styleExtra: s.styleCheckExtra = Self.phrases(styleExtra.stringValue)
+        case styleExceptions: s.styleCheckExceptions = Self.phrases(styleExceptions.stringValue)
         case indentKind, tabWidth:
             s.defaultIndentation = Indentation(usesTabs: indentKind.indexOfSelectedItem == 1, width: tabWidth.selectedTag() > 0 ? tabWidth.selectedTag() : 4)
         default: break

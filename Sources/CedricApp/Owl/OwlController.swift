@@ -704,6 +704,25 @@ final class OwlController: NSObject, NSPopoverDelegate {
             return out
         }
         var out: [OwlBubble.Button] = []
+        if StyleCheck.isStyleHint(hint.id) {
+            // Style Check: Fix it (a cut or the short form), Show Me for a
+            // cliché, and Ignore this word (Settings' exceptions, saved).
+            if hint.replacement != nil {
+                out.append(.init(title: String(localized: "Fix it"), isDefault: true) { [weak self] in _ = self?.applyPresented() })
+            } else {
+                out.append(.init(title: String(localized: "Show Me"), isDefault: true) { [weak self] in self?.showPresented() })
+            }
+            out.append(.init(title: String(localized: "Ignore this word"), isDefault: false) { [weak self] in
+                if let p = StyleCheck.phrase(fromHintID: hint.id), !Settings.shared.styleCheckExceptions.contains(p) {
+                    Settings.shared.styleCheckExceptions.append(p)
+                }
+                self?.hideBubble()
+            })
+            out.append(.init(title: String(localized: "Not now"), isDefault: false) { [weak self] in
+                hub.coordinator.snooze(hint.id); self?.hideBubble()
+            })
+            return out
+        }
         if hint.id == RulesHintProvider.jsonID, hint.replacement == nil {
             // A long one-line JSON file, only its start in view: Fix it
             // checks and formats the whole file.
