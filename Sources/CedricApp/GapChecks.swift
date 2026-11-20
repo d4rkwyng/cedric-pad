@@ -185,8 +185,10 @@ extension DevChecks {
                 focus(tab)
                 let item = menuItem("p", [.command])
                 expect(item?.action == #selector(AppDelegate.printDocument(_:)), "⌘P is File › Print…", item?.title ?? "-")
-                let setup = menuItem("p", [.command, .shift])
-                expect(setup?.action == #selector(AppDelegate.pageSetup(_:)), "⇧⌘P is File › Page Setup…", setup?.title ?? "-")
+                let palette = menuItem("p", [.command, .shift])
+                expect(palette?.action == #selector(AppDelegate.showCommandPalette(_:)), "⇧⌘P is View › Command Palette…", palette?.title ?? "-")
+                let setup = NSApp.mainMenu?.items.first { $0.title == "File" }?.submenu?.items.first { $0.action == #selector(AppDelegate.pageSetup(_:)) }
+                expect(setup != nil && setup?.keyEquivalent == "", "File › Page Setup… is there, with no shortcut", setup?.keyEquivalent ?? "-")
                 // ⌘P: the print panel comes up as a sheet on the tab (then cancelled).
                 key("p", [.command])
             },

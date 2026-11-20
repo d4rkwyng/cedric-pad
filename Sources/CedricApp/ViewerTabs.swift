@@ -35,6 +35,7 @@ extension AppDelegate {
 
     /// The viewer tab in front, if the front tab is one (nil when a text tab is).
     var currentViewerTab: (any ViewerTab)? {
+        if let pass = validationPass { return pass.viewer }
         let viewers = viewerTabs
         guard !viewers.isEmpty else { return nil }
         if let k = NSApp.keyWindow, tabs.contains(where: { $0.window === k }) { return nil }

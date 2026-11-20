@@ -134,7 +134,7 @@ Editing** on the bar makes it an ordinary text tab.
 
 ### Print
 
-**Print** (File › Print…, ⌘P; Page Setup…, ⇧⌘P): the text in the
+**Print** (File › Print…, ⌘P; Page Setup…, no shortcut): the text in the
 editor's font, dark on white (not the theme's colours), wrapped to the
 page, with the file name, date and page numbers; line numbers are an
 option in the print panel.
@@ -149,6 +149,29 @@ loads nothing from the network; pasted images never go to an `images`
 folder that points outside the document's folder.
 
 ## Editing
+
+### Command palette
+
+**View › Command Palette…** (⇧⌘P) lists every command in the menu bar,
+including the Text Tools, Markdown commands and each language and
+encoding in the Format menu, for every kind of tab (text, Markdown, PDF,
+image). Type part of a command's name and the list narrows as you type:
+the letters only have to come in order ("md bold", "fa" for Fold All), and
+the menu path counts too. Each row shows its menu path and its shortcut,
+so the palette also teaches the keys. ↑/↓ move, Return runs the command,
+Esc (or a click elsewhere, or ⇧⌘P again) closes it. The five commands you
+ran from it most recently come first, for as long as Owlink stays open.
+
+Commands that can't run in the current tab are listed dimmed, as in the
+menu, and Return on one does nothing. The list is read from the menus each
+time the palette opens, so new commands appear in it with nothing to set
+up; it leaves out the palette itself, the Window menu's list of windows
+and the Services menu. Nothing about it runs until you open it. With
+VoiceOver, the number of matching commands is read as you type, and the
+selected command (with its shortcut and menu) as you move.
+
+Page Setup… gave up ⇧⌘P for it (VS Code, iA Writer and Drafts use ⇧⌘P for
+their palettes); it has no shortcut now.
 
 ### Find and replace
 

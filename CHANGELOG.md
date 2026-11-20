@@ -4,6 +4,14 @@ All notable changes to Owlink. The format follows [Keep a Changelog](https://kee
 and Owlink uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
+## [Unreleased] / 0.4.0
+
+### Added
+- **Command palette.** View › Command Palette… (⇧⌘P) lists every menu command, Text Tool and Markdown command, with its menu path and shortcut, in every kind of tab. Type to narrow it: the letters only need to come in order ("md bold"), and a run of letters or the start of a word ranks higher. ↑/↓ and Return run the selected command, Esc closes. Commands you ran from it lately come first. Commands that can't run in the tab are shown dimmed, not hidden. The list is read from the live menus each time it opens (about 9 ms on the full menu, also with 500 commands), so new commands are in it automatically; nothing is built until it is first opened. VoiceOver reads the number of matches and the selected command.
+
+### Changed
+- **File › Page Setup… has no shortcut**: ⇧⌘P opens the command palette, as in VS Code and iA Writer. Print stays ⌘P.
+
 ## [0.3.0]
 
 ### Added

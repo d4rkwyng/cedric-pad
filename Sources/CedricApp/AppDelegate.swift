@@ -352,7 +352,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         panel.urls.forEach { open($0) }
     }
 
+    /// Set while the command palette validates the whole menu in one go
+    /// (nothing changes windows in between): the current tab and viewer
+    /// tab are worked out once, not once per menu item. Without a key
+    /// window that is a window-server round trip (orderedWindows) each.
+    var validationPass: (tab: EditorWindowController?, viewer: (any ViewerTab)?)?
+
+    func withValidationPass<T>(_ body: () -> T) -> T {
+        let viewer = currentViewerTab
+        let tab = currentTab
+        validationPass = (tab, viewer)
+        defer { validationPass = nil }
+        return body()
+    }
+
     var currentTab: EditorWindowController? {
+        if let pass = validationPass { return pass.tab }
         // A detached preview's window: its tab (View › Attach Preview).
         if let key = NSApp.keyWindow, let t = tabs.first(where: { $0.previewWindow?.window === key }) { return t }
         // A viewer tab (PDF, image, Office) in front: no text tab is current (the editor's commands are off).

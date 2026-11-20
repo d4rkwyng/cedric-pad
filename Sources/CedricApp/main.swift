@@ -121,7 +121,8 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Open on GitHub"), #selector(AppDelegate.openOnGitHubMenu(_:))),
         item(String(localized: "Copy GitHub Link"), #selector(AppDelegate.copyGitHubLinkMenu(_:))),
         .separator(),
-        item(String(localized: "Page Setup…"), #selector(AppDelegate.pageSetup(_:)), "p", [.command, .shift]),
+        // No shortcut: ⇧⌘P is View › Command Palette… (0.4.0), as in VS Code and iA Writer.
+        item(String(localized: "Page Setup…"), #selector(AppDelegate.pageSetup(_:))),
         item(String(localized: "Print…"), #selector(AppDelegate.printDocument(_:)), "p"),
         .separator(),
         item(String(localized: "Export as HTML…"), #selector(AppDelegate.exportHTMLMenu(_:))),
@@ -211,6 +212,9 @@ func buildMainMenu() -> NSMenu {
     ]))
 
     main.addItem(submenu(String(localized: "View"), [
+        // Every menu command, searchable (CommandPalette.swift).
+        item(String(localized: "Command Palette…"), #selector(AppDelegate.showCommandPalette(_:)), "p", [.command, .shift]),
+        .separator(),
         // The preview bar's actions as menu items (0.2.1), enabled as the bar's buttons are.
         submenu(String(localized: "Preview"), [
             item(String(localized: "Show Preview"), #selector(AppDelegate.togglePreview(_:)), "p", [.command, .option]),
