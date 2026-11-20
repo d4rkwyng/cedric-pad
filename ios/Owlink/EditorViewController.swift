@@ -585,11 +585,16 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         var area = view.safeAreaLayoutGuide.layoutFrame
         area.size.height = max(0, statusBar.frame.minY - area.minY)
         if !textView.isHidden { area = area.intersection(textView.frame.offsetBy(dx: split.frame.minX, dy: split.frame.minY)) }
-        return area.isNull ? .zero : area.insetBy(dx: 4, dy: 4)
+        // Before the first real layout the area can be empty: insetting an
+        // empty rect gives CGRect.null (infinite origin), and a frame from
+        // that crashes CALayer (seen on the iPhone Duo simulator).
+        guard !area.isNull, !area.isInfinite, area.width > 8, area.height > 8 else { return .zero }
+        return area.insetBy(dx: 4, dy: 4)
     }
 
     private func layoutOwl() {
         let area = owlArea()
+        guard area.width >= OwlSprite.size, area.height >= OwlSprite.size else { return }
         let size = CGSize(width: OwlSprite.size, height: OwlSprite.size)
         if !owlSprite.isDragging {
             let f = owlPlacement.frameYDown(in: area, size: size)
@@ -605,6 +610,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         let o = owlSprite.frame
         let fold = FoldLayout.crossingFolds(folds(), content: area).first
         let lane = FoldLayout.lane(in: area, folds: folds(), trailing: fold.map { o.midX > $0.midX } ?? true)
+        guard lane.width > 60, lane.height > 40 else { return }
         let size = hintBar.fit(width: lane.width - 8)
         let b = OwlPlacement.bubbleYDown(owl: o, size: size, in: lane, avoid: hintedRect())
         hintBar.tailOnTop = b.tailOnTop
@@ -628,6 +634,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     func moveOwl(to place: OwlPlacement) {
         owlPlacement = place
         let area = owlArea()
+        guard area.width >= OwlSprite.size, area.height >= OwlSprite.size else { return }
         let f = OwlPlacement.avoidingFolds(place.frameYDown(in: area, size: owlSprite.bounds.size), folds: folds(), in: area)
         if UIAccessibility.isReduceMotionEnabled {
             owlSprite.frame = f
