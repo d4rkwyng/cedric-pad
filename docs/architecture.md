@@ -906,8 +906,11 @@ View › Writing Mode (`WritingMode.swift`, pure parts in CedricCore's
   keystroke scrolls at most once (the second call finds the view in place:
   `Typewriter.scrollTarget` returns nil within half a point). Mid-keystroke
   the new text isn't laid out yet, so the caret's line is found after
-  `ensureLayout` for the caret and `layoutViewport()` (the display pass
-  then finds the viewport done). The scroll is a clip-view origin; the
+  `ensureLayout` for the caret's paragraph only. The viewport is laid out
+  (which resizes the view) only when the middle is past what the view's
+  current height lets us scroll to, such as a Return at the end: doing it
+  on every key cost ~0.3 ms, and in a 6 MB file it made the clip view
+  jump to the top and back on each key. The scroll is a clip-view origin; the
   bottom `contentInsets` (half the view) let the last line reach the
   middle. Animated only for a mouse selection with Reduce Motion off.
   Off, the hook is nil and the inset 0.
@@ -919,7 +922,12 @@ View › Writing Mode (`WritingMode.swift`, pure parts in CedricCore's
   visible text set: storage, undo and layout are untouched. Applied once
   per run-loop turn after a selection change (after the colouring's pass),
   after a scroll's deferred pass, and on a theme or unit change; off
-  removes the attribute from the document range. (Colours stay storage
+  removes the attribute from the document range. Typing inside the focus
+  changes nothing: the last pass is remembered per view as the focus and
+  visible ranges with their ends counted from the text's end, and when
+  that matches the pass does nothing (TextKit moves the attribute with
+  its text; the check reads it back after an edit). Ranges are found from
+  the viewport's start, not the document's. (Colours stay storage
   attributes: the v0 note in `SyntaxColorizer` is about colouring every
   token that way; Focus sets one attribute on two ranges, and the checks
   read it back and look at the snapshot.)
