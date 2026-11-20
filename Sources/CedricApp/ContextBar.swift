@@ -107,15 +107,23 @@ final class ContextBarView: NSView {
 
     private func button(_ item: ContextBarItem) -> NSButton {
         let menu = item.command.flatMap(Self.menuItem)
-        let label = menu?.title ?? item.id
+        // A toggle is named for what it shows ("Preview"), its on/off is the value:
+        // the menu item's Show/Hide title changes with the state.
+        let label = item.toggle ? Self.toggleName(menu?.title ?? item.id) : menu?.title ?? item.id
         let b = NSButton(title: "", target: self, action: #selector(pressed(_:)))
         style(b)
         if item.toggle { b.setButtonType(.pushOnPushOff) }
         b.image = Self.symbol(item.symbol, label)
         if b.image == nil { b.title = label; b.imagePosition = .noImage }
-        b.toolTip = Self.tooltip(menu)
+        b.toolTip = item.toggle ? Self.tooltip(menu).replacingOccurrences(of: menu?.title ?? "", with: label) : Self.tooltip(menu)
         b.setAccessibilityLabel(label)
         return b
+    }
+
+    /// "Show Preview" / "Hide Preview" → "Preview".
+    static func toggleName(_ title: String) -> String {
+        for p in [String(localized: "Show "), String(localized: "Hide ")] where title.hasPrefix(p) { return String(title.dropFirst(p.count)) }
+        return title
     }
 
     private func pullDown(_ item: ContextBarItem) -> NSButton {

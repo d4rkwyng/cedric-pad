@@ -20,7 +20,7 @@ extension EditorWindowController {
     func toggleCheckboxes() {
         guard markdownEditable,
               let e = MarkdownLists.toggleTasks(in: textView.string as NSString, selection: textView.selectedRange()) else { NSSound.beep(); return }
-        apply(e, actionName: String(localized: "Toggle Checkbox"))
+        apply(e, actionName: String(localized: "Checkbox"))
     }
 
     /// Format › Markdown › Format Table: lines up the table at the caret
@@ -127,7 +127,8 @@ func markdownMenu() -> NSMenuItem {
         .separator(),
         item(String(localized: "Bulleted List"), #selector(AppDelegate.markdownBulletListMenu(_:))),
         item(String(localized: "Numbered List"), #selector(AppDelegate.markdownNumberedListMenu(_:))),
-        item(String(localized: "Toggle Checkbox"), #selector(AppDelegate.toggleCheckboxMenu(_:)), "\r"),
+        // "Checkbox", like its neighbours (and the Context Bar button): adds boxes, then checks and unchecks them.
+        item(String(localized: "Checkbox"), #selector(AppDelegate.toggleCheckboxMenu(_:)), "\r"),
         item(String(localized: "Quote"), #selector(AppDelegate.markdownQuoteMenu(_:))),
         item(String(localized: "Code Block"), #selector(AppDelegate.markdownCodeBlockMenu(_:))),
         .separator(),

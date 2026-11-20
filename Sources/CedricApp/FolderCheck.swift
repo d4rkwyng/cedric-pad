@@ -117,7 +117,8 @@ extension DevChecks {
                 expect(nameColor("alpha.txt") == .labelColor, "other rows aren't", "\(String(describing: nameColor("alpha.txt")))")
                 expect(node("src")?.isLoaded == false, "subfolders aren't listed until expanded")
                 expect(FolderWatcher.running == 1 && s.isWatching, "one FSEvents stream while shown", "\(FolderWatcher.running)")
-                expect(toggleItem().map { app.validateMenuItem($0) && $0.state == .on } == true, "Show Folder Sidebar enabled and checked")
+                expect(toggleItem().map { app.validateMenuItem($0) && $0.title == "Hide Folder Sidebar" && $0.state == .off } == true,
+                       "View › Hide Folder Sidebar enabled (Show/Hide, no checkmark)", toggleItem()?.title ?? "-")
             },
             snapshot("folder-root.png"),
             { next in
@@ -304,7 +305,8 @@ extension DevChecks {
                 key("1", [.control, .command])
                 expect(sidebar.isShown == false && sidebar.superview == nil, "⌃⌘1 hides the sidebar")
                 expect(FolderWatcher.running == 0 && !sidebar.isWatching, "hidden: no FSEvents stream", "\(FolderWatcher.running)")
-                expect(toggleItem().map { app.validateMenuItem($0) && $0.state == .off } == true, "Show Folder Sidebar still enabled, unchecked")
+                expect(toggleItem().map { app.validateMenuItem($0) && $0.title == "Show Folder Sidebar" && $0.state == .off } == true,
+                       "View › Show Folder Sidebar still enabled", toggleItem()?.title ?? "-")
                 try? "later\n".write(to: proj.appendingPathComponent("docs/later.md"), atomically: false, encoding: .utf8)
             },
             sync {

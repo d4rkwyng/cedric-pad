@@ -42,7 +42,7 @@ extension DevChecks {
                 // The 0.2.0 keys, each on its own row with its item.
                 let lines = text.split(separator: "\n").map(String.init)
                 let wanted: [(String, String)] = [
-                    ("⇧⌘O", "Open Folder"), ("⌃⌘1", "Show Folder Sidebar"), ("⌥⇧⌘F", "Replace in Files"),
+                    ("⇧⌘O", "Open Folder"), ("⌃⌘1", "Folder Sidebar"), ("⌥⇧⌘F", "Replace in Files"),
                     ("⌘D", "Add Next Occurrence"), ("⌃⌘G", "Select All Occurrences"), ("⌃⇧↑", "Add Caret Above"),
                     ("⌃⇧↓", "Add Caret Below"), ("⌥-drag", "column selection"), ("⌘-click", "add or remove a caret"), ("⎋", "Single Caret"),
                 ]

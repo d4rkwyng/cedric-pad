@@ -353,7 +353,7 @@ searched, so typing stays fast in big files.
 ### Line operations
 
 **Line operations** (Edit › Line): Duplicate Line (⇧⌘D), Move Line Up /
-Down (⌃⌘↑ / ⌃⌘↓), Delete Line (⇧⌘K), Toggle Comment (⌘/, with the
+Down (⌃⌘↑ / ⌃⌘↓), Delete Line (⇧⌘K), Comment Selection (⌘/, with the
 language's own comment marker: `//`, `#`, `/* */` or `<!-- -->`). Each
 works on every line the selection touches and is one undo step. ⌘X with
 nothing selected cuts the whole line.
@@ -391,11 +391,11 @@ bracket next to the caret and its partner are boxed.
 
 ### Bookmarks
 
-**Bookmarks** (Edit › Bookmarks, as in Notepad++): Toggle Bookmark (⌘F2,
-or click a line number), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
+**Bookmarks** (Edit › Bookmarks, as in Notepad++): Bookmark Line (⌘F2,
+or click a line number; it reads Remove Bookmark on a bookmarked line), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
 Bookmark All Matches (⌥⌘F2: every line matching the find bar's search,
 or the selection or word under the caret), Clear Bookmarks (⇧⌘F2).
-Bookmarks stay on their lines as you edit (Replace All, Toggle Comment
+Bookmarks stay on their lines as you edit (Replace All, Comment Selection
 and Text Tools included: a line whose text survives keeps its
 bookmark), move with Move Line (and back with Undo), and are kept with
 the session. Copy Bookmarked Lines and Delete Bookmarked Lines
@@ -732,7 +732,7 @@ session (restored just after the window first shows).
   between the parentheses (or uses a URL on the clipboard), a selected
   URL into `![](url)`, and with the caret in an image it takes the image
   markup off and leaves its alt text.
-- **Checkboxes:** Format › Markdown › Toggle Checkbox (⌘↩) checks
+- **Checkboxes:** Format › Markdown › Checkbox (⌘↩) checks
   or unchecks `- [ ]` / `- [x]` on the caret's line or every selected
   line, adds a box to a list item without one, and turns a plain line
   into `- [ ] line`. One undo step.

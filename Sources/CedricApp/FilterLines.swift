@@ -49,7 +49,7 @@ extension EditorWindowController {
     }
 
     /// The prompt for Keep / Delete Lines Matching: the text, "Regular
-    /// expression" and "Match case" (both remembered), filled with the
+    /// expression" and "Match Case" (both remembered), filled with the
     /// find bar's search or the selection.
     func filterLinesPrompt(keepMatching: Bool) {
         guard let window else { return }
@@ -71,7 +71,7 @@ extension EditorWindowController {
         let regex = NSButton(checkboxWithTitle: String(localized: "Regular expression"), target: nil, action: nil)
         regex.frame = NSRect(x: 0, y: 22, width: 280, height: 18)
         regex.state = d.bool(forKey: "filterLinesRegex") ? .on : .off
-        let matchCase = NSButton(checkboxWithTitle: String(localized: "Match case"), target: nil, action: nil)
+        let matchCase = NSButton(checkboxWithTitle: String(localized: "Match Case"), target: nil, action: nil)
         matchCase.frame = NSRect(x: 0, y: 0, width: 280, height: 18)
         matchCase.state = d.bool(forKey: "filterLinesMatchCase") ? .on : .off
         let box = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 70))

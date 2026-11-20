@@ -201,7 +201,8 @@ func buildMainMenu() -> NSMenu {
             item(String(localized: "Move Line Down"), #selector(AppDelegate.moveLineDownMenu(_:)),
                  String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .command]),
             item(String(localized: "Delete Line"), #selector(AppDelegate.deleteLineMenu(_:)), "k", [.command, .shift]),
-            item(String(localized: "Toggle Comment"), #selector(AppDelegate.toggleCommentMenu(_:)), "/"),
+            // "Comment Selection", as in Xcode (it uncomments commented lines too); no "Toggle" titles (UX review #17).
+            item(String(localized: "Comment Selection"), #selector(AppDelegate.toggleCommentMenu(_:)), "/"),
             .separator(),
             item(String(localized: "Indent"), #selector(AppDelegate.indentLinesMenu(_:)), "]"),
             item(String(localized: "Outdent"), #selector(AppDelegate.outdentLinesMenu(_:)), "["),
@@ -210,7 +211,8 @@ func buildMainMenu() -> NSMenu {
             item(String(localized: "Delete Lines Matching…"), #selector(AppDelegate.deleteLinesMatchingMenu(_:))),
         ]),
         submenu(String(localized: "Bookmarks"), [
-            item(String(localized: "Toggle Bookmark"), #selector(AppDelegate.toggleBookmarkMenu(_:)), f2, [.command]),
+            // "Remove Bookmark" on a bookmarked line (EditingFeatures.validateEditingItem).
+            item(String(localized: "Bookmark Line"), #selector(AppDelegate.toggleBookmarkMenu(_:)), f2, [.command]),
             item(String(localized: "Next Bookmark"), #selector(AppDelegate.nextBookmarkMenu(_:)), f2, []),
             item(String(localized: "Previous Bookmark"), #selector(AppDelegate.previousBookmarkMenu(_:)), f2, [.shift]),
             item(String(localized: "Bookmark All Matches"), #selector(AppDelegate.bookmarkAllMatchesMenu(_:)), f2, [.command, .option]),

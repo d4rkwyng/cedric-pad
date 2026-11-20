@@ -267,7 +267,7 @@ extension DevChecks {
                 let off: [(String, String, NSEvent.ModifierFlags)] = [
                     ("Save", "s", .command), ("Save As…", "s", [.command, .shift]), ("Cut", "x", .command), ("Paste", "v", .command),
                     ("Undo", "z", .command), ("Find…", "f", .command), ("Find and Replace…", "f", [.command, .option]), ("Go to Line…", "l", .command),
-                    ("Duplicate Line", "d", [.command, .shift]), ("Toggle Comment", "/", .command), ("Show Preview", "p", [.command, .option]),
+                    ("Duplicate Line", "d", [.command, .shift]), ("Comment Selection", "/", .command), ("Show Preview", "p", [.command, .option]),
                     ("Find in Files…", "f", [.command, .shift]), ("Indent", "]", .command), ("Select All", "a", .command), ("Check Document Now", ";", .command),
                 ]
                 for (title, k, m) in on {
