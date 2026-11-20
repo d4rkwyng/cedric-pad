@@ -137,116 +137,320 @@ final class AskCedricModel: ObservableObject {
 
 struct AskCedricView: View {
     @ObservedObject var model: AskCedricModel
+    /// Called by Done instead of dismissing, when the view is not in a sheet
+    /// (the docked side panel on wide screens).
+    var onDone: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focused: Bool
+    @State private var theme = AppSettings.theme
+    @ScaledMetric(relativeTo: .title3) private var owlSize: CGFloat = 30
+    @ScaledMetric(relativeTo: .body) private var introOwlSize: CGFloat = 52
+
+    private var palette: EditorPalette { theme.palette(systemIsDark: colorScheme == .dark) }
+    private var colors: AskColors { AskColors(palette) }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            if model.entries.isEmpty { intro }
-                            ForEach(model.entries) { e in row(e).id(e.id) }
-                        }
-                        .padding()
+        let c = colors
+        VStack(spacing: 0) {
+            header(c)
+            Rectangle().fill(c.hairline).frame(height: 1)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        if model.entries.isEmpty { intro(c) }
+                        ForEach(model.entries) { e in row(e, c).id(e.id) }
                     }
-                    .onChange(of: model.entries) { _, list in
-                        if let last = list.last { proxy.scrollTo(last.id, anchor: .bottom) }
-                    }
+                    .padding()
                 }
-                Divider()
-                inputBar
-            }
-            .navigationTitle(String(localized: "Ask Cedric"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "Done")) { model.stop(); dismiss() }
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: model.entries) { _, list in
+                    if let last = list.last { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
             }
-            .task { await model.prepare() }
+            inputBar(c)
         }
+        .foregroundStyle(c.text)
+        .tint(c.accent)
+        .background(c.background.ignoresSafeArea())
+        .environment(\.colorScheme, palette.isDark ? .dark : .light)
+        .presentationBackground(c.background)
+        .onReceive(NotificationCenter.default.publisher(for: AppSettings.changed)) { _ in theme = AppSettings.theme }
+        .task { await model.prepare() }
     }
 
-    private var intro: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                Image("Owl", bundle: .owlink).resizable().frame(width: 56, height: 56)
-                VStack(alignment: .leading) {
+    // MARK: Header
+
+    private func header(_ c: AskColors) -> some View {
+        HStack(spacing: 10) {
+            Image("Owl", bundle: .owlink).resizable().scaledToFit()
+                .frame(width: owlSize, height: owlSize)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(String(localized: "Ask Cedric")).font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                if let t = model.engineTitle {
+                    Text(t).font(.caption).foregroundStyle(c.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            Button {
+                model.stop()
+                if let onDone { onDone() } else { dismiss() }
+            } label: {
+                Text(String(localized: "Done")).font(.body.weight(.semibold))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(c.accent)
+            .accessibilityIdentifier("ask.done")
+        }
+        .padding(.leading, 16).padding(.trailing, 8).padding(.vertical, 6)
+        .background(c.bar)
+    }
+
+    // MARK: Empty state
+
+    private func intro(_ c: AskColors) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .center, spacing: 12) {
+                Image("Owl", bundle: .owlink).resizable().scaledToFit()
+                    .frame(width: introOwlSize, height: introOwlSize)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "Ask about this document.")).font(.headline)
                     if let t = model.engineTitle {
-                        Text(String(localized: "Answered by \(t).")).font(.footnote).foregroundStyle(.secondary)
+                        Text(String(localized: "Answered by \(t).")).font(.footnote).foregroundStyle(c.secondary)
                     }
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
             if let why = model.unavailable {
-                Text(why).font(.footnote).foregroundStyle(.secondary)
-                Button(String(localized: "Open Settings")) { model.openSettings() }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(why).font(.footnote).foregroundStyle(c.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(String(localized: "Open Settings")) { model.openSettings() }
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
             }
-            FlowButtons(actions: model.actions, prose: model.prose) { model.ask("", action: $0) }
-                .disabled(model.unavailable != nil)
+            if !model.actions.isEmpty {
+                section(String(localized: "Quick actions"), c)
+                FlowButtons(actions: model.actions, prose: model.prose, colors: c) { model.ask("", action: $0) }
+                    .disabled(model.unavailable != nil)
+            }
+            section(String(localized: "Try asking…"), c)
+            VStack(spacing: 8) {
+                ForEach(examples, id: \.self) { q in
+                    Button { model.ask(q) } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(systemName: "text.bubble").foregroundStyle(c.accent).accessibilityHidden(true)
+                            Text(q).font(.subheadline).multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .background(c.chipFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(c.hairline, lineWidth: 1))
+                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(c.text)
+                    .accessibilityIdentifier("ask.example")
+                }
+            }
+            .disabled(model.unavailable != nil)
+            .opacity(model.unavailable != nil ? 0.5 : 1)
         }
     }
 
-    @ViewBuilder private func row(_ e: AskCedricModel.Entry) -> some View {
+    private func section(_ title: String, _ c: AskColors) -> some View {
+        Text(title).font(.footnote.weight(.semibold)).foregroundStyle(c.secondary)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// A few starter questions, asked as typed.
+    private var examples: [String] {
+        if model.prose {
+            return [String(localized: "What is this about, in two sentences?"),
+                    String(localized: "Which parts are unclear or wordy?"),
+                    String(localized: "Suggest a better opening line."),
+                    String(localized: "What questions might a reader still have?")]
+        }
+        return [String(localized: "What does this file do?"),
+                String(localized: "Are there any bugs here?"),
+                String(localized: "How could this be simpler?"),
+                String(localized: "What should I test first?")]
+    }
+
+    // MARK: Conversation
+
+    @ViewBuilder private func row(_ e: AskCedricModel.Entry, _ c: AskColors) -> some View {
         switch e.role {
         case .user:
-            Text(e.text).padding(10).background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+            Text(e.text).font(.body)
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(c.userBubble, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.leading, 40)
         case .owl:
             VStack(alignment: .leading, spacing: 8) {
                 if e.text.isEmpty && model.running {
                     ProgressView().accessibilityIdentifier("ask.thinking")
                 } else {
-                    Text(.init(e.text)).textSelection(.enabled).accessibilityIdentifier("ask.answer")
+                    Text(.init(e.text)).font(.body).textSelection(.enabled).accessibilityIdentifier("ask.answer")
                 }
                 if let p = e.proposal {
-                    Text(p.reason.isEmpty ? String(localized: "Proposed edit") : p.reason).font(.footnote).foregroundStyle(.secondary)
+                    Text(p.reason.isEmpty ? String(localized: "Proposed edit") : p.reason).font(.footnote).foregroundStyle(c.secondary)
                     Text(p.replacement).font(.system(.footnote, design: .monospaced)).lineLimit(12)
-                        .padding(8).background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(c.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(c.hairline, lineWidth: 1))
                     Button(e.applied ? String(localized: "Applied") : String(localized: "Apply")) { model.applyProposal(e) }
                         .buttonStyle(.borderedProminent).disabled(e.applied)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         default:
-            Text(e.text).font(.footnote).foregroundStyle(.secondary)
+            Text(e.text).font(.footnote).foregroundStyle(c.secondary)
         }
     }
 
-    private var inputBar: some View {
-        HStack {
+    // MARK: Input
+
+    private func inputBar(_ c: AskColors) -> some View {
+        let empty = model.question.trimmingCharacters(in: .whitespaces).isEmpty
+        return HStack(alignment: .bottom, spacing: 4) {
             TextField(String(localized: "Ask Cedric…"), text: $model.question, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .font(.body)
                 .lineLimit(1...4)
                 .focused($focused)
                 .onSubmit { model.ask(model.question) }
+                .padding(.leading, 14).padding(.vertical, 11)
                 .accessibilityIdentifier("ask.field")
-            if model.running {
-                Button { model.stop() } label: { Image(systemName: "stop.circle.fill").font(.title2) }
-            } else {
-                Button { model.ask(model.question) } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
-                    .disabled(model.question.trimmingCharacters(in: .whitespaces).isEmpty || model.unavailable != nil)
+            Group {
+                if model.running {
+                    Button { model.stop() } label: {
+                        Image(systemName: "stop.circle.fill").font(.title2)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .foregroundStyle(c.accent)
+                    .accessibilityLabel(String(localized: "Stop"))
+                } else {
+                    Button { model.ask(model.question) } label: {
+                        Image(systemName: "arrow.up.circle.fill").font(.title2)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .foregroundStyle(empty || model.unavailable != nil ? c.secondary.opacity(0.6) : c.accent)
+                    .disabled(empty || model.unavailable != nil)
+                    .accessibilityLabel(String(localized: "Send"))
                     .accessibilityIdentifier("ask.send")
+                }
             }
+            .buttonStyle(.plain)
+            .padding(.trailing, 2)
         }
-        .padding(10)
+        .background(c.field, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .strokeBorder(focused ? c.accent.opacity(0.7) : c.hairline, lineWidth: 1))
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(c.bar.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { Rectangle().fill(c.hairline).frame(height: 1) }
     }
 }
 
-/// The quick actions as a wrapping row of buttons.
+/// The view's colours, from the editor theme's palette.
+struct AskColors {
+    let background, text, secondary, accent, bar, field, hairline, chipFill, userBubble: Color
+
+    init(_ p: EditorPalette) {
+        let fg = Color(uiColor: UIColor(hex: p.foreground))
+        let accent = Color(uiColor: UIColor(hex: p.caret))
+        background = Color(uiColor: UIColor(hex: p.background))
+        text = fg
+        secondary = Color(uiColor: UIColor(hex: p.gutterForeground))
+        self.accent = accent
+        bar = Color(uiColor: UIColor(hex: p.statusBar))
+        field = Color(uiColor: UIColor(hex: p.gutterBackground))
+        hairline = fg.opacity(p.isDark ? 0.18 : 0.14)
+        chipFill = accent.opacity(p.isDark ? 0.14 : 0.08)
+        userBubble = accent.opacity(p.isDark ? 0.24 : 0.14)
+    }
+}
+
+/// The quick actions as a wrapping row of chips.
 struct FlowButtons: View {
     let actions: [OwlQuickAction]
     let prose: Bool
+    let colors: AskColors
     let tap: (OwlQuickAction) -> Void
+    @Environment(\.isEnabled) private var enabled
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack {
-                ForEach(actions, id: \.self) { a in
-                    Button(a.title(prose: prose)) { tap(a) }.buttonStyle(.bordered)
+        FlowLayout(spacing: 8) {
+            ForEach(actions, id: \.self) { a in
+                Button { tap(a) } label: {
+                    Text(a.title(prose: prose)).font(.subheadline.weight(.medium))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .frame(minHeight: 44)
+                        .background(colors.chipFill, in: Capsule())
+                        .overlay(Capsule().strokeBorder(colors.hairline, lineWidth: 1))
+                        .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(colors.text)
             }
+        }
+        .opacity(enabled ? 1 : 0.5)
+    }
+}
+
+/// Lays its children out left to right, wrapping onto new rows.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    private func rows(_ width: CGFloat, _ subviews: Subviews) -> [(range: Range<Int>, height: CGFloat, sizes: [CGSize])] {
+        var result: [(range: Range<Int>, height: CGFloat, sizes: [CGSize])] = []
+        var start = 0, x: CGFloat = 0, h: CGFloat = 0
+        var sizes: [CGSize] = []
+        for (i, v) in subviews.enumerated() {
+            var s = v.sizeThatFits(.unspecified)
+            if s.width > width { s = v.sizeThatFits(ProposedViewSize(width: width, height: nil)); s.width = min(s.width, width) }
+            if i > start && x + spacing + s.width > width {
+                result.append((start..<i, h, sizes))
+                start = i; x = 0; h = 0; sizes = []
+            }
+            x += (i > start ? spacing : 0) + s.width
+            h = max(h, s.height)
+            sizes.append(s)
+        }
+        if start < subviews.count { result.append((start..<subviews.count, h, sizes)) }
+        return result
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        let rs = rows(width, subviews)
+        let used = rs.map { $0.sizes.reduce(0) { $0 + $1.width } + spacing * CGFloat(max($0.sizes.count - 1, 0)) }.max() ?? 0
+        let height = rs.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(rs.count - 1, 0))
+        return CGSize(width: proposal.width ?? used, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for r in rows(bounds.width, subviews) {
+            var x = bounds.minX
+            for (k, i) in r.range.enumerated() {
+                let s = r.sizes[k]
+                subviews[i].place(at: CGPoint(x: x, y: y + (r.height - s.height) / 2), proposal: ProposedViewSize(s))
+                x += s.width + spacing
+            }
+            y += r.height + spacing
         }
     }
 }
