@@ -53,6 +53,9 @@ core_t, ai_t = product('CedricCore-tests'), product('CedricAI-tests')
 objs[core_t] = ('XCSwiftPackageProductDependency', {'package': pkg, 'productName': 'CedricCore'}, 'CedricCore')
 objs[ai_t] = ('XCSwiftPackageProductDependency', {'package': pkg, 'productName': 'CedricAI'}, 'CedricAI')
 core_t2 = product('CedricCore-tests2')
+core_s, ai_s = product('CedricCore-snap'), product('CedricAI-snap')
+objs[core_s] = ('XCSwiftPackageProductDependency', {'package': pkg, 'productName': 'CedricCore'}, 'CedricCore')
+objs[ai_s] = ('XCSwiftPackageProductDependency', {'package': pkg, 'productName': 'CedricAI'}, 'CedricAI')
 objs[core_t2] = ('XCSwiftPackageProductDependency', {'package': pkg, 'productName': 'CedricCore'}, 'CedricCore')
 
 # The package tests that exercise macOS-only parts (Process/git, the
@@ -74,6 +77,15 @@ def sync(name, path, target_name=None):
         body['exceptions'] = [ex]
     return add('sync-' + name, 'PBXFileSystemSynchronizedRootGroup', body, name)
 g_app = sync('Owlink', 'Owlink')
+# The snapshot tests compile the app's sources (all but the @main app
+# delegate) into a hostless test bundle: they drive the editor and render
+# it to PNGs without SpringBoard (this build Mac's simulator can't show a
+# home screen; see README-ios.md).
+ex_snap = add('ex-Owlink-snapshots', 'PBXFileSystemSynchronizedBuildFileExceptionSet',
+              {'membershipExceptions': ['AppDelegate.swift'], 'target': oid('target-OwlinkSnapshotTests')},
+              'Exceptions for "Owlink" folder in "OwlinkSnapshotTests" target')
+objs[g_app][1]['exceptions'] = [ex_snap]
+g_snap = sync('OwlinkSnapshotTests', 'OwlinkSnapshotTests')
 g_ui = sync('OwlinkUITests', 'OwlinkUITests')
 g_ct = sync('CedricCoreTests', '../Tests/CedricCoreTests', 'CoreTests')
 g_at = sync('CedricAITests', '../Tests/CedricAITests', 'AITests')
@@ -92,11 +104,12 @@ r_mm = fref('module.modulemap', 'LlamaLoader/module.modulemap', 'sourcecode.modu
 p_app = add('product-app', 'PBXFileReference', {'explicitFileType': 'wrapper.application', 'includeInIndex': '0', 'path': 'Owlink.app', 'sourceTree': 'BUILT_PRODUCTS_DIR'}, 'Owlink.app')
 p_ct = add('product-ct', 'PBXFileReference', {'explicitFileType': 'wrapper.cfbundle', 'includeInIndex': '0', 'path': 'OwlinkCoreTests.xctest', 'sourceTree': 'BUILT_PRODUCTS_DIR'}, 'OwlinkCoreTests.xctest')
 p_at = add('product-at', 'PBXFileReference', {'explicitFileType': 'wrapper.cfbundle', 'includeInIndex': '0', 'path': 'OwlinkAITests.xctest', 'sourceTree': 'BUILT_PRODUCTS_DIR'}, 'OwlinkAITests.xctest')
+p_snap = add('product-snap', 'PBXFileReference', {'explicitFileType': 'wrapper.cfbundle', 'includeInIndex': '0', 'path': 'OwlinkSnapshotTests.xctest', 'sourceTree': 'BUILT_PRODUCTS_DIR'}, 'OwlinkSnapshotTests.xctest')
 p_ui = add('product-ui', 'PBXFileReference', {'explicitFileType': 'wrapper.cfbundle', 'includeInIndex': '0', 'path': 'OwlinkUITests.xctest', 'sourceTree': 'BUILT_PRODUCTS_DIR'}, 'OwlinkUITests.xctest')
 
 g_shared = add('group-shared', 'PBXGroup', {'children': [r_llama, r_loader, r_mm, r_ai], 'name': 'Shared (llama: device builds only)', 'sourceTree': '<group>'}, 'Shared')
-g_products = add('group-products', 'PBXGroup', {'children': [p_app, p_ct, p_at, p_ui], 'name': 'Products', 'sourceTree': '<group>'}, 'Products')
-g_main = add('group-main', 'PBXGroup', {'children': [g_app, r_samples, r_plist, r_ent, g_shared, g_ui, g_ct, g_at, g_products], 'sourceTree': '<group>'}, 'main')
+g_products = add('group-products', 'PBXGroup', {'children': [p_app, p_ct, p_at, p_ui, p_snap], 'name': 'Products', 'sourceTree': '<group>'}, 'Products')
+g_main = add('group-main', 'PBXGroup', {'children': [g_app, r_samples, r_plist, r_ent, g_shared, g_ui, g_snap, g_ct, g_at, g_products], 'sourceTree': '<group>'}, 'main')
 
 # --- build files and phases
 def bf(name, **kw):
@@ -110,6 +123,10 @@ b_aip = bf('CedricAI', productRef=ai)
 b_core_t = bf('CedricCore-t', productRef=core_t)
 b_ai_t = bf('CedricAI-t', productRef=ai_t)
 b_core_t2 = bf('CedricCore-t2', productRef=core_t2)
+b_core_s = bf('CedricCore-s', productRef=core_s)
+b_ai_s = bf('CedricAI-s', productRef=ai_s)
+b_ai_s_res = bf('AI-snap', fileRef=r_ai)
+b_samples_s = bf('Samples-snap', fileRef=r_samples)
 
 def phase(name, isa, files=None, extra=None):
     d = {'buildActionMask': '2147483647', 'files': files or [], 'runOnlyForDeploymentPostprocessing': '0'}
@@ -149,6 +166,9 @@ ct_res = phase('ct-resources', 'PBXResourcesBuildPhase')
 at_src = phase('at-sources', 'PBXSourcesBuildPhase')
 at_fw = phase('at-frameworks', 'PBXFrameworksBuildPhase', [b_ai_t, b_core_t2])
 at_res = phase('at-resources', 'PBXResourcesBuildPhase')
+sn_src = phase('sn-sources', 'PBXSourcesBuildPhase')
+sn_fw = phase('sn-frameworks', 'PBXFrameworksBuildPhase', [b_core_s, b_ai_s])
+sn_res = phase('sn-resources', 'PBXResourcesBuildPhase', [b_ai_s_res, b_samples_s])
 ui_src = phase('ui-sources', 'PBXSourcesBuildPhase')
 ui_fw = phase('ui-frameworks', 'PBXFrameworksBuildPhase')
 ui_res = phase('ui-resources', 'PBXResourcesBuildPhase')
@@ -186,12 +206,21 @@ app = {
     'HEADER_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(PROJECT_DIR)/../Sources/CLlamaLoader/include'],
     'OTHER_LDFLAGS[sdk=iphoneos*]': ['$(inherited)', '-framework', 'llama'],
     'EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]': 'LlamaRuntime.swift CLlamaLoader.c',
+    # Mac Catalyst is only used locally to render the UI (SUPPORTS_MACCATALYST=YES on the command line).
+    'EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]': 'LlamaRuntime.swift CLlamaLoader.c',
     'SUPPORTS_MACCATALYST': 'NO', 'SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD': 'NO', 'SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD': 'NO',
 }
 unit = {'PRODUCT_NAME': '$(TARGET_NAME)', 'GENERATE_INFOPLIST_FILE': 'YES', 'BUNDLE_LOADER': '', 'TEST_HOST': '',
         'SWIFT_VERSION': '6.0', 'IPHONEOS_DEPLOYMENT_TARGET': '18.0'}
 uitest = {'PRODUCT_NAME': '$(TARGET_NAME)', 'GENERATE_INFOPLIST_FILE': 'YES', 'TEST_TARGET_NAME': 'Owlink',
           'PRODUCT_BUNDLE_IDENTIFIER': BUNDLE_ID + '.uitests'}
+
+# OWLINK_CATALYST=1: a local-only variant that also builds for Mac Catalyst,
+# to render the UI on a Mac whose simulator can't draw (never committed).
+if os.environ.get('OWLINK_CATALYST') == '1':
+    for d in (app, unit, uitest):
+        d.update({'SUPPORTS_MACCATALYST': 'YES', 'CODE_SIGN_IDENTITY': '-', 'CODE_SIGN_STYLE': 'Manual',
+                  'DEVELOPMENT_TEAM': '', 'CODE_SIGN_ENTITLEMENTS': ''})
 
 def configs(name, extra):
     d = add('cfg-' + name + '-Debug', 'XCBuildConfiguration', {'buildSettings': dict(extra), 'name': 'Debug'}, 'Debug')
@@ -217,6 +246,10 @@ t_ct = target('OwlinkCoreTests', 'com.apple.product-type.bundle.unit-test', p_ct
               dict(unit, PRODUCT_BUNDLE_IDENTIFIER=BUNDLE_ID + '.coretests'))
 t_at = target('OwlinkAITests', 'com.apple.product-type.bundle.unit-test', p_at, [at_src, at_fw, at_res], [g_at], [], [ai_t, core_t2],
               dict(unit, PRODUCT_BUNDLE_IDENTIFIER=BUNDLE_ID + '.aitests'))
+t_snap = target('OwlinkSnapshotTests', 'com.apple.product-type.bundle.unit-test', p_snap, [sn_src, sn_fw, sn_res],
+                [g_app, g_snap], [], [core_s, ai_s],
+                dict(unit, PRODUCT_BUNDLE_IDENTIFIER=BUNDLE_ID + '.snapshots', SWIFT_VERSION='5.0',
+                     ASSETCATALOG_COMPILER_APPICON_NAME='', ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS='NO'))
 t_ui = target('OwlinkUITests', 'com.apple.product-type.bundle.ui-testing', p_ui, [ui_src, ui_fw, ui_res], [g_ui],
               [dep('ui', oid('target-Owlink'))], [], uitest)
 
@@ -230,7 +263,7 @@ objs[proj_id] = ('PBXProject', {
     'buildConfigurationList': pcl, 'developmentRegion': 'en', 'hasScannedForEncodings': '0',
     'knownRegions': ['en', 'Base'], 'mainGroup': g_main, 'minimizedProjectReferenceProxies': '1',
     'packageReferences': [pkg], 'preferredProjectObjectVersion': '77', 'productRefGroup': g_products,
-    'projectDirPath': '', 'projectRoot': '', 'targets': [t_app, t_ct, t_at, t_ui]}, 'Project object')
+    'projectDirPath': '', 'projectRoot': '', 'targets': [t_app, t_ct, t_at, t_snap, t_ui]}, 'Project object')
 
 out = '// !$*UTF8*$!\n{\n\tarchiveVersion = 1;\n\tclasses = {\n\t};\n\tobjectVersion = 77;\n\tobjects = {\n'
 for isa in sorted({v[0] for v in objs.values()}):
@@ -252,6 +285,7 @@ def ref(t, name, product):
 app_ref = ref(t_app, 'Owlink', 'Owlink.app')
 tests = ''.join('<TestableReference skipped = "NO">%s</TestableReference>' % ref(t, n, p)
                 for t, n, p in [(t_ct, 'OwlinkCoreTests', 'OwlinkCoreTests.xctest'), (t_at, 'OwlinkAITests', 'OwlinkAITests.xctest'),
+                                (t_snap, 'OwlinkSnapshotTests', 'OwlinkSnapshotTests.xctest'),
                                 (t_ui, 'OwlinkUITests', 'OwlinkUITests.xctest')])
 scheme = '''<?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion = "2700" version = "1.7">

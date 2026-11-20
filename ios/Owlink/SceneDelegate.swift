@@ -16,6 +16,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         w.makeKeyAndVisible()
         window = w
         ws.sizeRestrictions?.minimumSize = CGSize(width: 320, height: 400)
+        #if DEBUG
+        if let out = SelfCheck.outDir {
+            SelfCheck.run(in: w, browser: browser, out: out)
+            return
+        }
+        #endif
         if let ctx = options.urlContexts.first {
             browser.open(ctx.url, importIfNeeded: !ctx.options.openInPlace)
         } else if let url = TestLaunch.documentToOpen() {
