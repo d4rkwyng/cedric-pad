@@ -106,6 +106,12 @@ final class TextDocument: UIDocument {
         }
     }
 
+    /// Reads the file again after the person chose its version on disk
+    /// (Keep Other Version in a conflict).
+    func revertAfterChoice(_ done: @escaping (Bool) -> Void) {
+        revert(toContentsOf: fileURL, completionHandler: done)
+    }
+
     var displayName: String { fileURL.lastPathComponent }
 
     /// The file types the document browser shows: text of any kind, and any

@@ -9,6 +9,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         BuiltInSetup.install()
         // No document is open yet: opened-version copies left by a crash go.
         SaveSafetyStores.revert.clearAll()
+        // Safety copies (conflict versions and the like) are kept 7 days.
+        let copies = SaveSafetyStores.copies
+        DispatchQueue.global(qos: .utility).async { copies.prune() }
         if ProcessInfo.processInfo.arguments.contains("-OwlinkResetSettings") {
             for k in [AppSettings.Key.fontSize, AppSettings.Key.wrap, AppSettings.Key.owlHints, AppSettings.Key.theme,
                       AppSettings.Key.saveAutomatically] {

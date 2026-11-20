@@ -7,7 +7,10 @@ import CedricCore
 ///   (not Caches: the system may empty Caches, and these must survive a
 ///   crash until they are offered);
 /// - the bytes of each open document as opened (Revert to Opened Version):
-///   Caches/Owlink/Opened, deleted when the document closes and at launch.
+///   Caches/Owlink/Opened, deleted when the document closes and at launch;
+/// - safety copies made before anything replaces a file's bytes (conflict
+///   versions, unsaved text before a reload, the original before the first
+///   save): Application Support/Owlink/Copies, kept 7 days.
 enum SaveSafetyStores {
     static let recovery: RecoveryStore = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -17,6 +20,11 @@ enum SaveSafetyStores {
     static let revert: RevertStore = {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         return RevertStore(directory: base.appendingPathComponent("Owlink/Opened", isDirectory: true))
+    }()
+
+    static let copies: SafetyCopyStore = {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return SafetyCopyStore(directory: base.appendingPathComponent("Owlink/Copies", isDirectory: true))
     }()
 
     /// One serial queue for every recovery write and delete, so a delete

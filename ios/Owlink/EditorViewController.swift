@@ -82,6 +82,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     private var pendingRecovery: Recovery?
     private var recoveryWriter: RecoveryWriter!
     private var closing = false
+    /// Why the text is read-only right now (nothing: editable).
+    private(set) var editGate = EditGate()
+    /// An iCloud conflict is being dealt with (copied, then asked).
+    private var conflictResolver: ConflictResolver?
 
     init(document: TextDocument, recovery: Recovery? = nil) {
         self.document = document
@@ -1354,8 +1358,23 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
 
     private func updateUndoItems() {
         let um = textView.undoManager
-        undoItem.isEnabled = um?.canUndo ?? false
-        redoItem.isEnabled = um?.canRedo ?? false
+        undoItem.isEnabled = editGate.isEditable && um?.canUndo ?? false
+        redoItem.isEnabled = editGate.isEditable && um?.canRedo ?? false
+    }
+
+    /// Sets one reason the text is read-only, and the text view to match.
+    func setEditLock(_ reason: EditGate.Reason, _ on: Bool) {
+        editGate.set(reason, on)
+        applyEditGate()
+    }
+
+    private func applyEditGate() {
+        let editable = editGate.isEditable
+        if textView.isEditable != editable {
+            if !editable { textView.resignFirstResponder() }
+            textView.isEditable = editable
+        }
+        updateUndoItems()
     }
 
     /// "Edited" as soon as there are unsaved changes, gone once saved:
@@ -1456,13 +1475,80 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     }
 
     @objc private func documentStateChanged() {
-        if document.documentState.contains(.inConflict) {
-            toast(String(localized: "This file was changed on another device. The newest version is kept."))
-            if let versions = NSFileVersion.unresolvedConflictVersionsOfItem(at: document.fileURL) {
-                for v in versions { v.isResolved = true }
+        if document.documentState.contains(.inConflict), conflictResolver == nil, !closing { beginConflict() }
+    }
+
+    // MARK: iCloud conflicts
+
+    /// Copies every version (and any unsaved text) first, then asks which
+    /// to keep. Editing is off until it is resolved.
+    private func beginConflict() {
+        let resolver = ConflictResolver(document: document)
+        conflictResolver = resolver
+        setEditLock(.conflict, true)
+        let v = resolver.versions()
+        guard !v.others.isEmpty else { endConflict(); return }
+        resolver.backUp(v, unsavedText: document.hasUnsavedChanges ? textView.text : nil) { [weak self] failure in
+            guard let self else { return }
+            if let failure {
+                // Nothing resolved and nothing removed: the conflict stays
+                // (iCloud keeps every version), and so does the lock.
+                self.showAlert(String(localized: "This file has a conflict"), failure.localizedDescription)
+                return
             }
-            try? NSFileVersion.removeOtherVersionsOfItem(at: document.fileURL)
+            self.askConflict(resolver, v)
         }
+    }
+
+    private func askConflict(_ resolver: ConflictResolver, _ v: ConflictResolver.Versions, note: String? = nil) {
+        let a = ConflictResolver.chooser(name: document.displayName, v, note: note) { [weak self] choice in
+            self?.resolveConflict(choice, resolver, v)
+        }
+        present(a, animated: true)
+    }
+
+    private func resolveConflict(_ choice: ConflictResolution.Choice, _ resolver: ConflictResolver, _ v: ConflictResolver.Versions) {
+        resolver.resolve(choice, v) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure(let f):
+                // Ask again: every version is still there (or copied).
+                self.askConflict(resolver, v, note: f.localizedDescription)
+            case .success(let savedName):
+                switch choice {
+                case .keepThis:
+                    self.toast(String(localized: "Kept this version. A copy of the other version is kept in Owlink."))
+                    self.endConflict()
+                case .keepBoth:
+                    self.toast(String(localized: "Kept this version and saved the other as “\(savedName ?? "")”."))
+                    self.endConflict()
+                case .keepOther:
+                    // The other version is the file now: read it. The text
+                    // shown here (saved or not) is copied already.
+                    self.recoveryWriter.clear()
+                    self.document.revertAfterChoice { [weak self] _ in
+                        self?.toast(String(localized: "Kept the other version. A copy of this one is kept in Owlink."))
+                        self?.endConflict()
+                    }
+                }
+            }
+        }
+    }
+
+    private func endConflict() {
+        conflictResolver = nil
+        setEditLock(.conflict, false)
+        // Another conflict may have come in meanwhile.
+        if document.documentState.contains(.inConflict),
+           NSFileVersion.unresolvedConflictVersionsOfItem(at: document.fileURL)?.isEmpty == false {
+            beginConflict()
+        }
+    }
+
+    private func showAlert(_ title: String, _ message: String?) {
+        let a = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: String(localized: "OK"), style: .default))
+        present(a, animated: true)
     }
 
     // MARK: Toast
