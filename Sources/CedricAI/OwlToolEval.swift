@@ -24,6 +24,8 @@ public enum OwlToolEval {
         public var expected: String
         public var got: String
         public var pass: Bool
+        /// Wall time of the case (every model turn and tool run), seconds.
+        public var seconds: TimeInterval = 0
     }
 
     public static let shown = 12
@@ -125,6 +127,13 @@ public enum OwlToolEval {
 
     /// One case: the first move the model makes.
     public static func run(_ c: Case, engine: any OwlChatEngine) async -> Result {
+        let t0 = Date()
+        var r = await firstMove(c, engine: engine)
+        r.seconds = Date().timeIntervalSince(t0)
+        return r
+    }
+
+    private static func firstMove(_ c: Case, engine: any OwlChatEngine) async -> Result {
         let d = docs[c.doc]!
         let full = d.text as NSString
         let shownRange = OwlDocumentSnapshot(text: d.text, generation: 1).range(lines: 1, shown)!
