@@ -261,14 +261,14 @@ public struct LocalModelClient: Sendable {
         /// addresses with the last bytes or a moment later: waits up to
         /// `wait` seconds for them, and passes when it hasn't (no
         /// connection was made, or a test's stub protocol).
-        func checkPeers(wait: TimeInterval = 1) async throws {
-            var left = wait
+        /// The wait is measured on `clock`, not counted in polls: a poll
+        /// that oversleeps (a busy machine) doesn't stretch it.
+        func checkPeers(wait: TimeInterval = 1, clock: any OwlClock = SystemClock()) async throws {
+            let deadline = clock.now + wait
             var seen = peers.mutate { $0 }
-            while seen == nil, left > 0 {
-                try? await Task.sleep(nanoseconds: 10_000_000)
-                left -= 0.01
+            while seen == nil, clock.now < deadline, !Task.isCancelled {
+                try? await clock.sleep(seconds: min(0.01, max(0, deadline - clock.now)))
                 seen = peers.mutate { $0 }
-                if Task.isCancelled { break }
             }
             if let bad = seen?.first(where: { !LocalEndpointPolicy.isPrivateAddress($0) }) {
                 throw LocalAIError.endpointNotLocal(bad)

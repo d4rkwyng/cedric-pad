@@ -39,6 +39,27 @@ import CedricCore
         await #expect(throws: LocalAIError.endpointNotLocal("studio.local")) { try await client.checkLocal() }
     }
 
+    @Test func aRebindAfterTheCheckIsNotFollowed() async throws {
+        // The name's first answer is private (a real server on 127.0.0.1);
+        // every later answer is public. The request must go to the address
+        // that was checked, with the name in the Host header, and the name
+        // must be looked up once: a second lookup is where a rebind lands.
+        let server = try OneShotHTTPServer(body: #"{"data":[{"id":"m"}]}"#)
+        let lookups = Locked(0)
+        var client = LocalModelClient(baseURL: URL(string: "http://rebind-test.local:\(server.port)/v1")!, timeout: 5)
+        client.resolver = { _ in
+            lookups.mutate { $0 += 1; return $0 } == 1 ? ["127.0.0.1"] : ["8.8.8.8"]
+        }
+        #expect(try await client.listModels().map(\.id) == ["m"])
+        #expect(lookups.mutate { $0 } == 1, "looked up once, not again at connect time")
+        let head = try #require(server.requestHead)
+        #expect(head.hasPrefix("GET /v1/models "), "\(head)")
+        #expect(head.lowercased().contains("host: rebind-test.local:\(server.port)\r\n"), "\(head)")
+        // A second call looks up again and gets the public answer: refused
+        // before any connection.
+        await #expect(throws: LocalAIError.endpointNotLocal("rebind-test.local")) { try await client.listModels() }
+    }
+
     // MARK: 0.2.1 review M3: IPv6 link-local zones, the peer check after https
 
     @Test func linkLocalZonesAreAddresses() throws {
@@ -100,11 +121,43 @@ import CedricCore
         let pub = LocalModelClient.RedirectGuard()
         pub.record(["10.0.0.2", "8.8.8.8"])
         await #expect(throws: LocalAIError.endpointNotLocal("8.8.8.8")) { try await pub.checkPeers(wait: 0) }
-        // No report (no connection, a stub protocol): passes after the wait.
+        // No report (no connection, a stub protocol): passes after the
+        // wait, measured on the clock and not longer. A clock whose sleeps
+        // return at once: no dependence on how busy the machine is.
         let none = LocalModelClient.RedirectGuard()
-        let t0 = Date()
-        try await none.checkPeers(wait: 0.05)
-        #expect(Date().timeIntervalSince(t0) < 1)
+        let clock = SteppingClock()
+        try await none.checkPeers(wait: 0.05, clock: clock)
+        #expect(abs(clock.now - 0.05) < 1e-9, "waited the whole 0.05 s, no more: \(clock.now)")
+        #expect(clock.sleeps >= 5 && clock.sleeps <= 6, "\(clock.sleeps) polls")
+        // A poll that oversleeps (a busy machine) uses the wait up; it doesn't add to it.
+        let slowPolls = SteppingClock(oversleep: 100)
+        try await LocalModelClient.RedirectGuard().checkPeers(wait: 0.05, clock: slowPolls)
+        #expect(slowPolls.sleeps == 1, "one late poll ends the wait: \(slowPolls.sleeps)")
+        // A report that arrives during the wait is checked.
+        let late = LocalModelClient.RedirectGuard()
+        let reporting = SteppingClock { if $0 == 3 { late.record(["8.8.8.8"]) } }
+        await #expect(throws: LocalAIError.endpointNotLocal("8.8.8.8")) { try await late.checkPeers(wait: 1, clock: reporting) }
+        #expect(reporting.sleeps == 3)
+    }
+
+    /// Time that moves only when slept on; each sleep returns at once
+    /// (after `oversleep` × the asked time) and calls `onSleep` with the count.
+    final class SteppingClock: OwlClock, @unchecked Sendable {
+        private let lock = NSLock()
+        private var t: TimeInterval = 0
+        private var n = 0
+        let oversleep: Double
+        let onSleep: @Sendable (Int) -> Void
+        init(oversleep: Double = 1, onSleep: @escaping @Sendable (Int) -> Void = { _ in }) {
+            self.oversleep = oversleep
+            self.onSleep = onSleep
+        }
+        var now: TimeInterval { lock.withLock { t } }
+        var sleeps: Int { lock.withLock { n } }
+        func sleep(seconds: TimeInterval) async throws {
+            let count: Int = lock.withLock { t += seconds * oversleep; n += 1; return n }
+            onSleep(count)
+        }
     }
 
     @Test func peerCheckSeesARealConnection() async throws {
@@ -222,6 +275,9 @@ import CedricCore
 /// every request on that connection with `body`, then closes.
 final class OneShotHTTPServer: @unchecked Sendable {
     let port: Int
+    private let seen = Locked<String?>(nil)
+    /// The request's head, once it has been read.
+    var requestHead: String? { seen.mutate { $0 } }
 
     init(body: String) throws {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
@@ -240,6 +296,7 @@ final class OneShotHTTPServer: @unchecked Sendable {
         guard ok else { close(fd); throw POSIXError(.EADDRINUSE) }
         port = Int(UInt16(bigEndian: addr.sin_port))
         let listener = fd
+        let seen = self.seen
         Thread.detachNewThread {
             defer { close(listener) }
             let c = accept(listener, nil, nil)
@@ -254,6 +311,7 @@ final class OneShotHTTPServer: @unchecked Sendable {
                 if n <= 0 { return }
                 got += buf[0..<n]
             }
+            seen.mutate { $0 = String(decoding: got, as: UTF8.self) }
             let payload = Array(body.utf8)
             let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(payload.count)\r\nConnection: close\r\n\r\n"
             let out = Array(head.utf8) + payload
