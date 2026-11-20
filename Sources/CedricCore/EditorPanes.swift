@@ -74,4 +74,20 @@ public enum EditorPanes {
         guard let c = chat, !c.isEmpty else { return false }
         return owlFrame.intersects(c)
     }
+
+    /// Where the status bar's bottom edge sits, in the editor view (y down).
+    ///
+    /// On iOS 26 the keyboard layout guide rests on the safe area while the
+    /// keyboard is hidden, so a bar pinned to it floats above the home
+    /// indicator. The bar runs to the screen edge instead (its labels
+    /// already stay in the safe area). A docked keyboard, taller than the
+    /// home indicator, lifts the bar onto the keyboard. A floating keyboard
+    /// does not cover the bottom, so the bar stays down.
+    public static func statusBarBottom(viewHeight: CGFloat, keyboardTop: CGFloat, keyboardBottom: CGFloat, homeInset: CGFloat) -> CGFloat {
+        guard viewHeight > 0 else { return 0 }
+        let coversBottom = keyboardBottom >= viewHeight - 1 && keyboardTop <= viewHeight - 1
+        let gap = viewHeight - keyboardTop
+        if !coversBottom || gap <= max(homeInset, 0) + 80 { return viewHeight }
+        return keyboardTop
+    }
 }

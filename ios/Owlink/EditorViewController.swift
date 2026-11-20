@@ -48,6 +48,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     /// line hidden) on the safe area's bottom.
     private var splitBottom: NSLayoutConstraint!
     private var splitBottomFocus: NSLayoutConstraint!
+    /// Status line's bottom, as an offset from the view's bottom: 0 at the
+    /// screen edge, negative while a docked keyboard lifts it.
+    private var statusBarBottomPin: NSLayoutConstraint!
+    /// Home-indicator inset last seen while the keyboard was down. A docked
+    /// keyboard can inflate the safe area; that must not look like a tall
+    /// home indicator and pin the bar under the keys.
+    private var restingHomeInset: CGFloat = 0
+    /// A keyboard animation owns the pin; layout must not fight it.
+    private var animatingStatusBar = false
     /// Focus Preview: the preview alone, editor, status line and owl hidden.
     private(set) var focusOn = false
     /// The preview was beside the text before Focus Preview (it comes back so).
@@ -157,6 +166,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         // A detached preview window of this document wants its text.
         NotificationCenter.default.addObserver(self, selector: #selector(detachedPreviewNeedsText(_:)),
                                                name: DetachedPreviews.needsText, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardFrameWillChange(_:)),
+                                               name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         // Opening or closing an iPhone Duo is a size-class change (compact
         // outside, regular inside; outer landscape is compact both ways).
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self,
@@ -288,17 +299,81 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             splitBottom,
             statusBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            statusBar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
         ])
-        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        // Not the keyboard guide. On iOS 26 that guide rests at the safe
+        // area while the keyboard is hidden, which left the bar floating
+        // above the home indicator and cut the editor short of the screen's
+        // rounded bottom. The bar's own margins keep the labels in the safe
+        // area; the background runs to the screen edge. A docked keyboard
+        // lifts the pin (updateStatusBarPin).
+        statusBarBottomPin = statusBar.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        statusBarBottomPin.isActive = true
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateStatusBarPin()
         updateSplit()
         updateAskPanelWidth()
         layoutOwl()
         layoutDivider()
+    }
+
+    /// Home-indicator inset, ignoring a keyboard that has been added to the
+    /// safe area (those are well over 80 pt; the indicator is not).
+    private func homeInsetForStatusBar() -> CGFloat {
+        let inset = view.safeAreaInsets.bottom
+        if inset <= 80 { restingHomeInset = inset }
+        return restingHomeInset
+    }
+
+    /// The keyboard guide in this view's coordinates, or nil before the
+    /// window exists.
+    private func keyboardFrameInView() -> CGRect {
+        view.keyboardLayoutGuide.layoutFrame
+    }
+
+    private func updateStatusBarPin() {
+        guard !animatingStatusBar, let pin = statusBarBottomPin else { return }
+        let g = keyboardFrameInView()
+        let y = EditorPanes.statusBarBottom(viewHeight: view.bounds.height, keyboardTop: g.minY, keyboardBottom: g.maxY,
+                                            homeInset: homeInsetForStatusBar())
+        let constant = y - view.bounds.height
+        guard abs(pin.constant - constant) > 0.5 else { return }
+        pin.constant = constant
+    }
+
+    /// Show, hide, and interactive drag. The end frame is in screen
+    /// coordinates; a duration of 0 is an interactive update, applied now
+    /// so layout can keep following the guide.
+    @objc private func keyboardFrameWillChange(_ note: Notification) {
+        guard let raw = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue,
+              let pin = statusBarBottomPin else { return }
+        let frame = keyboardFrame(raw)
+        let y = EditorPanes.statusBarBottom(viewHeight: view.bounds.height, keyboardTop: frame.minY, keyboardBottom: frame.maxY,
+                                            homeInset: homeInsetForStatusBar())
+        let constant = y - view.bounds.height
+        let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
+        let curve = note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 0
+        guard duration > 0.01 else {
+            if abs(pin.constant - constant) > 0.5 { pin.constant = constant }
+            return
+        }
+        animatingStatusBar = true
+        let options = UIView.AnimationOptions(rawValue: curve << 16).union(.beginFromCurrentState)
+        UIView.animate(withDuration: duration, delay: 0, options: options, animations: {
+            pin.constant = constant
+            self.view.layoutIfNeeded()
+        }, completion: { _ in
+            self.animatingStatusBar = false
+            self.updateStatusBarPin()
+        })
+    }
+
+    private func keyboardFrame(_ screen: CGRect) -> CGRect {
+        guard let window = view.window else { return screen }
+        let inWindow = window.convert(screen, from: window.screen.coordinateSpace)
+        return view.convert(inWindow, from: window)
     }
 
     // MARK: Fold (iPhone Duo)
