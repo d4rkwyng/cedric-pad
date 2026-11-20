@@ -251,11 +251,14 @@ public enum ClosedTabs {
     public static func push(_ tab: SessionTab, onto list: [SessionTab], limit: Int = ClosedTabs.limit, unsavedLimit: Int = ClosedTabs.unsavedLimit,
                             now: Date) -> (list: [SessionTab], dropped: [SessionTab]) {
         // Reopening and closing the same tab again: one entry.
-        var out = list.filter { $0.id != tab.id }
+        // Tabs past `keepDays` go now too, as at launch, so a session that
+        // runs for weeks doesn't keep them until the next launch.
+        let fresh = expire(list.filter { $0.id != tab.id }, now: now)
+        var out = fresh.list
         var tab = tab
         tab.closed = now
         out.append(tab)
-        var dropped: [SessionTab] = []
+        var dropped: [SessionTab] = fresh.dropped
         while out.count > max(1, limit), let i = out.firstIndex(where: { !$0.hasBuffer }) {
             dropped.append(out.remove(at: i))
         }

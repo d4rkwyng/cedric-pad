@@ -9,6 +9,8 @@ are its section below (`Scripts/changelog-section.sh`).
 ### Security
 - **An AI server on your network named over https is checked after each request too.** If the connection went to a public address (a DNS answer that changed after Owlink's check), the answer is thrown away and you see an error. Plain http was already sent to the checked address; https can't be, because the certificate is checked by name. The manual's Privacy section explains what this does and doesn't stop.
 
+- **A closed tab's unsaved text expires while Owlink stays open**, not only at the next launch: each time you close a tab, closed tabs older than 30 days go (and past 100 such tabs, the oldest), so a session left running for weeks doesn't keep them.
+
 ### Fixed
 - **IPv6 link-local AI server addresses keep their interface.** An address typed as `[fe80::1%en0]` is saved in the standard URL form (`%25en0`), the private-address checks understand the interface part, and a `.local` name that has only a link-local address is reached at the checked address, with its interface, instead of being looked up a second time.
 
