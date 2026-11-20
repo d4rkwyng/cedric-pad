@@ -17,9 +17,32 @@ public enum Markdown {
         /// Fenced code coloured by its language, as `<span class="tk-…">`
         /// (CodeHTML: Cedric's own tokenizers, no script in the page).
         public var highlightCode = false
-        public init(highlightCode: Bool = false) { self.highlightCode = highlightCode }
+        /// Obsidian's syntax: `[[wikilinks]]`, `![[embeds]]`, callouts
+        /// (`> [!info] Title`, foldable with `-`/`+`), `==highlight==`,
+        /// `%%comments%%` (hidden) and `#tags`. Never inside code.
+        public var obsidian = false
+        /// Where wikilinks and embeds resolve (nil: every wikilink is shown
+        /// unresolved and embeds stay as typed).
+        public var vault: WikiVault?
+        /// Embeds inside an embedded note stay links (transclusion is one level).
+        var embedDepth = 0
+        /// For a file that leaves the app (exported HTML or PDF, copied
+        /// HTML): wikilinks and embeds point at their files by a path
+        /// relative to the document's folder, not by a `cedric-doc:` URL,
+        /// and an unresolved wikilink is plain text.
+        public var exportLinks = false
+        public init(highlightCode: Bool = false, obsidian: Bool = false, vault: WikiVault? = nil, exportLinks: Bool = false) {
+            self.highlightCode = highlightCode
+            self.obsidian = obsidian
+            self.vault = vault
+            self.exportLinks = exportLinks
+        }
         /// The live preview's (and export's) options.
-        public static let preview = Options(highlightCode: true)
+        public static let preview = Options(highlightCode: true, obsidian: true)
+        /// `preview`, resolving wikilinks in `vault`.
+        public static func preview(vault: WikiVault?) -> Options { Options(highlightCode: true, obsidian: true, vault: vault) }
+        /// `preview(vault:)` for export (see `exportLinks`).
+        public static func export(vault: WikiVault?) -> Options { Options(highlightCode: true, obsidian: true, vault: vault, exportLinks: true) }
     }
 
     public static func render(_ source: String, options: Options = Options()) -> String {
@@ -99,6 +122,7 @@ final class MarkdownRenderer {
             out += frontmatter(lines[1..<end])
             start = end + 1
         }
+        if options.obsidian, source.contains("%%") { stripComments(&lines, from: start) }
         collectDefinitions(&lines, from: start)
         renderBlocks(lines[start...], firstLine: start, into: &out)
         out += footnotesSection()
@@ -238,6 +262,77 @@ final class MarkdownRenderer {
         return ["note", "tip", "important", "warning", "caution"].contains(kind) ? kind : nil
     }
 
+    /// Obsidian `%%comments%%`, inline or across lines, taken out (lines
+    /// kept, emptied, so data-line numbers still match the source); not
+    /// inside fenced code or code spans.
+    func stripComments(_ lines: inout [String], from start: Int) {
+        var fence: String?
+        var inComment = false
+        for k in start..<lines.count {
+            let line = lines[k]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !inComment {
+                if let f = fence {
+                    if trimmed.hasPrefix(f), trimmed.drop(while: { $0 == f.first }).allSatisfy(\.isWhitespace) { fence = nil }
+                    continue
+                }
+                if let f = fenceMarker(trimmed) { fence = f; continue }
+            }
+            guard inComment || line.contains("%%") else { continue }
+            var out = ""
+            var ticks = 0
+            var chars = Array(line)
+            var i = 0
+            while i < chars.count {
+                if inComment {
+                    if chars[i] == "%", i + 1 < chars.count, chars[i + 1] == "%" { inComment = false; i += 2 } else { i += 1 }
+                    continue
+                }
+                if chars[i] == "`" {
+                    var run = 0
+                    while i + run < chars.count, chars[i + run] == "`" { run += 1 }
+                    ticks = ticks == 0 ? run : (ticks == run ? 0 : ticks)
+                    out += String(repeating: "`", count: run)
+                    i += run
+                    continue
+                }
+                if ticks == 0, chars[i] == "%", i + 1 < chars.count, chars[i + 1] == "%" { inComment = true; i += 2; continue }
+                out.append(chars[i])
+                i += 1
+            }
+            chars = []
+            lines[k] = out.allSatisfy(\.isWhitespace) && !line.allSatisfy(\.isWhitespace) ? "" : out
+        }
+    }
+
+    /// An Obsidian callout's first line, `[!type]` with an optional `-`
+    /// (folded) or `+` (foldable, open) and a title.
+    struct Callout { var type: String; var fold: Character?; var title: String }
+
+    func callout(_ line: String) -> Callout? {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("[!"), let close = t.firstIndex(of: "]") else { return nil }
+        let type = t[t.index(t.startIndex, offsetBy: 2)..<close].lowercased()
+        guard !type.isEmpty, type.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return nil }
+        var rest = t[t.index(after: close)...]
+        var fold: Character?
+        if let f = rest.first, f == "-" || f == "+" { fold = f; rest = rest.dropFirst() }
+        return Callout(type: type, fold: fold, title: rest.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// Obsidian's callout types (aliases to their family) and their icons.
+    static let calloutFamily: [String: String] = [
+        "note": "note", "abstract": "abstract", "summary": "abstract", "tldr": "abstract", "info": "info", "todo": "todo",
+        "tip": "tip", "hint": "tip", "important": "important", "success": "success", "check": "success", "done": "success",
+        "question": "question", "help": "question", "faq": "question", "warning": "warning", "attention": "warning",
+        "caution": "caution", "failure": "failure", "fail": "failure", "missing": "failure", "danger": "danger", "error": "danger",
+        "bug": "bug", "example": "example", "quote": "quote", "cite": "quote",
+    ]
+    static let calloutIcon: [String: String] = [
+        "note": "✎", "abstract": "☰", "info": "ℹ︎", "todo": "☑︎", "tip": "✦", "important": "❗︎", "success": "✔︎",
+        "question": "?", "warning": "⚠︎", "caution": "⚠︎", "failure": "✘", "danger": "⚡︎", "bug": "🐞︎", "example": "☷", "quote": "❝",
+    ]
+
     // MARK: Blocks
 
     /// `firstLine`: the source line of `lines.first` (nil: no data-line).
@@ -327,7 +422,24 @@ final class MarkdownRenderer {
                 }
                 nesting += 1
                 defer { nesting -= 1 }
-                if let kind = inner.first.flatMap(alertKind) {
+                if options.obsidian, let first = inner.first, alertKind(first) == nil, let c = callout(first) {
+                    // An Obsidian callout: > [!info] Title, folded with `-`.
+                    let family = Self.calloutFamily[c.type] ?? "note"
+                    let icon = Self.calloutIcon[family] ?? "✎"
+                    let name = c.type.prefix(1).uppercased() + c.type.dropFirst().replacingOccurrences(of: "-", with: " ")
+                    let title = "<span class=\"callout-icon\" aria-hidden=\"true\">\(icon)</span> " + (c.title.isEmpty ? escape(name) : inline(c.title))
+                    let cls = "markdown-alert markdown-alert-\(family) callout"
+                    let typeAttr = " data-callout=\"\(escape(c.type))\""
+                    if let fold = c.fold {
+                        out += "<details\(attr(i)) class=\"\(cls)\"\(typeAttr)\(fold == "+" ? " open" : "")>\n<summary class=\"markdown-alert-title\">\(title)</summary>\n"
+                        renderBlocks(inner[(inner.startIndex + 1)...], firstLine: srcLine(i).map { $0 + 1 }, into: &out)
+                        out += "</details>\n"
+                    } else {
+                        out += "<div\(attr(i)) class=\"\(cls)\"\(typeAttr)>\n<p class=\"markdown-alert-title\">\(title)</p>\n"
+                        renderBlocks(inner[(inner.startIndex + 1)...], firstLine: srcLine(i).map { $0 + 1 }, into: &out)
+                        out += "</div>\n"
+                    }
+                } else if let kind = inner.first.flatMap(alertKind) {
                     // A GitHub alert: > [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION].
                     out += "<div\(attr(i)) class=\"markdown-alert markdown-alert-\(kind)\">\n<p class=\"markdown-alert-title\">\(kind.prefix(1).uppercased() + kind.dropFirst())</p>\n"
                     renderBlocks(inner[(inner.startIndex + 1)...], firstLine: srcLine(i).map { $0 + 1 }, into: &out)
@@ -643,7 +755,8 @@ final class MarkdownRenderer {
         var held: [String] = []
         let s = liftCode(Array(text), &held)
         let linked = links(s, &held, allowLinks: true)
-        return restore(emphasis(linked), held)
+        let marked = options.obsidian ? highlights(linked, &held) : linked
+        return restore(emphasis(marked), held)
     }
 
     private func hold(_ html: String, _ held: inout [String]) -> [Character] {
@@ -730,6 +843,18 @@ final class MarkdownRenderer {
                     continue
                 }
             }
+            // An Obsidian #tag: after a space or the start, letters, digits,
+            // `_`, `-`, `/`, not all digits (`#1` is no tag).
+            if c == "#", options.obsidian, i == 0 || chars[i - 1].isWhitespace {
+                var j = i + 1
+                while j < n, chars[j].isLetter || chars[j].isNumber || chars[j] == "_" || chars[j] == "-" || chars[j] == "/" { j += 1 }
+                let tag = String(chars[(i + 1)..<j])
+                if !tag.isEmpty, !tag.allSatisfy(\.isNumber) {
+                    s += hold("<span class=\"tag\">#\(escape(tag))</span>", &held)
+                    i = j
+                    continue
+                }
+            }
             if c == "h", i + 8 < n, chars[i + 1] == "t", chars[i + 2] == "t", chars[i + 3] == "p",
                i == 0 || !(chars[i - 1].isLetter || chars[i - 1].isNumber || "\"'=/>([".contains(chars[i - 1])),
                let end = bareURLEnd(chars, from: i) {
@@ -785,6 +910,23 @@ final class MarkdownRenderer {
             let isImage = c == "!" && i + 1 < n && s[i + 1] == "["
             guard c == "[" || isImage else { out.append(c); i += 1; continue }
             let open = isImage ? i + 1 : i
+            // An Obsidian [[wikilink]] or ![[embed]]: `[[` whose inner
+            // brackets close right before the outer ones, nothing nested.
+            if options.obsidian, open + 1 < n, s[open + 1] == "[", let inner = pairs[open + 1], inner + 1 < n, s[inner + 1] == "]",
+               pairs[open] == inner + 1, inner - open - 2 <= 999, inner > open + 2, !s[(open + 2)..<inner].contains("\n") {
+                let body = String(s[(open + 2)..<inner])
+                if let html = wikiLink(body, embed: isImage, &held) {
+                    out += hold(html, &held)
+                    i = inner + 2
+                    continue
+                }
+                // An embed that isn't found (or can't be shown) stays as typed.
+                if isImage {
+                    out += Array("![[") + Array(body) + Array("]]")
+                    i = inner + 2
+                    continue
+                }
+            }
             // A footnote reference.
             if !isImage, open + 2 < n, s[open + 1] == "^", let close = nextClose[open + 2],
                !s[(open + 2)..<close].contains("["), let def = footnoteRef(String(s[(open + 2)..<close])) {
@@ -830,6 +972,93 @@ final class MarkdownRenderer {
                 out += hold("<a href=\"\(url)\"\(title)>\(inner)</a>", &held)
             }
             i = end
+        }
+        return out
+    }
+
+    /// A wikilink's HTML (nil: leave the text as typed). `[[note]]`,
+    /// `[[note|alias]]`, `[[note#Heading]]`, `[[note#^block]]`; with
+    /// `embed`, `![[image.png]]`, `![[image.png|300]]` (width) and
+    /// `![[note]]` / `![[note#Heading]]` quoted in place, one level deep.
+    private func wikiLink(_ body: String, embed: Bool, _ held: inout [String]) -> String? {
+        guard !body.contains("\n"), !body.contains(Self.open) || !embed else { return nil }
+        let bar = body.firstIndex(of: "|")
+        let target = bar.map { String(body[..<$0]) } ?? body
+        let alias = bar.map { String(body[body.index(after: $0)...]).trimmingCharacters(in: .whitespaces) }
+        let (name, fragment) = WikiVault.split(target)
+        let vault = options.vault
+        let file = name.isEmpty ? nil : vault?.resolve(name)
+        let exporting = options.exportLinks
+        func href(_ file: URL) -> String? {
+            guard exporting else { return WikiVault.href(file) }
+            return vault.map { WikiVault.relativeHref(file, from: $0.documentFolder) }
+        }
+        if embed {
+            guard let vault, let file else { return nil }
+            let ext = file.pathExtension.lowercased()
+            if WikiVault.imageExtensions.contains(ext) {
+                guard let src = href(file) else { return nil }
+                var size = ""
+                if let alias, let m = alias.wholeMatch(of: #/(\d{1,5})(?:x(\d{1,5}))?/#) {
+                    size = " width=\"\(m.1)\""
+                    if let h = m.2 { size += " height=\"\(h)\"" }
+                }
+                let alt = alias.flatMap { $0.wholeMatch(of: #/\d{1,5}(x\d{1,5})?/#) == nil ? $0 : nil } ?? file.lastPathComponent
+                return "<img class=\"embed\" src=\"\(escape(src))\" alt=\"\(escape(alt))\"\(size)>"
+            }
+            guard ext == "md" || ext == "markdown" else { return nil }
+            let link = href(file).map { " href=\"\(escape($0))\"" } ?? ""
+            let label = escape(name + (fragment.flatMap { $0.hasPrefix("^") ? nil : " › " + $0 } ?? ""))
+            // Inside an embedded note, or too big: a link, not a second copy.
+            guard options.embedDepth == 0, let text = vault.embedText(file, fragment: fragment) else {
+                return "<a class=\"wikilink\"\(link)>\(label)</a>"
+            }
+            var sub = options
+            sub.embedDepth += 1
+            let body = MarkdownRenderer(options: sub).render(text)
+            return "<blockquote class=\"embed\"><p class=\"embed-title\"><a class=\"wikilink\"\(link)>\(label)</a></p>\n\(body)</blockquote>"
+        }
+        let shown = alias.flatMap { $0.isEmpty ? nil : $0 } ?? (fragment.map { name.isEmpty ? $0 : name + " › " + $0 } ?? name)
+        guard !shown.isEmpty else { return nil }
+        let text = emphasis(Array(shown))
+        if let file, let href = href(file) {
+            return "<a class=\"wikilink\" href=\"\(escape(href))\">\(text)</a>"
+        }
+        // Exported: no link to nowhere, just the words.
+        if exporting { return text }
+        return "<a class=\"wikilink is-unresolved\" title=\"\(escape(name)) (not found)\">\(text)</a>"
+    }
+
+    /// Obsidian `==highlight==` as `<mark>`: `==` not followed by a space,
+    /// closed by the next `==` not after one.
+    private func highlights(_ s: [Character], _ held: inout [String]) -> [Character] {
+        guard s.count >= 5, s.contains("=") else { return s }
+        var out: [Character] = []
+        out.reserveCapacity(s.count)
+        var i = 0
+        let n = s.count
+        while i < n {
+            if s[i] == "=", i + 2 < n, s[i + 1] == "=", s[i + 2] != "=", !s[i + 2].isWhitespace {
+                var j = i + 2
+                var close: Int?
+                while j + 1 < n {
+                    if s[j] == "=", s[j + 1] == "=" {
+                        if !s[j - 1].isWhitespace, j > i + 2 { close = j }
+                        break
+                    }
+                    j += 1
+                }
+                if let close {
+                    out += hold("<mark>" + emphasis(Array(s[(i + 2)..<close])) + "</mark>", &held)
+                    i = close + 2
+                    continue
+                }
+                // No closer from here on: the rest is plain.
+                out += s[i...]
+                return out
+            }
+            out.append(s[i])
+            i += 1
         }
         return out
     }

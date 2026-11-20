@@ -662,7 +662,14 @@ emphasis rules (`**bold *mix***` nests properly) and knows reference
 links, footnotes (`[^1]`), GitHub alerts (`> [!NOTE]`, `[!TIP]`,
 `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), task lists (disabled
 checkboxes) and YAML frontmatter, which shows as a small metadata table
-(and is coloured as YAML in the editor). Fenced code blocks are
+(and is coloured as YAML in the editor). It also reads Obsidian's syntax:
+`[[note]]`, `[[note|alias]]` and `[[note#Heading]]` link to notes in the
+vault (the sidebar folder, else the folder holding `.obsidian/`) and open
+them in a tab, `![[image.png|300]]` shows the image, `![[note#Heading]]`
+quotes that part of the note, and callouts (`> [!info]-`), `==highlight==`,
+`%%comments%%` and `#tags` show as in Obsidian. Site-root images
+(`/images/logo.webp`, as Hugo or Quartz write them) load from the site's
+folder on disk (`static/`, `public/`, `content/` …), never the network. Fenced code blocks are
 coloured by their language (```` ```swift ````, `py`, `js`, `bash`, …)
 both in the editor and in the preview, by Owlink's own tokenizers and
 the theme's colours (no JavaScript highlighter). **Detach Preview** (View menu, ⇧⌥⌘P,
@@ -764,7 +771,10 @@ up to 5,000 headings).
 File › Export as HTML… writes a standalone
 page (no script), and File › Export as PDF… a paginated PDF (cut between
 blocks), both rendered as the preview renders them in a light,
-theme-neutral style whatever the editor's theme. Edit › Copy as HTML puts
+theme-neutral style whatever the editor's theme. Wikilinks and embeds in
+an export point at their files by a path relative to the document (an
+unresolved wikilink is plain text), and embedded notes are written out in
+place. Edit › Copy as HTML puts
 the rendered HTML of the selection (or the whole document) on the
 clipboard as text; Copy as Rich Text puts it there as rich text (RTF and
 HTML) for Mail, Notes or a word processor.

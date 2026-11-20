@@ -46,6 +46,26 @@ final class PreviewController: NSObject, WKNavigationDelegate {
     /// A link to a text file was clicked (open it in Cedric).
     /// A clicked link, decided (see PreviewLinkAction).
     var onLink: ((PreviewLinkAction) -> Void)?
+    /// Where wikilinks resolve (kept while the document's folder is the same:
+    /// its name index is rebuilt at most every few seconds).
+    private var vault: WikiVault?
+    private var vaultOpenedRoot: URL?
+    /// Rendering for a PDF export: wikilinks and embeds by relative path
+    /// (Markdown.Options.exportLinks), not `cedric-doc:` links.
+    var exportLinks = false
+
+    /// The folder open in the sidebar, when it holds `folder`.
+    static func openedRoot(for folder: URL?) -> URL? {
+        let opened = FolderSidebar.shared?.rootURL.standardizedFileURL
+        return folder.flatMap { f in
+            opened.flatMap { (f.standardizedFileURL.path + "/").hasPrefix($0.path.hasSuffix("/") ? $0.path : $0.path + "/") ? $0 : nil }
+        }
+    }
+
+    /// The vault an exported copy of a document in `folder` resolves wikilinks in.
+    static func exportVault(for folder: URL?) -> WikiVault? {
+        folder.map { WikiVault(documentFolder: $0, openedRoot: openedRoot(for: $0)) }
+    }
     /// The last link clicked (for checks).
     private(set) var lastLinkAction: PreviewLinkAction?
 
@@ -98,6 +118,20 @@ final class PreviewController: NSObject, WKNavigationDelegate {
     /// images (the page may read files in that folder only).
     func show(text: String, language: Language, palette: EditorPalette, baseURL folder: URL?) {
         folderFiles.folder = folder
+        // The folder open in the sidebar, when the document is inside it:
+        // the last place a site-root path (`/images/x.webp`) is looked for.
+        folderFiles.openedRoot = Self.openedRoot(for: folder)
+        if let folder {
+            if vault?.documentFolder != folder.standardizedFileURL || vaultOpenedRoot != folderFiles.openedRoot {
+                vault = WikiVault(documentFolder: folder, openedRoot: folderFiles.openedRoot)
+                vaultOpenedRoot = folderFiles.openedRoot
+            }
+        } else {
+            vault = nil
+        }
+        folderFiles.vaultRoot = vault?.root
+        let vault = self.vault
+        let exportLinks = self.exportLinks
         let baseURL = folder.flatMap(DocumentFolderFiles.pageURL(for:))
         generation += 1
         let gen = generation
@@ -116,7 +150,7 @@ final class PreviewController: NSObject, WKNavigationDelegate {
             // Skip a render a newer one has already replaced.
             guard ticket.value == gen else { return }
             let t0 = DispatchTime.now()
-            let body = Markdown.render(text, options: .preview)
+            let body = Markdown.render(text, options: exportLinks ? .export(vault: vault) : .preview(vault: vault))
             let ms = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1e6
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -227,6 +261,18 @@ final class PreviewController: NSObject, WKNavigationDelegate {
         .markdown-alert-note { --alert: #4493f8; } .markdown-alert-tip { --alert: #3fa34d; }
         .markdown-alert-important { --alert: #a371f7; } .markdown-alert-warning { --alert: #d29922; }
         .markdown-alert-caution { --alert: #e5534b; }
+        .markdown-alert-abstract, .markdown-alert-info, .markdown-alert-todo { --alert: #4493f8; }
+        .markdown-alert-success { --alert: #3fa34d; } .markdown-alert-question { --alert: #d29922; }
+        .markdown-alert-failure, .markdown-alert-danger, .markdown-alert-bug { --alert: #e5534b; }
+        .markdown-alert-example { --alert: #a371f7; } .markdown-alert-quote { --alert: #8b949e; }
+        details.callout > summary { cursor: pointer; } .callout-icon { font-style: normal; }
+        a.wikilink { text-decoration: none; border-bottom: 1px solid; }
+        a.wikilink.is-unresolved { opacity: .6; border-bottom-style: dashed; cursor: default; }
+        mark { background: #f2cc6066; color: inherit; border-radius: 2px; padding: 0 .1em; }
+        span.tag { color: \(hex(p.color(for: .link))); background: \(hex(p.currentLine)); border-radius: 1em; padding: 0 .5em; font-size: .9em; }
+        blockquote.embed { border-left-color: \(hex(p.color(for: .link))); }
+        .embed-title { font-size: 12px; margin: .5em 0; }
+        p.preview-hint { font-size: 12px; color: \(hex(p.color(for: .comment))); text-align: center; margin: 0 0 1em; }
         sup.footnote-ref a { text-decoration: none; }
         section.footnotes { font-size: 13px; color: \(hex(p.color(for: .comment))); }
         \(TokenKind.allCases.filter { $0 != .plain }.map { ".tk-\($0) { color: \(hex(p.color(for: $0))); }" }.joined(separator: " "))
@@ -362,7 +408,7 @@ final class PreviewController: NSObject, WKNavigationDelegate {
         if action.navigationType == .linkActivated, let url = action.request.url {
             if url.fragment != nil, Self.samePage(url, webView.url) { decisionHandler(.allow); return }
             decisionHandler(.cancel)
-            let act = PreviewLinkAction.action(for: url, folder: folderFiles.folder, isText: Self.opensInCedric)
+            let act = PreviewLinkAction.action(for: folderFiles.linkTarget(url), folder: folderFiles.linkFolder(url), isText: Self.opensInCedric)
             lastLinkAction = act
             onLink?(act)
             return
@@ -419,6 +465,10 @@ private final class ScrollMessages: NSObject, WKScriptMessageHandler {
 final class DocumentFolderFiles: NSObject, WKURLSchemeHandler {
     nonisolated static let scheme = PreviewFolder.scheme
     var folder: URL?
+    /// The sidebar's folder, when it holds the document.
+    var openedRoot: URL?
+    /// The Obsidian vault wikilinks resolve in.
+    var vaultRoot: URL?
     /// The page may run JavaScript: serve only images, fonts and CSS.
     var scriptOn = false
     private var stopped: Set<ObjectIdentifier> = []
@@ -431,7 +481,8 @@ final class DocumentFolderFiles: NSObject, WKURLSchemeHandler {
         stopped.remove(id)
         // With JavaScript on, only images, fonts and CSS (no dotfiles):
         // page script must not be able to read the folder's other files.
-        guard let url = task.request.url, let folder, let file = PreviewFolder.file(for: url, in: folder, scriptOn: scriptOn) else {
+        guard let url = task.request.url, let folder,
+              let file = PreviewFolder.file(for: url, in: folder, openedRoot: openedRoot, vaultRoot: vaultRoot, scriptOn: scriptOn) else {
             task.didFailWithError(URLError(.noPermissionsToReadFile))
             return
         }
@@ -453,6 +504,27 @@ final class DocumentFolderFiles: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) { stopped.insert(ObjectIdentifier(task)) }
+
+    /// A clicked link's file: as given, or a site-root path's page
+    /// (`/projects/intelbrew` → `content/projects/intelbrew.md`).
+    func linkTarget(_ url: URL) -> URL {
+        guard url.scheme == Self.scheme, let file = PreviewFolder.fileURL(for: url), !FileManager.default.fileExists(atPath: file.path),
+              let folder, let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath,
+              let hit = PreviewRoot.resolve(path, from: folder, openedRoot: openedRoot, pages: true),
+              let page = PreviewFolder.pageURL(forFile: hit.file) else { return url }
+        return page
+    }
+
+    /// The folder a clicked link may open text files in: the document's,
+    /// or the sidebar's or the vault's when the file is inside that.
+    func linkFolder(_ url: URL) -> URL? {
+        guard let file = PreviewFolder.fileURL(for: linkTarget(url)) else { return folder }
+        for root in [folder, openedRoot, vaultRoot].compactMap({ $0 }) {
+            let r = root.standardizedFileURL.path
+            if file.path.hasPrefix(r.hasSuffix("/") ? r : r + "/") { return root }
+        }
+        return folder
+    }
 }
 
 /// A scheme task handed across the file read (WebKit calls back on the main thread).
