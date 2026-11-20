@@ -132,6 +132,10 @@ public struct OwlDocumentSnapshot: Sendable {
 
     public var length: Int { (text as NSString).length }
     public var lineCount: Int { lines.lineCount }
+    /// Lines as a person counts them: a final newline's empty "line" is not one.
+    public var countedLines: Int {
+        lineCount > 1 && lines.contentRange(ofLine: lineCount - 1).length == 0 ? lineCount - 1 : lineCount
+    }
     public var hasSelection: Bool { selection.length > 0 }
 
     /// 1-based line number of a UTF-16 offset.
@@ -214,8 +218,14 @@ public struct OwlChatContext: Sendable, Equatable {
         return out
     }
 
-    /// Selection if there is one, else the visible text.
-    public static func defaultScope(for s: OwlDocumentSnapshot) -> OwlChatScope { s.hasSelection ? .selection : .visible }
+    /// Selection if there is one; else the whole document when it fits
+    /// `budget` (the model's context), so a question about the file sees
+    /// all of it; else the visible text (and, for the rest, the tools or
+    /// the digest: `OwlChatRequest.digest` in CedricAI).
+    public static func defaultScope(for s: OwlDocumentSnapshot, budget: Int) -> OwlChatScope {
+        if s.hasSelection { return .selection }
+        return scopes(for: s, budget: budget).contains(.wholeDocument) ? .wholeDocument : .visible
+    }
 
     /// The context for `scope`, at most `budget` UTF-16 units of numbered
     /// text (lines past it are dropped from the end, never split). nil
@@ -415,9 +425,12 @@ public struct OwlToolResult: Sendable, Equatable {
     /// One line for the transcript ("Looked at lines 40–80").
     public var summary: String
     public var ok: Bool
+    /// The document lines the model was shown in full (get_lines), for
+    /// what Cedric says he has seen.
+    public var lines: ClosedRange<Int>?
 
-    public init(text: String, proposal: OwlEditProposal?, summary: String, ok: Bool) {
-        self.text = text; self.proposal = proposal; self.summary = summary; self.ok = ok
+    public init(text: String, proposal: OwlEditProposal?, summary: String, ok: Bool, lines: ClosedRange<Int>? = nil) {
+        self.text = text; self.proposal = proposal; self.summary = summary; self.ok = ok; self.lines = lines
     }
 }
 
@@ -456,7 +469,7 @@ public enum OwlTools {
                                parameters: obj(["query": .object(["type": .string("string"), "maxLength": .number(Double(maxPatternLength))]),
                                                 "regex": .object(["type": .string("boolean")])], required: ["query"]))
         case .getOutline:
-            return OwlToolSpec(name: name, description: "The document's headings or top-level structure, with line numbers.", parameters: obj([:], required: []))
+            return OwlToolSpec(name: name, description: "The whole document's headings or top-level structure, with line numbers; for Markdown also how many list items and table rows each section and the whole document have.", parameters: obj([:], required: []))
         case .documentStats:
             return OwlToolSpec(name: name, description: "Words, lines, characters, language and file name of the document.", parameters: obj([:], required: []))
         case .proposeEdit:
@@ -509,8 +522,12 @@ public enum OwlTools {
             let end = a["end"]?.int ?? start
             guard start >= 1, start <= s.lineCount else { return fail("start must be 1...\(s.lineCount)") }
             let last = min(s.lineCount, max(start, min(end, start + maxLines - 1)))
-            return OwlToolResult(text: cap(s.numbered(lines: start, last)), proposal: nil,
-                                 summary: String(localized: "Looked at lines \(start)–\(last)"), ok: true)
+            let text = s.numbered(lines: start, last)
+            // A capped result showed fewer lines: count only the ones that arrived whole.
+            let shown = text.utf8.count > maxOutputBytes ? start + max(0, cap(text).components(separatedBy: "\n").count - 3) : last
+            return OwlToolResult(text: cap(text), proposal: nil,
+                                 summary: String(localized: "Looked at lines \(start)–\(last)"), ok: true,
+                                 lines: shown >= start ? start...shown : nil)
         case .searchDocument:
             guard let q = a["query"]?.string, !q.isEmpty else { return fail("search_document needs a query") }
             guard q.count <= maxPatternLength else { return fail("query too long") }
@@ -579,18 +596,105 @@ public enum OwlTools {
         }
     }
 
+    /// Per Markdown section: list items (nested ones too) and table data
+    /// rows (not the header or the |---| line), outside fenced code.
+    public struct SectionCount: Sendable, Equatable {
+        public var heading: MarkdownOutline.Heading?
+        /// 1-based lines of the section, its heading included.
+        public var first: Int
+        public var last: Int
+        public var listItems = 0
+        public var nestedItems = 0
+        public var tableRows = 0
+    }
+
+    /// The sections of a Markdown document with their counts: a section
+    /// runs from its heading to the line before the next heading (of any
+    /// level); text before the first heading is a section with no heading.
+    public static func sectionCounts(_ s: OwlDocumentSnapshot) -> [SectionCount] {
+        let heads = MarkdownOutline.headings(in: s.text)
+        var out: [SectionCount] = []
+        if heads.first.map({ $0.line > 0 }) ?? true {
+            out.append(SectionCount(heading: nil, first: 1, last: heads.first.map { $0.line } ?? s.lineCount))
+        }
+        for (i, h) in heads.enumerated() {
+            let last = i + 1 < heads.count ? heads[i + 1].line : s.lineCount
+            out.append(SectionCount(heading: h, first: h.line + 1, last: max(h.line + 1, last)))
+        }
+        let ns = s.text as NSString
+        let item = try! NSRegularExpression(pattern: #"^(\s*)(?:[-*+]|\d{1,9}[.)])\s+\S"#)
+        let sep = try! NSRegularExpression(pattern: #"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$"#)
+        var fence: Character?
+        var section = 0
+        var previousWasRow = false
+        for i in 0..<s.lineCount {
+            while section + 1 < out.count, out[section + 1].first <= i + 1 { section += 1 }
+            let line = ns.substring(with: s.lines.contentRange(ofLine: i))
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if let f = fence {
+                if t.hasPrefix(String(repeating: f, count: 3)) { fence = nil }
+                previousWasRow = false
+                continue
+            }
+            if t.hasPrefix("```") || t.hasPrefix("~~~") { fence = t.first; previousWasRow = false; continue }
+            let full = NSRange(location: 0, length: (line as NSString).length)
+            if let m = item.firstMatch(in: line, range: full) {
+                out[section].listItems += 1
+                if m.range(at: 1).length >= 2 { out[section].nestedItems += 1 }
+            }
+            if t.hasPrefix("|") {
+                if sep.firstMatch(in: line, range: full) != nil {
+                    // The row above was the header, not data.
+                    if previousWasRow { out[section].tableRows -= 1 }
+                } else {
+                    out[section].tableRows += 1
+                }
+                previousWasRow = true
+            } else {
+                previousWasRow = false
+            }
+        }
+        return out
+    }
+
+    /// "3 list items (1 nested), 2 table rows", or nil for none.
+    static func countNote(_ c: SectionCount) -> String? {
+        var parts: [String] = []
+        if c.listItems > 0 { parts.append("\(c.listItems) list item\(c.listItems == 1 ? "" : "s")" + (c.nestedItems > 0 ? " (\(c.nestedItems) nested)" : "")) }
+        if c.tableRows > 0 { parts.append("\(c.tableRows) table row\(c.tableRows == 1 ? "" : "s")") }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
     /// Markdown headings; JSON top-level keys; CSV header; else lines that
     /// start at column 0 and look like declarations (code), at most 60.
-    static func outline(_ s: OwlDocumentSnapshot) -> String {
+    public static func outline(_ s: OwlDocumentSnapshot) -> String {
         if s.language == "markdown" || (s.fileName?.lowercased().hasSuffix(".md") ?? false) {
             let h = MarkdownOutline.headings(in: s.text, limit: 60)
-            if !h.isEmpty { return h.map { "\($0.line + 1)| " + String(repeating: "#", count: $0.level) + " " + $0.title }.joined(separator: "\n") }
+            if !h.isEmpty {
+                // With each section's list items and table rows when it has
+                // any, and the totals: a "how many" question needs them.
+                let sections = sectionCounts(s)
+                let byLine = Dictionary(sections.compactMap { c in c.heading.map { ($0.line, c) } }, uniquingKeysWith: { a, _ in a })
+                var out = h.map { "\($0.line + 1)| " + String(repeating: "#", count: $0.level) + " " + $0.title
+                    + (byLine[$0.line].flatMap(countNote).map { " [\($0)]" } ?? "") }
+                let items = sections.reduce(0) { $0 + $1.listItems }, rows = sections.reduce(0) { $0 + $1.tableRows }
+                if let before = sections.first, before.heading == nil, let n = countNote(before) {
+                    out.insert("(before the first heading: \(n))", at: 0)
+                }
+                // First: the output is capped, and the totals must survive it.
+                if items + rows > 0 {
+                    let more = h.count < sections.filter({ $0.heading != nil }).count ? "; more headings than listed" : ""
+                    out.insert("Total in all \(s.countedLines) lines: \(items) list items, \(rows) table rows\(more)", at: 0)
+                }
+                return out.joined(separator: "\n")
+            }
         }
         if s.language == "json", let obj = OwlJSON.parse(s.text)?.object {
             return "top-level keys: " + obj.keys.sorted().prefix(60).joined(separator: ", ")
         }
         if s.language == "csv" || s.language == "tsv" {
-            return "header: " + s.substring(s.lines.contentRange(ofLine: 0))
+            let rows = (1..<max(1, s.lineCount)).filter { s.lines.contentRange(ofLine: $0).length > 0 }.count
+            return "\(rows) data rows; header: " + s.substring(s.lines.contentRange(ofLine: 0))
         }
         let decl = try! NSRegularExpression(pattern: #"^(?:export\s+|public\s+|private\s+|static\s+|async\s+)*(?:func|function|def|class|struct|enum|protocol|extension|interface|type|fn|impl|module|sub|procedure|const|let|var)\b"#)
         var out: [String] = []
