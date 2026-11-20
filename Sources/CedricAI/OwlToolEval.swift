@@ -2,10 +2,11 @@ import Foundation
 import CedricCore
 
 /// The fixed tool-prompt set behind model gating (Scripts/owl-tools-eval.sh):
-/// 46 questions over seven sample documents (Markdown, Swift, JSON, CSV,
+/// 48 questions over seven sample documents (Markdown, Swift, JSON, CSV,
 /// prose, HTML, and an SVG icon). The model sees only lines 1–12 (as in
-/// the panel's "Visible text"), with every tool offered (describe_image
-/// too, so a text document must leave it alone), and must either pick the
+/// the panel's "Visible text"), offered the tools the panel offers for
+/// that question (`OwlTools.typedTools`: a few, picked by the question)
+/// and describe_image too (a text document must leave it alone), and must either pick the
 /// expected tool with usable arguments or answer directly when no tool is
 /// needed. Scores ≥ `OwlToolGate.threshold` (0.8) turn tools on for that
 /// model; the results go to Resources/AI/owl-tool-scores.json.
@@ -137,6 +138,9 @@ public enum OwlToolEval {
             c("html", "What is the h1 text on line 7?", []),
             c("md", "In one sentence, what is a raised garden bed? No need to look at the document.", []),
             c("swift", "What does the keyword 'guard' mean in Swift, in general?", []),
+            // check_document (0.4.0): the offline checks' findings.
+            c("md", "What problems does this document have?", [.checkDocument]),
+            c("swift", "Are there any errors or warnings in this file? Run the checks.", [.checkDocument]),
             // describe_image: an SVG's picture; never for a text document.
             c("svg", "What is it a picture of?", [.describeImage]),
             c("svg", "What does this image show?", [.describeImage]),
@@ -157,12 +161,12 @@ public enum OwlToolEval {
 
     private static func firstMove(_ c: Case, engine: any OwlChatEngine) async -> Result {
         let d = docs[c.doc]!
-        let full = d.text as NSString
-        let shownRange = OwlDocumentSnapshot(text: d.text, generation: 1).range(lines: 1, shown)!
-        let snap = OwlDocumentSnapshot(text: d.text, generation: 1, selection: c.selection.map { NSIntersectionRange($0, NSRange(location: 0, length: full.length)) } ?? NSRange(location: 0, length: 0),
-                                       visible: shownRange, fileName: d.file, language: d.language)
+        let snap = snapshot(c)
         let ctx = OwlChatContext.build(snap, scope: .visible, budget: 6000)!
-        let toolbox = OwlToolbox(snapshot: snap, allowed: Set(OwlToolName.allCases))
+        // The tools the panel offers for this question (`OwlTools.typedTools`),
+        // and describe_image for every document: a text one must leave it alone.
+        let offered = offeredTools(c.question, snap)
+        let toolbox = OwlToolbox(snapshot: snap, allowed: Set(offered))
         let messages = OwlPrompts.chatMessages(question: c.question, context: ctx, language: Language(rawValue: d.language)?.displayName ?? d.language,
                                                fileName: d.file, history: [], toolsOn: true, model: engine.scoreKey,
                                                canDescribeImage: OwlPicture.isPicture(fileName: d.file),
@@ -170,7 +174,7 @@ public enum OwlToolEval {
         let expected = c.expect.isEmpty ? "answer" : c.expect.map(\.rawValue).sorted().joined(separator: "|")
         let turn: OwlTurn
         do {
-            turn = try await engine.turn(messages, tools: OwlTools.specs(OwlToolName.allCases), toolbox: toolbox, maxTokens: 300) { _ in }
+            turn = try await engine.turn(messages, tools: OwlTools.specs(offered), toolbox: toolbox, maxTokens: 300) { _ in }
         } catch {
             return Result(question: c.question, expected: expected, got: "error: \(error)", pass: false)
         }
@@ -200,6 +204,20 @@ public enum OwlToolEval {
             }
         }
         return Result(question: c.question, expected: expected, got: "\(call.name) \(call.arguments.jsonString)", pass: pass)
+    }
+
+    /// The tools a case is offered: the typed-question set plus describe_image.
+    public static func offeredTools(_ question: String, _ snap: OwlDocumentSnapshot) -> [OwlToolName] {
+        OwlTools.typedTools(question: question, snapshot: snap) + [.describeImage]
+    }
+
+    /// The snapshot a case runs on (shown lines 1–`shown`, its selection).
+    public static func snapshot(_ c: Case) -> OwlDocumentSnapshot {
+        let d = docs[c.doc]!
+        let full = d.text as NSString
+        let shownRange = OwlDocumentSnapshot(text: d.text, generation: 1).range(lines: 1, shown)!
+        return OwlDocumentSnapshot(text: d.text, generation: 1, selection: c.selection.map { NSIntersectionRange($0, NSRange(location: 0, length: full.length)) } ?? NSRange(location: 0, length: 0),
+                                   visible: shownRange, fileName: d.file, language: d.language)
     }
 
     public static func runAll(engine: any OwlChatEngine) async -> (score: Double, results: [Result]) {

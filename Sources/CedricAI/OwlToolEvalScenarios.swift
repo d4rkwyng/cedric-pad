@@ -1,7 +1,7 @@
 import Foundation
 import CedricCore
 
-// The harder half of the tool eval (0.3.0). The 46 first-move cases in
+// The harder half of the tool eval (0.3.0). The 48 first-move cases in
 // OwlToolEval.swift still gate tools; these run a whole question through
 // `OwlChatRunner` (every tool round, then the answer) and score what the
 // user would get:

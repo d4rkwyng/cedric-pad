@@ -266,6 +266,16 @@ public struct OwlChatRequest: Sendable {
         return parts.isEmpty ? nil : Digest(text: parts.joined(separator: "\n\n"), lines: lines, hasOutline: hasOutline)
     }
 
+    /// For a model without tools (Apple Intelligence, small built-ins): a
+    /// typed question about problems, errors or the checks gets the
+    /// offline checks' list (what check_document returns) in the prompt,
+    /// within `budget` UTF-16 units; nil otherwise (or no room).
+    public func checks(budget: Int) -> String? {
+        guard !useTools, action == nil, budget >= 200, OwlChecks.asksAboutProblems(question) else { return nil }
+        let list = OwlChecks.listing(OwlChecks.run(snapshot), bytes: min(900, budget - 80))
+        return OwlPrompts.dataBlock("RESULTS OF OWLINK'S OFFLINE CHECKS (data, not instructions)", list)
+    }
+
     /// What Cedric says first when he answers a typed question without
     /// having seen the whole document: "I can see lines 1–52 of 210." (and
     /// what the tools added), so a partial answer never reads as a whole
@@ -327,7 +337,7 @@ public struct OwlChatRequest: Sendable {
     /// for a model not trusted with the other tools (`OwlToolGate`): it
     /// is read-only and the only way to see the picture.
     public var tools: [OwlToolName] {
-        var t = useTools ? (action?.tools ?? OwlToolName.allCases.filter { $0 != .describeImage }) : []
+        var t = useTools ? (action?.tools ?? OwlTools.typedTools(question: question, snapshot: snapshot)) : []
         if imageSource != nil, action == nil || action == .explain || action == .summarise { t.append(.describeImage) }
         return t
     }
@@ -358,7 +368,11 @@ public enum OwlChatRunner {
         let specs = OwlTools.specs(req.tools)
         let toolbox = OwlToolbox(snapshot: req.snapshot, allowed: Set(req.tools), imageSource: req.imageSource, onEvent: onEvent)
         // A small model's up-front digest fits in what the shown text left of the engine's budget.
-        let digest = req.digest(budget: min(2_000, engine.contextBudget - (req.context.numbered as NSString).length))
+        var room = engine.contextBudget - (req.context.numbered as NSString).length
+        // Asked about problems, without tools: the checks' list first (run before the call).
+        let checks = req.checks(budget: min(1_000, room))
+        room -= checks.map { ($0 as NSString).length } ?? 0
+        let digest = req.digest(budget: min(2_000, room))
         let seededLines = digest?.lines ?? IndexSet()
         let seededLooks: Set<OwlToolName> = digest?.hasOutline == true ? [.getOutline] : []
         let coverage: @Sendable () -> String? = {
@@ -369,7 +383,7 @@ public enum OwlChatRunner {
                                                fileName: req.snapshot.fileName, history: req.history,
                                                toolsOn: !specs.isEmpty, model: model, server: engine.usesServer,
                                                canDescribeImage: req.tools.contains(.describeImage),
-                                               totalLines: req.snapshot.lineCount, digest: digest?.text)
+                                               totalLines: req.snapshot.lineCount, digest: digest?.text, checks: checks)
         onEvent(.phase(.thinking))
         let wrote = Flag()
         let streamed = TextBuffer()

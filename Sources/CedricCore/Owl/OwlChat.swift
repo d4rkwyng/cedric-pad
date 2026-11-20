@@ -113,10 +113,19 @@ public struct OwlDocumentSnapshot: Sendable {
     /// `Language.rawValue`.
     public let language: String
     public let lines: LineIndex
+    /// What the offline checks need beyond the text (check_document): the
+    /// document facts the owl's rules read (Style Check's settings too).
+    public let facts: OwlDocumentFacts
+    /// The grammar checker's current findings (document ranges), as the
+    /// editor has them; the checker itself runs in the app.
+    public let grammar: [GrammarIssue]
 
     public init(text: String, generation: Int, selection: NSRange = NSRange(location: 0, length: 0),
-                visible: NSRange? = nil, fileName: String? = nil, language: String = "plain") {
+                visible: NSRange? = nil, fileName: String? = nil, language: String = "plain",
+                facts: OwlDocumentFacts = OwlDocumentFacts(), grammar: [GrammarIssue] = []) {
         let ns = text as NSString
+        self.facts = facts
+        self.grammar = grammar
         self.text = text
         self.generation = generation
         func clamp(_ r: NSRange) -> NSRange {
@@ -298,7 +307,7 @@ public enum OwlQuickAction: String, Sendable, CaseIterable {
         switch self {
         case .explain: return [.getLines, .searchDocument, .getOutline]
         case .summarise: return [.getOutline, .getLines, .documentStats]
-        case .findProblems: return [.getLines, .searchDocument]
+        case .findProblems: return [.getLines, .searchDocument, .checkDocument]
         case .rewrite: return [.getSelection, .getLines, .proposeEdit]
         case .addComments: return [.getLines, .proposeEdit]
         case .explainLine: return [.getLines, .searchDocument]
@@ -316,6 +325,9 @@ public enum OwlToolName: String, Sendable, CaseIterable {
     case getOutline = "get_outline"
     case documentStats = "document_stats"
     case proposeEdit = "propose_edit"
+    /// The offline checks' current findings (OwlChecks): writing checks,
+    /// code checks, grammar (and Style Check when it is on).
+    case checkDocument = "check_document"
     /// Renders the document's picture and reads it with Apple Vision, on
     /// this Mac (CedricAI's `OwlVision`). Offered only for a document that
     /// draws a picture (`OwlPicture`); `OwlTools.run` can't run it (no
@@ -475,6 +487,9 @@ public enum OwlTools {
         case .proposeEdit:
             return OwlToolSpec(name: name, description: "Proposes replacing lines start to end with new_text. The user reviews and applies it.",
                                parameters: obj(["start": int, "end": int, "new_text": str, "reason": str], required: ["start", "end", "new_text"]))
+        case .checkDocument:
+            return OwlToolSpec(name: name, description: "Problems Owlink's offline checks found in the document (links, headings, footnotes, code rules, grammar), with line numbers.",
+                               parameters: obj([:], required: []))
         case .describeImage:
             return OwlToolSpec(name: name, description: "Looks at the picture this document draws (rendered on this Mac): what it shows, any text in it, its size and colours.",
                                parameters: obj([:], required: []))
@@ -482,6 +497,31 @@ public enum OwlTools {
     }
 
     public static func specs(_ names: [OwlToolName]) -> [OwlToolSpec] { names.map(spec) }
+
+    /// The tools offered for a typed question (a model trusted with tools):
+    /// get_lines, search_document and get_outline always, and each other
+    /// tool only when the question or the document calls for it, so a
+    /// small model chooses among few (Apple's TN3193: 3–5 tools at most)
+    /// and a document's text can't talk the model into an edit nobody
+    /// asked for. The tool eval offers the same set (`OwlToolEval`).
+    public static func typedTools(question: String, snapshot s: OwlDocumentSnapshot) -> [OwlToolName] {
+        let q = question.lowercased()
+        let words = Set(q.components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty })
+        var out: [OwlToolName] = [.getLines, .searchDocument, .getOutline]
+        if s.hasSelection || !words.isDisjoint(with: ["select", "selected", "selection", "highlighted"]) { out.insert(.getSelection, at: 0) }
+        if !words.isDisjoint(with: statsWords) || q.contains("how many") || q.contains("how long") || q.contains("file name") {
+            out.append(.documentStats)
+        }
+        if OwlChecks.asksAboutProblems(question) { out.append(.checkDocument) }
+        if !words.isDisjoint(with: editWords) { out.append(.proposeEdit) }
+        return out
+    }
+
+    static let statsWords: Set<String> = ["words", "characters", "chars", "count", "length", "long", "filename", "language", "size", "stats", "statistics"]
+    static let editWords: Set<String> = ["change", "edit", "rewrite", "rename", "replace", "fix", "correct", "propose", "update", "add", "insert",
+                                         "remove", "delete", "make", "turn", "convert", "shorten", "shorter", "longer", "reword", "rephrase",
+                                         "translate", "simplify", "improve", "format", "reformat", "capitalize", "sort", "swap", "move", "put",
+                                         "set", "write", "comment", "tidy", "clean", "polish", "edits"]
 
     /// Caps `s` at `maxOutputBytes` of UTF-8 on a line boundary where possible.
     public static func cap(_ s: String, bytes: Int = maxOutputBytes) -> String {
@@ -590,6 +630,10 @@ public enum OwlTools {
             }
             return OwlToolResult(text: "proposed: the user will review the change to lines \(p.firstLine)-\(p.lastLine). Now briefly say what you changed.",
                                  proposal: p, summary: String(localized: "Proposed a change to lines \(p.firstLine)–\(p.lastLine)"), ok: true)
+        case .checkDocument:
+            let r = OwlChecks.run(s)
+            return OwlToolResult(text: OwlChecks.listing(r, bytes: maxOutputBytes), proposal: nil,
+                                 summary: String(localized: "Ran the document checks"), ok: true)
         case .describeImage:
             // Needs a renderer: OwlToolbox runs it, with the document's picture.
             return fail(OwlPicture.isPicture(fileName: s.fileName) ? "describe_image is not available here" : "this document is text, not a picture")

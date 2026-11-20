@@ -117,8 +117,13 @@ public enum OwlPrompts {
     /// The system prompt for a chat question.
     /// `digest`: a digest of the rest of the document follows the shown
     /// text (`OwlChatRequest.digest`, for a model without tools).
-    public static func chatSystem(toolsOn: Bool, server: Bool = false, digest: Bool = false) -> String {
+    public static func chatSystem(toolsOn: Bool, server: Bool = false, digest: Bool = false, checks: Bool = false) -> String {
         var s = persona(server: server) + "\n\n" + chatTask + "\n\n" + untrustedDocument + " " + chatInjection
+        if checks, !toolsOn {
+            s += "\n\nBefore the question come the results of Owlink's offline checks of the document (line, rule, message). "
+                + "When asked about problems or errors, report those first, each with its line number, in plain words; "
+                + "then add any other real problem you can see in the shown text. If the checks found nothing, say so."
+        }
         if digest, !toolsOn {
             s += "\n\nYou see only part of the document: the \"Shown:\" line gives the lines you see and how many it has in all. "
                 + "After the shown text come the outline of the whole document (headings with line numbers, and how many list items "
@@ -201,8 +206,8 @@ public enum OwlPrompts {
     public static func chatMessages(question: String, context: OwlChatContext, language: String, fileName: String?,
                                     history: [OwlChatEntry], toolsOn: Bool, model: String, server: Bool = false,
                                     canDescribeImage: Bool = false, totalLines: Int? = nil,
-                                    digest: String? = nil) -> [OwlChatMessage] {
-        var out: [OwlChatMessage] = [.system(chatSystem(toolsOn: toolsOn, server: server, digest: digest != nil))]
+                                    digest: String? = nil, checks: String? = nil) -> [OwlChatMessage] {
+        var out: [OwlChatMessage] = [.system(chatSystem(toolsOn: toolsOn, server: server, digest: digest != nil, checks: checks != nil))]
         // Older turns are dropped (small context): the last two questions and answers.
         var kept: [OwlChatEntry] = []
         var users = 0
@@ -226,6 +231,7 @@ public enum OwlPrompts {
         if context.truncated { user += " (trimmed; use tools or ask for less)" }
         user += "\n```\n\(context.numbered)\n```\n\n"
         if let digest { user += digest + "\n\n" }
+        if let checks { user += checks + "\n\n" }
         user += question
         if partial, toolsOn, let total = totalLines {
             user += "\n(You see lines \(context.firstLine)-\(context.lastLine) of \(total). If the answer isn't in them, look with a tool before saying it isn't there.)"
@@ -267,6 +273,8 @@ public enum OwlPrompts {
         let sees = tools.contains { $0.name == .describeImage }
         let look = sees ? "\n- The file kind says it is an image and it asks what the picture shows or looks like: call describe_image." : ""
         let lookExample = sees ? #" "What is this a picture of?" (an SVG) → {"tool":"describe_image","args":{}}."# : ""
+        let checkRule = tools.contains { $0.name == .checkDocument }
+            ? "\n- It asks about problems, errors, broken links, headings, footnotes or grammar in the document: call check_document." : ""
         var s = "\n\nTools:\n"
         for t in tools {
             var params: [String] = []
@@ -282,7 +290,7 @@ public enum OwlPrompts {
         - It asks to find, search, or where or how often a word appears: call search_document with that word.
         - It asks for headings, sections, structure, keys or which functions exist: call get_outline.
         - It asks how many words, lines or characters, or the file name or language: call document_stats.
-        - It asks to change, rename, rewrite or propose an edit: call propose_edit (or get_lines first).\(look)
+        - It asks to change, rename, rewrite or propose an edit: call propose_edit (or get_lines first).\(look)\(checkRule)
         - It asks about something that is not in lines A-B (a value, a name, a section) while the document has more lines: call search_document with a key word, or get_lines; never answer that it isn't there without looking.
         - Otherwise, when the answer is in lines A-B or needs no document (general knowledge): answer directly.
 

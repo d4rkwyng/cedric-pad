@@ -108,6 +108,9 @@ public struct FakeChatEngine: OwlChatEngine {
             if tools.contains(.getLines) { return OwlToolCall(name: "get_lines", arguments: .object(["start": .number(Double(lineRef ?? first)), "end": .number(Double(lineRef ?? last))])) }
             if tools.contains(.getSelection) { return OwlToolCall(name: "get_selection") }
         }
+        if tools.contains(.checkDocument), OwlChecks.asksAboutProblems(q), !has(["line "]) {
+            return OwlToolCall(name: "check_document")
+        }
         if tools.contains(.documentStats), has(["how many words", "how many lines", "word count", "how long is", "how many characters", "what language", "file name"]) {
             return OwlToolCall(name: "document_stats")
         }
