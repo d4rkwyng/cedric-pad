@@ -13,14 +13,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private(set) var lineIndex = LineIndex()
     private var colorizer: SyntaxColorizer!
     let owl = EditorOwl()
-    private let hintBar = OwlHintBar()
+    let hintBar = OwlHintBar()
     private let statusBar = UIView()
     private let statusLabel = UILabel()
     private let languageButton = UIButton(type: .system)
     private let formatButton = UIButton(type: .system)
     private let split = UIStackView()
-    private var preview: PreviewController?
-    private var previewOn = false
+    private(set) var preview: PreviewController?
+    private(set) var previewOn = false
     private var generation = 0
     private var loading = false
     private(set) var palette = EditorPalettes.light
@@ -132,11 +132,16 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             statusBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-            hintBar.leadingAnchor.constraint(equalTo: g.leadingAnchor, constant: 12),
-            hintBar.trailingAnchor.constraint(equalTo: g.trailingAnchor, constant: -12),
+            hintBar.leadingAnchor.constraint(greaterThanOrEqualTo: g.leadingAnchor, constant: 12),
+            hintBar.trailingAnchor.constraint(lessThanOrEqualTo: g.trailingAnchor, constant: -12),
+            hintBar.centerXAnchor.constraint(equalTo: g.centerXAnchor),
             hintBar.bottomAnchor.constraint(equalTo: statusBar.topAnchor, constant: -10),
             hintBar.widthAnchor.constraint(lessThanOrEqualToConstant: 640),
         ])
+        // As wide as it may be: the full width on a phone, 640 pt on an iPad.
+        let wide = hintBar.widthAnchor.constraint(equalTo: g.widthAnchor, constant: -24)
+        wide.priority = .defaultHigh
+        wide.isActive = true
         view.keyboardLayoutGuide.usesBottomSafeArea = false
         statusBar.insetsLayoutMarginsFromSafeArea = true
     }
@@ -156,7 +161,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         })
         find.accessibilityIdentifier = "editor.find"
         find.title = String(localized: "Find")
-        let ask = UIBarButtonItem(image: UIImage(named: "Owl")?.preparingThumbnail(of: CGSize(width: 28, height: 28))?
+        let ask = UIBarButtonItem(image: UIImage(named: "Owl", in: .owlink, with: nil)?.preparingThumbnail(of: CGSize(width: 28, height: 28))?
             .withRenderingMode(.alwaysOriginal), primaryAction: UIAction { [weak self] _ in self?.askCedric() })
         ask.title = String(localized: "Ask Cedric")
         ask.accessibilityIdentifier = "editor.ask"
@@ -390,7 +395,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         UIView.animate(withDuration: 0.2) { self.hintBar.alpha = 1 }
     }
 
-    private func applyFix() {
+    func applyFix() {
         guard let shown = owl.visible else { return }
         if let l = RulesHintProvider.guessedLanguage(shown.hint) {
             setLanguage(l)

@@ -172,7 +172,7 @@ struct AskCedricView: View {
     private var intro: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                Image("Owl").resizable().frame(width: 56, height: 56)
+                Image("Owl", bundle: .owlink).resizable().frame(width: 56, height: 56)
                 VStack(alignment: .leading) {
                     Text(String(localized: "Ask about this document.")).font(.headline)
                     if let t = model.engineTitle {

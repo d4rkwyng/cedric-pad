@@ -40,9 +40,9 @@ enum AIStatus {
 
     static func backendTitle(_ b: LocalAISettings.Backend) -> String {
         switch b {
-        case .apple: return String(localized: "Apple Intelligence (on this device)")
-        case .builtIn: return String(localized: "Built-in model (on this device)")
-        case .custom, .lmStudio, .ollama: return String(localized: "A server on your network")
+        case .apple: return "Apple Intelligence"
+        case .builtIn: return String(localized: "Built-in Model")
+        case .custom, .lmStudio, .ollama: return String(localized: "Server on Network")
         }
     }
 }

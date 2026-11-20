@@ -55,3 +55,11 @@ extension UIColor {
                   blue: CGFloat(hex & 0xff) / 255, alpha: 1)
     }
 }
+
+private final class OwlinkBundleToken {}
+
+extension Bundle {
+    /// The bundle with Owlink's assets: the app, or the snapshot test
+    /// bundle that compiles the same sources.
+    static let owlink = Bundle(for: OwlinkBundleToken.self)
+}

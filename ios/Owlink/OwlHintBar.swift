@@ -5,7 +5,7 @@ import CedricCore
 /// title and detail, "Fix it" when the hint carries a fix, and a close
 /// button. One hint at a time; "Next" when there are more.
 final class OwlHintBar: UIView {
-    let owl = UIImageView(image: UIImage(named: "Owl"))
+    let owl = UIImageView(image: UIImage(named: "Owl", in: .owlink, with: nil))
     let title = UILabel()
     let detail = UILabel()
     let fix = UIButton(configuration: .borderedProminent())

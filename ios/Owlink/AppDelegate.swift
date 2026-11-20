@@ -43,7 +43,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                                    input: "p", modifierFlags: [.command, .shift])
         let bigger = UIKeyCommand(title: String(localized: "Bigger"), action: #selector(EditorViewController.biggerFont),
                                   input: "+", modifierFlags: .command)
-        let bigger2 = UIKeyCommand(action: #selector(EditorViewController.biggerFont), input: "=", modifierFlags: .command)
+        let bigger2 = UIKeyCommand(title: String(localized: "Bigger"), action: #selector(EditorViewController.biggerFont),
+                                   input: "=", modifierFlags: .command, propertyList: "=")
         bigger2.attributes = .hidden
         let smaller = UIKeyCommand(title: String(localized: "Smaller"), action: #selector(EditorViewController.smallerFont),
                                    input: "-", modifierFlags: .command)
