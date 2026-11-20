@@ -15,6 +15,7 @@ extension DevChecks {
         case "outline": outlineCheck(app)
         case "mdexport": exportCheck(app)
         case "previewbar": previewBarCheck(app)
+        case "mdsite": siteCheck(app)
         default: return false
         }
         return true
@@ -246,6 +247,51 @@ extension DevChecks {
                 expect(abs((g?.zoom ?? 0) - 1.25) < 0.001 && (g?.table.rowHeight ?? 0) > h0, "Zoom + enlarges the grid", "zoom=\(g?.zoom ?? 0) row=\(g?.table.rowHeight ?? 0)")
             },
         ], gap: 0.4)
+    }
+
+    /// A static site's page (Quartz, Hugo): `/images/…` root-absolute
+    /// images in HTML and Markdown, and Obsidian wikilinks. The document
+    /// is CEDRIC_SITE_DOC when set (a real site's index.md), else a small
+    /// one made here, as `<site>/content/index.md`.
+    static func siteCheck(_ app: AppDelegate) {
+        var doc = ProcessInfo.processInfo.environment["CEDRIC_SITE_DOC"].map { URL(fileURLWithPath: $0) }
+        if doc == nil {
+            let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")!
+            _ = write("site/static/images/dot.png", "")
+            try? png.write(to: dir.appendingPathComponent("site/static/images/dot.png"))
+            _ = write("site/content/blog/20261117-post.md", "# Post\n")
+            doc = write("site/content/index.md", "---\ntitle: welcome\n---\n<img src=\"/images/dot.png\" alt=\"html\">\n\n![md](/images/dot.png)\n\n### [[20261117-post|The Post]]\n\n[[missing]] ==mark== #tag\n")
+        }
+        guard let doc, let tab = app.open(doc) else { expect(false, "opens the site page"); finish(); return }
+        sized(tab)
+        run([
+            sync {
+                focus(tab)
+                key("p", [.command, .option])
+                expect(tab.previewVisible, "⌥⌘P shows the preview")
+            },
+            waitForPreview(tab, contains: "welcome", "the preview shows the page"),
+            { next in
+                // Images load (or fail) a moment after the page.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { next() }
+            },
+            { next in
+                previewJS(tab, "(() => { const i = [...document.images]; return i.length + ',' + i.filter(x => x.complete && x.naturalWidth > 0).length + ',' + i.filter(x => !(x.complete && x.naturalWidth > 0)).map(x => x.getAttribute('src')).join(' ') })()") { v in
+                    let parts = (v as? String ?? "").split(separator: ",", maxSplits: 2).map(String.init)
+                    expect(parts.count >= 2 && Int(parts[0]) ?? 0 > 0 && parts[0] == parts[1], "every site-root image loads", "\(v ?? "nil")")
+                    next()
+                }
+            },
+            { next in
+                previewJS(tab, "document.querySelectorAll('a.wikilink[href]').length + ',' + document.body.innerText.includes('[[')") { v in
+                    let parts = (v as? String ?? "").split(separator: ",").map(String.init)
+                    expect(parts.count == 2 && Int(parts[0]) ?? 0 > 0 && parts[1] == "false", "wikilinks render as links, no raw [[", "\(v ?? "nil")")
+                    next()
+                }
+            },
+            snapshot("mdsite.png"),
+            sync { finish() },
+        ])
     }
 
     static func markdownPreview(_ app: AppDelegate) {
