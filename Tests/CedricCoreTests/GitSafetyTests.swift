@@ -20,14 +20,16 @@ import Testing
         #expect(bad("core.fsmonitor", "touch /tmp/m"))
         #expect(!bad("core.fsmonitor", "true") && !bad("core.fsmonitor", "false"), "a boolean is git's own daemon")
         #expect(bad("core.sshCommand") && bad("core.gitProxy") && bad("core.pager") && bad("core.editor"))
+        #expect(bad("core.hooksPath", "/x"), "a custom hooks path runs repository programs")
         #expect(bad("filter.evil.clean") && bad("filter.evil.smudge") && bad("filter.evil.process"))
         #expect(bad("filter.lfs.clean", "sh -c evil"))
         #expect(!bad("filter.lfs.clean", "git-lfs clean -- %f") && !bad("filter.lfs.process", "git-lfs filter-process"))
         #expect(bad("diff.evil.textconv") && bad("diff.evil.command") && bad("diff.external"))
         #expect(bad("merge.x.driver") && bad("credential.helper") && bad("credential.https://h.helper"))
         #expect(bad("gpg.program") && bad("gpg.ssh.program") && bad("pager.log") && bad("remote.origin.uploadpack"))
+        #expect(bad("uploadpack.packObjectsHook") && bad("gc.recentObjectsHook"))
         #expect(bad("Filter.Evil.CLEAN"), "section and name are case-insensitive")
-        #expect(!bad("core.bare") && !bad("remote.origin.url") && !bad("branch.main.merge") && !bad("core.hooksPath", "/x"))
+        #expect(!bad("core.bare") && !bad("remote.origin.url") && !bad("branch.main.merge"))
         #expect(!bad("filter.evil.required") && !bad("diff.evil.binary"))
     }
 
@@ -35,6 +37,13 @@ import Testing
         #expect(GitRunner.safetyArgs.contains("core.fsmonitor=false"))
         #expect(GitRunner.safetyArgs.contains("core.hooksPath=/dev/null"))
         #expect(GitRunner.safetyArgs.contains("diff.external="))
+        #expect(GitRunner.safetyArgs.contains("gc.auto=0"))
+        #expect(GitRunner.safetyArgs.contains("maintenance.auto=false"))
+        var env = ["GIT_CONFIG_PARAMETERS": "x", "GIT_EXTERNAL_DIFF": "y", "PATH": "/usr/bin"]
+        GitRunner.applyGitSafety(to: &env)
+        #expect(env["GIT_NO_LAZY_FETCH"] == "1")
+        #expect(env["GIT_CONFIG_NOSYSTEM"] == "1")
+        #expect(env["GIT_CONFIG_PARAMETERS"] == nil && env["GIT_EXTERNAL_DIFF"] == nil)
     }
 
     /// The audit's PoC repo plus a textconv driver and an includeIf'd file.
@@ -98,6 +107,32 @@ import Testing
         try plain.run()
         plain.waitUntilExit()
         #expect(!markersIn(markers).isEmpty, "an unprotected git status does run them (the PoC)")
+    }
+
+    /// An `[include]`'d file that sets `gc.recentObjectsHook` must be refused
+    /// (GHSA-h2g3-rwxm-xfm3 / include follow-up).
+    @Test func includedRecentObjectsHookIsHostile() throws {
+        let root = tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo")
+        try FileManager.default.createDirectory(at: repo.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try "ref: refs/heads/main\n".write(to: repo.appendingPathComponent(".git/HEAD"), atomically: true, encoding: .utf8)
+        try "[gc]\n\trecentObjectsHook = \"touch /tmp/cedric-gc-hook; false\"\n"
+            .write(to: repo.appendingPathComponent(".git/hook.inc"), atomically: true, encoding: .utf8)
+        try "[core]\n\tbare = false\n[include]\n\tpath = hook.inc\n"
+            .write(to: repo.appendingPathComponent(".git/config"), atomically: true, encoding: .utf8)
+        try "x\n".write(to: repo.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        let file = repo.appendingPathComponent("a.txt")
+        let loc = try #require(GitLocation.find(for: file))
+        let scanned = GitConfigSafety.scanRepository(at: loc.gitDir, workTree: loc.workTree)
+        let keys = Set(GitConfigSafety.dangerousKeys(scanned).map { $0.lowercased() })
+        #expect(keys.contains("gc.recentobjectshook"), "include-relative path is followed: \(keys.sorted())")
+        if GitRunner.executable != nil {
+            let p = GitProbe.probe(file: file, location: loc)
+            #expect(p?.refused == true)
+            let refused = Set(p?.refusedKeys.map { $0.lowercased() } ?? [])
+            #expect(refused.contains("gc.recentobjectshook"))
+        }
     }
 
     @Test func probeWithoutStatus() throws {
