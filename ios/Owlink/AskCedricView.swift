@@ -147,6 +147,8 @@ struct AskCedricView: View {
     @ScaledMetric(relativeTo: .title3) private var owlSize: CGFloat = 30
     @ScaledMetric(relativeTo: .body) private var introOwlSize: CGFloat = 52
 
+    private static let endID = "ask.end"
+
     private var palette: EditorPalette { theme.palette(systemIsDark: colorScheme == .dark) }
     private var colors: AskColors { AskColors(palette) }
 
@@ -155,20 +157,33 @@ struct AskCedricView: View {
         VStack(spacing: 0) {
             header(c)
             Rectangle().fill(c.hairline).frame(height: 1)
+                .ignoresSafeArea(.container, edges: .horizontal)
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
+                    // A plain VStack: a LazyVStack mis-measured a long,
+                    // streamed answer, so its end couldn't be scrolled to.
+                    VStack(alignment: .leading, spacing: 14) {
                         if model.entries.isEmpty { intro(c) }
                         ForEach(model.entries) { e in row(e, c).id(e.id) }
+                        Color.clear.frame(height: 1).id(Self.endID)
                     }
                     .padding()
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: model.entries) { _, list in
-                    if let last = list.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                // The input bar sits under the scroll view's content, so the
+                // last line scrolls clear of it; a soft fade above the bar.
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [c.background.opacity(0), c.background], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 18)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                            .ignoresSafeArea(.container, edges: .horizontal)
+                        inputBar(c)
+                    }
                 }
+                .onChange(of: model.entries) { _, _ in proxy.scrollTo(Self.endID, anchor: .bottom) }
             }
-            inputBar(c)
         }
         .foregroundStyle(c.text)
         .tint(c.accent)
@@ -183,9 +198,12 @@ struct AskCedricView: View {
 
     private func header(_ c: AskColors) -> some View {
         HStack(spacing: 10) {
-            Image("Owl", bundle: .owlink).resizable().scaledToFit()
-                .frame(width: owlSize, height: owlSize)
-                .accessibilityHidden(true)
+            // One owl at a time: the intro's big one, then this small one.
+            if !model.entries.isEmpty {
+                Image("Owl", bundle: .owlink).resizable().scaledToFit()
+                    .frame(width: owlSize, height: owlSize)
+                    .accessibilityHidden(true)
+            }
             VStack(alignment: .leading, spacing: 1) {
                 Text(String(localized: "Ask Cedric")).font(.headline)
                     .accessibilityAddTraits(.isHeader)
@@ -207,7 +225,9 @@ struct AskCedricView: View {
             .accessibilityIdentifier("ask.done")
         }
         .padding(.leading, 16).padding(.trailing, 8).padding(.vertical, 6)
-        .background(c.bar)
+        // Full width: the bar's colour runs under a side inset (the folded
+        // iPhone Duo's vertical bar left a darker strip), the text stays inside.
+        .background(c.bar.ignoresSafeArea(.container, edges: [.horizontal, .top]))
     }
 
     // MARK: Empty state
@@ -300,7 +320,9 @@ struct AskCedricView: View {
                 if e.text.isEmpty && model.running {
                     ProgressView().accessibilityIdentifier("ask.thinking")
                 } else {
-                    Text(.init(e.text)).font(.body).textSelection(.enabled).accessibilityIdentifier("ask.answer")
+                    Text(.init(e.text)).font(.body).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("ask.answer")
                 }
                 if let p = e.proposal {
                     Text(p.reason.isEmpty ? String(localized: "Proposed edit") : p.reason).font(.footnote).foregroundStyle(c.secondary)
@@ -357,9 +379,10 @@ struct AskCedricView: View {
         .background(c.field, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
             .strokeBorder(focused ? c.accent.opacity(0.7) : c.hairline, lineWidth: 1))
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(c.bar.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { Rectangle().fill(c.hairline).frame(height: 1) }
+        // Close to the bottom safe area (the home indicator), riding the keyboard when it is up.
+        .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 4)
+        .background(c.bar.ignoresSafeArea(.container, edges: [.bottom, .horizontal]).ignoresSafeArea(.keyboard, edges: .bottom))
+        .overlay(alignment: .top) { Rectangle().fill(c.hairline).frame(height: 1).ignoresSafeArea(.container, edges: .horizontal) }
     }
 }
 

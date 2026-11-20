@@ -6,9 +6,13 @@ import Foundation
 public enum PreviewHTML {
     public static func hex(_ c: UInt32) -> String { String(format: "#%06x", c) }
 
-    /// The whole page. `csp` nil: none (an exported file).
-    public static func page(body: String, palette p: EditorPalette, csp: String?, title: String? = nil) -> String {
-        let meta = csp.map { "<meta http-equiv=\"Content-Security-Policy\" content=\"\($0)\">\n" } ?? ""
+    /// The whole page. `csp` nil: none (an exported file). `viewport`:
+    /// laid out at the device's width (iOS; without it WebKit lays the page
+    /// out 980 px wide and scales it down to fit, shrinking the text).
+    public static func page(body: String, palette p: EditorPalette, csp: String?, title: String? = nil,
+                            viewport: Bool = false) -> String {
+        var meta = csp.map { "<meta http-equiv=\"Content-Security-Policy\" content=\"\($0)\">\n" } ?? ""
+        if viewport { meta += viewportMeta + "\n" }
         let titleTag = title.map { "<title>\(Markdown.escape($0))</title>\n" } ?? ""
         return """
         <!doctype html><html><head><meta charset="utf-8">
@@ -19,6 +23,9 @@ public enum PreviewHTML {
         </body></html>
         """
     }
+
+    /// Device width, no WebKit pinch zoom (the app's pinch sets the text size).
+    public static let viewportMeta = "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no\">"
 
     public static func styles(_ p: EditorPalette) -> String {
         """

@@ -7,7 +7,7 @@ import CedricAI
 /// Mac's NSTextView), coloured by the core's highlighter, with the system
 /// find and replace (⌘F, ⌥⌘F), a status line (language, encoding, line
 /// ending, caret), Cedric's hints, the Markdown preview and Ask Cedric.
-final class EditorViewController: UIViewController, UITextViewDelegate {
+final class EditorViewController: UIViewController, UITextViewDelegate, UIGestureRecognizerDelegate {
     let document: TextDocument
     let textView = UITextView(usingTextLayoutManager: true)
     private(set) var lineIndex = LineIndex()
@@ -39,9 +39,28 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     private var continuity: EditorContinuity?
     /// Ask Cedric docked beside the text on wide screens.
     private var askPanel: UIViewController?
+    /// Ask Cedric as a sheet (compact width).
+    private weak var askSheet: UIViewController?
     private var askPanelWidth: NSLayoutConstraint?
     private var askModel: AskCedricModel?
     private var splitTrailing: NSLayoutConstraint!
+    /// The split's bottom: on the status line, or (Focus Preview, the status
+    /// line hidden) on the safe area's bottom.
+    private var splitBottom: NSLayoutConstraint!
+    private var splitBottomFocus: NSLayoutConstraint!
+    /// Focus Preview: the preview alone, editor, status line and owl hidden.
+    private(set) var focusOn = false
+    /// The preview was beside the text before Focus Preview (it comes back so).
+    private var previewOnBeforeFocus = false
+    /// The draggable handle between text and preview (wide screens).
+    let divider = SplitDivider()
+    /// Where the seam sits, kept per size class; a drag in progress.
+    private(set) var splitPosition: SplitPosition = .fold
+    private var dragFraction: Double?
+    /// The preview's scroll share when the text was hidden: if it moved
+    /// meanwhile, the text follows it when it comes back.
+    private var previewFractionAtHide: Double?
+    private var focusGestures: [UIGestureRecognizer] = []
     /// Undo and Redo in the bar, enabled from the text view's undo manager.
     private lazy var undoItem = barItem(String(localized: "Undo"), "arrow.uturn.backward", "editor.undo") { [weak self] in
         self?.textView.undoManager?.undo()
@@ -112,7 +131,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         // Opening or closing an iPhone Duo is a size-class change (compact
         // outside, regular inside; outer landscape is compact both ways).
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self,
-                                 UITraitVerticalSizeClass.self]) { (self: Self, _) in
+                                 UITraitVerticalSizeClass.self]) { (self: Self, _: UITraitCollection) in
+            self.splitPosition = self.splitStore.position(regularWidth: self.traitCollection.horizontalSizeClass == .regular,
+                                                          regularHeight: self.traitCollection.verticalSizeClass == .regular)
             self.applySettings()
             self.layoutPreview()
             self.updateAskPanelForWidth()
@@ -215,8 +236,12 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         hintBar.onNext = { [weak self] in self?.owl.showNext() }
         hintBar.onFix = { [weak self] in self?.applyFix() }
         setUpOwlSprite()
+        setUpDivider()
+        setUpFocusGestures()
         let g = view.safeAreaLayoutGuide
         splitTrailing = split.trailingAnchor.constraint(equalTo: g.trailingAnchor)
+        splitBottom = split.bottomAnchor.constraint(equalTo: statusBar.topAnchor)
+        splitBottomFocus = split.bottomAnchor.constraint(equalTo: g.bottomAnchor)
         // The text pane's width when the preview is beside it (the seam on
         // the fold of an unfolded iPhone Duo): set in updateSplit().
         textWidth = textView.widthAnchor.constraint(equalToConstant: 100)
@@ -227,7 +252,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             // camera and the rounded corners in landscape.
             split.leadingAnchor.constraint(equalTo: g.leadingAnchor),
             splitTrailing,
-            split.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            splitBottom,
             statusBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
@@ -240,6 +265,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         updateSplit()
         updateAskPanelWidth()
         layoutOwl()
+        layoutDivider()
     }
 
     // MARK: Fold (iPhone Duo)
@@ -256,14 +282,20 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     private var rightToLeft: Bool { view.effectiveUserInterfaceLayoutDirection == .rightToLeft }
 
-    /// Text and preview side by side meet at the fold when there is one.
+    private var sideBySide: Bool { previewOn && !focusOn && !textView.isHidden && preview?.view.isHidden == false }
+
+    /// The seam's position now: the drag in progress, else the kept one.
+    private var effectiveSplit: SplitPosition { dragFraction.map { .fraction($0) } ?? splitPosition }
+
+    /// Text and preview side by side: the seam where it was put (a drag
+    /// snaps to 1/3, 1/2, 2/3 or the fold), by default on the fold when
+    /// there is one (an unfolded iPhone Duo), else in the middle.
     private func updateSplit() {
-        let sideBySide = previewOn && !textView.isHidden && preview?.view.isHidden == false
         guard sideBySide else {
             if textWidth.isActive { textWidth.isActive = false }
             return
         }
-        let s = FoldLayout.split(content: split.frame, folds: folds(), spacing: 1, rightToLeft: rightToLeft)
+        let s = PreviewSplit.panes(effectiveSplit, content: split.frame, folds: folds(), spacing: 1, rightToLeft: rightToLeft)
         if split.spacing != s.gap { split.spacing = s.gap }
         if textWidth.constant != s.leading { textWidth.constant = s.leading }
         if !textWidth.isActive { textWidth.isActive = true }
@@ -296,6 +328,29 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             p.title = String(localized: "Preview")
             p.accessibilityIdentifier = "editor.preview"
             items.append(p)
+            let f = UIBarButtonItem(image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"), primaryAction: UIAction { [weak self] _ in
+                self?.toggleFocusPreview()
+            })
+            f.title = String(localized: "Focus Preview")
+            f.accessibilityLabel = String(localized: "Focus Preview")
+            f.accessibilityIdentifier = "editor.focusPreview"
+            items.append(f)
+        }
+        if focusOn {
+            // Only the way back (and the overflow menu).
+            let done = UIBarButtonItem(title: String(localized: "Edit"), image: nil, primaryAction: UIAction { [weak self] _ in
+                self?.exitFocusPreview()
+            })
+            done.style = .done
+            done.accessibilityHint = String(localized: "Leaves Focus Preview and shows the text.")
+            done.accessibilityIdentifier = "editor.focusDone"
+            if #available(iOS 27.0, *) { done.visibilityPriority = .high }
+            navigationItem.rightBarButtonItems = [done]
+            updateEdited()
+            navigationItem.additionalOverflowItems = UIDeferredMenuElement.uncached { [weak self] done in
+                done(self?.focusMenuItems() ?? [])
+            }
+            return
         }
         // Which stay when a vertical bar (iPhone Duo) runs out of room.
         if #available(iOS 27.0, *) {
@@ -334,10 +389,34 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             self?.showSettings()
         }
         var first: [UIMenuElement] = [save, replace, goTo, ask, check]
+        if document.language.language == .markdown {
+            let focus = UIAction(title: String(localized: "Focus Preview"), image: UIImage(systemName: "arrow.up.left.and.arrow.down.right")) { [weak self] _ in
+                self?.toggleFocusPreview()
+            }
+            focus.accessibilityIdentifier = "editor.menu.focusPreview"
+            first.insert(focus, at: 0)
+        }
         if UIApplication.shared.supportsMultipleScenes { first.append(Self.newWindowAction()) }
         return [UIMenu(options: .displayInline, children: first), UIMenu(options: .displayInline, children: [revert]),
                 languageMenu(), formatMenu(),
                 UIMenu(options: .displayInline, children: [settings])]
+    }
+
+    /// The overflow menu in Focus Preview: back to the text, the text size.
+    private func focusMenuItems() -> [UIMenuElement] {
+        let back = UIAction(title: String(localized: "Exit Focus Preview"), image: UIImage(systemName: "arrow.down.right.and.arrow.up.left")) { [weak self] _ in
+            self?.exitFocusPreview()
+        }
+        let bigger = UIAction(title: String(localized: "Bigger Text"), image: UIImage(systemName: "textformat.size.larger")) { [weak self] _ in
+            self?.preview?.bigger()
+        }
+        let smaller = UIAction(title: String(localized: "Smaller Text"), image: UIImage(systemName: "textformat.size.smaller")) { [weak self] _ in
+            self?.preview?.smaller()
+        }
+        let actual = UIAction(title: String(localized: "Actual Size"), image: UIImage(systemName: "textformat.size")) { [weak self] _ in
+            self?.preview?.actualSize()
+        }
+        return [UIMenu(options: .displayInline, children: [back]), UIMenu(options: .displayInline, children: [bigger, smaller, actual])]
     }
 
     // MARK: Text
@@ -397,6 +476,12 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     override var keyCommands: [UIKeyCommand]? {
+        if focusOn {
+            // Esc leaves Focus Preview (nothing else wants it there).
+            let esc = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(exitFocusPreview))
+            esc.wantsPriorityOverSystemBehavior = true
+            return [esc]
+        }
         let esc = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(hideKeyboard))
         let dot = UIKeyCommand(title: String(localized: "Hide Keyboard"), action: #selector(hideKeyboard), input: ".", modifierFlags: .command)
         // Esc stays with find and other system uses when they want it.
@@ -574,7 +659,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     /// Tap on the owl with a hint waiting: his bubble shows it.
     func openHint() {
-        guard owl.visible != nil else { return }
+        guard owl.visible != nil, !focusOn else { return }
         bubbleOpen = true
         showHint()
     }
@@ -640,6 +725,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         var area = view.safeAreaLayoutGuide.layoutFrame
         area.size.height = max(0, statusBar.frame.minY - area.minY)
         if !textView.isHidden { area = area.intersection(textView.frame.offsetBy(dx: split.frame.minX, dy: split.frame.minY)) }
+        // Never over Ask Cedric's panel (he sat on its Send button).
+        area = EditorPanes.owlArea(textPane: area, chat: askPanel?.view.frame)
         // Before the first real layout the area can be empty: insetting an
         // empty rect gives CGRect.null (infinite origin), and a frame from
         // that crashes CALayer (seen on the iPhone Duo simulator).
@@ -648,13 +735,22 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     private func layoutOwl() {
+        // The panes' own frames first: the split lays out its panes after
+        // this view, so a panel just opened still had the old text width
+        // and he stayed where he was, on the panel.
+        split.layoutIfNeeded()
         let area = owlArea()
-        guard area.width >= OwlSprite.size, area.height >= OwlSprite.size else { return }
+        guard area.width >= OwlSprite.size, area.height >= OwlSprite.size else {
+            // No room beside the chat: out of the way rather than on it.
+            if askPanel != nil { owlSprite.isHidden = true }
+            return
+        }
         let size = CGSize(width: OwlSprite.size, height: OwlSprite.size)
         if !owlSprite.isDragging {
             let f = owlPlacement.frameYDown(in: area, size: size)
             owlSprite.frame = OwlPlacement.avoidingFolds(f, folds: folds(), in: area)
         }
+        applyOwlHidden()
         layoutBubble(area: area)
         fadeOwlNearCaret()
     }
@@ -707,6 +803,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         owlSprite.setFaded(caret.insetBy(dx: -28, dy: -18).intersects(owlSprite.frame))
     }
 
+    private var owlBadgeHidden = false
+
+    /// Hidden by his badge state, in Focus Preview, or if he'd touch the chat.
+    private func applyOwlHidden() {
+        let hide = owlBadgeHidden || EditorPanes.owlHidden(layout: paneLayout, owlFrame: owlSprite.frame, chat: askPanel?.view.frame)
+        if owlSprite.isHidden != hide { owlSprite.isHidden = hide }
+    }
+
     private func updateOwlBadge() {
         let count = shownHints.count
         let large = LargeDocument.reason(for: lineIndex) != nil
@@ -714,7 +818,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
                                   hintsOn: AppSettings.owlHints || count > 0, largeDocument: large,
                                   reduceMotion: UIAccessibility.isReduceMotionEnabled)
         lastHintCount = count
-        owlSprite.isHidden = state.hidden
+        owlBadgeHidden = state.hidden
+        applyOwlHidden()
         owlSprite.apply(state)
         owlSprite.pose = count > 0 || bubbleOpen ? .talking : .idle
     }
@@ -753,6 +858,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     // MARK: Ask Cedric
 
     @objc func askCedric() {
+        // Ask is about the text: Focus Preview ends.
+        if focusOn { exitFocusPreview() }
         let snap = owlSnapshot()
         let model = AskCedricModel(text: snap.text as String, selection: snap.selection, visible: snap.visible,
                                    fileName: document.displayName, language: document.language.language)
@@ -766,7 +873,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         // Wide screens (an iPad, an unfolded iPhone Duo): docked beside the
         // text, meeting it at the fold, code on one side and Cedric on the
         // other. Compact: the sheet.
-        if traitCollection.horizontalSizeClass == .regular {
+        closeHint()
+        if EditorPanes.askPresentation(regularWidth: traitCollection.horizontalSizeClass == .regular) == .panel {
             openAskPanel(model)
             return
         }
@@ -780,7 +888,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
             sheet.detents = [.medium(), .large()]
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            sheet.delegate = self
         }
+        askSheet = host
         present(host, animated: true)
     }
 
@@ -807,6 +917,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         askPanel = host
         askPanelWidth = width
         updateAskPanelWidth()
+        // The panel takes the preview's place (never three columns).
+        layoutPreview()
+        view.setNeedsLayout()
     }
 
     func closeAskPanel() {
@@ -820,6 +933,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         splitTrailing.isActive = false
         splitTrailing = split.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor)
         splitTrailing.isActive = true
+        // The preview comes back.
+        layoutPreview()
+        view.setNeedsLayout()
     }
 
     /// The panel takes the trailing side of the fold when there is one,
@@ -833,9 +949,19 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         if w.constant != clamped { w.constant = clamped }
     }
 
-    /// Folded shut with the panel open: it becomes the sheet, same conversation.
+    /// Folded shut with the panel open: it becomes the sheet, same
+    /// conversation; unfolded with the sheet up: it becomes the panel (a
+    /// form sheet left up on a wide screen showed as a centred card).
     private func updateAskPanelForWidth() {
-        guard askPanel != nil, traitCollection.horizontalSizeClass != .regular, let model = askModel else { return }
+        let current: EditorPanes.Ask = askPanel != nil ? .panel : askSheet != nil ? .sheet : .none
+        guard let model = askModel,
+              let want = EditorPanes.askSwitch(from: current, regularWidth: traitCollection.horizontalSizeClass == .regular) else { return }
+        if want == .panel {
+            guard let sheet = askSheet else { return }
+            askSheet = nil
+            sheet.dismiss(animated: false) { [weak self] in self?.openAskPanel(model) }
+            return
+        }
         let host = askPanel
         host?.willMove(toParent: nil)
         host?.view.removeFromSuperview()
@@ -863,27 +989,45 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
 
     @objc func togglePreview() {
         guard document.language.language == .markdown else { return }
+        // ⇧⌘P in Focus Preview: back to the text.
+        if focusOn { exitFocusPreview(); return }
         previewOn.toggle()
-        if previewOn, preview == nil {
-            let p = PreviewController()
-            addChild(p)
-            p.didMove(toParent: self)
-            preview = p
-        }
+        if previewOn { makePreview() }
         layoutPreview()
         refreshPreview()
         updateBarButtons()
     }
 
-    /// iPad (regular width): side by side. iPhone: the preview replaces the text.
+    private func makePreview() {
+        guard preview == nil else { return }
+        let p = PreviewController()
+        addChild(p)
+        p.didMove(toParent: self)
+        p.onZoom = { [weak self] (z: Double) in
+            let pct = Int((z * 100).rounded())
+            self?.zoomNote(String(localized: "Text \(pct)%"))
+        }
+        preview = p
+    }
+
+    /// iPad (regular width): side by side. iPhone: the preview replaces the
+    /// text. Focus Preview: the preview alone, everywhere.
+    /// Never three columns: Ask Cedric's panel takes the preview's place on
+    /// a wide screen (EditorPanes).
+    var paneLayout: EditorPanes.Layout {
+        EditorPanes.layout(previewOn: previewOn, askOpen: askPanel != nil || askSheet != nil, focus: focusOn,
+                           regularWidth: traitCollection.horizontalSizeClass == .regular)
+    }
+
     private func layoutPreview() {
         guard let p = preview else { return }
-        let regular = traitCollection.horizontalSizeClass == .regular
-        if previewOn {
+        let l = paneLayout
+        if l.preview {
+            let wasShowing = p.view.superview === split && !p.view.isHidden
             if p.view.superview !== split { split.addArrangedSubview(p.view) }
             p.view.isHidden = false
-            if !regular, !textView.isHidden { hideTextKeepingState() }
-            if regular, textView.isHidden { showTextRestoringState() }
+            if !l.text, !textView.isHidden { hideTextKeepingState(previewWasShowing: wasShowing) }
+            if l.text, textView.isHidden { showTextRestoringState() }
         } else {
             p.view.isHidden = true
             if textView.isHidden { showTextRestoringState() }
@@ -891,26 +1035,202 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         view.setNeedsLayout()
     }
 
-    /// The preview takes the whole screen (an iPhone Duo folded shut with
-    /// the preview on): remember the caret, selection, scroll and keyboard.
-    private func hideTextKeepingState() {
+    /// The text's scroll share (0 top, 1 bottom).
+    private var textScrollFraction: Double {
+        let i = textView.adjustedContentInset
+        return ScrollSync.fraction(offset: textView.contentOffset.y, contentHeight: textView.contentSize.height,
+                                   visibleHeight: textView.bounds.height, insetTop: i.top, insetBottom: i.bottom)
+    }
+
+    /// The preview takes the whole screen (Focus Preview, or an iPhone Duo
+    /// folded shut with the preview on): remember the caret, selection,
+    /// scroll and keyboard. A preview that wasn't showing opens at the
+    /// text's place.
+    private func hideTextKeepingState(previewWasShowing: Bool) {
         continuity = EditorContinuity(selection: textView.selectedRange, contentOffset: textView.contentOffset,
                                       wasEditing: textView.isFirstResponder)
+        if let p = preview {
+            if !previewWasShowing { p.scrollFraction = textScrollFraction }
+            previewFractionAtHide = p.scrollFraction
+        }
         textView.resignFirstResponder()
         textView.isHidden = true
     }
 
-    /// The text is back (opened again, or the preview turned off): as it was.
+    /// The text is back (opened again, the preview turned off, Focus
+    /// Preview left): as it was, or, if the preview was scrolled meanwhile,
+    /// at the preview's place (the keyboard then stays down, so the caret
+    /// doesn't pull the text back).
     private func showTextRestoringState() {
         textView.isHidden = false
+        let moved: Double? = {
+            guard let at = previewFractionAtHide, let now = preview?.scrollFraction, abs(now - at) > 0.02 else { return nil }
+            return now
+        }()
+        previewFractionAtHide = nil
         guard let c = continuity else { return }
         continuity = nil
         textView.selectedRange = c.restoredSelection(length: (textView.text as NSString).length)
         view.layoutIfNeeded()
         let maxOffset = CGPoint(x: textView.contentSize.width + textView.adjustedContentInset.right - textView.bounds.width,
                                 y: textView.contentSize.height + textView.adjustedContentInset.bottom - textView.bounds.height)
+        if let f = moved {
+            let i = textView.adjustedContentInset
+            let y = ScrollSync.offset(fraction: f, contentHeight: textView.contentSize.height, visibleHeight: textView.bounds.height,
+                                      insetTop: i.top, insetBottom: i.bottom)
+            textView.setContentOffset(CGPoint(x: c.restoredOffset(maxOffset: maxOffset).x, y: y), animated: false)
+            return
+        }
         textView.setContentOffset(c.restoredOffset(maxOffset: maxOffset), animated: false)
         if c.wasEditing { textView.becomeFirstResponder() }
+    }
+
+    // MARK: Focus Preview
+
+    /// One tap: the preview alone (turned on if it was off), on any screen.
+    @objc func toggleFocusPreview() {
+        guard document.language.language == .markdown else { return }
+        if focusOn { exitFocusPreview(); return }
+        // The preview alone: a docked Ask Cedric panel closes.
+        closeAskPanel()
+        previewOnBeforeFocus = previewOn
+        focusOn = true
+        previewOn = true
+        makePreview()
+        closeHint()
+        setFocusChrome(true)
+        layoutPreview()
+        refreshPreview()
+        updateBarButtons()
+        updateOwlBadge()
+        UIAccessibility.post(notification: .screenChanged, argument: String(localized: "Focus Preview. Edit returns to the text."))
+    }
+
+    /// Back to the text: side by side again on a wide screen if the preview
+    /// was beside it before; on a phone-sized screen, the text.
+    @objc func exitFocusPreview() {
+        guard focusOn else { return }
+        focusOn = false
+        let regular = traitCollection.horizontalSizeClass == .regular
+        previewOn = regular && previewOnBeforeFocus
+        setFocusChrome(false)
+        layoutPreview()
+        updateBarButtons()
+        updateOwlBadge()
+        UIAccessibility.post(notification: .screenChanged, argument: textView)
+    }
+
+    /// The status line goes in Focus Preview (the preview runs to the bottom).
+    private func setFocusChrome(_ focus: Bool) {
+        statusBar.isHidden = focus
+        if focus {
+            splitBottom.isActive = false
+            splitBottomFocus.isActive = true
+        } else {
+            splitBottomFocus.isActive = false
+            splitBottom.isActive = true
+        }
+        if focus { hintBar.isHidden = true }
+        focusGestures.forEach { $0.isEnabled = focus }
+        divider.isHidden = true
+        view.setNeedsLayout()
+    }
+
+    /// Ways back besides Edit and Esc: a swipe down with the preview at its
+    /// top, and a swipe in from the leading edge.
+    private func setUpFocusGestures() {
+        let down = UISwipeGestureRecognizer(target: self, action: #selector(swipedDownInFocus))
+        down.direction = .down
+        down.delegate = self
+        let edge = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(edgeSwipedInFocus(_:)))
+        edge.edges = view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? .right : .left
+        for g in [down, edge] as [UIGestureRecognizer] {
+            g.isEnabled = false
+            view.addGestureRecognizer(g)
+        }
+        focusGestures = [down, edge]
+    }
+
+    @objc private func swipedDownInFocus() { exitFocusPreview() }
+
+    @objc private func edgeSwipedInFocus(_ g: UIScreenEdgePanGestureRecognizer) {
+        guard g.state == .ended, abs(g.translation(in: view).x) > 60 else { return }
+        exitFocusPreview()
+    }
+
+    /// A short note for the preview's text size (one at a time).
+    private weak var zoomLabel: UILabel?
+    private func zoomNote(_ text: String) {
+        zoomLabel?.removeFromSuperview()
+        toast(text)
+        zoomLabel = view.subviews.last { $0.accessibilityIdentifier == "editor.toast" } as? UILabel
+    }
+
+    // MARK: Resizable split
+
+    private var splitStore: PreviewSplitStore { PreviewSplitStore(defaults: AppSettings.defaults) }
+
+    private func setUpDivider() {
+        view.insertSubview(divider, aboveSubview: split)
+        divider.isHidden = true
+        splitPosition = splitStore.position(regularWidth: traitCollection.horizontalSizeClass == .regular,
+                                            regularHeight: traitCollection.verticalSizeClass == .regular)
+        divider.onDrag = { [weak self] (x: CGFloat, ended: Bool) in self?.dividerDragged(to: x, ended: ended) }
+        divider.onReset = { [weak self] in self?.setSplit(.fold) }
+        divider.onStep = { [weak self] (direction: Int) in
+            guard let self else { return }
+            // Increment gives the preview (the trailing pane) more room.
+            self.setSplit(PreviewSplit.step(self.splitPosition, by: -direction, content: self.split.frame, folds: self.folds(),
+                                            rightToLeft: self.rightToLeft))
+        }
+        divider.value = { [weak self] in self?.dividerValue() ?? "" }
+    }
+
+    private func dividerValue() -> String {
+        let pct = PreviewSplit.previewPercent(splitPosition, content: split.frame, folds: folds(), rightToLeft: rightToLeft)
+        if splitPosition == .fold, PreviewSplit.foldFraction(content: split.frame, folds: folds()) != nil {
+            return String(localized: "At the fold, preview \(pct)%")
+        }
+        return String(localized: "Preview \(pct)%")
+    }
+
+    private func layoutDivider() {
+        guard sideBySide, split.frame.width > 0 else {
+            if !divider.isHidden { divider.isHidden = true }
+            return
+        }
+        divider.isHidden = false
+        let x = PreviewSplit.seamX(effectiveSplit, content: split.frame, folds: folds(), spacing: 1, rightToLeft: rightToLeft)
+        divider.frame = CGRect(x: x - SplitDivider.hitWidth / 2, y: split.frame.minY,
+                               width: SplitDivider.hitWidth, height: split.frame.height)
+    }
+
+    private func dividerDragged(to x: CGFloat, ended: Bool) {
+        let f = PreviewSplit.fraction(seamAt: x, content: split.frame, rightToLeft: rightToLeft)
+        guard ended else {
+            dragFraction = f
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+            return
+        }
+        dragFraction = nil
+        setSplit(PreviewSplit.snap(f, content: split.frame, folds: folds(), rightToLeft: rightToLeft))
+    }
+
+    /// Moves the seam to `p` (snapped, animated) and keeps it for this size class.
+    private func setSplit(_ p: SplitPosition) {
+        let changed = p != splitPosition
+        splitPosition = p
+        splitStore.set(p, regularWidth: traitCollection.horizontalSizeClass == .regular,
+                       regularHeight: traitCollection.verticalSizeClass == .regular)
+        if changed { UISelectionFeedbackGenerator().selectionChanged() }
+        view.setNeedsLayout()
+        if UIAccessibility.isReduceMotionEnabled {
+            view.layoutIfNeeded()
+        } else {
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) { self.view.layoutIfNeeded() }
+        }
+        UIAccessibility.post(notification: .layoutChanged, argument: divider)
     }
 
     private func refreshPreview() {
@@ -968,9 +1288,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         }
     }
 
-    @objc func biggerFont() { AppSettings.fontSize += 1 }
-    @objc func smallerFont() { AppSettings.fontSize -= 1 }
-    @objc func actualSizeFont() { AppSettings.resetFontSize() }
+    // ⌘+, ⌘− and ⌘0 size the preview's text in Focus Preview, the editor's otherwise.
+    @objc func biggerFont() { if focusOn { preview?.bigger() } else { AppSettings.fontSize += 1 } }
+    @objc func smallerFont() { if focusOn { preview?.smaller() } else { AppSettings.fontSize -= 1 } }
+    @objc func actualSizeFont() { if focusOn { preview?.actualSize() } else { AppSettings.resetFontSize() } }
     @objc func toggleWrap() { AppSettings.wrap.toggle() }
 
     @objc func showSettings() {
@@ -1009,7 +1330,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(togglePreview) { return document.language.language == .markdown }
+        if action == #selector(togglePreview) || action == #selector(toggleFocusPreview) {
+            return document.language.language == .markdown
+        }
         return super.canPerformAction(action, withSender: sender)
     }
 
@@ -1172,6 +1495,26 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             UIView.animate(withDuration: 0.3) { label.alpha = 0 } completion: { _ in label.removeFromSuperview() }
         }
+    }
+}
+
+extension EditorViewController: UISheetPresentationControllerDelegate {
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        if presentationController.presentedViewController === askSheet { askSheet = nil }
+    }
+}
+
+extension EditorViewController {
+    /// The swipe down in Focus Preview only with the preview at its top
+    /// (otherwise it is a scroll), and alongside the page's own gestures.
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard let swipe = g as? UISwipeGestureRecognizer, swipe.direction == .down else { return true }
+        guard focusOn, let s = preview?.web.scrollView else { return false }
+        return s.contentOffset.y <= -s.adjustedContentInset.top + 1
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        focusGestures.contains(g)
     }
 }
 

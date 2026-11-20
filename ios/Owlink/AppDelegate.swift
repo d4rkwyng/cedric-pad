@@ -44,6 +44,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
         let preview = UIKeyCommand(title: String(localized: "Markdown Preview"), action: #selector(EditorViewController.togglePreview),
                                    input: "p", modifierFlags: [.command, .shift])
+        let focus = UIKeyCommand(title: String(localized: "Focus Preview"), action: #selector(EditorViewController.toggleFocusPreview),
+                                 input: "p", modifierFlags: [.command, .alternate])
         let bigger = UIKeyCommand(title: String(localized: "Bigger"), action: #selector(EditorViewController.biggerFont),
                                   input: "+", modifierFlags: .command)
         let bigger2 = UIKeyCommand(title: String(localized: "Bigger"), action: #selector(EditorViewController.biggerFont),
@@ -55,7 +57,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                                   input: "0", modifierFlags: .command)
         let wrap = UIKeyCommand(title: String(localized: "Wrap Lines"), action: #selector(EditorViewController.toggleWrap),
                                 input: "w", modifierFlags: [.command, .alternate])
-        builder.insertChild(UIMenu(options: .displayInline, children: [preview, bigger, bigger2, smaller, actual, wrap]), atStartOfMenu: .view)
+        builder.insertChild(UIMenu(options: .displayInline, children: [preview, focus, bigger, bigger2, smaller, actual, wrap]), atStartOfMenu: .view)
 
         let ask = UIKeyCommand(title: String(localized: "Ask Cedric…"), action: #selector(EditorViewController.askCedric),
                                input: "k", modifierFlags: [.command, .shift])

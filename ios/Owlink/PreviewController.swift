@@ -5,11 +5,24 @@ import CedricCore
 /// The Markdown preview: the core's renderer and page (`Markdown.render`,
 /// `PreviewHTML`, the same as the Mac's) in a WKWebView with JavaScript off,
 /// scripts stripped and nothing loaded from the network.
-final class PreviewController: UIViewController, WKNavigationDelegate {
-    private var web: WKWebView!
+///
+/// The text size is the person's zoom (pinch, or ⌘+ and ⌘− in Focus
+/// Preview), kept for the app, times the Dynamic Type scale, as the web
+/// view's page zoom so the text reflows. The scroll position survives the
+/// reloads that follow typing, and can be set as a share of the page
+/// (Focus Preview keeps text and preview at the same place).
+final class PreviewController: UIViewController, WKNavigationDelegate, UIGestureRecognizerDelegate {
+    private(set) var web: WKWebView!
     private let queue = DispatchQueue(label: "owlink.preview", qos: .userInitiated)
     private var generation = 0
     static let csp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; script-src 'none'; connect-src 'none'"
+    /// A scroll share to apply once the page has loaded (and laid out).
+    private var pendingFraction: Double?
+    private var loaded = false
+    private(set) var userZoom = PreviewZoom.load(AppSettings.defaults)
+    private var pinchStart = 1.0
+    /// Called with the new zoom (for a short "Text 120%" note).
+    var onZoom: ((Double) -> Void)?
 
     override func loadView() {
         let config = WKWebViewConfiguration()
@@ -19,7 +32,21 @@ final class PreviewController: UIViewController, WKNavigationDelegate {
         web.navigationDelegate = self
         web.isOpaque = false
         web.accessibilityIdentifier = "editor.previewWeb"
+        // Our pinch sets the text size (it reflows); WebKit's own would
+        // magnify the page sideways.
+        web.scrollView.pinchGestureRecognizer?.isEnabled = false
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
+        pinch.delegate = self
+        web.addGestureRecognizer(pinch)
         view = web
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        applyZoom(keepingPlace: false)
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _: UITraitCollection) in
+            self.applyZoom(keepingPlace: true)
+        }
     }
 
     func show(markdown: String, palette: EditorPalette) {
@@ -28,13 +55,98 @@ final class PreviewController: UIViewController, WKNavigationDelegate {
         web.backgroundColor = UIColor(hex: palette.background)
         queue.async { [weak self] in
             let body = HTMLScrub.noScriptNoRemote(Markdown.render(markdown, options: .preview))
-            let page = PreviewHTML.page(body: body, palette: palette, csp: Self.csp)
+            let page = PreviewHTML.page(body: body, palette: palette, csp: Self.csp, viewport: true)
             DispatchQueue.main.async {
                 guard let self, gen == self.generation else { return }
+                // A reload goes back to the top: keep the reader's place.
+                if self.loaded, self.pendingFraction == nil { self.pendingFraction = self.scrollFraction }
+                self.loaded = false
                 self.web.loadHTMLString(page, baseURL: nil)
             }
         }
     }
+
+    // MARK: Scroll
+
+    /// Where the page is scrolled, 0 (top) to 1 (bottom); setting it before
+    /// the page has loaded applies it once it has.
+    var scrollFraction: Double {
+        get {
+            if let p = pendingFraction { return p }
+            let s = web.scrollView
+            return ScrollSync.fraction(offset: s.contentOffset.y, contentHeight: s.contentSize.height, visibleHeight: s.bounds.height,
+                                       insetTop: s.adjustedContentInset.top, insetBottom: s.adjustedContentInset.bottom)
+        }
+        set {
+            pendingFraction = newValue
+            if loaded { applyPendingFraction() }
+        }
+    }
+
+    private func applyPendingFraction() {
+        guard let f = pendingFraction else { return }
+        let s = web.scrollView
+        let y = ScrollSync.offset(fraction: f, contentHeight: s.contentSize.height, visibleHeight: s.bounds.height,
+                                  insetTop: s.adjustedContentInset.top, insetBottom: s.adjustedContentInset.bottom)
+        s.setContentOffset(CGPoint(x: -s.adjustedContentInset.left, y: y), animated: false)
+        pendingFraction = nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        loaded = true
+        // The content size settles a moment after the load finishes.
+        let f = pendingFraction
+        applyPendingFraction()
+        guard let f else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self, self.loaded, self.pendingFraction == nil else { return }
+            self.pendingFraction = f
+            self.applyPendingFraction()
+        }
+    }
+
+    // MARK: Text size
+
+    /// Dynamic Type's scale for body text (1 at the default size).
+    private var dynamicTypeScale: Double {
+        Double(UIFontMetrics(forTextStyle: .body).scaledValue(for: 17, compatibleWith: traitCollection) / 17)
+    }
+
+    var pageZoom: Double { PreviewZoom.pageZoom(user: userZoom, dynamicTypeScale: dynamicTypeScale) }
+
+    private func applyZoom(keepingPlace: Bool) {
+        let z = CGFloat(pageZoom)
+        guard web.pageZoom != z else { return }
+        let f = keepingPlace && loaded ? scrollFraction : nil
+        web.pageZoom = z
+        if let f {
+            DispatchQueue.main.async { [weak self] in self?.scrollFraction = f }
+        }
+    }
+
+    func setZoom(_ z: Double, save: Bool = true) {
+        let c = PreviewZoom.clamped(z)
+        guard c != userZoom else { return }
+        userZoom = c
+        applyZoom(keepingPlace: true)
+        if save { PreviewZoom.save(c, AppSettings.defaults) }
+        onZoom?(c)
+    }
+
+    func bigger() { setZoom(PreviewZoom.step(userZoom, in: true)) }
+    func smaller() { setZoom(PreviewZoom.step(userZoom, in: false)) }
+    func actualSize() { setZoom(1) }
+
+    @objc private func pinched(_ g: UIPinchGestureRecognizer) {
+        switch g.state {
+        case .began: pinchStart = userZoom
+        case .changed: setZoom(PreviewZoom.pinched(pinchStart, scale: Double(g.scale)), save: false)
+        case .ended, .cancelled: PreviewZoom.save(userZoom, AppSettings.defaults)
+        default: break
+        }
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { false }
 
     /// Links open in Safari (asked for), never inside the preview.
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,

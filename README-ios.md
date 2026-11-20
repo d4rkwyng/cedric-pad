@@ -37,7 +37,23 @@ Source files can be added in Xcode or Finder: `ios/Owlink`,
   `RevertStore` in CedricCore (`SaveSafetyTests`). Debug builds:
   `-OwlinkSaveCheck <dir>` runs these in the app and writes `savecheck.txt`
   and PNGs.
-- Markdown preview (`⇧⌘P`), side by side on iPad.
+- Markdown preview (`⇧⌘P`), side by side on iPad and an unfolded iPhone
+  Duo. **Focus Preview** (the bar's expand button, the ⋯ menu, `⌥⌘P`)
+  shows the preview alone on any screen; back with Edit, Esc, `⇧⌘P`, a
+  swipe down at the top of the page or a swipe in from the leading edge.
+  Text and preview open at the same place both ways (`ScrollSync`). Side
+  by side, the handle between them drags (44 pt wide) and snaps to 1/3,
+  1/2, 2/3 and the fold (the default, a strong snap); double-tap resets
+  it; kept per size class; VoiceOver "Resize preview", swipe up or down
+  for the stops. Pinch the preview (or `⌘+`, `⌘−`, `⌘0` in Focus
+  Preview) for its text size, kept for the app, on top of Dynamic Type.
+  The page is laid out at the device width (a viewport; it was laid out
+  980 px wide and shrunk). Rules: `PreviewSplit`, `PreviewSplitStore`,
+  `PreviewZoom` (`PreviewSplitTests`).
+- Never three columns (`EditorPanes`, `EditorPanesTests`): on a wide
+  screen Ask Cedric is always the side panel and takes the preview's
+  place while open (a sheet left up from the folded phone becomes the
+  panel on unfolding); the owl stays in the text pane, off the panel.
 - Cedric's offline hints with **Fix it**; Ask Cedric (`⇧⌘K`) and Check
   with Cedric (`⌥⌘H`).
 - iPad: menu bar and keyboard shortcuts, several windows, Stage Manager.
