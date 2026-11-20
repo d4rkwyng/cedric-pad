@@ -375,6 +375,50 @@ import Testing
         #expect(events.all.last == .appended("after\n"))
     }
 
+    /// 0.2.1 review M5: closing a followed tab stops its tail (EditorWindowController.windowWillClose);
+    /// a stopped tail, or one freed without `stop`, holds no descriptor or timer.
+    @Test func stopLeavesNoDescriptor() async throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("fd.log")
+        try "x\n".write(to: url, atomically: false, encoding: .utf8)
+        func waitOpen(_ n: Int) async {
+            for _ in 0..<200 where FileTail.descriptorsOpen(on: url) != n { try? await Task.sleep(nanoseconds: 10_000_000) }
+        }
+        #expect(FileTail.descriptorsOpen(on: url) == 0)
+        let tail = FileTail(url: url, offset: 2, callbackQueue: DispatchQueue(label: "t")) { _ in }
+        tail.start()
+        await waitOpen(1)
+        #expect(FileTail.descriptorsOpen(on: url) == 1 && tail.isWatching, "following holds one descriptor")
+        tail.stop()
+        await waitOpen(0)
+        #expect(FileTail.descriptorsOpen(on: url) == 0 && !tail.isWatching, "stop closes it")
+        tail.poll()
+        try append(url, "after stop\n")
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(FileTail.descriptorsOpen(on: url) == 0 && !tail.isWatching, "and nothing reopens it")
+        // Freed without stop: deinit cancels the source, which closes it.
+        var loose: FileTail? = FileTail(url: url, offset: 0, callbackQueue: DispatchQueue(label: "t2")) { _ in }
+        loose?.start()
+        await waitOpen(1)
+        #expect(FileTail.descriptorsOpen(on: url) == 1)
+        loose = nil
+        await waitOpen(0)
+        #expect(FileTail.descriptorsOpen(on: url) == 0, "deinit closes it")
+        // Stopped while waiting for a rotated file: the retry timer goes too.
+        let gone = dir.appendingPathComponent("gone.log")
+        let waiting = FileTail(url: gone, offset: 0, callbackQueue: DispatchQueue(label: "t3")) { _ in }
+        waiting.start()
+        for _ in 0..<100 where !waiting.isWatching { try? await Task.sleep(nanoseconds: 10_000_000) }
+        #expect(waiting.isWatching, "a missing file is waited for")
+        waiting.stop()
+        #expect(!waiting.isWatching)
+        try "late\n".write(to: gone, atomically: false, encoding: .utf8)
+        try await Task.sleep(nanoseconds: 400_000_000)
+        #expect(FileTail.descriptorsOpen(on: gone) == 0 && !waiting.isWatching, "the file showing up later opens nothing")
+    }
+
     @Test func splitMultibyteCharacterIsHeldBack() async throws {
         let dir = tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

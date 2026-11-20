@@ -55,14 +55,42 @@ public final class FileTail: @unchecked Sendable {
     /// Checks the file now (the watcher calls this; tests may too).
     public func poll() { queue.async { [self] in check() } }
 
+    /// How many of this process's file descriptors are open on `url`'s
+    /// file (by its real path), for the tests and checks that a stopped
+    /// tail leaves none behind.
+    public static func descriptorsOpen(on url: URL) -> Int {
+        guard let real = realpath(url.path, nil) else { return 0 }
+        let want = String(cString: real)
+        free(real)
+        // The open descriptors (not 0..<getdtablesize(), which can be huge).
+        let pid = getpid()
+        let size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard size > 0 else { return 0 }
+        let stride = MemoryLayout<proc_fdinfo>.stride
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(size) / stride + 16)
+        let got = fds.withUnsafeMutableBytes { proc_pidinfo(pid, PROC_PIDLISTFDS, 0, $0.baseAddress, Int32($0.count)) }
+        guard got > 0 else { return 0 }
+        var n = 0
+        var buf = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        for info in fds.prefix(Int(got) / stride) where fcntl(info.proc_fd, F_GETPATH, &buf) == 0 {
+            if String(cString: buf) == want { n += 1 }
+        }
+        return n
+    }
+
     static func fileInfo(_ url: URL) -> (size: UInt64, inode: UInt64)? {
         var st = Darwin.stat()
         guard stat(url.path, &st) == 0 else { return nil }
         return (UInt64(st.st_size), UInt64(st.st_ino))
     }
 
+    /// A file descriptor or timer is live (false after `stop`, once the
+    /// source's cancel handler has closed its descriptor).
+    public var isWatching: Bool { queue.sync { source != nil || retry != nil } }
+
     private func watch() {
         source?.cancel(); source = nil
+        guard !stopped else { return }
         let fd = open(url.path, O_EVTONLY)
         guard fd >= 0 else { waitForFile(); return }
         let s = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend, .delete, .rename, .revoke, .attrib],

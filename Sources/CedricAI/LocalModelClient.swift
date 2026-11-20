@@ -130,33 +130,47 @@ public struct LocalModelClient: Sendable {
     /// Where a request goes once `checkLocal` has passed: for a plain-http
     /// server named by a host name, the checked address, with the name
     /// kept in the `Host` header (so Ollama's and LM Studio's host checks
-    /// and virtual hosts still see it). An address in the URL, or https
-    /// (the certificate is checked against the name), stays as it is.
+    /// and virtual hosts still see it). An address in the URL stays as it
+    /// is, and so does https: URLSession sends the URL's host as the TLS
+    /// server name (SNI) and has no way to connect to one address while
+    /// naming another, and LAN servers behind Caddy or `tailscale serve`
+    /// pick their certificate by that name. For https the certificate,
+    /// which must match the name, and the peer check after the request
+    /// (`RedirectGuard.checkPeers`) stand in for the pin.
     struct Pin: Sendable, Equatable {
-        /// The address to connect to; nil: the URL is left alone.
+        /// The address to connect to; nil: the URL is left alone. An IPv6
+        /// link-local one carries its zone ("fe80::1%en0").
         let address: String?
 
         init(host: String, addresses: [String]) {
             let bare = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
-            if Self.isAddress(bare) {
+            if LocalEndpointPolicy.isAddress(bare) {
                 address = nil
             } else {
-                // IPv4 first; an IPv6 link-local one needs its interface,
-                // which the lookup dropped, so it isn't pinned.
-                address = addresses.first { !$0.contains(":") }
-                    ?? addresses.first { $0.contains(":") && !$0.lowercased().hasPrefix("fe80") }
+                // IPv4 first, then IPv6; a link-local IPv6 one only with
+                // the zone (interface) the lookup gave, which it needs.
+                let usable = addresses.filter { LocalEndpointPolicy.isAddress($0) }
+                address = usable.first { !$0.contains(":") }
+                    ?? usable.first { $0.contains(":") && !LocalEndpointPolicy.isLinkLocalV6($0) }
+                    ?? usable.first { LocalEndpointPolicy.isLinkLocalV6($0) && $0.contains("%") }
             }
         }
 
-        static func isAddress(_ s: String) -> Bool {
-            var a = in_addr(), a6 = in6_addr()
-            return inet_pton(AF_INET, s, &a) == 1 || inet_pton(AF_INET6, s, &a6) == 1
+        static func isAddress(_ s: String) -> Bool { LocalEndpointPolicy.isAddress(s) }
+
+        /// The address as a URL host: IPv6 bracketed, a zone as "%25"
+        /// (RFC 6874), so "fe80::1%en0" → "[fe80::1%25en0]".
+        static func urlHost(_ address: String) -> String? {
+            guard let (addr, zone) = LocalEndpointPolicy.splitZone(address) else { return nil }
+            guard addr.contains(":") else { return zone == nil ? addr : nil }
+            return "[" + addr + (zone.map { "%25" + $0 } ?? "") + "]"
         }
 
         func apply(_ request: URLRequest) -> URLRequest {
             guard let address, let url = request.url, url.scheme?.lowercased() == "http", let host = url.host,
+                  let urlHost = Self.urlHost(address),
                   var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return request }
-            c.percentEncodedHost = address.contains(":") ? "[\(address)]" : address
+            c.percentEncodedHost = urlHost
             guard let pinned = c.url else { return request }
             var r = request
             r.url = pinned
@@ -215,19 +229,57 @@ public struct LocalModelClient: Sendable {
     public static let maxResponseBytes = 2 * 1024 * 1024
 
     /// Redirects only to the same host (and only one the policy allows), so
-    /// a "local" server can't forward the document text anywhere else.
+    /// a "local" server can't forward the document text anywhere else; and
+    /// where the request's connections actually went, from URLSession's
+    /// metrics, for `checkPeers`.
     final class RedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+        /// The connections' peer addresses, once URLSession has reported them.
+        private let peers = Locked<[String]?>(nil)
+
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                         newRequest request: URLRequest) async -> URLRequest? {
             guard let from = task.originalRequest?.url, let to = request.url,
                   LocalEndpointPolicy.allowsRedirect(from: from, to: to) else { return nil }
             return request
         }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+            record(metrics.transactionMetrics.compactMap(\.remoteAddress))
+        }
+
+        func record(_ addresses: [String]) { peers.mutate { $0 = addresses } }
+
+        /// What URLSession reported (nil: nothing yet).
+        var connectedAddresses: [String]? { peers.mutate { $0 } }
+
+        /// After the response: every address the request connected to must
+        /// be private, else `.endpointNotLocal`. This catches what the name
+        /// check before the request can't for https (not pinned, so the
+        /// connection does its own lookup): a DNS answer that changed to a
+        /// public address in between. The request has been sent by then;
+        /// the answer is dropped and the error shown. URLSession reports the
+        /// addresses with the last bytes or a moment later: waits up to
+        /// `wait` seconds for them, and passes when it hasn't (no
+        /// connection was made, or a test's stub protocol).
+        func checkPeers(wait: TimeInterval = 1) async throws {
+            var left = wait
+            var seen = peers.mutate { $0 }
+            while seen == nil, left > 0 {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                left -= 0.01
+                seen = peers.mutate { $0 }
+                if Task.isCancelled { break }
+            }
+            if let bad = seen?.first(where: { !LocalEndpointPolicy.isPrivateAddress($0) }) {
+                throw LocalAIError.endpointNotLocal(bad)
+            }
+        }
     }
 
     /// GET or POST with the redirect guard and the size cap.
     private func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
-        let (bytes, response) = try await session.bytes(for: request, delegate: RedirectGuard())
+        let guardian = RedirectGuard()
+        let (bytes, response) = try await session.bytes(for: request, delegate: guardian)
         if response.expectedContentLength > Int64(Self.maxResponseBytes) {
             bytes.task.cancel()
             throw LocalAIError.transport("response too large")
@@ -244,6 +296,7 @@ public struct LocalModelClient: Sendable {
                 throw LocalAIError.transport("response too large")
             }
         }
+        try await guardian.checkPeers()
         return (data, response)
     }
 

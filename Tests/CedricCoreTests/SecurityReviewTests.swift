@@ -230,6 +230,40 @@ import Testing
         #expect(dropped.map(\.untitledName) == ["u0", "u1", "u2"])
     }
 
+    /// 0.2.1 review M4: a session that runs for weeks expires closed tabs
+    /// when the next one is pushed, not only at the next launch.
+    @Test func pushExpiresOldClosedTabs() {
+        let now = Date()
+        func tab(_ n: String, dirty: Bool = true) -> SessionTab { SessionTab(untitledName: n, hasBuffer: dirty) }
+        // Closed on day 0 and day 2 of one run; the app stays open, and a
+        // tab closed on day 31 pushes the day-0 one out.
+        let day0 = now.addingTimeInterval(-31 * 86_400)
+        var list = ClosedTabs.push(tab("day0"), onto: [], now: day0).list
+        list = ClosedTabs.push(tab("day2"), onto: list, now: day0.addingTimeInterval(2 * 86_400)).list
+        let d31 = ClosedTabs.push(tab("day31"), onto: list, now: now)
+        #expect(d31.list.map(\.untitledName) == ["day2", "day31"] && d31.dropped.map(\.untitledName) == ["day0"])
+        list = [tab("a31"), tab("b29"), tab("c40", dirty: false)]
+        list[0].closed = now.addingTimeInterval(-31 * 86_400)
+        list[1].closed = now.addingTimeInterval(-29 * 86_400)
+        list[2].closed = now.addingTimeInterval(-40 * 86_400)
+        let p = ClosedTabs.push(tab("new"), onto: list, now: now)
+        #expect(p.list.map(\.untitledName) == ["b29", "new"])
+        #expect(p.dropped.map(\.untitledName) == ["a31", "c40"], "dropped, so the caller deletes a31's unsaved text")
+        // The 100-tab rule still holds at push, together with the age rule.
+        var many: [SessionTab] = []
+        for k in 0..<ClosedTabs.unsavedLimit {
+            var t = tab("u\(k)")
+            t.closed = now.addingTimeInterval(k < 5 ? -31 * 86_400 : -86_400)
+            many.append(t)
+        }
+        let q = ClosedTabs.push(tab("last"), onto: many, now: now)
+        #expect(q.list.count == ClosedTabs.unsavedLimit - 4 && q.dropped.count == 5, "\(q.list.count) \(q.dropped.count)")
+        #expect(q.list.last?.untitledName == "last")
+        // An undated tab (from a 0.2.0 session, never restored through expire) is dated, not dropped.
+        let r = ClosedTabs.push(tab("new2"), onto: [tab("legacy")], now: now)
+        #expect(r.list.map(\.untitledName) == ["legacy", "new2"] && r.list.first?.closed == now)
+    }
+
     // MARK: 9. The CLI token's hand-off
 
     @Test func authHandoffIsReadOnceAndMustBePrivate() throws {

@@ -416,7 +416,8 @@ extension LocalModelClient {
                         onText: @escaping @Sendable (String) -> Void) async throws -> OpenAIStreamAccumulator {
         var acc = OpenAIStreamAccumulator()
         do {
-            let (bytes, response) = try await session.bytes(for: request, delegate: RedirectGuard())
+            let guardian = RedirectGuard()
+            let (bytes, response) = try await session.bytes(for: request, delegate: guardian)
             guard let http = response as? HTTPURLResponse else { bytes.task.cancel(); throw LocalAIError.badResponse }
             guard (200..<300).contains(http.statusCode) else { bytes.task.cancel(); throw LocalAIError.http(http.statusCode) }
             if response.expectedContentLength > Int64(Self.maxResponseBytes) {
@@ -467,6 +468,9 @@ extension LocalModelClient {
                 let t = acc.add(plain)
                 if !t.isEmpty { onText(t) }
             }
+            // The answer has streamed by now; a public peer still fails the
+            // request, so nothing from it is kept or applied.
+            try await guardian.checkPeers()
             return acc
         } catch let e as LocalAIError {
             throw e
