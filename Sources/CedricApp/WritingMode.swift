@@ -160,6 +160,11 @@ extension EditorWindowController {
 
     func applyFocusNow(force: Bool = false) {
         guard editing.writing.focus, !textView.hasMarkedText() else { return }
+        // Large-document mode (a 636 K-character line…): paused, like the colouring.
+        if isLargeDocument {
+            if !editing.focusDimmed.isEmpty { clearFocus() }
+            return
+        }
         if force { editing.focusDimmed = [:] }
         let focus = focusRange
         for pane in panes { applyFocus(focus, to: pane.textView) }

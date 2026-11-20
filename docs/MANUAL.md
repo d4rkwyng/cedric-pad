@@ -460,7 +460,8 @@ too.
   between blank lines) or **Focus on Sentence** (just the sentence at the
   caret; "Dr." or "3.5" don't end a sentence) in the same menu; the choice
   is for every tab. Focus changes only how the text is drawn: nothing in
-  the file, undo or Find changes.
+  the file, undo or Find changes. Like syntax colouring, it pauses in
+  large-document mode.
 
 Typing is as fast with either on as with both off.
 

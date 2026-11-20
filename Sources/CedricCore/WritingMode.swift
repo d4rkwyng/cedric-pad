@@ -43,8 +43,9 @@ public enum Typewriter {
 
 public enum FocusRange {
     /// Paragraphs and sentences are looked for at most this far either way
-    /// from the caret: a 636 K-character line must not be scanned per key.
-    public static let scanLimit = 20_000
+    /// from the caret (a longer paragraph is clipped to that): a 636 K-character
+    /// line must not be scanned per key.
+    public static let scanLimit = 5_000
 
     /// The paragraph holding `caret`: its lines, up to (not including) the
     /// blank lines around it, without the last newline. On a blank line,
@@ -54,38 +55,44 @@ public enum FocusRange {
         let n = text.length
         let c = max(0, min(caret, n))
         let lo = max(0, c - scanLimit), hi = min(n, c + scanLimit)
-        func lineRange(at i: Int) -> NSRange {
-            var s = 0, e = 0
-            text.getLineStart(&s, end: &e, contentsEnd: nil, for: NSRange(location: min(i, n), length: 0))
-            return NSRange(location: s, length: e - s)
+        // One copy of the window; lines are found in it (getLineStart would
+        // walk the whole of a 636 K-character line on every key).
+        var u = [unichar](repeating: 0, count: hi - lo)
+        if hi > lo { u.withUnsafeMutableBufferPointer { text.getCharacters($0.baseAddress!, range: NSRange(location: lo, length: hi - lo)) } }
+        // Window-relative: the line holding i runs from lineStart(i) to lineEnd(i) (its newline included).
+        func lineStart(_ i: Int) -> Int {
+            var j = i
+            while j > 0, u[j - 1] != 10 { j -= 1 }
+            return j
         }
-        func isBlank(_ r: NSRange) -> Bool {
-            var i = r.location
-            while i < NSMaxRange(r) {
-                let u = text.character(at: i)
-                if u != 32 && u != 9 && u != 10 && u != 13 { return false }
+        func lineEnd(_ i: Int) -> Int {
+            var j = i
+            while j < u.count, u[j] != 10 { j += 1 }
+            return j < u.count ? j + 1 : j
+        }
+        func isBlank(_ a: Int, _ b: Int) -> Bool {
+            var i = a
+            while i < b {
+                let x = u[i]
+                if x != 32 && x != 9 && x != 10 && x != 13 { return false }
                 i += 1
             }
             return true
         }
-        let here = lineRange(at: c)
-        if isBlank(here) { return trimNewline(here, in: text) }
-        var start = here.location
-        while start > lo {
-            let prev = lineRange(at: start - 1)
-            if isBlank(prev) || prev.location < lo { break }
-            start = prev.location
+        let cc = c - lo
+        var start = lineStart(cc), end = lineEnd(cc)
+        if isBlank(start, end) { return trimNewline(NSRange(location: lo + start, length: end - start), in: text) }
+        while start > 0 {
+            let ps = lineStart(start - 1)
+            if isBlank(ps, start) { break }
+            start = ps
         }
-        var end = NSMaxRange(here)
-        while end < hi {
-            let next = lineRange(at: end)
-            if next.length == 0 || isBlank(next) || NSMaxRange(next) > hi { break }
-            end = NSMaxRange(next)
+        while end < u.count {
+            let ne = lineEnd(end)
+            if isBlank(end, ne) { break }
+            end = ne
         }
-        // A line longer than the scan limit is clipped to it.
-        start = max(start, lo)
-        end = min(end, hi)
-        return trimNewline(NSRange(location: start, length: max(0, end - start)), in: text)
+        return trimNewline(NSRange(location: lo + start, length: end - start), in: text)
     }
 
     /// The sentence holding `caret`, inside its paragraph (NaturalLanguage's
