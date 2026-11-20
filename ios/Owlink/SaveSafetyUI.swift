@@ -62,10 +62,22 @@ enum DocumentCopies {
     }
 }
 
-/// The documents open in an editor in this process (any window): their
-/// recovery copies are live, not left over from a crash.
+/// The documents open in an editor in this process, and which window
+/// (scene session) has each: their recovery copies are live, not left
+/// over from a crash, and a second open goes to that window.
 @MainActor enum OpenDocuments {
-    static var paths = Set<String>()
+    static var registry = OpenDocumentRegistry()
+
+    static func isOpen(_ path: String) -> Bool { registry.contains(path: path) }
+
+    /// The live window that has `url` open, if another one does. A window
+    /// that is gone is forgotten.
+    static func otherWindow(having url: URL, than window: String) -> UISceneSession? {
+        guard let owner = registry.owner(ofPath: url.path), owner != window else { return nil }
+        if let s = UIApplication.shared.openSessions.first(where: { $0.persistentIdentifier == owner }) { return s }
+        registry.removeAll(window: owner)
+        return nil
+    }
 }
 
 extension TextDocument {
@@ -144,7 +156,7 @@ extension TextDocument {
     static func offerLeftovers(from browser: DocumentBrowserViewController) {
         guard !offeredAtLaunch else { return }
         offeredAtLaunch = true
-        let records = SaveSafetyStores.recovery.all().filter { !OpenDocuments.paths.contains($0.documentPath) }
+        let records = SaveSafetyStores.recovery.all().filter { !OpenDocuments.isOpen($0.documentPath) }
         offer(records[...], from: browser)
     }
 

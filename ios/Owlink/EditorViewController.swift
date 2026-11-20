@@ -89,11 +89,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     /// A save failed: shown until one succeeds.
     let saveErrorBanner = SaveErrorBanner()
 
-    init(document: TextDocument, recovery: Recovery? = nil) {
+    /// The window (scene session) the editor is in, for `OpenDocuments`.
+    let windowID: String
+
+    init(document: TextDocument, recovery: Recovery? = nil, windowID: String = UUID().uuidString) {
         self.document = document
         self.pendingRecovery = recovery
+        self.windowID = windowID
         super.init(nibName: nil, bundle: nil)
-        OpenDocuments.paths.insert(document.recoveryPath)
+        _ = OpenDocuments.registry.register(path: document.recoveryPath, window: windowID)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -1309,7 +1313,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             // unless the changes are still unsaved (a save that failed).
             self.recoveryWriter.stop(keepingCopy: !discarding && self.document.hasUnsavedChanges)
             self.document.discardOpenedCopy()
-            OpenDocuments.paths.remove(self.document.recoveryPath)
+            OpenDocuments.registry.unregister(path: self.document.recoveryPath, window: self.windowID)
             self.dismiss(animated: true)
         }
     }

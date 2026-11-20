@@ -232,3 +232,50 @@ public enum ExternalChange {
         return hasUnsavedChanges ? .askFirst : .reload
     }
 }
+
+/// Which window has each document open, so one file is never open in two
+/// windows (iPad): two `UIDocument`s on one file overwrite each other's
+/// saves, and both key their recovery copy by its path. Opening it again
+/// brings the window that has it forward instead.
+public struct OpenDocumentRegistry: Sendable {
+    public enum Registration: Equatable, Sendable {
+        /// Now open in this window.
+        case registered
+        /// Already open in this window.
+        case alreadyHere
+        /// Open in another window: bring that one forward.
+        case openElsewhere(window: String)
+    }
+
+    private var owners: [String: String] = [:]
+
+    public init() {}
+
+    /// One key per file however the path is spelled (/private/var and
+    /// /var, "..", a trailing slash).
+    public static func key(forPath path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    public func owner(ofPath path: String) -> String? { owners[Self.key(forPath: path)] }
+
+    public func contains(path: String) -> Bool { owner(ofPath: path) != nil }
+
+    public mutating func register(path: String, window: String) -> Registration {
+        let k = Self.key(forPath: path)
+        if let o = owners[k] { return o == window ? .alreadyHere : .openElsewhere(window: o) }
+        owners[k] = window
+        return .registered
+    }
+
+    /// Only the window that has it can let it go.
+    public mutating func unregister(path: String, window: String) {
+        let k = Self.key(forPath: path)
+        if owners[k] == window { owners[k] = nil }
+    }
+
+    /// A window went away (closed, or discarded by the system).
+    public mutating func removeAll(window: String) {
+        owners = owners.filter { $0.value != window }
+    }
+}

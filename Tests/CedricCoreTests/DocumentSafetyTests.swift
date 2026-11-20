@@ -146,4 +146,37 @@ import Testing
         #expect(SavePolicy.shouldAutosave(saveAutomatically: true, hasUnsavedChanges: true, blockedUntilEdited: false))
         #expect(!SavePolicy.shouldAutosave(saveAutomatically: true, hasUnsavedChanges: true, blockedUntilEdited: true))
     }
+
+    // MARK: One window per document
+
+    @Test func secondOpenOfSameFileGoesToTheFirstWindow() {
+        var r = OpenDocumentRegistry()
+        #expect(r.register(path: "/docs/a.txt", window: "w1") == .registered)
+        #expect(r.register(path: "/docs/a.txt", window: "w1") == .alreadyHere)
+        #expect(r.register(path: "/docs/./b/../a.txt", window: "w2") == .openElsewhere(window: "w1"))
+        #expect(r.register(path: "/docs/b.txt", window: "w2") == .registered)
+        // Another window can't close it for the one that has it.
+        r.unregister(path: "/docs/a.txt", window: "w2")
+        #expect(r.owner(ofPath: "/docs/a.txt") == "w1")
+        r.unregister(path: "/docs/a.txt", window: "w1")
+        #expect(!r.contains(path: "/docs/a.txt"))
+        #expect(r.register(path: "/docs/a.txt", window: "w2") == .registered)
+    }
+
+    @Test func registryKeySeesThroughSymlinksAndWindowsGoing() throws {
+        let t = try temp(); defer { try? fm.removeItem(at: t) }
+        let real = t.appendingPathComponent("real.txt")
+        try Data("x".utf8).write(to: real)
+        let link = t.appendingPathComponent("link.txt")
+        try fm.createSymbolicLink(at: link, withDestinationURL: real)
+        #expect(OpenDocumentRegistry.key(forPath: link.path) == OpenDocumentRegistry.key(forPath: real.path))
+        var r = OpenDocumentRegistry()
+        _ = r.register(path: real.path, window: "w1")
+        _ = r.register(path: "/other", window: "w1")
+        _ = r.register(path: "/kept", window: "w2")
+        #expect(r.register(path: link.path, window: "w2") == .openElsewhere(window: "w1"))
+        r.removeAll(window: "w1")
+        #expect(!r.contains(path: real.path) && !r.contains(path: "/other"))
+        #expect(r.contains(path: "/kept"))
+    }
 }

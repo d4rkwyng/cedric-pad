@@ -36,6 +36,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
     }
 
+    /// The window went away: its documents are no longer open in it.
+    func sceneDidDisconnect(_ scene: UIScene) {
+        OpenDocuments.registry.removeAll(window: scene.session.persistentIdentifier)
+    }
+
     func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
         guard let ctx = contexts.first, let browser = window?.rootViewController as? DocumentBrowserViewController else { return }
         browser.open(ctx.url, importIfNeeded: !ctx.options.openInPlace)
@@ -133,11 +138,30 @@ final class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDo
     }
 
     /// `recovered`: unsaved text to put back (Restore at launch chosen).
+    /// This window's scene session, the key `OpenDocuments` uses.
+    private var windowID: String { view.window?.windowScene?.session.persistentIdentifier ?? "main" }
+
+    /// Already open in another window (iPad): bring that one forward rather
+    /// than open a second copy that would overwrite the first's saves.
+    private func bringForwardIfOpenElsewhere(_ url: URL) -> Bool {
+        guard let session = OpenDocuments.otherWindow(having: url, than: windowID) else { return false }
+        UIApplication.shared.requestSceneSessionActivation(session, userActivity: nil, options: nil) { [weak self] error in
+            self?.alert(String(localized: "\(url.lastPathComponent) is open in another window"), error.localizedDescription)
+        }
+        return true
+    }
+
     func presentDocument(at url: URL, binaryOK: Bool = false, recovered: RecoveryRecord? = nil) {
+        if bringForwardIfOpenElsewhere(url) { return }
         let doc = TextDocument(fileURL: url)
         doc.openBinaryAnyway = binaryOK
         doc.open { [weak self] ok in
             guard let self else { return }
+            // Opened meanwhile in another window: that one keeps it.
+            if ok, self.bringForwardIfOpenElsewhere(url) {
+                doc.close(completionHandler: nil)
+                return
+            }
             guard ok else {
                 if !binaryOK, (try? Data(contentsOf: url, options: .mappedIfSafe)).map(TextCodec.looksBinary) == true {
                     let a = UIAlertController(title: String(localized: "This looks like a binary file"),
@@ -157,11 +181,11 @@ final class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDo
             var recovery: EditorViewController.Recovery?
             if let recovered {
                 recovery = .restore(recovered)
-            } else if !OpenDocuments.paths.contains(doc.recoveryPath),
+            } else if !OpenDocuments.isOpen(doc.recoveryPath),
                       let r = SaveSafetyStores.recovery.pending(documentPath: doc.recoveryPath, documentModified: doc.fileModificationDate) {
                 recovery = .offer(r)
             }
-            let editor = EditorViewController(document: doc, recovery: recovery)
+            let editor = EditorViewController(document: doc, recovery: recovery, windowID: self.windowID)
             let nav = UINavigationController(rootViewController: editor)
             nav.modalPresentationStyle = .fullScreen
             nav.navigationBar.prefersLargeTitles = false
