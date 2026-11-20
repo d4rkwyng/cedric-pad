@@ -621,7 +621,7 @@ fi
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				PRODUCT_NAME = Owlink;
-				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios";
 				INFOPLIST_FILE = "Owlink-Info.plist";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Owlink;
@@ -672,7 +672,7 @@ fi
 				TEST_HOST = "";
 				SWIFT_VERSION = "6.0";
 				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
-				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.coretests";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.coretests";
 			};
 			name = Debug;
 		};
@@ -682,7 +682,7 @@ fi
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				GENERATE_INFOPLIST_FILE = YES;
 				TEST_TARGET_NAME = Owlink;
-				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.uitests";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.uitests";
 			};
 			name = Release;
 		};
@@ -695,7 +695,7 @@ fi
 				TEST_HOST = "";
 				SWIFT_VERSION = "5.0";
 				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
-				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.snapshots";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.snapshots";
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
 			};
@@ -738,7 +738,7 @@ fi
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				PRODUCT_NAME = Owlink;
-				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios";
 				INFOPLIST_FILE = "Owlink-Info.plist";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Owlink;
@@ -789,7 +789,7 @@ fi
 				TEST_HOST = "";
 				SWIFT_VERSION = "6.0";
 				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
-				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.aitests";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.aitests";
 			};
 			name = Debug;
 		};
@@ -802,7 +802,7 @@ fi
 				TEST_HOST = "";
 				SWIFT_VERSION = "5.0";
 				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
-				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.snapshots";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.snapshots";
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
 			};
@@ -814,7 +814,7 @@ fi
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				GENERATE_INFOPLIST_FILE = YES;
 				TEST_TARGET_NAME = Owlink;
-				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.uitests";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.uitests";
 			};
 			name = Debug;
 		};
@@ -827,7 +827,7 @@ fi
 				TEST_HOST = "";
 				SWIFT_VERSION = "6.0";
 				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
-				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.aitests";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.aitests";
 			};
 			name = Release;
 		};
@@ -840,7 +840,7 @@ fi
 				TEST_HOST = "";
 				SWIFT_VERSION = "6.0";
 				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
-				PRODUCT_BUNDLE_IDENTIFIER = "net.mindtricks.owlink.ios.coretests";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.coretests";
 			};
 			name = Release;
 		};

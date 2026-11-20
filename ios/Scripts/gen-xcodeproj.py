@@ -11,7 +11,7 @@ import hashlib, os
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJ = os.path.join(HERE, '..', 'Owlink.xcodeproj')
 TEAM = 'V868MD2SHX'
-BUNDLE_ID = 'net.mindtricks.owlink.ios'
+BUNDLE_ID = 'app.owlink.ios'
 VERSION = '0.3.0'
 BUILD = '1'
 IOS = '17.0'

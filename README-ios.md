@@ -6,7 +6,7 @@ The iOS app lives in `ios/` and builds on the same `CedricCore` and
 | | |
 |---|---|
 | Project | `ios/Owlink.xcodeproj`, scheme **Owlink** |
-| Bundle ID | `net.mindtricks.owlink.ios` |
+| Bundle ID | `app.owlink.ios` |
 | Version | 0.3.0 (1), set in `ios/Scripts/gen-xcodeproj.py` |
 | Devices | iPhone and iPad (universal), iOS 17 or later |
 | Signing | Automatic, team `V868MD2SHX` |
@@ -66,11 +66,11 @@ On a Mac signed in to the Apple developer account for team V868MD2SHX:
 2. Xcode › Settings › Accounts: make sure the account is signed in.
 3. Select the **Owlink** target › Signing & Capabilities: Team
    V868MD2SHX, "Automatically manage signing" on. Xcode registers the
-   bundle ID `net.mindtricks.owlink.ios` and the Increased Memory Limit
+   bundle ID `app.owlink.ios` and the Increased Memory Limit
    capability on first use.
 4. In App Store Connect (https://appstoreconnect.apple.com) › Apps › **+**
-   › New App: platform iOS, name "Owlink" (or "Owlink Editor" if the name
-   is taken), bundle ID `net.mindtricks.owlink.ios`, SKU e.g. `owlink-ios`.
+   › New App: platform iOS, name "Owlink: Text & Code" ("Owlink" itself
+   is taken), bundle ID `app.owlink.ios`, SKU e.g. `owlink-ios`.
 5. In Xcode, choose the destination **Any iOS Device (arm64)**, then
    Product › **Archive**. The first device build downloads the llama.cpp
    zip (about 65 MB) unless SwiftPM already has it cached.
