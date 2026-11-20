@@ -19,10 +19,12 @@
 # The last column is "-" for a type the system declares, else
 # "<conforms to, comma-separated>;<extensions, comma-separated>": declared
 # only for types macOS's CoreTypes lacks, with the identifiers Apple's Xcode
-# already uses for them, so the declarations agree.
+# already uses for them, so the declarations agree. Markdown is in CoreTypes
+# from macOS 26 but not in 15 (a .md file there is a dyn.… type nothing
+# opens); where the system declares it, Owlink's import is inactive.
 # The "*" row is the catch-all for any other text, with the unlabelled icon.
 TXT|doc-txt|Plain Text|public.plain-text|-
-MD|doc-md|Markdown|net.daringfireball.markdown|-
+MD|doc-md|Markdown|net.daringfireball.markdown|public.plain-text;md,markdown
 JSON|doc-json|JSON|public.json|-
 YAML|doc-yaml|YAML|public.yaml|-
 SWIFT|doc-swift|Swift Source|public.swift-source|-

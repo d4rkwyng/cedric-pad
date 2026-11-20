@@ -12,8 +12,8 @@ Why .icns files: Finder shows the icon named by CFBundleTypeIconFile in the
 default app's CFBundleDocumentTypes entry. The other mechanism, UTTypeIcons
 (badge + text composed by the system), only works on a type the app itself
 exports and needs an asset catalog (actool, Xcode only); every type here is
-declared by the system or by others. See docs/MANUAL.md, "File types and
-icons", and the 0.3.0 research notes.
+declared by the system or by others. See docs/MANUAL.md, "File types,
+default editor and document icons".
 
 The list of types (label -> file name) must match DocumentTypes.all in
 Sources/CedricCore/DocumentTypes.swift; Tests/CedricCoreTests checks that

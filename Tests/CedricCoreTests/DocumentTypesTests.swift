@@ -39,7 +39,7 @@ import UniformTypeIdentifiers
     @Test func systemTypesMapFromTheirExtensions() {
         // The types Owlink doesn't declare: macOS knows them, and a file's
         // extension resolves to them (or a subtype the claim covers).
-        let ext = ["TXT": "txt", "MD": "md", "JSON": "json", "YAML": "yaml", "SWIFT": "swift", "PY": "py", "JS": "js",
+        let ext = ["TXT": "txt", "JSON": "json", "YAML": "yaml", "SWIFT": "swift", "PY": "py", "JS": "js",
                    "SH": "sh", "LOG": "log", "CSV": "csv", "XML": "xml", "HTML": "html", "CSS": "css"]
         for t in DocumentTypes.all where t.imported == nil {
             #expect(UTType(t.primaryType) != nil, "\(t.primaryType) is declared by macOS")
@@ -62,7 +62,7 @@ import UniformTypeIdentifiers
 
     @Test func importedDeclarations() {
         let imported = DocumentTypes.all.filter { $0.imported != nil }
-        #expect(imported.map(\.label) == ["TS", "TOML", "INI", "SQL", "PS1"])
+        #expect(imported.map(\.label) == ["MD", "TS", "TOML", "INI", "SQL", "PS1"])
         for t in imported {
             let i = t.imported!
             #expect(!i.extensions.isEmpty && !i.conformsTo.isEmpty)

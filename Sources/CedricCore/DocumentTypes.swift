@@ -60,7 +60,9 @@ public enum DocumentTypes {
     /// The labelled types, in the Settings list's order.
     public static let all: [DocumentFileType] = [
         .init(label: "TXT", icon: "doc-txt", name: "Plain Text", contentTypes: ["public.plain-text"]),
-        .init(label: "MD", icon: "doc-md", name: "Markdown", contentTypes: ["net.daringfireball.markdown"]),
+        // Imported: macOS 15 and earlier have no Markdown type (26 does; then this is inactive).
+        .init(label: "MD", icon: "doc-md", name: "Markdown", contentTypes: ["net.daringfireball.markdown"],
+              imported: imp(["public.plain-text"], ["md", "markdown"])),
         .init(label: "JSON", icon: "doc-json", name: "JSON", contentTypes: ["public.json"]),
         .init(label: "YAML", icon: "doc-yaml", name: "YAML", contentTypes: ["public.yaml"]),
         .init(label: "SWIFT", icon: "doc-swift", name: "Swift Source", contentTypes: ["public.swift-source"]),
