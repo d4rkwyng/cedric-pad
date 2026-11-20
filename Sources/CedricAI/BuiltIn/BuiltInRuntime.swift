@@ -206,3 +206,23 @@ public actor BuiltInModelHost {
         return false
     }
 }
+
+/// iOS kills an app (jetsam) that goes past its memory limit, which is far
+/// below the device's RAM. Before loading a model the iOS app asks how much
+/// it may still use (`os_proc_available_memory`) and refuses with a clear
+/// message rather than getting killed mid-load.
+public enum ModelMemoryGate {
+    /// Weights, plus the KV cache and compute buffers for a 4K context
+    /// (about a quarter of the weights, at least 400 MB), plus 256 MB slack.
+    public static func bytesNeeded(forModelOfSize size: Int64) -> Int64 {
+        size + max(400 * 1_048_576, size / 4) + 256 * 1_048_576
+    }
+
+    /// Nil when `available` bytes are enough for `model`, else why not.
+    public static func refusal(for model: BuiltInModel, available: Int64) -> String? {
+        let need = bytesNeeded(forModelOfSize: model.sizeBytes)
+        guard available < need else { return nil }
+        let gb = { (b: Int64) in String(format: "%.1f GB", Double(b) / 1_073_741_824) }
+        return "Not enough memory for \(model.name): it needs about \(gb(need)) and Owlink can use \(gb(max(0, available))) right now. Close other apps or pick a smaller model."
+    }
+}

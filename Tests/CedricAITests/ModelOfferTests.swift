@@ -31,3 +31,16 @@ import CedricCore
         #expect(ModelCatalog.Device.iPad(physicalMemory: 6 * 1_073_741_824) == .iPad(largeMemory: false))
     }
 }
+
+@Suite struct ModelMemoryGateTests {
+    let small = ModelCatalog.bundled()!.models.first { $0.parametersB <= 2.0 }!
+
+    @Test func refusesWhenShort() {
+        let need = ModelMemoryGate.bytesNeeded(forModelOfSize: small.sizeBytes)
+        #expect(need > small.sizeBytes)
+        #expect(ModelMemoryGate.refusal(for: small, available: need) == nil)
+        let why = ModelMemoryGate.refusal(for: small, available: need - 1)
+        #expect(why?.contains(small.name) == true)
+        #expect(why?.contains("smaller model") == true)
+    }
+}
