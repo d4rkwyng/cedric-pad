@@ -648,9 +648,12 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                 ?? OwlChatContext.build(snap, scope: .visible, budget: engine.contextBudget)!
             let tools = OwlChatStore.shared.useTools(engine)
             self.lastUsedTools = tools
+            // An SVG: describe_image can render it (only if the model calls it).
+            let picture = OwlPicture.isPicture(fileName: snap.fileName)
+                ? SVGPictureSource(text: snap.text, folder: tab.doc.fileURL?.deletingLastPathComponent()) : nil
             let req = OwlChatRequest(question: question, action: action, context: ctx, snapshot: snap,
                                      history: history, useTools: tools, prose: prose, scan: scan,
-                                     scanHasHigh: scanHasHigh, scanTruncated: scanTruncated)
+                                     scanHasHigh: scanHasHigh, scanTruncated: scanTruncated, imageSource: picture)
             self.forcedVerdict = req.forcedVerdict
             if action == .scriptSafety { self.verdictStream = ScriptVerdictStream(forced: req.forcedVerdict) }
             do {

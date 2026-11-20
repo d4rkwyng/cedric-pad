@@ -306,6 +306,20 @@ public enum OwlToolName: String, Sendable, CaseIterable {
     case getOutline = "get_outline"
     case documentStats = "document_stats"
     case proposeEdit = "propose_edit"
+    /// Renders the document's picture and reads it with Apple Vision, on
+    /// this Mac (CedricAI's `OwlVision`). Offered only for a document that
+    /// draws a picture (`OwlPicture`); `OwlTools.run` can't run it (no
+    /// renderer here): the toolbox does.
+    case describeImage = "describe_image"
+}
+
+/// Documents that draw a picture: an SVG is text (XML) that the preview
+/// renders. Ask Cedric offers describe_image for these only.
+public enum OwlPicture {
+    public static func isPicture(fileName: String?) -> Bool {
+        guard let fileName else { return false }
+        return ["svg", "svgz"].contains((fileName as NSString).pathExtension.lowercased())
+    }
 }
 
 /// A tool as the model sees it: a name, one line of description and a
@@ -447,6 +461,9 @@ public enum OwlTools {
         case .proposeEdit:
             return OwlToolSpec(name: name, description: "Proposes replacing lines start to end with new_text. The user reviews and applies it.",
                                parameters: obj(["start": int, "end": int, "new_text": str, "reason": str], required: ["start", "end", "new_text"]))
+        case .describeImage:
+            return OwlToolSpec(name: name, description: "Looks at the picture this document draws (rendered on this Mac): what it shows, any text in it, its size and colours.",
+                               parameters: obj([:], required: []))
         }
     }
 
@@ -555,6 +572,9 @@ public enum OwlTools {
             }
             return OwlToolResult(text: "proposed: the user will review the change to lines \(p.firstLine)-\(p.lastLine). Now briefly say what you changed.",
                                  proposal: p, summary: String(localized: "Proposed a change to lines \(p.firstLine)–\(p.lastLine)"), ok: true)
+        case .describeImage:
+            // Needs a renderer: OwlToolbox runs it, with the document's picture.
+            return fail(OwlPicture.isPicture(fileName: s.fileName) ? "describe_image is not available here" : "this document is text, not a picture")
         }
     }
 

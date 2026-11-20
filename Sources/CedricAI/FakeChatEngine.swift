@@ -46,7 +46,8 @@ public struct FakeChatEngine: OwlChatEngine {
         let (first, last) = Self.shownLines(question)
         // The question itself: after the attached text.
         let asked = question.range(of: "```\n\n", options: .backwards).map { String(question[$0.upperBound...]) } ?? question
-        if !names.isEmpty, results.isEmpty, let call = Self.choose(asked, tools: names, first: first, last: last) {
+        if !names.isEmpty, results.isEmpty,
+           let call = Self.choose(asked, tools: names, first: first, last: last, picture: question.contains(OwlPrompts.pictureKind)) {
             try await Task.sleep(nanoseconds: UInt64(delay * 1e9))
             return .toolCalls([call])
         }
@@ -59,7 +60,10 @@ public struct FakeChatEngine: OwlChatEngine {
                 "new_text": .string(Self.commented(original.text, question: question)), "reason": .string("adds a comment")]))])
         }
         var answer: String
-        if results.contains(OwlToolName.proposeEdit.rawValue) {
+        if results.last == OwlToolName.describeImage.rawValue, let seen = Self.lastToolText(messages) {
+            // Quotes the tool's output, so a check can see it reached the answer.
+            answer = "Here is what describe_image saw (test engine):\n" + seen
+        } else if results.contains(OwlToolName.proposeEdit.rawValue) {
             answer = "I added a short comment above line \(first)."
         } else if tools.isEmpty, question.contains("``` block") {
             // No tools: the replacement comes back as a block.
@@ -92,9 +96,13 @@ public struct FakeChatEngine: OwlChatEngine {
     }
 
     /// The keyword policy (also what the eval's CI mode measures).
-    public static func choose(_ q: String, tools: Set<OwlToolName>, first: Int, last: Int) -> OwlToolCall? {
+    /// `picture`: the document draws one (its "File kind:" line says so).
+    public static func choose(_ q: String, tools: Set<OwlToolName>, first: Int, last: Int, picture: Bool = false) -> OwlToolCall? {
         let s = q.lowercased()
         func has(_ words: [String]) -> Bool { words.contains { s.contains($0) } }
+        if picture, tools.contains(.describeImage), has(["picture", "image", "icon", "look like", "looks like", "show", "drawn", "draws", "see"]) {
+            return OwlToolCall(name: "describe_image")
+        }
         let lineRef = firstNumber(after: "line", in: s)
         if tools.contains(.proposeEdit), has(["add short, useful comments", "rewrite", "simplify", "rename", "replace", "change line", "fix line", "propose"]) {
             if tools.contains(.getLines) { return OwlToolCall(name: "get_lines", arguments: .object(["start": .number(Double(lineRef ?? first)), "end": .number(Double(lineRef ?? last))])) }
