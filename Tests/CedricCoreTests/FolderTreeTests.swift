@@ -169,6 +169,26 @@ private func makeTree(_ files: [String], dirs: [String] = []) throws -> URL {
         #expect(FolderTree.relativePath(of: URL(fileURLWithPath: "/x"), in: root) == nil)
     }
 
+    @Test func enclosingFolderOfAFile() {
+        #expect(FolderTree.enclosingFolder(of: URL(fileURLWithPath: "/a/b/c.md"))?.path == "/a/b")
+        #expect(FolderTree.enclosingFolder(of: URL(fileURLWithPath: "/a/b/c.md"))?.hasDirectoryPath == true)
+        // Standardized first: the real parent, not "..".
+        #expect(FolderTree.enclosingFolder(of: URL(fileURLWithPath: "/a/x/../b/c.md"))?.path == "/a/b")
+        #expect(FolderTree.enclosingFolder(of: URL(fileURLWithPath: "/c.md"))?.path == "/")
+    }
+
+    @Test func noEnclosingFolderForUntitledOrRoot() {
+        #expect(FolderTree.enclosingFolder(of: nil) == nil)
+        #expect(FolderTree.enclosingFolder(of: URL(string: "https://example.com/a/b.md")) == nil)
+        #expect(FolderTree.enclosingFolder(of: URL(fileURLWithPath: "/")) == nil)
+    }
+
+    @Test func enclosingFolderContainsTheFile() {
+        let file = URL(fileURLWithPath: "/Users/me/notes/todo.md")
+        let dir = FolderTree.enclosingFolder(of: file)!
+        #expect(FolderTree.relativePath(of: file, in: dir) == "todo.md")
+    }
+
     @Test(.offPool) func twentyThousandEntriesListQuickly() throws {
         let root = tempDir()
         let fm = FileManager.default

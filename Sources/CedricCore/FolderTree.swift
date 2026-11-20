@@ -130,6 +130,16 @@ public enum FolderTree {
         guard p.hasPrefix(prefix) else { return nil }
         return String(p.dropFirst(prefix.count))
     }
+
+    /// The folder holding the file at `url` (File › Open Enclosing Folder),
+    /// or nil for an untitled document, a non-file URL or the volume root.
+    public static func enclosingFolder(of url: URL?) -> URL? {
+        guard let url, url.isFileURL, !url.path.isEmpty else { return nil }
+        let file = url.standardizedFileURL
+        let parent = file.deletingLastPathComponent().standardizedFileURL
+        guard parent.path != file.path, !parent.path.isEmpty else { return nil }
+        return URL(fileURLWithPath: parent.path, isDirectory: true)
+    }
 }
 
 /// Which listed entries the folder's .gitignore files ignore, for the

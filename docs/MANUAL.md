@@ -96,6 +96,9 @@ too, and a dropped **folder** opens in the [folder sidebar](#folder-sidebar).
 a window, or `cedric some/folder` shows the folder as a tree at the left
 of the editor. **View › Show Folder Sidebar** (⌃⌘1) hides and shows it
 again. Until a folder is open nothing is loaded or watched.
+**File › Open Enclosing Folder** (⌥⇧⌘O) opens the folder holding the
+current tab's file, with the file selected; **File › Reveal in Finder**
+shows the file in Finder. Both are off for an untitled tab.
 
 - Click a file to open it in a tab, or to go to its tab if it is open
   (Return does the same). Click a folder's triangle, or select it and

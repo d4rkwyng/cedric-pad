@@ -104,6 +104,9 @@ func buildMainMenu() -> NSMenu {
         submenu(AppDelegate.recentMenuTitle, []),
         // The folder sidebar (FolderSidebar.swift).
         item(String(localized: "Open Folder…"), #selector(AppDelegate.openFolderMenu(_:)), "o", [.command, .shift]),
+        // The tab's file: its folder in the sidebar, or in Finder.
+        item(String(localized: "Open Enclosing Folder"), #selector(AppDelegate.openEnclosingFolderMenu(_:)), "o", [.command, .shift, .option]),
+        item(String(localized: "Reveal in Finder"), #selector(AppDelegate.revealFileInFinderMenu(_:))),
         // A PDF tab's text in a new editable tab (PDFTab.swift).
         item(String(localized: "Open as Text"), #selector(PDFTabController.openAsText(_:))),
         // Viewer tabs: the file in its default app ("Open in Default App"; ViewerTabs.swift).

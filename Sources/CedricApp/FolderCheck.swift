@@ -12,7 +12,8 @@ import CedricCore
 /// on disk; the symlink loop guard, the layout with the preview and Find in Files
 /// docked too, re-docking on a tab switch, ⌃⌘1 hiding (stream stopped)
 /// and showing again (re-listed), the session state, snapshots in light
-/// and dark, and Close Folder.
+/// and dark, Close Folder, and File › Open Enclosing Folder / Reveal in
+/// Finder (off when untitled; the file's folder, the file selected).
 @MainActor
 extension DevChecks {
     static func folderCheck(_ app: AppDelegate) {
@@ -398,6 +399,45 @@ extension DevChecks {
                 app.hideFindInFiles()
                 app.closeFolder()
                 try? FileManager.default.removeItem(at: plain)
+            },
+            // File › Open Enclosing Folder (⌥⇧⌘O) and Reveal in Finder: off
+            // for an untitled tab; on a file, its folder opens in the sidebar
+            // with the file selected, and Finder is asked to show it.
+            sync {
+                guard let enc = menuItem(action: #selector(AppDelegate.openEnclosingFolderMenu(_:))),
+                      let fin = menuItem(action: #selector(AppDelegate.revealFileInFinderMenu(_:))) else {
+                    expect(false, "File › Open Enclosing Folder and Reveal in Finder exist"); return
+                }
+                expect(enc.keyEquivalent == "o" && enc.keyEquivalentModifierMask == [.command, .shift, .option],
+                       "File › Open Enclosing Folder is ⌥⇧⌘O", MenuShortcuts.name(enc))
+                expect(MenuShortcuts.list().filter { $0.0 == "⌥⇧⌘O" }.count == 1, "⌥⇧⌘O is used once")
+                app.newTab(nil)
+                if let untitled = app.tabs.last, untitled.doc.fileURL == nil {
+                    focus(untitled)
+                    expect(!app.validateMenuItem(enc) && !app.validateMenuItem(fin), "both off for an untitled tab")
+                    untitled.window?.performClose(nil)
+                } else {
+                    expect(false, "an untitled tab opens")
+                }
+                guard let a = app.open(proj.appendingPathComponent("src/a.swift")) else { expect(false, "src/a.swift opens"); return }
+                focus(a)
+                expect(app.validateMenuItem(enc) && app.validateMenuItem(fin), "both on with a file open")
+                PreviewLinkLog.revealed = []
+                NSApp.sendAction(fin.action!, to: nil, from: fin)
+                expect(PreviewLinkLog.revealed.map(\.standardizedFileURL) == [a.doc.fileURL?.standardizedFileURL].compactMap { $0 },
+                       "Reveal in Finder selects the tab's file in Finder", "\(PreviewLinkLog.revealed)")
+                NSApp.sendAction(enc.action!, to: nil, from: enc)
+            },
+            until("the enclosing folder is listed") {
+                FolderSidebar.shared?.rootURL.lastPathComponent == "src" && FolderSidebar.shared?.root.isLoaded == true
+            },
+            sync {
+                let s = sidebar
+                expect(s.isShown && s.rootURL.resolvingSymlinksInPath().path == proj.appendingPathComponent("src").resolvingSymlinksInPath().path,
+                       "Open Enclosing Folder opens the file's folder in the sidebar", s.rootURL.path)
+                let sel = s.outline.selectedRow >= 0 ? (s.outline.item(atRow: s.outline.selectedRow) as? FolderNode)?.name : nil
+                expect(sel == "a.swift", "with the file selected", sel ?? "none")
+                app.closeFolder()
             },
         ])
     }

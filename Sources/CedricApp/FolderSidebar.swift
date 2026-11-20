@@ -29,9 +29,30 @@ extension AppDelegate {
         }
     }
 
+    /// The file in the selected tab (a text tab or a viewer tab); nil when
+    /// untitled.
+    var currentFileURL: URL? { currentTab?.doc.fileURL ?? currentViewerTab?.fileURL }
+
+    /// File › Open Enclosing Folder (⌥⇧⌘O): the folder holding the tab's
+    /// file opens in the sidebar, with the file selected.
+    @objc func openEnclosingFolderMenu(_ sender: Any?) {
+        guard let file = currentFileURL, let dir = FolderTree.enclosingFolder(of: file) else { NSSound.beep(); return }
+        openFolder(dir, reveal: file)
+    }
+
+    /// File › Reveal in Finder: the tab's file selected in a Finder window.
+    @objc func revealFileInFinderMenu(_ sender: Any?) {
+        guard let file = currentFileURL else { NSSound.beep(); return }
+        PreviewLinkLog.reveal(file)
+    }
+
     func validateFolderItem(_ item: NSMenuItem) -> Bool? {
         switch item.action {
         case #selector(openFolderMenu(_:)): return true
+        // The sidebar docks in a text tab: none open, nothing to dock in.
+        case #selector(openEnclosingFolderMenu(_:)):
+            return FolderTree.enclosingFolder(of: currentFileURL) != nil && (currentTab ?? tabs.last) != nil
+        case #selector(revealFileInFinderMenu(_:)): return currentFileURL != nil
         case #selector(toggleFolderSidebarMenu(_:)):
             item.state = FolderSidebar.shared?.isShown == true ? .on : .off
             return (FolderSidebar.shared != nil || FolderSidebar.pendingFolder != nil) && (currentTab ?? tabs.last) != nil
@@ -47,13 +68,14 @@ extension AppDelegate {
 
     /// Opens `url` in the folder sidebar (replacing the folder open before)
     /// and shows it in the selected tab. `state`: restoring a session.
-    func openFolder(_ url: URL, state: SessionFolder? = nil) {
+    /// `reveal`: a file to select once the folder is listed.
+    func openFolder(_ url: URL, state: SessionFolder? = nil, reveal: URL? = nil) {
         // At launch (a folder dropped on the Dock icon, CEDRIC_OPEN): after
         // the first frame, once the window's tab exists.
         guard AfterFirstFrame.passed, let tab = currentTab ?? tabs.last else {
             AfterFirstFrame.run { [weak self] in
                 guard let self, AfterFirstFrame.passed, (self.currentTab ?? self.tabs.last) != nil else { return }
-                self.openFolder(url, state: state)
+                self.openFolder(url, state: state, reveal: reveal)
             }
             return
         }
@@ -61,9 +83,14 @@ extension AppDelegate {
         FolderSidebar.pendingFolder = nil
         let s = FolderSidebar(root: url.standardizedFileURL, state: state)
         FolderSidebar.shared = s
+        s.pendingReveal = reveal
         s.onOpen = { [weak self] node in self?.openFromFolder(node) }
         s.onChange = { [weak self] in self?.scheduleSessionSave() }
         s.onClose = { [weak self] in self?.closeFolder() }
+        s.onOpenEnclosing = { [weak self] file in
+            guard let dir = FolderTree.enclosingFolder(of: file) else { return }
+            self?.openFolder(dir, reveal: file)
+        }
         s.onFindInFolder = { [weak self] dir in
             guard let self else { return }
             self.findInFilesMenu(nil)
@@ -180,6 +207,9 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     var onChange: (() -> Void)?
     var onClose: (() -> Void)?
     var onFindInFolder: ((URL) -> Void)?
+    var onOpenEnclosing: ((URL) -> Void)?
+    /// Selected when the root is first listed (Open Enclosing Folder).
+    var pendingReveal: URL?
 
     init(root url: URL, state: SessionFolder? = nil) {
         rootURL = url
@@ -433,6 +463,10 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
                 }
             }
         }
+        if node === root, let u = pendingReveal {
+            pendingReveal = nil
+            reveal(u)
+        }
         onListed?(node)
         if relistAfterLoad.remove(ObjectIdentifier(node)) != nil { load(node) }
     }
@@ -546,6 +580,10 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
         }
         if n != nil {
             add(String(localized: "Reveal in Finder"), #selector(revealInFinder(_:)))
+            // A file below the root: its own folder as the sidebar's root.
+            if let n, !n.isDirectory, n.url.deletingLastPathComponent().standardizedFileURL.path != rootURL.standardizedFileURL.path {
+                add(String(localized: "Open Enclosing Folder"), #selector(openEnclosing(_:)))
+            }
             add(String(localized: "Copy Path"), #selector(copyPath(_:)))
             add(String(localized: "Find in Folder…"), #selector(findInFolder(_:)))
             menu.addItem(.separator())
@@ -561,6 +599,11 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
 
     @objc func revealInFinder(_ sender: Any?) {
         NSWorkspace.shared.activateFileViewerSelecting([target(sender).url])
+    }
+
+    @objc func openEnclosing(_ sender: Any?) {
+        let n = target(sender)
+        onOpenEnclosing?(n.url)
     }
 
     @objc func copyPath(_ sender: Any?) {
