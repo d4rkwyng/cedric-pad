@@ -25,6 +25,12 @@ public struct SessionTab: Codable, Equatable, Sendable {
     public var bookmarks: [Int]?
     /// Indentation picked for this tab (nil: the file's own or the default).
     public var indentation: Indentation?
+    /// Folded regions, by header line (0-based); nil when none is folded
+    /// and in sessions saved before folding.
+    public var folds: [Int]?
+    /// View › Split Editor: the second pane (nil unsplit and in sessions
+    /// saved before 0.3.0).
+    public var split: SplitEditorState?
     /// The preview was in its own window (View › Detach Preview), and
     /// that window's frame (NSWindow's frame descriptor). Nil otherwise.
     public var previewDetached: Bool?
@@ -49,7 +55,8 @@ public struct SessionTab: Codable, Equatable, Sendable {
                 encoding: TextEncoding = .utf8, lineEnding: LineEnding = .lf, language: Language? = nil,
                 selectionLocation: Int = 0, selectionLength: Int = 0, topLine: Int = 0, fileModified: Date? = nil,
                 bookmarks: [Int]? = nil, indentation: Indentation? = nil, previewDetached: Bool? = nil, previewFrame: String? = nil, pdf: PDFTabState? = nil,
-                image: ImageTabState? = nil, office: OfficeTabState? = nil, certificate: OfficeTabState? = nil) {
+                image: ImageTabState? = nil, office: OfficeTabState? = nil, certificate: OfficeTabState? = nil, folds: [Int]? = nil,
+                split: SplitEditorState? = nil) {
         self.id = id
         self.path = path
         self.untitledName = untitledName
@@ -69,6 +76,8 @@ public struct SessionTab: Codable, Equatable, Sendable {
         self.image = image
         self.office = office
         self.certificate = certificate
+        self.folds = folds
+        self.split = split
     }
 }
 

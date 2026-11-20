@@ -214,6 +214,219 @@ the drawn glyphs and carets, and that ⌘D in a save alert is still Don't
 Save. `typing-check.sh` types at three carets in every theme and commits IME
 text at three carets.
 
+## Code folding
+
+| Action | Menu / gesture | Shortcut |
+|---|---|---|
+| Fold the region at or around the caret | View › Folding › Fold | ⌥⌘← |
+| Unfold the caret line's folds | View › Folding › Unfold | ⌥⌘→ |
+| Fold All / Unfold All | View › Folding | ⌥⇧⌘← / ⌥⇧⌘→ |
+| Fold to Level 1–3 | View › Folding | |
+| Fold or unfold one region | a click on the gutter's triangle, or on the "⋯" pill | |
+
+**Regions (CedricCore/Folding.swift, `FoldScanner`).** `Language.foldKind`:
+brackets (Swift, JS, TS, C, CSS, JSON, PowerShell; plus multi-line block
+comments), indentation (Python, YAML, shell, Ruby, SQL), sections (INI/TOML
+`[section]`), headings (Markdown ATX headings outside fences, via
+`FenceIndex`), none (plain, CSV, diff, batch, .reg, HTML/XML). Nothing is
+precomputed. "Does line L start a region?" reads line L only (brackets:
+the line's tokens from the tab's `HighlightEngine`, whose start states are
+already cached for the visible lines, so a brace in a string or comment
+never counts; indentation: the next non-blank line). The region's end is
+found only when it is folded, by a forward scan bounded to 50,000 lines
+(past that, the fold is refused rather than moved off the main thread: a
+simplification of the plan's async scan). A bracket region hides the lines
+after its header up to the line before the closing bracket; a block
+comment hides through its closing line when nothing else follows the
+`*/`. Fold All and Fold to Level use `allRegions`, one linear pass
+(brackets with a stack; headings with a level stack) that also gives each
+region's depth. `lineTokens(_:)` was added to `HighlightEngine` for one
+line's tokens and its start/end states.
+
+**State (`FoldState`).** The folded regions as character ranges (start of
+the line after the header to the end of the last hidden line, newline
+included), sorted; folds nest (an inner fold stays folded inside an outer
+one), and `hidden` is their merged union for a binary search. An edit
+(`adjust`) shifts folds after it and opens a fold it touches: inside it,
+over its header's newline, a line break typed at the end of its header,
+or text appended after a fold that runs to the end of the document.
+
+**Hiding (CedricApp/Folding.swift, `FoldingController`).** Made on a
+tab's first fold (`EditorWindowController.folding`, `EditorTextView.folding`
+are nil until then). It sets itself as the `ChunkedContentStorage`'s
+`NSTextContentStorageDelegate` and returns false from
+`textContentManager(_:shouldEnumerate:options:)` for paragraphs that start
+in hidden text, then invalidates the layout from the fold to the end of
+the document and lays out the viewport. TextKit 2 neither lays out nor
+returns layout fragments for those paragraphs, so the gutter (which
+numbers fragments) skips their numbers, and the find highlight, spelling
+and grammar marks there draw nothing. The text storage never changes:
+there is no attachment, so save, undo, copy, print, export and the
+preview see the whole text. With nothing folded the delegate is removed.
+Large mode turns folding off (the chunked storage builds its own elements
+and would show hidden lines), as do held binary files.
+
+**Selection.** The window controller implements
+`textView(_:willChangeSelectionFromCharacterRanges:toCharacterRanges:)`
+(a nil check while nothing is folded). `EditorTextView.doCommand(by:)` sets
+`keyNavigating` around AppKit's key commands: a key move (→, ←, word
+moves, ⌘→…) that would land in hidden text skips past it in the direction
+it moved (the line after the fold, or the end of the header line). Every
+other selection change (find, Go to Line, F2 bookmarks, the outline,
+`reveal(_:)`) opens the folds holding an end of the new selection; a
+selection that covers a whole fold leaves it folded. ↑/↓ already step over
+hidden paragraphs in TextKit. Multiple carets: a caret set in hidden text
+opens its fold on the next turn (`multiCarets` didSet, a nil check while
+nothing is folded). `scrollToLine` maps a hidden line to its header and
+never opens a fold, so the scroll anchor (`keepAnchor`, which also keeps
+the top line steady when a fold above changes the height) can't open one.
+
+**Drawing.** The gutter has a 12 pt fold column between the numbers and
+the git bars, only for languages that fold (`GutterView.foldColumn`);
+triangles are drawn while the pointer is over the gutter (a tracking area
+for those languages) and always on folded lines. The "⋯ N lines" pill is
+drawn in `EditorTextView.drawBackground` after the header line's end, for
+the viewport only; a click on it unfolds the outermost fold there.
+
+**Session.** `SessionTab.folds: [Int]?` (header lines, optional so old
+sessions decode); re-applied after the first frame, region by region.
+
+**Checks.** `FoldingTests` (kinds, brackets with strings and comments,
+`} else {` chains, Allman braces, JSON/CSS, block comments, Python with
+blank lines, comments and triple-quoted strings, YAML block scalars and
+lists, shell, INI, Markdown with fences, `allRegions` against `region(at:)`,
+the 50k bound, `FoldState` edits, nesting, caret skipping and opening).
+`CEDRIC_CHECK=folding` (tools-check.sh) clicks the triangles and the pill,
+sends ⌥⌘←/→, ⌥⇧⌘←/→ and arrow keys, and checks the laid-out lines, the
+unchanged storage, typing at and in a fold, undo, Find, Go to Line, F2,
+⌃⌘G, copy, Fold All (timed), Fold to Level 2, the session round trip,
+Markdown, Python, plain text and large mode, with snapshots in dark and
+light.
+
+**Not done.** Split view shares folds between panes (hiding is per
+content storage; per-pane folds would need per-layout-manager element
+filtering, which the delegate doesn't offer). HTML/XML tag folding; JavaScript regex literals aren't
+tokenized, so their brackets count; git change bars on hidden lines
+aren't summarised on the header.
+
+## Split view
+
+| Action | Menu / gesture | Shortcut |
+|---|---|---|
+| Split or unsplit | View › Split Editor; Split Editor / Close Split in the text's context menu | ⌃⌘\\ |
+| Top/bottom ⇄ side by side | View › Split Side by Side (Split Top and Bottom while side by side); the context menu | |
+| Focus the other pane | View › Move Focus to Other Pane; a click | |
+
+**Panes (CedricApp/SplitEditor.swift).** An `EditorPane` is a text view,
+its scroll view and gutter in an `EditorContainer`, plus the pane's
+scroll anchor and observers. `EditorWindowController.primaryPane` is made
+with the tab. `splitEditor: SplitEditor?` is nil until the first split
+and again after unsplit; it holds the second pane, the `EditorSplitView`
+(an NSSplitView, vertical when side by side) and the focus. The second
+pane's text view is `EditorTextView.make(sharing:)`: a new
+`NSTextLayoutManager` and text container added to the primary's
+`ChunkedContentStorage` (`addTextLayoutManager`), so both panes show one
+text storage, edit through one undo manager (the window's) and share one
+`LineIndex`, the colouriser's engine, the bookmarks, the folds and the git
+state. `configure(_:)` wires either pane's delegate, callbacks and gutter
+closures to the tab; `detachPane(_:)` cuts them.
+
+**Split and unsplit.** `splitPanes` builds the pane, copies the primary's
+editability, language, folding controller, theme and wrap, swaps the
+primary's container in the tab's `split` for the split view **at the
+same index** (positions of the other dividers restored, so the folder
+sidebar, the preview and Find in Files keep their places), adds the
+second viewport to the colouriser, starts at the primary's selection and
+top line, and focuses the new pane. A document up to 200,000 UTF-16 units
+is laid out whole in the new layout manager (~3 ms for 140 lines): one
+that joins a text later has laid out only its viewport, so its view was
+one screen tall and the wheel couldn't scroll it, and `reveal` saw a
+fragment far down reported near the top until the viewport was laid out
+(`reveal` lays out the second pane's viewport after `ensureLayout`). A
+bigger document fills in as TextKit lays it out, as the first pane does.
+`unsplit` removes the observers, ends any carets, detaches the pane,
+`removeTextLayoutManager`s it, gives the primary layout manager back to
+the first pane and puts the primary container back in the split view's
+place. `CEDRIC_CHECK=split` checks the content storage has one layout
+manager after it and that the split editor, the second layout manager and
+text view are freed a turn later.
+
+**Routing.** `textView`, `scrollView` and `gutter` are now computed: the
+active pane's (`activePane = splitEditor?.activePane ?? primaryPane`, a nil
+check unsplit). The active pane is CedricCore's `PaneFocus`: the pane
+whose text view last became first responder (`EditorTextView.onFocus`
+from `becomeFirstResponder`; a mouse-down also makes its view first
+responder). Focus elsewhere (find bar, a panel, a sheet) keeps the last
+pane, so the find bar searches the pane it was opened from. On a focus
+change the content storage's `primaryTextLayoutManager` becomes the
+focused pane's, the other pane's occurrence and bracket marks are
+cleared and the status bar follows. So every command entry point that
+used `textView` (Find and Replace, Go to Line, multi-caret, folding, the
+line, Markdown and indentation commands, bookmarks, git links, Owl hints'
+context, Replace in Files' open-tab edits, `reveal`, `topLine`,
+`scrollToLine`) acts on the focused pane without per-site changes. The
+plan estimated 40–70 call sites to migrate to an `activeTextView`; making
+`textView` itself the active pane and pinning the per-view sites instead
+was smaller and safer. Pinned or per pane:
+
+- per-view setup, appearance, wrap, gutter width, `textEdited` (carets
+  and auto-closers shift in both views), editability (`setEditable`:
+  binary files, Follow File), typing attributes, the language, the
+  folding controller, large mode's relayout and folding's relayout run for
+  every pane (`panes`); `setGuttersNeedDisplay()` redraws both gutters;
+- the primary only (`primaryTextView`): spelling (continuous checking is
+  per view), grammar marks, the owl's overlay and gaze, the session's
+  selection and top line (`primaryTopLine`);
+- Mark All's marks are drawn in both panes; occurrences and the bracket
+  match only in the pane with the caret; `textViewDidChangeSelection`
+  from the other pane (an edit moved its selection) only redraws its
+  gutter.
+
+**Scrolling.** Each pane observes its own clip view and text view frame:
+`scrolled(_:)` schedules the colouriser, redraws that gutter, refreshes
+highlights for the active pane, syncs the preview from the active pane,
+and moves the owl only for the primary. `keepAnchor(_:)` keeps each
+pane's top line on resize. `SyntaxColorizer.secondTextView` adds the
+second viewport to the lines coloured (colours are storage attributes).
+
+**Docking.** `editorArea` is the split view while split, so
+`dockSidePanel`, the preview's `dock` and the folder sidebar's
+`dockLeftPanel` work unchanged. The outline sidebar stays in the primary
+container's left slot.
+
+**Session.** `SessionTab.split: SplitEditorState?` (CedricCore:
+`sideBySide`, `ratio`, the second pane's `topLine`, `secondFocused`),
+optional so older sessions decode; written by the timed save and hot
+close, restored after the first frame (`restoreSplit`, then the second
+pane scrolled on the next turn). `SplitEditorState.dividerPosition` and
+`ratio(position:)` keep both panes at least 60 pt.
+
+**Cost when unused.** Nothing before the first frame and no new objects
+per tab: `splitEditor` is nil, every hook is a nil check (`activePane`,
+`panes`, `paneFocused`, `colorViewport`'s second viewport, `storageEdited`'s
+second `textEdited`).
+
+**Checks.** `SplitEditorTests` (focus routing, ratio and divider maths,
+session round trip, older sessions). `CEDRIC_CHECK=split` (tools-check.sh)
+uses real keys and clicks: ⌃⌘\\ splits; the wheel scrolls pane 2 to the
+end; typing in pane 2 is in the storage and drawn in pane 1; ⌘Z from pane
+1 undoes pane 2's typing and from pane 2 pane 1's (⇧⌘Z too); Find and ⌘G
+in pane 2 leave pane 1's selection; Go to Line scrolls pane 2 only; pane
+1's far viewport is coloured after typing in pane 2; a fold clicked in
+pane 2's gutter hides lines in both and ⌥⌘→/Fold All from the other pane
+agree; three carets in pane 2 (⌃⇧↓), typed, drawn in pane 1, one ⌘Z;
+bookmarks on pane 2's line; side by side and back from the menu and the
+context menu; the session state, round trip and restore; preview and Find
+in Files docking around the split and the preview keeping its width on
+unsplit; unsplit, the freed pane, resplit, undo after unsplit; large
+mode; snapshots in dark and light. `session-check.sh` step 10 saves a
+side-by-side split by a normal quit and checks it comes back after the
+first frame.
+
+**Not done.** The plan's IME check of the second pane on macOS 14/15 (tart
+VM; not run). Spelling, grammar and the owl in the second pane. Per-pane
+folds. Carets aren't kept per pane across unsplit.
+
 ## Highlighting: hand-written tokenizers vs tree-sitter
 
 Chosen for v0: hand-written, line-at-a-time tokenizers.

@@ -29,6 +29,7 @@ import WebKit
 ///   CEDRIC_TEST_TYPE_UNTITLED=t   open a new untitled tab and type this
 ///   CEDRIC_TEST_DETACH_PREVIEW=x,y,w,h  detach the front tab's preview to this frame (session tests)
 ///   CEDRIC_TEST_CLOSE_LAST=1      then close the newest tab (as ⌘W does; session tests)
+///   CEDRIC_TEST_SPLIT=line        split the front tab side by side, the second pane scrolled to `line` (session tests)
 ///   CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1  let closing the last window quit (off under the other test hooks)
 ///   CEDRIC_TEST_SHOW_SETTINGS=1   open the Settings window (session tests: it mustn't keep the app alive)
 ///   CEDRIC_TEST_WAIT_MARKER=/tmp/cedric-wait.x  `cedric -w` on the front tab (session tests)
@@ -160,6 +161,19 @@ enum DevHooks {
         if let delay = env["CEDRIC_TEST_ZOOM_MENU"].flatMap(Double.init), let tab = app.currentTab ?? app.tabs.last {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak tab] in tab?.statusBar.zoom.performClick(nil) }
         }
+        if let l = env["CEDRIC_TEST_SPLIT"].flatMap(Int.init), let tab = app.currentTab ?? app.tabs.last {
+            // Once the window is on screen and the panes have their size.
+            AfterFirstFrame.run { [weak tab] in
+                guard let tab else { return }
+                tab.splitPanes(sideBySide: true, ratio: 0.4, focusSecond: true)
+                DispatchQueue.main.async { [weak tab] in
+                    guard let tab, let s = tab.splitEditor else { return }
+                    tab.scrollToLine(l, in: s.second)
+                    s.second.anchorLine = l
+                    tab.onChange?(tab)
+                }
+            }
+        }
         if env["CEDRIC_TEST_CLOSE_LAST"] == "1", let tab = app.tabs.last { tab.window?.performClose(nil) }
         if env["CEDRIC_TEST_SHOW_SETTINGS"] == "1" { SettingsWindowController.show() }
         if let marker = env["CEDRIC_TEST_WAIT_MARKER"], let tab = app.currentTab ?? app.tabs.last { app.addWaiter(marker, for: tab) }
@@ -178,6 +192,7 @@ enum DevHooks {
             // A detached preview is restored after the first frame: none may exist yet.
             let earlyPreviews = app.tabs.filter { $0.previewPane != nil }.count
             let earlyFolder = FolderSidebar.shared != nil ? 1 : 0
+            let earlySplits = app.tabs.filter(\.isSplit).count
             AfterFirstFrame.run { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 // Windows in on-screen order, tabs in tab-bar order.
                 for t in app.tabGroups().joined() {
@@ -192,6 +207,12 @@ enum DevHooks {
                 for c in app.closedTabs {
                     let body = (c.hasBuffer ? app.store.readBuffer(c.id) ?? "<missing buffer>" : "-").replacingOccurrences(of: "\n", with: "\\n")
                     print("closed: name=\(c.untitledName ?? "-") file=\(c.path ?? "-") unsaved=\(c.hasBuffer) text=\(body.prefix(60))")
+                }
+                for t in app.tabs {
+                    guard let s = t.splitEditor else { continue }
+                    print("split: name=\(t.doc.displayName) sideBySide=\(s.sideBySide) ratio=\(String(format: "%.2f", s.ratio)) "
+                          + "top2=\(t.topLine(in: s.second)) secondActive=\(t.textView === s.second.textView) "
+                          + "layoutManagers=\(t.primaryTextView.contentStorage?.textLayoutManagers.count ?? 0) before-first-frame=\(earlySplits)")
                 }
                 for t in app.tabs where t.previewPane != nil {
                     let f = t.previewWindow?.window?.frame ?? .zero

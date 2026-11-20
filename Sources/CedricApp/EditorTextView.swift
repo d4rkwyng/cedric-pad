@@ -32,7 +32,9 @@ final class EditorTextView: NSTextView {
     /// caret, sorted; `multiPrimary`'s is also NSTextView's selection (IME,
     /// accessibility, the status bar, the find bar use it), the others are
     /// drawn here.
-    var multiCarets: [MultiCaret.Caret]?
+    var multiCarets: [MultiCaret.Caret]? {
+        didSet { if let folding, let multiCarets { folding.carets(multiCarets) } }
+    }
     var multiPrimary = 0
     /// Set while the multi-caret layer sets NSTextView's selection or edits
     /// the text: any other selection change collapses to one caret.
@@ -42,9 +44,22 @@ final class EditorTextView: NSTextView {
     /// from a bare caret).
     var multiNeedle: (text: String, wholeWord: Bool)?
 
-    static func make() -> EditorTextView {
+    // MARK: Folding (Folding.swift)
+
+    /// The tab's folding, from its first fold (nil: every hook is a nil check).
+    weak var folding: FoldingController?
+    /// Set while a key command (arrows, word and page moves) runs: its
+    /// selection change skips hidden text rather than opening it.
+    private(set) var keyNavigating = false
+    /// The "⋯ N lines" pills drawn last, for clicks.
+    var foldPills: [(rect: NSRect, hidden: NSRange)] = []
+
+    /// The view and its TextKit 2 stack. With `sharing`, a second view on
+    /// the same text (View › Split Editor): its own layout manager added
+    /// to that content storage, so both show and edit one text storage.
+    static func make(sharing shared: ChunkedContentStorage? = nil) -> EditorTextView {
         let layoutManager = NSTextLayoutManager()
-        let content = ChunkedContentStorage()
+        let content = shared ?? ChunkedContentStorage()
         content.addTextLayoutManager(layoutManager)
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
@@ -72,6 +87,16 @@ final class EditorTextView: NSTextView {
     }
 
     var contentStorage: ChunkedContentStorage? { textLayoutManager?.textContentManager as? ChunkedContentStorage }
+
+    /// This view became first responder (View › Split Editor: commands
+    /// follow the focused pane).
+    var onFocus: ((EditorTextView) -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok { onFocus?(self) }
+        return ok
+    }
 
     // MARK: Range conversion
 
@@ -464,11 +489,28 @@ final class EditorTextView: NSTextView {
     /// Key commands (arrows, Delete, Return, Esc…) at every caret.
     override func doCommand(by selector: Selector) {
         if multiCarets != nil, multiCommand(selector) { return }
+        if folding != nil {
+            keyNavigating = true
+            defer { keyNavigating = false }
+            super.doCommand(by: selector)
+            return
+        }
         super.doCommand(by: selector)
     }
 
     /// ⌥-drag: a column of carets or selections; ⌘-click: add or remove a caret.
     override func mouseDown(with event: NSEvent) {
+        // A click focuses this pane (split view: commands follow it), also
+        // when the event reached the view without the window's own routing.
+        if onFocus != nil, let w = window, w.firstResponder !== self { w.makeFirstResponder(self) }
+        if let folding, !foldPills.isEmpty {
+            let p = convert(event.locationInWindow, from: nil)
+            if let hit = foldPills.first(where: { $0.rect.contains(p) }) {
+                // The outermost folds there (an inner one stays folded).
+                folding.unfold(folding.state.folds.filter { $0.location == hit.hidden.location })
+                return
+            }
+        }
         if !event.modifierFlags.isDisjoint(with: [.option, .command]), multiMouseDown(event) { return }
         super.mouseDown(with: event)
     }
@@ -518,10 +560,49 @@ final class EditorTextView: NSTextView {
             f.intersection(rect).fill()
         }
 
+        if let folding, !folding.isEmpty { drawFoldPills(in: rect, layoutManager: tlm, folding: folding) } else if !foldPills.isEmpty { foldPills = [] }
         drawHighlights(in: rect, layoutManager: tlm)
         if let carets = multiCarets { drawMultiCarets(carets, in: rect, layoutManager: tlm) }
         drawGrammarMarks(in: rect, layoutManager: tlm)
         if showInvisibles { drawInvisibles(in: rect, layoutManager: tlm) }
+    }
+
+    /// A rounded "⋯ 42 lines" after each folded header line, in the
+    /// viewport (not a text attachment: the text never changes). A click
+    /// on it unfolds (mouseDown).
+    private func drawFoldPills(in rect: NSRect, layoutManager tlm: NSTextLayoutManager, folding: FoldingController) {
+        foldPills.removeAll()
+        guard let tab = delegate as? EditorWindowController, let tcm = tlm.textContentManager,
+              let vp = tlm.textViewportLayoutController.viewportRange else { return }
+        let vpStart = offset(of: vp.location)
+        let vpEnd = vpStart + tcm.offset(from: vp.location, to: vp.endLocation)
+        let origin = textContainerOrigin
+        let font = NSFont.systemFont(ofSize: max(9, (self.font ?? Settings.shared.font).pointSize - 2))
+        let fg = NSColor(hex: palette.gutterForeground)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fg]
+        for h in folding.state.hidden where h.location > 0 {
+            let at = h.location - 1 // the header line's newline: where its text ends
+            guard at >= vpStart, at <= vpEnd, let loc = tcm.location(vp.location, offsetBy: at - vpStart) else { continue }
+            var caret: CGRect?
+            tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard, options: [.rangeNotRequired]) { _, f, _, _ in
+                caret = f
+                return false
+            }
+            guard let c = caret else { continue }
+            let label = NSAttributedString(string: folding.label(for: h, tab.lineIndex), attributes: attrs)
+            let size = label.size()
+            let height = min(c.height, ceil(size.height) + 2)
+            let r = NSRect(x: c.minX + origin.x + 8, y: c.minY + origin.y + (c.height - height) / 2, width: ceil(size.width) + 12, height: height)
+            foldPills.append((r, h))
+            guard r.intersects(rect) else { continue }
+            let path = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: height / 2, yRadius: height / 2)
+            NSColor(hex: palette.gutterBackground).setFill()
+            path.fill()
+            fg.withAlphaComponent(0.6).setStroke()
+            path.lineWidth = 1
+            path.stroke()
+            label.draw(at: NSPoint(x: r.minX + 6, y: r.minY + (height - size.height) / 2))
+        }
     }
 
     /// Marks, occurrences and the matching bracket pair, clipped to the
@@ -645,6 +726,45 @@ final class GutterView: NSView {
     var onClickLine: ((Int) -> Void)?
     /// Git change bars against HEAD (nil: none, or the setting is off).
     var gitChanges: () -> GitLineChanges? = { nil }
+    /// Folding: the column between the numbers and the git bars (0: the
+    /// language doesn't fold), each line's mark (nil: no marks to draw),
+    /// and a click in the column.
+    static let foldColumnWidth: CGFloat = 12
+    var foldColumn: CGFloat = 0 {
+        didSet { if foldColumn != oldValue { needsDisplay = true; updateTrackingAreas() } }
+    }
+    var foldMarks: (_ hovering: Bool) -> ((Int) -> FoldMark)? = { _ in nil }
+    /// False: nothing folds there (the click toggles the bookmark, as on the number).
+    var onClickFold: ((Int) -> Bool)?
+    /// The pointer is over the gutter: the fold triangles show.
+    private(set) var hovering = false
+    private var foldTracking: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        // Only for a language that folds (none is made for plain text).
+        if foldColumn > 0, foldTracking == nil {
+            let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+            addTrackingArea(t)
+            foldTracking = t
+        } else if foldColumn == 0, let t = foldTracking {
+            removeTrackingArea(t)
+            foldTracking = nil
+            hovering = false
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) { setHovering(true) }
+    override func mouseExited(with event: NSEvent) { setHovering(false) }
+
+    func setHovering(_ on: Bool) {
+        guard hovering != on else { return }
+        hovering = on
+        needsDisplay = true
+    }
+
+    /// The fold column's x range (view coordinates).
+    var foldColumnRange: ClosedRange<CGFloat> { (bounds.width - 5 - foldColumn)...(bounds.width - 5) }
 
     override var isFlipped: Bool { true }
 
@@ -670,6 +790,26 @@ final class GutterView: NSView {
         p.fill()
     }
 
+    /// A fold triangle: pointing right on a folded line, down on one that can fold.
+    private func drawFoldMark(_ m: FoldMark, midY: CGFloat) {
+        let cx = (foldColumnRange.lowerBound + foldColumnRange.upperBound) / 2
+        let s: CGFloat = 3.5
+        let p = NSBezierPath()
+        if m == .folded {
+            p.move(to: NSPoint(x: cx - s * 0.7, y: midY - s))
+            p.line(to: NSPoint(x: cx + s * 0.9, y: midY))
+            p.line(to: NSPoint(x: cx - s * 0.7, y: midY + s))
+            NSColor(hex: palette.foreground).setFill()
+        } else {
+            p.move(to: NSPoint(x: cx - s, y: midY - s * 0.6))
+            p.line(to: NSPoint(x: cx + s, y: midY - s * 0.6))
+            p.line(to: NSPoint(x: cx, y: midY + s * 0.9))
+            NSColor(hex: palette.gutterForeground).setFill()
+        }
+        p.close()
+        p.fill()
+    }
+
     /// The line whose number is drawn at `y` (view coordinates).
     func line(atY y: CGFloat) -> Int? {
         guard let tv = textView, let tlm = tv.textLayoutManager, let scroll = tv.enclosingScrollView else { return nil }
@@ -680,14 +820,16 @@ final class GutterView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        if let line = line(atY: p.y) { onClickLine?(line) } else { super.mouseDown(with: event) }
+        guard let line = line(atY: p.y) else { super.mouseDown(with: event); return }
+        if foldColumn > 0, p.x >= foldColumnRange.lowerBound - 2, let onClickFold, onClickFold(line) { return }
+        onClickLine?(line)
     }
 
     /// Wide enough for the largest line number.
     func requiredWidth(lines: Int, font: NSFont) -> CGFloat {
         let digits = max(3, String(lines).count)
         let w = ("8" as NSString).size(withAttributes: [.font: gutterFont(font)]).width
-        return ceil(CGFloat(digits) * w + 18)
+        return ceil(CGFloat(digits) * w + 18 + foldColumn)
     }
 
     private func gutterFont(_ f: NSFont) -> NSFont {
@@ -713,6 +855,8 @@ final class GutterView: NSView {
         let markColor = NSColor(hex: palette.caret)
         let git = gitChanges()
         let gitColors = GitColors(palette)
+        let foldMark = foldColumn > 0 ? foldMarks(hovering) : nil
+        let numberRight = bounds.width - 8 - foldColumn
         // The last line drawn and its bottom: a deletion at the very end
         // is drawn below it (the empty last line may have no fragment).
         var lastDrawn: (line: Int, bottom: CGFloat)?
@@ -733,7 +877,14 @@ final class GutterView: NSView {
             let size = s.size()
             // Align with the first line's baseline.
             let baselineY = y + (frag.textLineFragments.first?.typographicBounds.minY ?? 0) + textFont.ascender - font.ascender
-            s.draw(at: CGPoint(x: self.bounds.width - size.width - 8, y: baselineY))
+            s.draw(at: CGPoint(x: numberRight - size.width, y: baselineY))
+            if let foldMark {
+                let m = foldMark(line)
+                if m != .none {
+                    let rowHeight = frag.textLineFragments.first?.typographicBounds.height ?? frame.height
+                    self.drawFoldMark(m, midY: y + (frag.textLineFragments.first?.typographicBounds.minY ?? 0) + rowHeight / 2)
+                }
+            }
             if marks.contains(line) {
                 // A bookmark: a rounded tab at the gutter's left edge, as tall as the line.
                 let h = max(6, min(frame.height, textFont.boundingRectForFont.height))

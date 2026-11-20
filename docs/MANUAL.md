@@ -227,6 +227,69 @@ of carets. One ⌘Z undoes one edit at all of them.
 Input methods and dead keys (⌥E then E for é) compose at the main caret,
 and the result goes in at every caret. VoiceOver follows the main caret.
 
+### Code folding
+
+Hover over the line numbers: a ▾ appears beside each line that starts a
+block. Click it to fold the block; the line shows ▸ and a "⋯ 12 lines"
+pill, and the numbers of the hidden lines are skipped. Click the ▸ or the
+pill to unfold.
+
+| To | Do |
+|---|---|
+| Fold the block at (or around) the caret | ⌥⌘← (View › Folding › Fold) |
+| Unfold the caret line's block | ⌥⌘→ |
+| Fold every block | ⌥⇧⌘← |
+| Unfold everything | ⌥⇧⌘→ |
+| Show only the outer levels | View › Folding › Fold to Level 1, 2 or 3 |
+
+What folds:
+
+- **Brackets** `{ }`, `[ ]`, `( )` in Swift, JavaScript, TypeScript, C,
+  CSS, JSON and PowerShell, from the line that opens to the line that
+  closes (the closing line stays). Brackets inside strings and comments
+  don't count.
+- **Block comments** (`/* … */`) over several lines.
+- **Indentation** in Python, YAML, shell scripts, Ruby and SQL: a line and
+  the deeper-indented lines under it.
+- **Sections** in INI and TOML: each `[section]` to the next.
+- **Headings** in Markdown: each heading down to the next heading of the
+  same or a higher level. A `#` line in fenced code isn't a heading.
+- Plain text, CSV, diffs, batch files and .reg files don't fold.
+
+Folded text is only hidden: the file is unchanged, and save, undo,
+print, export and copy see all of it (copying across a fold copies the
+hidden lines). The arrow keys step over a fold. Find, Go to Line, a
+bookmark, the outline or a caret that lands inside a fold opens it, and
+so does typing in it or pressing Return at the end of its first line.
+Folds are kept with the session. Large-document mode turns folding off.
+
+### Split view
+
+View › Split Editor (⌃⌘\\) shows the document in two panes, one above
+the other, so you can read one part while you edit another. Both panes
+are the same document: what you type in one shows in the other at once,
+and one ⌘Z undoes it from either pane. Each pane scrolls and keeps its own
+caret and selection.
+
+| To | Do |
+|---|---|
+| Split, or close the split | ⌃⌘\\ (View › Split Editor), or Split Editor / Close Split in the text's context menu |
+| Panes side by side, or back one above the other | View › Split Side by Side, or the context menu |
+| Go to the other pane | View › Move Focus to Other Pane, or click in it |
+| Resize the panes | Drag the line between them |
+
+Commands act on the pane you're in (the last one you clicked or typed
+in, also while the find bar has the focus): Find and Replace, Go to Line,
+multiple carets, bookmarks, folding, the Markdown and line commands, and
+the status bar's line and column. Folds are the document's, so folding in
+one pane folds in both. Spelling and grammar underlines and Cedric the
+owl stay with the top (or left) pane. The preview, Find in Files and the
+folder sidebar dock around both panes as they do around one.
+
+The split, its orientation and size, the second pane's place and which
+pane had the focus come back with the session. Closing the split frees
+the second pane; a tab you never split costs nothing extra.
+
 ### Highlight occurrences
 
 other occurrences of the selection, or of the
@@ -922,7 +985,7 @@ More in [docs/architecture.md](architecture.md).
 
 ## Not built yet
 
-Macros and automatic updates; code folding and split view (0.3.0). See
+Macros and automatic updates; folding HTML and XML tags; per-pane folds in split view. See
 `docs/architecture.md` for where they plug in.
 
 ## Built with Claude

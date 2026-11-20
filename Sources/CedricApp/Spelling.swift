@@ -42,7 +42,7 @@ final class EditorSpelling {
         // Large mode: no checking passes over a huge line.
         guard let tab else { return }
         let on = Settings.shared.checkSpellingWhileTyping && !tab.extrasPaused && checksThisDocument
-        let tv = tab.textView
+        let tv = tab.primaryTextView
         tv.spelling = self
         if tv.isContinuousSpellCheckingEnabled != on { tv.isContinuousSpellCheckingEnabled = on }
     }
@@ -84,7 +84,7 @@ final class EditorSpelling {
 
     /// Misspellings in scope within `range` (the visible lines by default).
     func misspellings(in range: NSRange? = nil) -> [NSRange] {
-        guard checksThisDocument, let tv = tab?.textView else { return [] }
+        guard checksThisDocument, let tv = tab?.primaryTextView else { return [] }
         let ns = tv.string as NSString
         guard ns.length > 0 else { return [] }
         let r = range ?? tv.visibleCharacterRange ?? NSRange(location: 0, length: min(ns.length, 20_000))

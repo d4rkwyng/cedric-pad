@@ -93,7 +93,7 @@ extension EditorWindowController {
     /// Open Anyway; the tab shows the bar over an empty, read-only view.
     func holdBinary(_ text: String) {
         binary = .held(text)
-        textView.isEditable = false
+        setEditable(false)
         showBinaryBar()
     }
 
@@ -103,7 +103,7 @@ extension EditorWindowController {
         binary = .readOnly
         setText(text)
         doc.markSaved()
-        textView.isEditable = false
+        setEditable(false)
         showBinaryBar()
         grammar.apply()
     }
@@ -112,7 +112,7 @@ extension EditorWindowController {
     func allowBinaryEditing() {
         guard binary == .readOnly else { return }
         binary = .editable
-        textView.isEditable = true
+        setEditable(true)
         binaryBar?.isHidden = true
         grammar.apply()
     }

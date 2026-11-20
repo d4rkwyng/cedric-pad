@@ -249,6 +249,7 @@ enum TypingCheck {
                        String(format: "band %.2f:1, ", selC) + describe(selInk))
 
                 if kind == "untitled" { multiCaretCase(c, tab, window, ime: c.name == "dark") }
+                if kind == "file" { splitCase(c, tab, window) }
                 if c.name == "dark" && kind == "untitled" { extraChecks(app, tab, window) }
                 // Leave the tab without a save prompt.
                 tab.doc.markSaved()
@@ -260,6 +261,31 @@ enum TypingCheck {
         if let big = env["CEDRIC_TYPE_CHECK_BIG"] { bigFileCheck(app, big) }
         print("typecheck: done failures=\(failures)")
         exit(failures == 0 ? 0 : 1)
+    }
+
+    /// View › Split Editor: typing in the second pane (real keys through
+    /// the window) is drawn in both panes, in this theme; then unsplit.
+    static func splitCase(_ c: ThemeCase, _ tab: EditorWindowController, _ window: NSWindow) {
+        tab.splitPanes(focusSecond: true)
+        guard let s = tab.splitEditor else { report(false, "\(c.name)/split/made", "no split"); return }
+        let tv2 = s.second.textView, tv1 = tab.primaryTextView
+        report(window.firstResponder === tv2, "\(c.name)/split/second-pane-has-focus", "")
+        tab.scrollToLine(0, in: tab.primaryPane)
+        tab.scrollToLine(0, in: s.second)
+        tv2.setSelectedRange(NSRange(location: 0, length: 0))
+        let typed = "split typed "
+        type(window, typed)
+        let range = NSRange(location: 0, length: (typed as NSString).length)
+        report(tv1.string.hasPrefix(typed), "\(c.name)/split/keys-inserted", "text=\(String(tv1.string.prefix(20)).debugDescription)")
+        settle()
+        let p = tab.palette
+        let bgs = [p.background, p.currentLine]
+        let in2 = ink(tv2, glyphRects(tv2, range), backgrounds: bgs)
+        report(visible(in2), "\(c.name)/split/typed-visible-in-pane-2", describe(in2))
+        let in1 = ink(tv1, glyphRects(tv1, range), backgrounds: bgs)
+        report(visible(in1), "\(c.name)/split/typed-visible-in-pane-1", describe(in1))
+        tab.unsplit()
+        report(!tab.isSplit && tv1.contentStorage?.textLayoutManagers.count == 1, "\(c.name)/split/unsplit", "")
     }
 
     /// Paste, undo/redo, Replace All, theme switch mid-typing, marked text,

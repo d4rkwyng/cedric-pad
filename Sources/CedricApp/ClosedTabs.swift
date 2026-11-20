@@ -63,14 +63,14 @@ extension AppDelegate {
         if !keepText { store.removeBuffer(d.id) }
         // Kept for ⇧⌘T, but the file wasn't written: say so once (ClosedNotice.swift).
         if keepText, d.fileURL != nil, d.isDirty { noteClosedUnsaved(id: d.id, name: d.displayName) }
-        let sel = t.textView.selectedRange()
+        let sel = t.primaryTextView.selectedRange()
         let entry = SessionTab(id: d.id, path: d.fileURL?.path, untitledName: d.fileURL == nil ? d.untitledName : nil,
                                hasBuffer: keepText, encoding: d.encoding, lineEnding: d.lineEnding,
                                language: d.languageIsManual ? d.language : nil,
-                               selectionLocation: sel.location, selectionLength: sel.length, topLine: t.topLine,
+                               selectionLocation: sel.location, selectionLength: sel.length, topLine: t.primaryTopLine,
                                fileModified: d.fileModified,
                                bookmarks: t.editing.bookmarks.isEmpty ? nil : t.editing.bookmarks.lines,
-                               indentation: d.indentation)
+                               indentation: d.indentation, folds: t.sessionFolds, split: t.sessionSplit)
         let r = ClosedTabs.push(entry, onto: closedTabs)
         closedTabs = r.list
         for gone in r.dropped {
@@ -143,7 +143,9 @@ extension AppDelegate {
         }
         tab.updateTitle()
         let top = st.topLine
-        DispatchQueue.main.async { tab.scrollToLine(top) }
+        DispatchQueue.main.async { tab.scrollToLine(top, in: tab.primaryPane) }
+        if let folds = st.folds { tab.restoreFolds(folds) }
+        if let sp = st.split { tab.restoreSplit(sp) }
         saveSession()
     }
 }

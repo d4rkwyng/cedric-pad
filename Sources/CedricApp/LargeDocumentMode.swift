@@ -78,16 +78,22 @@ extension EditorWindowController {
         largePending = false
         if newText { largeOverride = false }
         let chunk = reason != nil ? LargeDocument.chunkLength : nil
+        // Folding is off in large mode (the chunks can't skip hidden lines).
+        if reason != nil { foldingContextChanged() }
         textView.contentStorage?.chunkLimit = chunk
-        if (chunk != nil) != wasChunked, !newText, let tlm = textView.textLayoutManager, let tcm = tlm.textContentManager {
-            // The text stays; TextKit drops its paragraphs and lays out the chunks.
-            tlm.invalidateLayout(for: tcm.documentRange)
-            textView.needsLayout = true
-            textView.needsDisplay = true
+        if (chunk != nil) != wasChunked, !newText {
+            // The text stays; TextKit drops its paragraphs and lays out the chunks (in every pane).
+            for tv in panes.map(\.textView) {
+                guard let tlm = tv.textLayoutManager, let tcm = tlm.textContentManager else { continue }
+                tlm.invalidateLayout(for: tcm.documentRange)
+                tv.needsLayout = true
+                tv.needsDisplay = true
+            }
         }
         if let reason, extrasPaused { largeBar.show(reason) }
         largeBar.isHidden = !extrasPaused
         colorizer.paused = extrasPaused
+        if !newText { updateGutterWidth() } // the fold column comes and goes
         // Spell checking (Spelling.swift) follows extrasPaused.
         spelling.apply()
         grammar.apply()

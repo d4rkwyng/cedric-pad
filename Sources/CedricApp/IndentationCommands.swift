@@ -71,7 +71,7 @@ extension EditorWindowController {
     /// The tab stops follow the width: restyle when it changed.
     func tabWidthChanged() {
         let attrs = baseAttributes()
-        textView.typingAttributes = attrs
+        panes.forEach { $0.textView.typingAttributes = attrs }
         guard let storage = textView.textStorage, storage.length > 0,
               let para = attrs[.paragraphStyle] as? NSParagraphStyle,
               (storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.defaultTabInterval != para.defaultTabInterval
@@ -81,7 +81,7 @@ extension EditorWindowController {
         storage.beginEditing()
         storage.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: storage.length))
         storage.endEditing()
-        textView.needsDisplay = true
+        panes.forEach { $0.textView.needsDisplay = true }
     }
 }
 
