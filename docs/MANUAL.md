@@ -442,7 +442,7 @@ colours meet WCAG AA contrast (4.5:1), checked by a test. SF Mono by
 default, or any installed fixed-pitch font; ⌘+ / ⌘− / ⌘0 zoom. The zoom
 in the status bar ("110%") is a menu too: Zoom In, Zoom Out, Actual Size
 and 75 % to 200 %. With the preview docked beside the editor, the status
-bar's items stay under the editor.
+bar's items stay under the editor (both panes of a split).
 
 ### Settings
 
