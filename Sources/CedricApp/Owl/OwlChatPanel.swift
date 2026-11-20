@@ -14,6 +14,9 @@ final class OwlChatStore {
     static let shared = OwlChatStore()
     private(set) var histories: [UUID: [OwlChatEntry]] = [:]
     private var cached: (settings: LocalAISettings, engine: any OwlChatEngine)?
+    /// The last engine's context budget, for the scopes offered before the
+    /// engine is made; till then the smallest (Apple Intelligence's).
+    private(set) var contextBudget = 5_000
     let gate = OwlToolGate.bundled()
 
     func history(_ id: UUID) -> [OwlChatEntry] { histories[id] ?? [] }
@@ -35,12 +38,15 @@ final class OwlChatStore {
     func engine() async -> (any OwlChatEngine)? {
         if let d = AskCedricEngine.fakeDelay {
             let piece = DevEnvironment.values["CEDRIC_OWL_CHAT_FAKE_DELAY"].flatMap(Double.init) ?? min(0.08, max(0.01, d / 10))
-            return FakeChatEngine(delay: piece)
+            let e = FakeChatEngine(delay: piece)
+            contextBudget = e.contextBudget
+            return e
         }
         guard let s = AskCedricEngine.settings() else { return nil }
-        if let c = cached, c.settings == s { return c.engine }
+        if let c = cached, c.settings == s { contextBudget = c.engine.contextBudget; return c.engine }
         guard let e = await OwlChatEngines.make(settings: s) else { return nil }
         cached = (s, e)
+        contextBudget = e.contextBudget
         return e
     }
 
@@ -420,16 +426,19 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     func refresh() {
         guard let tab else { return }
         let s = snapshot()
-        let budget = 6_000
+        // The engine's own budget: a scope offered here must fit when asked.
+        let budget = OwlChatStore.shared.contextBudget
         scopes = OwlChatContext.scopes(for: s, budget: budget)
-        let current = scopes.first { $0.rawValue == scopePopup.selectedItem?.representedObject as? String }
+        // The user's own pick stays while it's offered; else the default
+        // (the whole document when it fits), worked out again each time.
+        let current = pickedScope.flatMap { scopes.contains($0) ? $0 : nil }
         scopePopup.removeAllItems()
         for sc in scopes {
             let label = OwlChatContext.build(s, scope: sc, budget: budget)?.label ?? sc.title
             scopePopup.addItem(withTitle: label)
             scopePopup.lastItem?.representedObject = sc.rawValue
         }
-        let pick = current ?? OwlChatContext.defaultScope(for: s)
+        let pick = current ?? OwlChatContext.defaultScope(for: s, budget: budget)
         if let i = scopes.firstIndex(of: pick) { scopePopup.selectItem(at: i) }
         let prose = isProse
         let script = !prose && ScriptSafety.isScript(tab.doc.language)
@@ -470,10 +479,13 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
 
     func selectScope(_ s: OwlChatScope) {
-        if let i = scopes.firstIndex(of: s) { scopePopup.selectItem(at: i) }
+        if let i = scopes.firstIndex(of: s) { scopePopup.selectItem(at: i); pickedScope = s }
     }
 
-    @objc private func scopeChanged(_ sender: Any?) {}
+    /// The scope the user picked from the menu (nil: the default).
+    private var pickedScope: OwlChatScope?
+
+    @objc private func scopeChanged(_ sender: Any?) { pickedScope = selectedScope }
 
     // MARK: Transcript
 

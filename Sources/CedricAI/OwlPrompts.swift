@@ -115,9 +115,16 @@ public enum OwlPrompts {
     """
 
     /// The system prompt for a chat question.
-    public static func chatSystem(toolsOn: Bool, server: Bool = false) -> String {
+    /// `digest`: a digest of the rest of the document follows the shown
+    /// text (`OwlChatRequest.digest`, for a model without tools).
+    public static func chatSystem(toolsOn: Bool, server: Bool = false, digest: Bool = false) -> String {
         var s = persona(server: server) + "\n\n" + chatTask + "\n\n" + untrustedDocument + " " + chatInjection
-        if toolsOn {
+        if digest, !toolsOn {
+            s += "\n\nYou see only part of the document: the \"Shown:\" line gives the lines you see and how many it has in all. "
+                + "After the shown text come the outline of the whole document (headings with line numbers, and how many list items "
+                + "and table rows each section has) and the lines that best match the question: use them for questions about the "
+                + "whole document, and count from the outline. Never answer as if you had seen lines you haven't."
+        } else if toolsOn {
             s += "\n\nYou can call tools to read more of the document or to propose an edit. "
                 + "You usually see only part of the document: the \"Shown:\" line gives the lines you see and how many it has in all. "
                 + "Before saying something isn't in the document, call search_document (or get_lines) to look at the rest. "
@@ -193,8 +200,9 @@ public enum OwlPrompts {
     /// shown lines are only part of it.
     public static func chatMessages(question: String, context: OwlChatContext, language: String, fileName: String?,
                                     history: [OwlChatEntry], toolsOn: Bool, model: String, server: Bool = false,
-                                    canDescribeImage: Bool = false, totalLines: Int? = nil) -> [OwlChatMessage] {
-        var out: [OwlChatMessage] = [.system(chatSystem(toolsOn: toolsOn, server: server))]
+                                    canDescribeImage: Bool = false, totalLines: Int? = nil,
+                                    digest: String? = nil) -> [OwlChatMessage] {
+        var out: [OwlChatMessage] = [.system(chatSystem(toolsOn: toolsOn, server: server, digest: digest != nil))]
         // Older turns are dropped (small context): the last two questions and answers.
         var kept: [OwlChatEntry] = []
         var users = 0
@@ -216,7 +224,9 @@ public enum OwlPrompts {
         let partial = totalLines.map { context.firstLine > 1 || context.lastLine < $0 } ?? false
         if let total = totalLines, partial { user += " of \(total)" }
         if context.truncated { user += " (trimmed; use tools or ask for less)" }
-        user += "\n```\n\(context.numbered)\n```\n\n\(question)"
+        user += "\n```\n\(context.numbered)\n```\n\n"
+        if let digest { user += digest + "\n\n" }
+        user += question
         if partial, toolsOn, let total = totalLines {
             user += "\n(You see lines \(context.firstLine)-\(context.lastLine) of \(total). If the answer isn't in them, look with a tool before saying it isn't there.)"
         }

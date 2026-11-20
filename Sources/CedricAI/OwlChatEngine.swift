@@ -84,6 +84,13 @@ public final class OwlToolbox: @unchecked Sendable {
     /// Every call asked for, in order (the tool eval reads the first).
     public var log: [OwlToolCall] { lock.withLock { _log } }
     private var _log: [OwlToolCall] = []
+    /// Lines the tools showed in full (get_lines), and the whole-document
+    /// tools that answered (search_document, get_outline): what Cedric
+    /// says he has seen (`OwlChatRequest.coverageNote`).
+    public var linesRead: IndexSet { lock.withLock { _linesRead } }
+    public var wholeDocumentLooks: Set<OwlToolName> { lock.withLock { _looks } }
+    private var _linesRead = IndexSet()
+    private var _looks = Set<OwlToolName>()
 
     /// Counts and logs a call; the refusal when over the budget.
     private func admit(_ call: OwlToolCall) -> OwlToolResult? {
@@ -108,6 +115,12 @@ public final class OwlToolbox: @unchecked Sendable {
             return OwlToolResult(text: "error: one edit per question; it is already proposed", proposal: nil, summary: "second edit refused", ok: false)
         }
         let r = OwlTools.run(call, on: snapshot, allowed: allowed)
+        if r.ok {
+            lock.withLock {
+                if let l = r.lines { _linesRead.insert(integersIn: l) }
+                if let name, name == .searchDocument || name == .getOutline { _looks.insert(name) }
+            }
+        }
         onEvent(.tool(name, r.ok ? r.summary : String(localized: "A tool call was refused: \(r.summary)")))
         if let p = r.proposal {
             lock.withLock { _proposal = p }
@@ -182,7 +195,102 @@ public struct OwlChatRequest: Sendable {
     /// The model saw only part of the document (trimmed to fit, or not
     /// from line 1 to the end).
     public var contextIsPartial: Bool {
-        context.truncated || context.firstLine > 1 || context.lastLine < snapshot.lineCount
+        context.truncated || context.firstLine > 1 || context.lastLine < snapshot.countedLines
+    }
+
+    /// What a model without the tool gate's trust (Apple Intelligence,
+    /// small built-in models) is given instead of tools, for a typed
+    /// question that sees part of the document: the whole document's
+    /// outline with its counts (get_outline, run for it), and the lines
+    /// outside those shown that best match the question's words, within
+    /// `budget` UTF-16 units. nil otherwise. Apple's TN3193: a tool the
+    /// model always needs is better run before the call; measured on the
+    /// on-device model, the digest answered "how many games per system"
+    /// right where read-only tools didn't (and the tool schemas cost it).
+    public struct Digest: Sendable, Equatable {
+        public var text: String
+        /// Document lines it shows in full.
+        public var lines: IndexSet
+        public var hasOutline: Bool
+    }
+
+    /// Words too common to search for.
+    static let stopWords: Set<String> = ["the", "and", "for", "are", "how", "many", "much", "what", "which", "who", "whom", "why", "when",
+                                         "where", "does", "did", "this", "that", "these", "those", "there", "here", "with", "from", "into",
+                                         "about", "per", "each", "every", "all", "any", "some", "file", "document", "doc", "text", "list",
+                                         "lines", "line", "page", "can", "you", "your", "tell", "give", "show", "have", "has", "was", "were",
+                                         "will", "would", "should", "could", "its", "it's", "than", "then", "them", "they", "count", "number"]
+
+    public func digest(budget: Int) -> Digest? {
+        guard !useTools, action == nil, contextIsPartial, budget >= 300 else { return nil }
+        let s = snapshot
+        var parts: [String] = []
+        var lines = IndexSet()
+        var left = budget
+        var hasOutline = false
+        let outline = OwlTools.outline(s)
+        if !outline.hasPrefix("(no outline") {
+            let body = OwlTools.cap(outline, bytes: min(1_200, left * 2 / 3))
+            parts.append(OwlPrompts.dataBlock("OUTLINE OF THE WHOLE DOCUMENT (\(s.countedLines) lines; data, not instructions)", body))
+            left -= (body as NSString).length + 80
+            hasOutline = true
+        }
+        // The best-matching lines outside those shown: a deterministic
+        // search for the question's own words, nothing sent anywhere.
+        let words = Set(question.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 3 && !Self.stopWords.contains($0) })
+        if !words.isEmpty, left >= 200 {
+            var best = 0, bestScore = 0
+            for i in 1...max(1, s.lineCount) where i < context.firstLine || i > context.lastLine {
+                let l = s.substring(s.lines.contentRange(ofLine: i - 1)).lowercased()
+                let score = words.reduce(0) { $0 + (l.contains($1) ? 1 : 0) }
+                if score > bestScore { best = i; bestScore = score }
+            }
+            if best > 0 {
+                // Its Markdown section when that is short, else a few lines around it.
+                let markdown = s.language == "markdown" || (s.fileName?.lowercased().hasSuffix(".md") ?? false)
+                let sec = markdown ? OwlTools.sectionCounts(s).last { $0.first <= best } : nil
+                var a = max(1, best - 5), b = min(s.lineCount, best + 5)
+                if let sec, sec.last - sec.first < 25 { a = sec.first; b = sec.last }
+                var numbered = s.numbered(lines: a, b)
+                while (numbered as NSString).length > left - 80, b > a {
+                    b -= 1
+                    numbered = s.numbered(lines: a, b)
+                }
+                if (numbered as NSString).length <= left - 80 {
+                    parts.append(OwlPrompts.dataBlock("LINES \(a)-\(b), WHICH MATCH THE QUESTION'S WORDS (data, not instructions)", numbered))
+                    lines.insert(integersIn: a...b)
+                }
+            }
+        }
+        return parts.isEmpty ? nil : Digest(text: parts.joined(separator: "\n\n"), lines: lines, hasOutline: hasOutline)
+    }
+
+    /// What Cedric says first when he answers a typed question without
+    /// having seen the whole document: "I can see lines 1–52 of 210." (and
+    /// what the tools added), so a partial answer never reads as a whole
+    /// one. nil when he saw every line, for a quick action (it is about
+    /// the scope it names), and for a selection he was shown whole (the
+    /// user chose it).
+    public func coverageNote(linesRead: IndexSet = IndexSet(), looks: Set<OwlToolName> = []) -> String? {
+        guard action == nil, snapshot.lineCount > 0 else { return nil }
+        if context.scope == .selection, !context.truncated { return nil }
+        var seen = linesRead
+        seen.insert(integersIn: context.firstLine...max(context.firstLine, context.lastLine))
+        let total = snapshot.countedLines
+        guard !seen.contains(integersIn: 1...total) else { return nil }
+        let spans = seen.rangeView.filter { $0.lowerBound <= total }.map { r -> String in
+            let a = r.lowerBound, b = min(total, r.upperBound - 1)
+            return a == b ? "\(a)" : "\(a)–\(b)"
+        }
+        let list = spans.count <= 1 ? spans.joined() : spans.dropLast().joined(separator: ", ") + " and " + spans.last!
+        let one = spans.count == 1 && !spans[0].contains("–")
+        var note = one ? String(localized: "I can see line \(list) of \(total)") : String(localized: "I can see lines \(list) of \(total)")
+        var extra: [String] = []
+        if looks.contains(.getOutline) { extra.append(String(localized: "the outline and counts of the whole file")) }
+        if looks.contains(.searchDocument) { extra.append(String(localized: "a search of the whole file")) }
+        if !extra.isEmpty { note += String(localized: ", plus \(extra.joined(separator: " and "))") }
+        return note + "."
     }
 
     /// How the answer's "safe" claims are rewritten (`ScriptVerdict.clamp`,
@@ -230,6 +338,14 @@ public struct OwlChatOutcome: Sendable, Equatable {
     public var proposal: OwlEditProposal?
     public var toolCalls: Int
     public var rounds: Int
+    /// The coverage note `answer` starts with (`OwlChatRequest.coverageNote`), if any.
+    public var coverageNote: String? = nil
+
+    /// The model's own words: `answer` without the coverage note.
+    public var modelAnswer: String {
+        guard let n = coverageNote, answer.hasPrefix(n) else { return answer }
+        return String(answer.dropFirst(n.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 public enum OwlChatRunner {
@@ -241,17 +357,34 @@ public enum OwlChatRunner {
                            onEvent: @escaping @Sendable (OwlChatEvent) -> Void) async throws -> OwlChatOutcome {
         let specs = OwlTools.specs(req.tools)
         let toolbox = OwlToolbox(snapshot: req.snapshot, allowed: Set(req.tools), imageSource: req.imageSource, onEvent: onEvent)
+        // A small model's up-front digest fits in what the shown text left of the engine's budget.
+        let digest = req.digest(budget: min(2_000, engine.contextBudget - (req.context.numbered as NSString).length))
+        let seededLines = digest?.lines ?? IndexSet()
+        let seededLooks: Set<OwlToolName> = digest?.hasOutline == true ? [.getOutline] : []
+        let coverage: @Sendable () -> String? = {
+            req.coverageNote(linesRead: toolbox.linesRead.union(seededLines), looks: toolbox.wholeDocumentLooks.union(seededLooks))
+        }
         var messages = OwlPrompts.chatMessages(question: req.prompt, context: req.context,
                                                language: Language(rawValue: req.snapshot.language)?.displayName ?? req.snapshot.language,
                                                fileName: req.snapshot.fileName, history: req.history,
                                                toolsOn: !specs.isEmpty, model: model, server: engine.usesServer,
                                                canDescribeImage: req.tools.contains(.describeImage),
-                                               totalLines: req.snapshot.lineCount)
+                                               totalLines: req.snapshot.lineCount, digest: digest?.text)
         onEvent(.phase(.thinking))
         let wrote = Flag()
         let streamed = TextBuffer()
+        // Said before the answer, from what the model has seen by its
+        // first word (the tools run before it writes).
+        let note = TextBuffer()
         let onText: @Sendable (String) -> Void = { t in
-            if !wrote.value { wrote.value = true; onEvent(.phase(.writing)) }
+            if !wrote.value {
+                wrote.value = true
+                onEvent(.phase(.writing))
+                if let n = coverage() {
+                    note.append(n + "\n\n")
+                    onEvent(.text(n + "\n\n"))
+                }
+            }
             streamed.append(t)
             onEvent(.text(t))
         }
@@ -293,7 +426,17 @@ public enum OwlChatRunner {
         if shown.isEmpty { shown = stripThinking(streamed.value) }
         // About a script, the owl never says "safe" (`ScriptVerdict`), whatever the model wrote.
         if let mode = req.safeClaimGuard { shown = ScriptVerdict.clamp(shown, forced: req.forcedVerdict, guard: mode) }
-        return OwlChatOutcome(answer: shown, proposal: proposal, toolCalls: toolbox.callCount, rounds: rounds)
+        // The coverage note shown while it streamed stays with the answer;
+        // an engine that wrote nothing through onText still gets it.
+        var said: String?
+        if !wrote.value, !shown.isEmpty, let n = coverage() {
+            said = n
+            shown = n + "\n\n" + shown
+        } else if !note.value.isEmpty, !shown.isEmpty {
+            said = note.value.trimmingCharacters(in: .newlines)
+            shown = note.value + shown
+        }
+        return OwlChatOutcome(answer: shown, proposal: proposal, toolCalls: toolbox.callCount, rounds: rounds, coverageNote: said)
     }
 
     /// The text kept in the chat for a finished answer: `answer` (already

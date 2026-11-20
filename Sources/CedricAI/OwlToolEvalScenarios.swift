@@ -237,7 +237,8 @@ extension OwlToolEval {
             return Result(question: c.question, expected: expected, got: "error: \(error)", pass: false, seconds: Date().timeIntervalSince(t0))
         }
         let calls = tools.mutate { $0 }
-        let verdict = check(c, answer: outcome.answer, calls: calls, proposal: outcome.proposal, snapshot: snap)
+        // Scored on the model's own words, not the coverage note the app adds.
+        let verdict = check(c, answer: outcome.modelAnswer, calls: calls, proposal: outcome.proposal, snapshot: snap)
         let used = calls.map { $0.0?.rawValue ?? "?" }.joined(separator: ",")
         let got = (verdict.map { "[\($0)] " } ?? "") + (used.isEmpty ? "" : "tools=\(used) ")
             + (outcome.proposal.map { "edit \($0.firstLine)-\($0.lastLine) " } ?? "")

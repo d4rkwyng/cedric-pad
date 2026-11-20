@@ -29,7 +29,7 @@ import Testing
         #expect(OwlChatContext.scopes(for: s, budget: 10) == [.visible])
         let sel = OwlDocumentSnapshot(text: Self.doc, generation: 1, selection: NSRange(location: 4, length: 3))
         #expect(OwlChatContext.scopes(for: sel, budget: 1000) == [.selection, .visible, .wholeDocument])
-        #expect(OwlChatContext.defaultScope(for: sel) == .selection)
+        #expect(OwlChatContext.defaultScope(for: sel, budget: 1000) == .selection)
         #expect(OwlChatContext.build(s, scope: .selection, budget: 1000) == nil)
     }
 
