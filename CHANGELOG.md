@@ -4,6 +4,14 @@ All notable changes to Owlink. The format follows [Keep a Changelog](https://kee
 and Owlink uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
+## [Unreleased]
+
+### Security
+- **An AI server on your network named over https is checked after each request too.** If the connection went to a public address (a DNS answer that changed after Owlink's check), the answer is thrown away and you see an error. Plain http was already sent to the checked address; https can't be, because the certificate is checked by name. The manual's Privacy section explains what this does and doesn't stop.
+
+### Fixed
+- **IPv6 link-local AI server addresses keep their interface.** An address typed as `[fe80::1%en0]` is saved in the standard URL form (`%25en0`), the private-address checks understand the interface part, and a `.local` name that has only a link-local address is reached at the checked address, with its interface, instead of being looked up a second time.
+
 ## [0.2.1]
 
 ### Added

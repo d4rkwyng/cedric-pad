@@ -846,6 +846,20 @@ the cloud. What Owlink keeps on this Mac, all under
   isn't loaded.
 - **`cli-token`**: the `cedric` command's secret, new at every launch.
 
+An AI server on your network (LM Studio, Ollama) must be named or
+addressed privately: loopback, a LAN address, Tailscale, or an IPv6
+link-local address with its interface, such as `http://[fe80::1%en0]:1234`.
+Before each request Owlink looks the name up and refuses it unless every
+address is private. Over plain **http** the request then goes to that
+checked address, so a DNS answer that changes a moment later can't send
+your text elsewhere. Over **https** it can't (the server's certificate is
+chosen and checked by name), so the certificate must match the name, and
+after each request Owlink checks the address it actually connected to:
+if it was public, the answer is thrown away and you see an error, but
+that one request had already been sent. If you worry about your local
+DNS, use plain http on your LAN, or the server's address instead of its
+name.
+
 A release build of Owlink ignores the `CEDRIC_*` developer and test
 switches (they could make it open files or load a model at another
 program's request); only the few that open nothing, such as the launch

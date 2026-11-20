@@ -39,6 +39,90 @@ import CedricCore
         await #expect(throws: LocalAIError.endpointNotLocal("studio.local")) { try await client.checkLocal() }
     }
 
+    // MARK: 0.2.1 review M3: IPv6 link-local zones, the peer check after https
+
+    @Test func linkLocalZonesAreAddresses() throws {
+        // The policy takes the decoded zone, as URL.host and getnameinfo give it.
+        for a in ["fe80::1%en0", "FE80::1%lo0", "fe80::1ce8:63fb:78fa:d96f%en0", "fe80::1%17", "fd00::1%en0"] {
+            #expect(LocalEndpointPolicy.isPrivateAddress(a), "\(a)")
+        }
+        for a in ["8.8.8.8%en0", "192.168.1.1%en0", "2606:4700::1111%en0", "fe80::1%", "fe80::1%en0/x", "fe80::1%en 0"] {
+            #expect(!LocalEndpointPolicy.isPrivateAddress(a), "\(a)")
+        }
+        #expect(LocalEndpointPolicy.isLinkLocalV6("fe80::1%en0") && LocalEndpointPolicy.isLinkLocalV6("febf::1"))
+        #expect(!LocalEndpointPolicy.isLinkLocalV6("fec0::1") && !LocalEndpointPolicy.isLinkLocalV6("169.254.1.1"))
+        // A URL with a zone ("%25" in the URL, decoded by URL.host).
+        #expect(LocalEndpointPolicy.isAllowed(URL(string: "http://[fe80::1%25en0]:1234/v1")!))
+        #expect(LocalEndpointPolicy.isAllowed(URL(string: "http://[::ffff:192.168.1.5]:1234/v1")!), "IPv4-mapped LAN address")
+        #expect(!LocalEndpointPolicy.isAllowed(URL(string: "http://[2606:4700::1111%25en0]/v1")!))
+        #expect(!LocalEndpointPolicy.isAllowed(URL(string: "http://[fec0::1]/v1")!), "site-local is deprecated, not LAN")
+        // Typed with a bare "%": written "%25" in the endpoint URL.
+        let typed = try #require(LocalAISettings.parseEndpoint("[fe80::1%en0]:1234"))
+        #expect(typed.absoluteString == "http://[fe80::1%25en0]:1234/v1")
+        #expect(typed.host == "fe80::1%en0")
+        #expect(LocalAISettings.parseEndpoint("http://[fe80::1%25en0]:1234")?.absoluteString == "http://[fe80::1%25en0]:1234/v1")
+        #expect(LocalAISettings.parseEndpoint("[fe80::1%en0]:1234")!.appendingPathComponent("models").absoluteString
+                == "http://[fe80::1%25en0]:1234/v1/models")
+    }
+
+    @Test func linkLocalAnswerIsPinnedWithItsZone() async throws {
+        let req = URLRequest(url: URL(string: "http://studio.local:1234/v1/models")!)
+        // mDNS gave only a link-local address, with its interface: pinned to it.
+        let pin = LocalModelClient.Pin(host: "studio.local", addresses: ["fe80::1ce8:63fb:78fa:d96f%en0"])
+        #expect(pin.address == "fe80::1ce8:63fb:78fa:d96f%en0")
+        let r = pin.apply(req)
+        #expect(r.url?.absoluteString == "http://[fe80::1ce8:63fb:78fa:d96f%25en0]:1234/v1/models")
+        #expect(r.url?.host == "fe80::1ce8:63fb:78fa:d96f%en0")
+        #expect(r.value(forHTTPHeaderField: "Host") == "studio.local:1234")
+        // IPv4, then a routable IPv6 address, come before a link-local one.
+        #expect(LocalModelClient.Pin(host: "s.local", addresses: ["fe80::1%en0", "192.168.1.20"]).address == "192.168.1.20")
+        #expect(LocalModelClient.Pin(host: "s.local", addresses: ["fe80::1%en0", "fd00::5"]).address == "fd00::5")
+        // Without a zone it can't be connected to: not pinned.
+        #expect(LocalModelClient.Pin(host: "s.local", addresses: ["fe80::1"]).address == nil)
+        // A link-local address in the URL is already an address.
+        #expect(LocalModelClient.Pin(host: "fe80::1%en0", addresses: ["fe80::1%en0"]).address == nil)
+        #expect(LocalModelClient.Pin(host: "[fe80::1%en0]", addresses: ["fe80::1%en0"]).address == nil)
+        // checkLocal takes the zoned answer the lookup gives.
+        var client = LocalModelClient(baseURL: URL(string: "http://studio.local:1234/v1")!, timeout: 5)
+        client.resolver = { _ in ["fe80::1%en0"] }
+        #expect(try await client.checkLocal().address == "fe80::1%en0")
+        client.resolver = { _ in ["fe80::1%en0", "2606:4700::1111"] }
+        await #expect(throws: LocalAIError.endpointNotLocal("studio.local")) { try await client.checkLocal() }
+        // The real lookup keeps the zone of a link-local address.
+        let looked = await LocalEndpointPolicy.resolve("fe80::1%lo0")
+        #expect(!looked.isEmpty && looked.allSatisfy { $0 == "fe80::1%lo0" }, "\(looked)")
+    }
+
+    @Test func peerCheckRefusesAPublicConnection() async throws {
+        let g = LocalModelClient.RedirectGuard()
+        g.record(["192.168.1.20", "fe80::1%en0", "::1"])
+        try await g.checkPeers(wait: 0)
+        let pub = LocalModelClient.RedirectGuard()
+        pub.record(["10.0.0.2", "8.8.8.8"])
+        await #expect(throws: LocalAIError.endpointNotLocal("8.8.8.8")) { try await pub.checkPeers(wait: 0) }
+        // No report (no connection, a stub protocol): passes after the wait.
+        let none = LocalModelClient.RedirectGuard()
+        let t0 = Date()
+        try await none.checkPeers(wait: 0.05)
+        #expect(Date().timeIntervalSince(t0) < 1)
+    }
+
+    @Test func peerCheckSeesARealConnection() async throws {
+        let server = try OneShotHTTPServer(body: #"{"data":[{"id":"m"}]}"#)
+        let base = URL(string: "http://127.0.0.1:\(server.port)/v1")!
+        let client = LocalModelClient(baseURL: base, timeout: 5)
+        // Through the client: the peer (127.0.0.1) is private, the list comes back.
+        #expect(try await client.listModels().map(\.id) == ["m"])
+        // The guard got the connection's address from URLSession.
+        let again = try OneShotHTTPServer(body: "{}")
+        let g = LocalModelClient.RedirectGuard()
+        let (bytes, _) = try await URLSession(configuration: .ephemeral)
+            .bytes(for: URLRequest(url: URL(string: "http://127.0.0.1:\(again.port)/")!), delegate: g)
+        for try await _ in bytes {}
+        try await g.checkPeers(wait: 2)
+        #expect(g.connectedAddresses?.contains("127.0.0.1") == true)
+    }
+
     // MARK: 10. Installed models are re-hashed before a load
 
     @Test func modelIsRehashedAfterAnyChange() throws {
@@ -130,5 +214,50 @@ import CedricCore
         #expect(store.verifiedForLoad(model))
         let upgraded = try String(contentsOf: stampFile, encoding: .utf8)
         #expect(upgraded != old && upgraded.contains(" c"), "an old stamp is replaced after one re-hash")
+    }
+}
+
+/// A real HTTP server on 127.0.0.1 for one connection (URLSession reports a
+/// real peer address for it, unlike `StubServer`'s URL protocol). Answers
+/// every request on that connection with `body`, then closes.
+final class OneShotHTTPServer: @unchecked Sendable {
+    let port: Int
+
+    init(body: String) throws {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw POSIXError(.EIO) }
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        addr.sin_port = 0
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let ok = withUnsafeMutablePointer(to: &addr) { p in
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) { sp in
+                bind(fd, sp, len) == 0 && listen(fd, 4) == 0 && getsockname(fd, sp, &len) == 0
+            }
+        }
+        guard ok else { close(fd); throw POSIXError(.EADDRINUSE) }
+        port = Int(UInt16(bigEndian: addr.sin_port))
+        let listener = fd
+        Thread.detachNewThread {
+            defer { close(listener) }
+            let c = accept(listener, nil, nil)
+            guard c >= 0 else { return }
+            defer { close(c) }
+            var tv = timeval(tv_sec: 5, tv_usec: 0)
+            setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+            var got = [UInt8]()
+            var buf = [UInt8](repeating: 0, count: 4096)
+            while !String(decoding: got, as: UTF8.self).contains("\r\n\r\n") {
+                let n = read(c, &buf, buf.count)
+                if n <= 0 { return }
+                got += buf[0..<n]
+            }
+            let payload = Array(body.utf8)
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(payload.count)\r\nConnection: close\r\n\r\n"
+            let out = Array(head.utf8) + payload
+            _ = out.withUnsafeBytes { write(c, $0.baseAddress, $0.count) }
+        }
     }
 }

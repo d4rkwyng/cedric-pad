@@ -129,11 +129,10 @@ public enum LocalEndpointPolicy {
         // Tailnet MagicDNS. A Funnel host is public; the client also
         // requires every resolved address to be private (resolvesPrivately).
         if host.hasSuffix(".ts.net") { return true }
-        if host == "::1" { return true }
         if host.contains(":") {
-            // IPv6: unique-local fc00::/7 and link-local fe80::/10.
-            return host.hasPrefix("fc") || host.hasPrefix("fd") || host.hasPrefix("fe8")
-                || host.hasPrefix("fe9") || host.hasPrefix("fea") || host.hasPrefix("feb")
+            // IPv6: loopback, unique-local fc00::/7, link-local fe80::/10
+            // (with or without a zone, "fe80::1%en0").
+            return isPrivateAddress(host)
         }
         let parts = host.split(separator: ".").compactMap { Int($0) }
         guard parts.count == 4, parts.allSatisfy({ (0...255).contains($0) }) else {
@@ -155,9 +154,49 @@ extension LocalEndpointPolicy {
         return from.port == to.port
     }
 
-    /// Loopback, RFC 1918, CGNAT (Tailscale), link-local, IPv6 unique-local.
-    public static func isPrivateAddress(_ ip: String) -> Bool {
+    /// An address split from its IPv6 zone: "fe80::1%en0" → ("fe80::1", "en0").
+    /// The zone is the decoded form (as `URL.host` and getnameinfo give
+    /// it, not "%25en0"), an interface name or number. nil when there is a
+    /// "%" but the zone is empty or has other characters. The address part
+    /// is not checked here.
+    static func splitZone(_ ip: String) -> (address: String, zone: String?)? {
+        guard let pct = ip.firstIndex(of: "%") else { return (ip, nil) }
+        let zone = ip[ip.index(after: pct)...]
+        guard !zone.isEmpty, zone.count <= 32,
+              zone.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) && $0.isASCII || "._-".unicodeScalars.contains($0) })
+        else { return nil }
+        return (String(ip[..<pct]), String(zone))
+    }
+
+    /// An IPv6 link-local address (fe80::/10), with or without a zone.
+    static func isLinkLocalV6(_ ip: String) -> Bool {
+        var a6 = in6_addr()
+        guard let (addr, _) = splitZone(ip), inet_pton(AF_INET6, addr, &a6) == 1 else { return false }
+        let b = withUnsafeBytes(of: a6) { Array($0) }
+        return b[0] == 0xfe && b[1] & 0xc0 == 0x80
+    }
+
+    /// An IPv4 or IPv6 address (an IPv6 one may carry a zone), not a name.
+    static func isAddress(_ s: String) -> Bool {
+        guard let (addr, zone) = splitZone(s) else { return false }
         var a = in_addr(), a6 = in6_addr()
+        if zone == nil, inet_pton(AF_INET, addr, &a) == 1 { return true }
+        return inet_pton(AF_INET6, addr, &a6) == 1
+    }
+
+    /// Loopback, RFC 1918, CGNAT (Tailscale), link-local, IPv6 unique-local.
+    /// An IPv6 address may carry a zone ("fe80::1%en0", as a link-local
+    /// address from a name lookup or a connection's peer has); an IPv4 one
+    /// may not.
+    public static func isPrivateAddress(_ ip: String) -> Bool {
+        guard let (bare, zone) = splitZone(ip) else { return false }
+        var a = in_addr(), a6 = in6_addr()
+        if zone != nil {
+            // Only IPv6 has zones.
+            guard inet_pton(AF_INET6, bare, &a6) == 1 else { return false }
+            return isPrivateAddress(bare)
+        }
+        let ip = bare
         if inet_pton(AF_INET, ip, &a) == 1 {
             let v = UInt32(bigEndian: a.s_addr)
             let b0 = v >> 24, b1 = (v >> 16) & 0xff
@@ -194,9 +233,9 @@ extension LocalEndpointPolicy {
                 while let ai = p {
                     var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
                     if getnameinfo(ai.pointee.ai_addr, ai.pointee.ai_addrlen, &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 {
-                        var s = String(cString: buf)
-                        if let pct = s.firstIndex(of: "%") { s = String(s[..<pct]) }   // fe80::1%en0
-                        out.append(s)
+                        // A link-local IPv6 address keeps its zone ("fe80::1%en0"):
+                        // without it the address can't be connected to.
+                        out.append(String(cString: buf))
                     }
                     p = ai.pointee.ai_next
                 }
@@ -255,6 +294,11 @@ extension LocalAISettings {
         guard !s.isEmpty else { return nil }
         if !s.contains("://") { s = "http://" + s }
         guard var c = URLComponents(string: s), c.host?.isEmpty == false else { return nil }
+        // An IPv6 zone typed as "%en0": written "%25en0" in the URL (RFC 6874).
+        if let h = c.host, h.hasPrefix("["), h.hasSuffix("]"),
+           let (addr, zone) = LocalEndpointPolicy.splitZone(String(h.dropFirst().dropLast())), let zone {
+            c.percentEncodedHost = "[\(addr)%25\(zone)]"
+        }
         if c.path.isEmpty || c.path == "/" { c.path = "/v1" }
         while c.path.count > 1 && c.path.hasSuffix("/") { c.path.removeLast() }
         guard let url = c.url, LocalEndpointPolicy.isAllowed(url) else { return nil }

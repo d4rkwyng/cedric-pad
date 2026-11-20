@@ -904,9 +904,26 @@ implements the shared `OwlHintProvider` contract from `CedricCore/Owl`.
   not loopback, `.local`/`.lan`/`.home.arpa`, a bare LAN name, a tailnet
   `.ts.net` name, or a private/CGNAT/link-local address, before a request is
   built, and a name must also resolve only to private addresses (so a
-  public Funnel `.ts.net` host or a search-domain surprise is refused; the
-  connection's own lookup a moment later could still differ: DNS rebinding
-  is not ruled out). Redirects are followed only to the same host and
+  public Funnel `.ts.net` host or a search-domain surprise is refused).
+  *DNS rebinding:* `checkLocal()` returns a `Pin`. A plain-http server
+  named by a host name is then reached at the checked address itself
+  (IPv4 first, then IPv6; an IPv6 link-local one with the zone the lookup
+  gave, `http://[fe80::1%25en0]:1234`), with the name in the `Host` header,
+  so a second lookup can't send the text elsewhere. https is **not**
+  pinned: URLSession sends the URL's host as the TLS server name (SNI) and
+  can't connect to one address while naming another, and LAN servers
+  behind Caddy or `tailscale serve` choose their certificate by that name.
+  For https the certificate must match the name (a public CA won't issue
+  one for a `.local`, `.lan` or bare name), and after every request
+  `RedirectGuard.checkPeers` reads the connections' peer addresses from
+  URLSessionTaskMetrics and fails the request if one is public. That check
+  comes after the request was sent (metrics arrive with the response), so
+  for https it drops the answer and shows the error but can't stop that one
+  request's text from leaving; if URLSession reports no metrics within a
+  second it passes. IPv6 zones: `isPrivateAddress`, `isAllowed` and
+  `parseEndpoint` take `fe80::1%en0` (an endpoint typed with `%en0` is
+  stored as `%25en0`); a link-local answer without a zone isn't pinned.
+  Redirects are followed only to the same host and
   port, and a response over 2 MB is dropped. There is no cloud backend and
   no API-key field. The session is ephemeral (no cookies or disk cache)
   and ignores system proxies.
