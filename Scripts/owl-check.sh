@@ -113,7 +113,7 @@ CEDRIC_SESSION_DIR="$WORK/session-picture" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION
 CEDRIC_OPEN="$WORK/binoculars.svg" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=1 CEDRIC_OWL_TOOLS=0 \
 CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_OWL_CHAT_FAKE_DELAY=0.05 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
 CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/picture" CEDRIC_OWL_CHECK_CHAT=picture "$BIN" || status=1
-# Check Grammar with AI (fake engine) on a letter.
+# Check Grammar with Cedric (fake engine) on a letter.
 printf 'Dear Sam,\n\nThe trip took longer then I expected, but the weather was kind to us and the views were lovely. We will send photos when we are home again next week.\n\nBest wishes,\nAlex\n' > "$WORK/letter.txt"
 CEDRIC_SESSION_DIR="$WORK/session-grammar-ai" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
 CEDRIC_OPEN="$WORK/letter.txt" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=1 CEDRIC_GRAMMAR_FAKE=1 CEDRIC_GRAMMAR_PAUSE=0.3 \

@@ -197,17 +197,20 @@ their palettes); it has no shortcut now.
 
 ### Context Bar
 
-**View › Context Bar** shows one thin row of buttons above the text, for
-the kinds of file that have a set; for code, plain text and the other
-types there is no bar and no empty row. It is off by default, and one
-switch covers every tab. While it is off nothing about it is built, and
+**View › Show Context Bar** shows one thin row of buttons above the text,
+for the kinds of file that have a set; for code, plain text and the other
+types there is no bar and no empty row. It is on by default (**View › Hide
+Context Bar** puts it away, and Owlink remembers that), and one switch
+covers every tab. While it is off nothing about it is built, and
 typing is as fast with it shown as hidden.
 
 Markdown's set, left to right: a heading pull-down (Body, Heading 1,
-Heading 2, Heading 3), Bold, Italic, Inline Code, Link, Bulleted List,
-Numbered List, Checkbox, Quote, Code Block, Insert Table and Image Link
-(see [Markdown editing](#markdown-editing)), and at the far end a Show
-Preview toggle that lights up while the preview shows.
+Heading 2, Heading 3), Bold, Italic, Strikethrough, Inline Code, Link,
+Bulleted List, Numbered List, Checkbox, Quote, Code Block, Insert Table
+and Image Link (see [Markdown editing](#markdown-editing)), and at the far
+end a preview toggle (an eye) that lights up while the preview shows. The
+icons take their colour from the theme and stand out from the bar at
+least 3:1 in every theme.
 
 Every button runs the Format › Markdown or View command with the same
 name: the same thing happens from the bar, the menu, the shortcut and the
@@ -369,7 +372,7 @@ searched, so typing stays fast in big files.
 ### Line operations
 
 **Line operations** (Edit › Line): Duplicate Line (⇧⌘D), Move Line Up /
-Down (⌃⌘↑ / ⌃⌘↓), Delete Line (⇧⌘K), Toggle Comment (⌘/, with the
+Down (⌃⌘↑ / ⌃⌘↓), Delete Line (⇧⌘K), Comment Selection (⌘/, with the
 language's own comment marker: `//`, `#`, `/* */` or `<!-- -->`). Each
 works on every line the selection touches and is one undo step. ⌘X with
 nothing selected cuts the whole line.
@@ -407,11 +410,11 @@ bracket next to the caret and its partner are boxed.
 
 ### Bookmarks
 
-**Bookmarks** (Edit › Bookmarks, as in Notepad++): Toggle Bookmark (⌘F2,
-or click a line number), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
+**Bookmarks** (Edit › Bookmarks, as in Notepad++): Bookmark Line (⌘F2,
+or click a line number; it reads Remove Bookmark on a bookmarked line), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
 Bookmark All Matches (⌥⌘F2: every line matching the find bar's search,
 or the selection or word under the caret), Clear Bookmarks (⇧⌘F2).
-Bookmarks stay on their lines as you edit (Replace All, Toggle Comment
+Bookmarks stay on their lines as you edit (Replace All, Comment Selection
 and Text Tools included: a line whose text survives keeps its
 bookmark), move with Move Line (and back with Undo), and are kept with
 the session. Copy Bookmarked Lines and Delete Bookmarked Lines
@@ -450,7 +453,9 @@ How words are counted, in every kind of file:
 
 ### Stats and a word goal
 
-**Click the word count** in the status bar for the stats popover: the
+**Click the word count** in the status bar (or choose **View › Show
+Statistics**, also in the command palette; with Full Keyboard Access on,
+Tab to the word count and press Space) for the stats popover: the
 document's words, characters, lines and reading time, and the same for
 the selection beside them when there is one. Reading time is at 238 words
 a minute, the average for silent reading of non-fiction (Brysbaert, 2019).
@@ -758,7 +763,7 @@ session (restored just after the window first shows).
   between the parentheses (or uses a URL on the clipboard), a selected
   URL into `![](url)`, and with the caret in an image it takes the image
   markup off and leaves its alt text.
-- **Checkboxes:** Format › Markdown › Toggle Checkbox (⌘↩) checks
+- **Checkboxes:** Format › Markdown › Checkbox (⌘↩) checks
   or unchecks `- [ ]` / `- [x]` on the caret's line or every selected
   line, adds a box to a list item without one, and turns a plain line
   into `- [ ] line`. One undo step.
@@ -945,9 +950,15 @@ changes" off, git never runs.
 
 ## Cedric the owl
 
+Everything Cedric does is in the **Cedric** menu (between Format and
+Window): Ask Cedric… (⌥⌘/), Check Grammar with Cedric, Check Script for
+Risks…, Show Cedric / Hide Cedric, Cedric’s Hints (Rules, or Rules + AI)
+and Cedric AI Settings…. "Cedric" is always the assistant; "Owlink" is
+the app.
+
 ### The owl and his hints
 
-**Cedric the owl** (View › Show Cedric the Owl, off by default): a small
+**Cedric the owl** (Cedric › Show Cedric, off by default): a small
 assistant in the corner that offers one hint at a time, with **Fix it**
 where a safe fix exists, **Show Me** where it points at something, **Not
 now** and **Don't show again**. He blinks and glances now and then,
@@ -993,7 +1004,7 @@ at the text in view (at most 8 KB):
 
 The bubble keeps off the lines it is about when the window has room.
 
-Optional AI hints (View › Cedric AI Settings…, off by default) use a
+Optional AI hints (Cedric › Cedric AI Settings…, off by default) use a
 local model only. On Intel Macs automatic AI checks are **off** by
 default so typing stays fast: click the owl and choose **Ask AI Now**,
 or turn on "Check automatically when I pause typing" in the settings.
@@ -1155,7 +1166,7 @@ work offline.
 engine is ready: Apple Intelligence, a downloaded built-in model, or an
 LM Studio / Ollama / other-Mac server you set up and turned on; with
 none, clicking the owl offers **Set Up Ask Cedric…**). Click the owl:
-**Ask about this file…** is the first item; Edit › Ask Cedric… (⌥⌘/)
+**Ask about this file…** is the first item; Cedric › Ask Cedric… (⌥⌘/)
 does the same, and the owl says so once, a while after a new user's
 first launch. A small panel about the current document opens (a
 floating panel you can drag anywhere; it hides when you switch tabs and
@@ -1223,7 +1234,7 @@ window's bottom-right corner; opening it doesn't bring him back.
 
 ### Check Script for Risks…
 
-**Check Script for Risks…** (Edit menu, the owl, or **Check for
+**Check Script for Risks…** (Cedric menu, the owl, or **Check for
 Risks** in Ask Cedric) for shell, PowerShell, batch, `.reg`, Python and
 Ruby: an offline scan, no AI and nothing sent anywhere (so it works on
 any Mac, Intel included), lists the lines worth reading first:

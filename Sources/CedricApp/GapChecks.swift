@@ -297,7 +297,8 @@ extension DevChecks {
                 expect(["Show git changes in the gutter", "Ask Cedric", "Quit when the last window closes"].allSatisfy(titles.contains),
                        "…and keeps the preferences without a menu")
                 let viewTitles = NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu?.items.map(\.title) ?? []
-                expect(!viewTitles.contains("Theme") && viewTitles.contains("Wrap Lines") && viewTitles.contains("Show Invisibles"),
+                expect(!viewTitles.contains("Theme") && viewTitles.contains("Wrap Lines")
+                       && (viewTitles.contains("Show Invisibles") || viewTitles.contains("Hide Invisibles")),
                        "View has no Theme submenu (Settings has it) and keeps its toggles", "\(viewTitles)")
                 let wrap = Settings.shared.wrapLines
                 key("z", [.command, .option])

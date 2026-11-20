@@ -70,6 +70,27 @@ func textToolItems() -> [NSMenuItem] {
     ]
 }
 
+/// The Cedric menu (0.4.0 UX polish, review #4): every command of Cedric,
+/// the assistant, in one place, after Format and before Window (HIG: an
+/// app's own menus go between View and Window). "Cedric" names the
+/// assistant everywhere; "Owlink" only the app.
+@MainActor
+func cedricMenu() -> NSMenuItem {
+    submenu(String(localized: "Cedric"), [
+        item(String(localized: "Ask Cedric…"), #selector(AppDelegate.askCedricMenu(_:)), "/", [.command, .option]),
+        item(String(localized: "Check Grammar with Cedric"), #selector(AppDelegate.checkGrammarWithAIMenu(_:))),
+        item(String(localized: "Check Script for Risks…"), #selector(AppDelegate.scriptSafetyMenu(_:))),
+        .separator(),
+        item(String(localized: "Show Cedric"), #selector(AppDelegate.toggleOwl(_:))),
+        submenu(String(localized: "Cedric’s Hints"), OwlHintSource.allCases.map {
+            item($0 == .rules ? String(localized: "Rules") : String(localized: "Rules + AI"),
+                 #selector(AppDelegate.pickOwlHintSource(_:)), represented: $0.rawValue)
+        }),
+        .separator(),
+        item(String(localized: "Cedric AI Settings…"), #selector(AppDelegate.showAISettings(_:))),
+    ])
+}
+
 /// F2, as a key equivalent (bookmarks, as in Notepad++: F2 / ⇧F2 / ⌘F2).
 let f2 = String(UnicodeScalar(UInt16(NSF2FunctionKey))!)
 
@@ -183,7 +204,8 @@ func buildMainMenu() -> NSMenu {
             item(String(localized: "Move Line Down"), #selector(AppDelegate.moveLineDownMenu(_:)),
                  String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .command]),
             item(String(localized: "Delete Line"), #selector(AppDelegate.deleteLineMenu(_:)), "k", [.command, .shift]),
-            item(String(localized: "Toggle Comment"), #selector(AppDelegate.toggleCommentMenu(_:)), "/"),
+            // "Comment Selection", as in Xcode (it uncomments commented lines too); no "Toggle" titles (UX review #17).
+            item(String(localized: "Comment Selection"), #selector(AppDelegate.toggleCommentMenu(_:)), "/"),
             .separator(),
             item(String(localized: "Indent"), #selector(AppDelegate.indentLinesMenu(_:)), "]"),
             item(String(localized: "Outdent"), #selector(AppDelegate.outdentLinesMenu(_:)), "["),
@@ -192,7 +214,8 @@ func buildMainMenu() -> NSMenu {
             item(String(localized: "Delete Lines Matching…"), #selector(AppDelegate.deleteLinesMatchingMenu(_:))),
         ]),
         submenu(String(localized: "Bookmarks"), [
-            item(String(localized: "Toggle Bookmark"), #selector(AppDelegate.toggleBookmarkMenu(_:)), f2, [.command]),
+            // "Remove Bookmark" on a bookmarked line (EditingFeatures.validateEditingItem).
+            item(String(localized: "Bookmark Line"), #selector(AppDelegate.toggleBookmarkMenu(_:)), f2, [.command]),
             item(String(localized: "Next Bookmark"), #selector(AppDelegate.nextBookmarkMenu(_:)), f2, []),
             item(String(localized: "Previous Bookmark"), #selector(AppDelegate.previousBookmarkMenu(_:)), f2, [.shift]),
             item(String(localized: "Bookmark All Matches"), #selector(AppDelegate.bookmarkAllMatchesMenu(_:)), f2, [.command, .option]),
@@ -203,14 +226,11 @@ func buildMainMenu() -> NSMenu {
         ]),
         submenu(String(localized: "Text Tools"), textToolItems()),
         item(String(localized: "Auto-Close Brackets and Quotes"), #selector(AppDelegate.toggleAutoCloseBrackets(_:))),
-        item(String(localized: "Ask Cedric…"), #selector(AppDelegate.askCedricMenu(_:)), "/", [.command, .option]),
-        item(String(localized: "Check Script for Risks…"), #selector(AppDelegate.scriptSafetyMenu(_:))),
         submenu(String(localized: "Spelling and Grammar"), [
             item(String(localized: "Show Spelling and Grammar"), #selector(NSText.showGuessPanel(_:)), ":"),
             item(String(localized: "Check Document Now"), #selector(AppDelegate.checkDocumentNow(_:)), ";"),
             item(String(localized: "Fix Typos…"), #selector(AppDelegate.fixTyposMenu(_:)), ";", [.command, .option]),
             item(String(localized: "Fix Grammar…"), #selector(AppDelegate.fixGrammarMenu(_:))),
-            item(String(localized: "Check Grammar with AI"), #selector(AppDelegate.checkGrammarWithAIMenu(_:))),
             .separator(),
             item(String(localized: "Check Spelling While Typing"), #selector(AppDelegate.toggleSpellingWhileTyping(_:))),
             item(String(localized: "Check Grammar in Prose"), #selector(AppDelegate.toggleGrammar(_:))),
@@ -239,10 +259,13 @@ func buildMainMenu() -> NSMenu {
             item(String(localized: "Allow JavaScript in Preview"), #selector(AppDelegate.togglePreviewJavaScript(_:))),
             item(String(localized: "Allow Network in Preview"), #selector(AppDelegate.togglePreviewNetwork(_:))),
         ]),
-        // A row of buttons above the text for file types that have a set (ContextBar.swift); off by default.
-        item(String(localized: "Context Bar"), #selector(AppDelegate.toggleContextBarMenu(_:))),
+        // A row of buttons above the text for file types that have a set (ContextBar.swift); on by default.
+        // "Hide Context Bar" while shown (AppDelegate.validateMenuItem).
+        item(String(localized: "Show Context Bar"), #selector(AppDelegate.toggleContextBarMenu(_:))),
         item(String(localized: "Show Outline"), #selector(AppDelegate.toggleOutlineMenu(_:)), "o", [.control, .command]),
         item(String(localized: "Show Folder Sidebar"), #selector(AppDelegate.toggleFolderSidebarMenu(_:)), "1", [.control, .command]),
+        // The status bar word count's popover, from the keyboard and the palette (StatsPopover.swift).
+        item(String(localized: "Show Statistics"), #selector(AppDelegate.showStatisticsMenu(_:))),
         // Typewriter scrolling and Focus, per tab, off by default (WritingMode.swift).
         writingModeMenu(),
         .separator(),
@@ -258,13 +281,6 @@ func buildMainMenu() -> NSMenu {
         .separator(),
         // Two panes on one document (SplitEditor.swift).
     ] + splitEditorMenuItems() + [
-        .separator(),
-        item(String(localized: "Show Cedric the Owl"), #selector(AppDelegate.toggleOwl(_:))),
-        submenu(String(localized: "Owl Hint Source"), OwlHintSource.allCases.map {
-            item($0 == .rules ? String(localized: "Rules") : String(localized: "Rules + AI"),
-                 #selector(AppDelegate.pickOwlHintSource(_:)), represented: $0.rawValue)
-        }),
-        item(String(localized: "Cedric AI Settings…"), #selector(AppDelegate.showAISettings(_:))),
         .separator(),
         item(String(localized: "Compare With…"), #selector(AppDelegate.compareWithMenu(_:)), "c", [.command, .option]),
         item(String(localized: "Compare with Last Commit"), #selector(AppDelegate.compareWithLastCommitMenu(_:))),
@@ -309,6 +325,8 @@ func buildMainMenu() -> NSMenu {
             item(String(localized: "Convert Indentation to Tabs"), #selector(AppDelegate.convertIndentationToTabsMenu(_:))),
         ]),
     ]))
+
+    main.addItem(cedricMenu())
 
     let window = submenu(String(localized: "Window"), [
         item(String(localized: "Minimize"), #selector(NSWindow.performMiniaturize(_:)), "m"),

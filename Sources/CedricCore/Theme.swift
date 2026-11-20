@@ -53,6 +53,14 @@ public struct EditorPalette: Sendable {
 
     public func color(for kind: TokenKind) -> UInt32 { kind == .embeddedCode ? foreground : tokens[kind] ?? foreground }
 
+    /// The Context Bar's icons (0.4.0 UX polish): tinted explicitly, not
+    /// left to the system's template grey, which fell below WCAG's 3:1 for
+    /// graphics on the bar (2.62:1 light, 2.86:1 Tankard). The gutter's
+    /// muted colour, and the link colour for a toggle that is on; the test
+    /// checks both against `statusBar` in every theme.
+    public var contextBarIcon: UInt32 { gutterForeground }
+    public var contextBarIconOn: UInt32 { color(for: .link) }
+
     /// Text/background pairs that must meet WCAG AA (4.5:1).
     public var textPairs: [(String, UInt32, UInt32)] {
         var pairs: [(String, UInt32, UInt32)] = [

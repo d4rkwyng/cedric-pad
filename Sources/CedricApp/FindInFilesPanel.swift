@@ -52,7 +52,7 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
     let includeField = NSTextField()
     let excludeField = NSTextField()
     let regexBox = NSButton(checkboxWithTitle: String(localized: "Regex"), target: nil, action: nil)
-    let caseBox = NSButton(checkboxWithTitle: String(localized: "Match case"), target: nil, action: nil)
+    let caseBox = NSButton(checkboxWithTitle: String(localized: "Match Case"), target: nil, action: nil)
     let replaceBox = NSButton(checkboxWithTitle: String(localized: "Replace"), target: nil, action: nil)
     let gitIgnoreBox = NSButton(checkboxWithTitle: String(localized: "Respect .gitignore"), target: nil, action: nil)
     let findButton = NSButton(title: String(localized: "Find"), target: nil, action: nil)
@@ -60,7 +60,7 @@ final class FindInFilesPanel: NSView, NSOutlineViewDataSource, NSOutlineViewDele
     let previewButton = NSButton(title: String(localized: "Preview Replace…"), target: nil, action: nil)
     let replaceAllButton = NSButton(title: String(localized: "Replace All"), target: nil, action: nil)
     let cancelPreviewButton = NSButton(title: String(localized: "Cancel"), target: nil, action: nil)
-    let undoButton = NSButton(title: String(localized: "Undo Replace"), target: nil, action: nil)
+    let undoButton = NSButton(title: String(localized: "Undo Replace in Files"), target: nil, action: nil)
     /// Replace All's progress while the files are written.
     let writeProgress = NSProgressIndicator()
     let status = NSTextField(labelWithString: "")

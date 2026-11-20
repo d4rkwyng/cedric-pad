@@ -3,7 +3,7 @@ import CedricCore
 import CedricAI
 
 /// Ask Cedric: a small floating panel per window, opened from the owl's
-/// popover or Edit › Ask Cedric… (⌥⌘/). Created on first use, so it costs
+/// popover or Cedric › Ask Cedric… (⌥⌘/). Created on first use, so it costs
 /// nothing at launch. Questions go to the AI engine chosen in Cedric AI
 /// Settings (local or LAN only); answers stream in; an edit comes back as
 /// a proposed diff with Apply / Discard, applied as one undo step only
@@ -662,7 +662,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             guard let engine = await OwlChatStore.shared.engine() else {
-                self.finish(nil, error: String(localized: "No AI engine is ready. Set one up in View › Cedric AI Settings…"))
+                self.finish(nil, error: String(localized: "No AI engine is ready. Set one up in Cedric › Cedric AI Settings…"))
                 return
             }
             let ctx = OwlChatContext.build(snap, scope: scope, budget: engine.contextBudget)
@@ -917,7 +917,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
 }
 
 extension EditorWindowController {
-    /// Edit › Ask Cedric… is available: the setting is on, not in large mode.
+    /// Cedric › Ask Cedric… is available: the setting is on, not in large mode.
     var canAskCedric: Bool { Settings.shared.owlChat && !extrasPaused }
 
     func openAskCedric() {
@@ -925,7 +925,7 @@ extension EditorWindowController {
         chatPanel().show()
     }
 
-    /// Edit › Check Script for Risks…: a script (shell, PowerShell,
+    /// Cedric › Check Script for Risks…: a script (shell, PowerShell,
     /// batch, .reg, Python, Ruby), not in large mode. Needs no AI: the
     /// offline scan always runs; the model's review follows when Ask
     /// Cedric is on with an engine ready.
@@ -940,7 +940,7 @@ extension EditorWindowController {
 }
 
 extension EditorWindowController {
-    /// Edit › Spelling and Grammar › Check Grammar with AI, and the owl's button.
+    /// Cedric › Check Grammar with Cedric, and the owl's button.
     var canCheckGrammarWithAI: Bool { grammar.mayCheckWithAI }
     func checkGrammarWithAI() {
         guard canCheckGrammarWithAI else { NSSound.beep(); return }

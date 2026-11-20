@@ -107,7 +107,7 @@ extension DevChecks {
                 let view = NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu
                 let preview = view?.items.first { $0.title == "Preview" }?.submenu
                 let titles = preview?.items.map(\.title).filter { !$0.isEmpty } ?? []
-                expect(["Show Preview", "Detach Preview", "Refresh Preview", "Sync Scrolling", "Zoom In Preview", "Zoom Out Preview",
+                expect((titles.contains("Show Preview") || titles.contains("Hide Preview")) && ["Detach Preview", "Refresh Preview", "Sync Scrolling", "Zoom In Preview", "Zoom Out Preview",
                         "Restore File Order", "Export as HTML…", "Export as PDF…", "Allow JavaScript in Preview",
                         "Allow Network in Preview"].allSatisfy(titles.contains), "View › Preview lists the bar's actions", "\(titles)")
                 @MainActor func enabled(_ sel: Selector) -> Bool { menuItem(action: sel).map { app.validateMenuItem($0) } ?? false }
@@ -615,7 +615,7 @@ extension DevChecks {
                 }
                 focus(tab)
                 if let i = menuItem(action: #selector(AppDelegate.toggleOutlineMenu(_:))) {
-                    expect(app.validateMenuItem(i) && i.state == .off, "and on for Markdown")
+                    expect(app.validateMenuItem(i) && i.state == .off && i.title == "Show Outline", "and on for Markdown", i.title)
                 }
                 expect(tab.outline.sidebar == nil, "the outline isn't built until it is first shown")
                 key("o", [.control, .command])

@@ -95,7 +95,7 @@ enum RenderDump {
             window.setContentSize(NSSize(width: 900, height: 670))
             window.makeKeyAndOrderFront(nil)
             TypingCheck.settle(0.1)
-            // View › Show Cedric the Owl: the same notification the menu's setter posts.
+            // Cedric › Show Cedric: the same notification the menu's setter posts.
             Settings.shared.owlOverride = true
             NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil)
             TypingCheck.settle(0.1)

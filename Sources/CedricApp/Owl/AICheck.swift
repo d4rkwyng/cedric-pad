@@ -6,7 +6,7 @@ import CedricAI
 /// process, with real NSEvents. Open a Swift file of 250+ lines (over the
 /// 8 KB context cap, so the context starts mid-file) with the owl on.
 ///
-///   1. View › Cedric AI Settings… (through the menu action); snapshot the
+///   1. Cedric › Cedric AI Settings… (through the menu action); snapshot the
 ///      sheet. Live (CEDRIC_AI_CHECK_MODEL=id): Test Connection, wait for
 ///      the list, pick that model; snapshot again. Tick "Ask a local model"
 ///      and click Save.
@@ -128,7 +128,7 @@ enum AICheck {
                 wait("the provider to register", timeout: 15, { hub.ai.isActive && hub.coordinator.source == .rulesAndAI }) { ok in
                     if !ok { log("state: active=\(hub.ai.isActive) problem=\(hub.ai.lastProblem ?? "-") source=\(hub.coordinator.source) settings=\(Settings.shared.owlHintSource) saved=\(AIStore.load())") }
                     check(ok, "saved: provider \(hub.ai.providerName ?? "none") registered, source is Rules + AI")
-                    check(Settings.shared.owlHintSource == .rulesAndAI, "Owl Hint Source › Rules + AI is selected")
+                    check(Settings.shared.owlHintSource == .rulesAndAI, "Cedric’s Hints › Rules + AI is selected")
                     if !ok { finish(); return }
                     typeBug(tab, out: out, attempt: 1)
                 }

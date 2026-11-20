@@ -54,7 +54,8 @@ extension AppDelegate {
             return FolderTree.enclosingFolder(of: currentFileURL) != nil && (currentTab ?? tabs.last) != nil
         case #selector(revealFileInFinderMenu(_:)): return currentFileURL != nil
         case #selector(toggleFolderSidebarMenu(_:)):
-            item.state = FolderSidebar.shared?.isShown == true ? .on : .off
+            setShowHide(item, shown: FolderSidebar.shared?.isShown == true,
+                        show: String(localized: "Show Folder Sidebar"), hide: String(localized: "Hide Folder Sidebar"))
             return (FolderSidebar.shared != nil || FolderSidebar.pendingFolder != nil) && (currentTab ?? tabs.last) != nil
         default: return nil
         }

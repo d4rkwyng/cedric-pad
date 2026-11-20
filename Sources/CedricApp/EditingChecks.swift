@@ -297,6 +297,12 @@ extension DevChecks {
                 expect(marks == want && want.count == 2, "⌥⌘F2 bookmarks every line with the word", "\(marks) want \(want)")
                 // With the find bar open: its search (a regex here).
                 tab.showFindBar(replace: false)
+                // UX review #6: previous/next are chevron symbols with VoiceOver names.
+                let fb = tab.findBar
+                expect(fb.prevButton.image != nil && fb.nextButton.image != nil && fb.prevButton.title.isEmpty,
+                       "the find bar's previous/next are chevron symbols")
+                expect(fb.prevButton.accessibilityLabel() == "Find Previous" && fb.nextButton.accessibilityLabel() == "Find Next",
+                       "named Find Previous / Find Next for VoiceOver")
                 tab.findBar.regexBox.state = .on
                 tab.findBar.findField.stringValue = "line 1[01]"
                 key(f2Key, [.command, .option])
@@ -343,7 +349,7 @@ extension DevChecks {
                 tab.textView.setSelectedRange(NSRange(location: tab.lineIndex.starts[1], length: tab.lineIndex.starts[5] - 1 - tab.lineIndex.starts[1]))
                 key("/", [.command])
                 expect(tab.text.components(separatedBy: "\n")[1].hasPrefix("// "), "⌘/ comments lines 1–4", tab.text)
-                expect(marks == [2, 4], "Toggle Comment keeps bookmarks 2 and 4", "\(marks)")
+                expect(marks == [2, 4], "Comment Selection keeps bookmarks 2 and 4", "\(marks)")
             },
             sync {
                 tab.textView.setSelectedRange(NSRange(location: 0, length: 0))
@@ -638,7 +644,7 @@ extension DevChecks {
 
     /// A multi-KB JSON and a Swift file: random edits (typing, multi-line
     /// replacements with and without a change in line count, pastes,
-    /// Replace All, Toggle Comment), scrolling far down and back, and a
+    /// Replace All, Comment Selection), scrolling far down and back, and a
     /// language switch; after each, the colours near the viewport must
     /// equal a fresh full re-highlight.
     static func colourConsistency(_ app: AppDelegate) {
@@ -715,7 +721,7 @@ extension DevChecks {
             sync {
                 swift.textView.setSelectedRange(NSRange(location: swift.lineIndex.starts[2], length: swift.lineIndex.starts[8] - swift.lineIndex.starts[2]))
                 swift.perform(.toggleComment)
-                verify(swift, "swift after Toggle Comment")
+                verify(swift, "swift after Comment Selection")
                 swift.goToLine(swift.lineIndex.lineCount - 3)
                 verify(swift, "swift scrolled to the end")
                 swift.setLanguage(.javascript)

@@ -118,6 +118,24 @@ func tempDir() -> URL {
         #expect(failures.isEmpty, "\(failures)")
     }
 
+    /// UX review #3: the Context Bar's icons are tinted from the palette
+    /// and must reach WCAG's 3:1 for graphics on the bar in every theme,
+    /// off and on.
+    @Test func contextBarIconsMeetGraphicsContrast() {
+        for p in EditorPalettes.all {
+            let off = EditorPalettes.contrast(p.contextBarIcon, p.statusBar)
+            let on = EditorPalettes.contrast(p.contextBarIconOn, p.statusBar)
+            print(String(format: "contextbar contrast %@: icon %.2f, on %.2f", p.name, off, on))
+            #expect(off >= 3, "\(p.name) icon \(off)")
+            #expect(on >= 3, "\(p.name) on-state icon \(on)")
+        }
+    }
+
+    /// The on state must read as different from off, not just as a second grey.
+    @Test func contextBarOnStateDiffersFromOff() {
+        for p in EditorPalettes.all { #expect(p.contextBarIconOn != p.contextBarIcon, "\(p.name)") }
+    }
+
     @Test func systemFollowsAppearance() {
         #expect(EditorTheme.system.palette(systemIsDark: true).name == "dark")
         #expect(EditorTheme.system.palette(systemIsDark: false).name == "light")

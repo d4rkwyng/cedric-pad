@@ -319,7 +319,7 @@ enum LineCommand {
         case .moveUp: return String(localized: "Move Line Up")
         case .moveDown: return String(localized: "Move Line Down")
         case .delete: return String(localized: "Delete Line")
-        case .toggleComment: return String(localized: "Toggle Comment")
+        case .toggleComment: return String(localized: "Comment Selection")
         }
     }
 }
@@ -516,7 +516,11 @@ extension AppDelegate {
         case #selector(duplicateLineMenu(_:)), #selector(moveLineUpMenu(_:)), #selector(moveLineDownMenu(_:)),
              #selector(deleteLineMenu(_:)):
             return tab?.textView.isEditable == true
-        case #selector(toggleBookmarkMenu(_:)), #selector(bookmarkAllMatchesMenu(_:)): return tab != nil
+        case #selector(toggleBookmarkMenu(_:)):
+            let marked = tab.map { $0.editing.bookmarks.contains($0.caretLine) } ?? false
+            item.title = marked ? String(localized: "Remove Bookmark") : String(localized: "Bookmark Line")
+            return tab != nil
+        case #selector(bookmarkAllMatchesMenu(_:)): return tab != nil
         case #selector(nextBookmarkMenu(_:)), #selector(previousBookmarkMenu(_:)), #selector(clearBookmarksMenu(_:)):
             return tab?.editing.bookmarks.isEmpty == false
         case #selector(toggleCommentMenu(_:)):

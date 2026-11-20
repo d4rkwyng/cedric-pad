@@ -853,9 +853,10 @@ same target, so the search field never takes Copy or Select All.
 
 ## Context Bar
 
-View › Context Bar (`ContextBar.swift`), off by default
-(`Settings.showContextBar`; `CEDRIC_CONTEXT_BAR=0/1` for one run, and
-the checks keep it in memory). The items are data in CedricCore
+View › Show/Hide Context Bar (`ContextBar.swift`), on by default
+(`Settings.showContextBar`, `Settings.contextBarDefault`; an explicit
+choice in the menu is stored and wins; `CEDRIC_CONTEXT_BAR=0/1` for one
+run, and the checks start it off in memory). The items are data in CedricCore
 (`ContextBarSet.items(for:)`, `ContextBar.swift`): an id, an SF Symbol and
 the action selector of a main-menu item (or a pull-down of several), so
 the iPad keyboard row can draw the same list later. Only Markdown has a
@@ -874,7 +875,11 @@ set; every other language returns none.
   the same validation when the bar is shown, after each button, and when
   the preview opens or closes.
 - **Look and access.** Background and appearance from the editor palette
-  (`applyPalette`, as the preview header). The bar is an accessibility
+  (`applyPalette`, as the preview header). Icons are tinted explicitly
+  (`EditorPalette.contextBarIcon`, the gutter colour; `contextBarIconOn`,
+  the link colour, for a toggle that is on): the system's template grey
+  fell under 3:1 on the light and Tankard bars. `ThemeTests` checks both
+  at 3:1 against `statusBar` in every theme. The bar is an accessibility
   toolbar; buttons carry their command's name and the preview toggle an
   on/off value. An `NSStackView` with leading and trailing gravity, so it
   mirrors in right-to-left layouts.
@@ -1112,7 +1117,7 @@ dark theme; `session-check.sh` restores a saved folder after a kill -9.
 
 ## Cedric the owl
 
-View › Show Cedric the Owl (off by default, `Settings.showOwl`). A 72 pt owl
+Cedric › Show Cedric (off by default, `Settings.showOwl`). A 72 pt owl
 sits in the bottom-right corner of the editor, above the status bar, and
 offers hints in a speech bubble.
 
@@ -1299,7 +1304,7 @@ offers hints in a speech bubble.
   Nothing is built before the first frame: the regexes are lazy statics
   first touched by an owl query.
 - `OwlProviderRegistry`: providers in order; `register(_:isAI:)`. View ›
-  Owl Hint Source › Rules + AI is disabled until an AI provider registers.
+  Cedric’s Hints › Rules + AI is disabled until an AI provider registers.
 - `OwlCoordinator`: asks at most once per 30 s and only after 3 s without
   typing (activity = an edit, an open, a file changed on disk); shows each
   hint id once per document; "Not now" snoozes the id for an hour; "Don't
@@ -1560,7 +1565,7 @@ In the app, `OwlHub` owns the bridge:
   dedupe/snooze/never and quiet checks as a rules query) → the same bubble,
   with `OwlCoordinator.documentRange` (`range + textStart`) for Apply.
 
-**Settings sheet.** View › Cedric AI Settings… (`AISettingsSheet`): "Ask a
+**Settings sheet.** Cedric › Cedric AI Settings… (`AISettingsSheet`): "Ask a
 local model for hints" (off by default), "Where the AI runs" (the engines
 above; unavailable ones disabled), the address (Custom only; typed text
 gets `http://` and `/v1` as needed and must pass `LocalEndpointPolicy`),
@@ -1570,7 +1575,7 @@ quantisation, latency, the suggested model), a model picker (Automatic or
 a listed model), the weak-model note, and "Check at most every" (30 s–5
 min, default 90 s). Save stores `LocalAISettings` (UserDefaults
 `CedricLocalAISettings`), applies them and, once a provider registers,
-selects View › Owl Hint Source › Rules + AI.
+selects Cedric › Cedric’s Hints › Rules + AI.
 
 **Tests.** `Tests/CedricAITests` uses a URLProtocol stub server, a fake
 clock and a fake power source. `CEDRIC_AI_LIVE=1 Scripts/test.sh --filter

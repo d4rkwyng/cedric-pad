@@ -83,9 +83,13 @@ final class Settings {
     var contextBarOverride = DevEnvironment.values["CEDRIC_CONTEXT_BAR"].map { $0 == "1" }
         ?? (DevEnvironment.values["CEDRIC_NO_SESSION_SAVE"] == "1" ? false : nil)
 
-    /// View › Context Bar: off by default (ContextBar.swift).
+    /// View › Show Context Bar: on by default (UX review #3; the bar only
+    /// exists for Markdown, ContextBar.swift). Once the user picks Show or
+    /// Hide, that choice is kept.
+    static let contextBarDefault = true
+
     var showContextBar: Bool {
-        get { contextBarOverride ?? defaults.bool(forKey: "showContextBar") }
+        get { contextBarOverride ?? (defaults.object(forKey: "showContextBar") as? Bool ?? Self.contextBarDefault) }
         set {
             if contextBarOverride != nil { contextBarOverride = newValue } else { defaults.set(newValue, forKey: "showContextBar") }
             NotificationCenter.default.post(name: .cedricContextBarChanged, object: nil)
@@ -119,7 +123,7 @@ final class Settings {
     }
 
     /// Settings › "Ask Cedric": the owl's chat panel and its tools, and
-    /// Check Grammar with AI. Until the user sets it, on exactly when a
+    /// Check Grammar with Cedric. Until the user sets it, on exactly when a
     /// local engine is ready (`AskCedricEngine`): Apple Intelligence, a
     /// downloaded built-in model, or a server set up and turned on.
     /// CEDRIC_OWL_CHAT=0/1 for one run.

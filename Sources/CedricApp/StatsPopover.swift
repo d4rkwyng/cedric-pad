@@ -2,11 +2,26 @@ import AppKit
 import CedricCore
 
 /// The status bar's word count, clickable: it opens the stats popover.
+/// With Full Keyboard Access on it takes keyboard focus like a button
+/// (Tab to it, Space or Return opens the popover; UX review #5); View ›
+/// Show Statistics opens it from the keyboard in any case.
 final class CountsLabel: NSTextField {
     var onClick: (() -> Void)?
 
     override func mouseDown(with event: NSEvent) {
         guard let onClick else { super.mouseDown(with: event); return }
+        onClick()
+    }
+
+    override var acceptsFirstResponder: Bool { onClick != nil && NSApp.isFullKeyboardAccessEnabled }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { bounds.fill() }
+
+    override func keyDown(with event: NSEvent) {
+        guard let onClick, let c = event.charactersIgnoringModifiers, [" ", "\r", "\u{3}"].contains(c) else {
+            super.keyDown(with: event); return
+        }
         onClick()
     }
 
@@ -243,6 +258,12 @@ extension EditorWindowController {
 }
 
 extension AppDelegate {
+    /// View › Show Statistics: the word count's popover, from the keyboard.
+    @objc func showStatisticsMenu(_ sender: Any?) {
+        guard let tab = currentTab else { NSSound.beep(); return }
+        tab.toggleStatsPopover()
+    }
+
     func setFileWordGoal(_ goal: Int?, path: String) {
         fileWordGoals = FileWordGoals.setting(goal, for: path, in: fileWordGoals)
         scheduleSessionSave()

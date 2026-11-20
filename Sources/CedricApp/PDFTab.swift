@@ -881,7 +881,8 @@ final class PDFTabController: NSWindowController, NSWindowDelegate, NSMenuItemVa
             item.title = String(localized: "Go to Page…")
             return ready
         case #selector(togglePDFThumbnails(_:)):
-            item.state = thumbnails.map { !$0.isHidden } == true ? .on : .off
+            setShowHide(item, shown: thumbnails.map { !$0.isHidden } == true,
+                        show: String(localized: "Show Page Thumbnails"), hide: String(localized: "Hide Page Thumbnails"))
             return ready
         case #selector(zoomToFit(_:)):
             item.state = pdfView?.autoScales == true ? .on : .off

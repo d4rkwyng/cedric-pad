@@ -42,7 +42,7 @@ enum OwlChatCheck {
 
     /// CEDRIC_OWL_CHECK_CHAT_OFF=1, no CEDRIC_OWL_CHAT, a fresh defaults
     /// domain and no engine ready (CEDRIC_ASK_ENGINE=0): Ask Cedric is off,
-    /// Ask Cedric and Check Grammar with AI are disabled, ⌥⌘/ opens
+    /// Ask Cedric and Check Grammar with Cedric are disabled, ⌥⌘/ opens
     /// nothing, and the owl offers Set Up Ask Cedric… first.
     static func runDefaultOff(_ tab: EditorWindowController, out: String) {
         guard let window = tab.window, let app = NSApp.delegate as? AppDelegate else { OwlCheck.finish(out); return }
@@ -52,11 +52,11 @@ enum OwlChatCheck {
         check(!Settings.shared.owlChat, "Ask Cedric is off with no engine ready")
         check(!tab.canAskCedric, "the tab can't Ask Cedric")
         if let ask = menuItem(#selector(AppDelegate.askCedricMenu(_:))) {
-            check(!app.validateMenuItem(ask), "Edit › Ask Cedric… is disabled")
-        } else { check(false, "Edit › Ask Cedric… is in the menu") }
+            check(!app.validateMenuItem(ask), "Cedric › Ask Cedric… is disabled")
+        } else { check(false, "Cedric › Ask Cedric… is in the menu") }
         if let grammar = menuItem(#selector(AppDelegate.checkGrammarWithAIMenu(_:))) {
-            check(!app.validateMenuItem(grammar), "Check Grammar with AI is disabled")
-        } else { check(false, "Check Grammar with AI is in the menu") }
+            check(!app.validateMenuItem(grammar), "Check Grammar with Cedric is disabled")
+        } else { check(false, "Check Grammar with Cedric is in the menu") }
         OwlCheck.key(window, "/", code: 44, [.command, .option])
         after(0.4) {
             check(tab.owlChat == nil, "⌥⌘/ opens no chat panel")
@@ -589,7 +589,7 @@ enum OwlChatCheck {
         }
     }
 
-    /// CEDRIC_OWL_CHECK_CHAT=grammar: Check Grammar with AI on a prose file
+    /// CEDRIC_OWL_CHECK_CHAT=grammar: Check Grammar with Cedric on a prose file
     /// (the fake engine "finds" "then I expected"): an underline, the
     /// owl's grammar bubble, Fix it, one ⌘Z.
     static func runGrammar(_ tab: EditorWindowController, out: String) {
@@ -597,7 +597,7 @@ enum OwlChatCheck {
         let deadline = Date().addingTimeInterval(15)
         func waitProse() {
             if tab.grammar.lastSawProse == true {
-                check(tab.canCheckGrammarWithAI, "Check Grammar with AI is available in prose")
+                check(tab.canCheckGrammarWithAI, "Check Grammar with Cedric is available in prose")
                 let original = tab.text
                 NSApp.sendAction(#selector(AppDelegate.checkGrammarWithAIMenu(_:)), to: nil, from: nil)
                 check(tab.grammar.aiPasses == 1, "the menu item starts one AI pass")

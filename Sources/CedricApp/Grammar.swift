@@ -265,7 +265,7 @@ final class EditorGrammar {
         }
     }
 
-    // MARK: Check Grammar with AI
+    // MARK: Check Grammar with Cedric
 
     /// AI passes started (checks).
     private(set) var aiPasses = 0

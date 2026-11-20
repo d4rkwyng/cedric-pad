@@ -189,14 +189,16 @@ extension DevChecks {
                 let off: [(String, String, NSEvent.ModifierFlags)] = [
                     ("Save", "s", .command), ("Save As…", "s", [.command, .shift]), ("Cut", "x", .command), ("Paste", "v", .command),
                     ("Undo", "z", .command), ("Redo", "z", [.command, .shift]), ("Find and Replace…", "f", [.command, .option]),
-                    ("Duplicate Line", "d", [.command, .shift]), ("Toggle Comment", "/", .command), ("Sort Lines A→Z", "s", [.control, .command]),
-                    ("Toggle Bookmark", f2, .command), ("Show Preview", "p", [.command, .option]), ("Mark All", "m", [.control, .command]),
+                    ("Duplicate Line", "d", [.command, .shift]), ("Comment Selection", "/", .command), ("Sort Lines A→Z", "s", [.control, .command]),
+                    ("Bookmark Line", f2, .command), ("Show Preview", "p", [.command, .option]), ("Mark All", "m", [.control, .command]),
                     ("Find in Files…", "f", [.command, .shift]), ("Indent", "]", .command), ("Delete Line", "k", [.command, .shift]), ("Check Document Now", ";", .command),
                 ]
                 for (title, k, m) in on {
                     let it = menuItem(k, m)
                     let ok = it.map(enabled) ?? false // (validation sets "Go to Page…")
-                    expect(ok && it?.title == title, "enabled on a PDF tab: \(title)", it?.title ?? "no item")
+                    // A view toggle says Show or Hide (UX review #7).
+                    let same = it?.title == title || (title.hasPrefix("Show ") && it?.title == "Hide " + title.dropFirst(5))
+                    expect(ok && same, "enabled on a PDF tab: \(title)", it?.title ?? "no item")
                 }
                 for (title, k, m) in off {
                     let it = menuItem(k, m)

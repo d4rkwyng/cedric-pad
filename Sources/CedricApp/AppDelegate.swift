@@ -70,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { _, _ in
             Task { @MainActor in NotificationCenter.default.post(name: .cedricAppearanceChanged, object: nil) }
         }
-        // The owl hub listens for View › Show Cedric the Owl; it must exist
+        // The owl hub listens for Cedric › Show Cedric; it must exist
         // before the first toggle (it was created lazily, so with the owl
         // off and only untitled tabs the menu item did nothing). Not needed
         // for the first frame (a tab with the owl on creates it at once).
@@ -847,10 +847,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let s = Settings.shared
         switch item.action {
         case #selector(toggleWrap(_:)): item.state = s.wrapLines ? .on : .off
-        case #selector(toggleInvisibles(_:)): item.state = s.showInvisibles ? .on : .off
-        case #selector(toggleLineNumbers(_:)): item.state = s.showLineNumbers ? .on : .off
+        // View toggles say Show X / Hide X, no checkmark (UX review #7); attribute toggles keep theirs.
+        case #selector(toggleInvisibles(_:)):
+            setShowHide(item, shown: s.showInvisibles, show: String(localized: "Show Invisibles"), hide: String(localized: "Hide Invisibles"))
+        case #selector(toggleLineNumbers(_:)):
+            setShowHide(item, shown: s.showLineNumbers, show: String(localized: "Show Line Numbers"), hide: String(localized: "Hide Line Numbers"))
         case #selector(toggleSpellingWhileTyping(_:)): item.state = s.checkSpellingWhileTyping ? .on : .off
         case #selector(checkDocumentNow(_:)): return tab != nil
+        case #selector(showStatisticsMenu(_:)): return tab?.statusBar.counts.onClick != nil && tab?.statusBar.counts.isHidden == false
         // Explain & tidy (OwlTools.swift): on a selection that is one.
         case #selector(explainRegexMenu(_:)): return tab?.canExplainRegex == true
         case #selector(decodeSelectionMenu(_:)): return tab?.canDecodeSelection == true
@@ -860,9 +864,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Plain Text and Markdown only, with grammar on, not in large mode.
         case #selector(fixGrammarMenu(_:)): return tab?.grammar.mayCheck == true
         case #selector(toggleGrammar(_:)): item.state = s.checkGrammar ? .on : .off
-        case #selector(toggleOwl(_:)): item.state = s.showOwl ? .on : .off
+        case #selector(toggleOwl(_:)): setShowHide(item, shown: s.showOwl, show: String(localized: "Show Cedric"), hide: String(localized: "Hide Cedric"))
         // On for every tab; shown for the file types that have a set.
-        case #selector(toggleContextBarMenu(_:)): item.state = s.showContextBar ? .on : .off
+        case #selector(toggleContextBarMenu(_:)):
+            setShowHide(item, shown: s.showContextBar, show: String(localized: "Show Context Bar"), hide: String(localized: "Hide Context Bar"))
         case #selector(askCedricMenu(_:)): return s.owlChat && tab?.canAskCedric == true
         case #selector(checkGrammarWithAIMenu(_:)): return s.owlChat && tab?.canCheckGrammarWithAI == true
         case #selector(scriptSafetyMenu(_:)): return tab?.canCheckScriptSafety == true
@@ -873,7 +878,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item.state = (item.representedObject as? String) == effective.rawValue ? .on : .off
             return s.showOwl && (item.representedObject as? String == OwlHintSource.rules.rawValue || ai)
         case #selector(toggleOutlineMenu(_:)):
-            item.state = tab?.outlineVisible == true ? .on : .off
+            setShowHide(item, shown: tab?.outlineVisible == true, show: String(localized: "Show Outline"), hide: String(localized: "Hide Outline"))
             return tab?.doc.language.hasOutline == true
         case #selector(goToHeadingMenu(_:)):
             return tab?.doc.language.hasOutline == true
@@ -881,7 +886,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
              #selector(copyAsHTMLMenu(_:)), #selector(copyAsRichTextMenu(_:)):
             return tab?.doc.language == .markdown
         case #selector(togglePreview(_:)):
-            item.state = tab?.previewVisible == true ? .on : .off
+            setShowHide(item, shown: tab?.previewVisible == true, show: String(localized: "Show Preview"), hide: String(localized: "Hide Preview"))
             return tab?.previewApplies == true
         case #selector(toggleDetachPreview(_:)):
             item.title = tab?.previewDetached == true ? String(localized: "Attach Preview") : String(localized: "Detach Preview")
