@@ -178,7 +178,8 @@ public enum OwlPrompts {
     /// The first messages of a chat request: system, the last two turns
     /// of history, then the user turn with the context attached.
     public static func chatMessages(question: String, context: OwlChatContext, language: String, fileName: String?,
-                                    history: [OwlChatEntry], toolsOn: Bool, model: String, server: Bool = false) -> [OwlChatMessage] {
+                                    history: [OwlChatEntry], toolsOn: Bool, model: String, server: Bool = false,
+                                    canDescribeImage: Bool = false) -> [OwlChatMessage] {
         var out: [OwlChatMessage] = [.system(chatSystem(toolsOn: toolsOn, server: server))]
         // Older turns are dropped (small context): the last two questions and answers.
         var kept: [OwlChatEntry] = []
@@ -195,7 +196,7 @@ public enum OwlPrompts {
         var user = "Language: \(language)\n"
         if let fileName {
             user += "File: \(fileName)\n"
-            if let kind = fileKind(fileName) { user += kind + "\n" }
+            if let kind = fileKind(fileName, canDescribeImage: canDescribeImage) { user += kind + "\n" }
         }
         user += "Shown: \(context.scope.rawValue), lines \(context.firstLine)-\(context.lastLine)"
         if context.truncated { user += " (trimmed; use tools or ask for less)" }
@@ -205,15 +206,25 @@ public enum OwlPrompts {
         return out
     }
 
+    /// The start of an image document's "File kind:" line (the test engine
+    /// looks for it).
+    public static let pictureKind = "File kind: This file is an SVG image"
+
     /// What a text document is when its text isn't the whole story: an SVG
     /// is XML that draws a picture, and the preview shows that picture. The
-    /// model sees only the text (no vision tool before 0.3.0), so it must not
-    /// claim there is no picture. nil for ordinary text and code.
-    public static func fileKind(_ fileName: String) -> String? {
+    /// model must never claim there is no picture. With describe_image
+    /// offered it is told to look; without (no renderer), that it sees only
+    /// the XML. nil for ordinary text and code.
+    public static func fileKind(_ fileName: String, canDescribeImage: Bool = false) -> String? {
         switch (fileName as NSString).pathExtension.lowercased() {
         case "svg", "svgz":
-            return "File kind: This file is an SVG image (XML that draws a picture); the preview shows the rendered picture. "
-                + "You see only its XML, not the rendered image. Never say there is no picture. "
+            let what = pictureKind + " (XML that draws a picture); the preview shows the rendered picture. Never say there is no picture. "
+            if canDescribeImage {
+                return what + "To see the picture, call describe_image: it renders it on this Mac and reports what it shows, "
+                    + "any text in it, its size and colours. When asked what the picture shows, call it first, then answer from its "
+                    + "result together with what the XML draws."
+            }
+            return what + "You see only its XML, not the rendered image. "
                 + "If asked what it shows, say you can't see the rendered image, then describe what the code draws "
                 + "(size, shapes, colours, text) as far as the XML tells."
         default:
@@ -223,6 +234,10 @@ public enum OwlPrompts {
 
     /// The built-in engine's tool protocol (a grammar enforces it).
     public static func envelopeInstructions(_ tools: [OwlToolSpec]) -> String {
+        // Only offered for a picture (an SVG); never for plain text.
+        let sees = tools.contains { $0.name == .describeImage }
+        let look = sees ? "\n- The file kind says it is an image and it asks what the picture shows or looks like: call describe_image." : ""
+        let lookExample = sees ? #" "What is this a picture of?" (an SVG) → {"tool":"describe_image","args":{}}."# : ""
         var s = "\n\nTools:\n"
         for t in tools {
             var params: [String] = []
@@ -238,7 +253,7 @@ public enum OwlPrompts {
         - It asks to find, search, or where or how often a word appears: call search_document with that word.
         - It asks for headings, sections, structure, keys or which functions exist: call get_outline.
         - It asks how many words, lines or characters, or the file name or language: call document_stats.
-        - It asks to change, rename, rewrite or propose an edit: call propose_edit (or get_lines first).
+        - It asks to change, rename, rewrite or propose an edit: call propose_edit (or get_lines first).\(look)
         - Otherwise, when the answer is in lines A-B or needs no document: answer directly.
 
         Reply with JSON only. To call a tool: {"tool":"get_lines","args":{"start":40,"end":44}}. \
@@ -246,7 +261,7 @@ public enum OwlPrompts {
         Examples (shown lines 1-12): "What does line 80 say?" → {"tool":"get_lines","args":{"start":80,"end":80}}. \
         "Where is foo used?" → {"tool":"search_document","args":{"query":"foo"}}. \
         "Explain what I selected." → {"tool":"get_selection","args":{}}. \
-        "What is on line 2?" → {"answer":"…"}. "What is 2 + 2?" → {"answer":"4"}.
+        "What is on line 2?" → {"answer":"…"}. "What is 2 + 2?" → {"answer":"4"}.\(lookExample)
         """
         return s
     }

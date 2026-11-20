@@ -89,6 +89,21 @@ CEDRIC_SESSION_DIR="$WORK/session-panel-tabs" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESS
 CEDRIC_OPEN="$WORK/Sum.swift" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=1 \
 CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
 CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/panel-tabs" CEDRIC_OWL_CHECK_CHAT=panel-tabs "$BIN" || status=1
+# Ask Cedric about an SVG (OwlPictureCheck.swift): "What is it a picture
+# of?" calls describe_image even with tools gated off; the preview's
+# renderer draws it, Apple Vision reads it, the answer quotes it.
+cat > "$WORK/binoculars.svg" <<'SVG'
+<svg xmlns="http://www.w3.org/2000/svg" width="53" height="53" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M10 10h4"/><path d="M19 7V4a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v3"/>
+  <path d="M20 21a2 2 0 0 0 2-2v-3.851c0-1.39-2-2.962-2-4.829V8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v11a2 2 0 0 0 2 2z"/>
+  <path d="M22 16H2"/><path d="M4 21a2 2 0 0 1-2-2v-3.851c0-1.39 2-2.962 2-4.829V8a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v11a2 2 0 0 1-2 2z"/>
+  <path d="M9 7V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v3"/>
+</svg>
+SVG
+CEDRIC_SESSION_DIR="$WORK/session-picture" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \
+CEDRIC_OPEN="$WORK/binoculars.svg" CEDRIC_OWL=1 CEDRIC_OWL_RESET=1 CEDRIC_OWL_CHAT=1 CEDRIC_OWL_TOOLS=0 \
+CEDRIC_AI=1 CEDRIC_AI_FAKE=0.3 CEDRIC_OWL_CHAT_FAKE_DELAY=0.05 CEDRIC_AI_AUTO=0 CEDRIC_AI_DEFAULTS="$SUITE" \
+CEDRIC_SNAPSHOT_SIZE=760x420 CEDRIC_OWL_CHECK="$OUT/picture" CEDRIC_OWL_CHECK_CHAT=picture "$BIN" || status=1
 # Check Grammar with AI (fake engine) on a letter.
 printf 'Dear Sam,\n\nThe trip took longer then I expected, but the weather was kind to us and the views were lovely. We will send photos when we are home again next week.\n\nBest wishes,\nAlex\n' > "$WORK/letter.txt"
 CEDRIC_SESSION_DIR="$WORK/session-grammar-ai" CEDRIC_NO_RESTORE=1 CEDRIC_NO_SESSION_SAVE=1 \

@@ -17,7 +17,8 @@ public enum OwlChatMood: String, Sendable, CaseIterable {
         case typed
         /// A question went out: waiting for the model.
         case asked
-        /// The model ran search_document.
+        /// A tool is running: search_document, or describe_image while it
+        /// renders and reads the picture (the search strip either way).
         case searching
         /// Answer text arrived.
         case streaming

@@ -57,19 +57,25 @@ extension OwlChatEngine {
 
 /// Runs tool calls against the frozen snapshot: the allowed subset only,
 /// a call budget, at most one proposal. Thread-safe (Apple calls tools
-/// from its own tasks).
+/// from its own tasks). describe_image needs `imageSource` (the app gives
+/// one for a document that draws a picture) and runs in `perform`.
 public final class OwlToolbox: @unchecked Sendable {
     public let snapshot: OwlDocumentSnapshot
     public let allowed: Set<OwlToolName>
+    /// The open document's picture, rendered only when asked for.
+    public let imageSource: (any OwlImageSource)?
     private let lock = NSLock()
     private var calls = 0
     private var _proposal: OwlEditProposal?
+    private var _picture: Task<OwlRenderedImage, Error>?
     private let onEvent: @Sendable (OwlChatEvent) -> Void
     public static let maxCalls = OwlTools.maxRounds * OwlTools.maxCallsPerRound
 
-    public init(snapshot: OwlDocumentSnapshot, allowed: Set<OwlToolName>, onEvent: @escaping @Sendable (OwlChatEvent) -> Void = { _ in }) {
+    public init(snapshot: OwlDocumentSnapshot, allowed: Set<OwlToolName>, imageSource: (any OwlImageSource)? = nil,
+                onEvent: @escaping @Sendable (OwlChatEvent) -> Void = { _ in }) {
         self.snapshot = snapshot
         self.allowed = allowed
+        self.imageSource = imageSource
         self.onEvent = onEvent
     }
 
@@ -79,12 +85,23 @@ public final class OwlToolbox: @unchecked Sendable {
     public var log: [OwlToolCall] { lock.withLock { _log } }
     private var _log: [OwlToolCall] = []
 
-    public func run(_ call: OwlToolCall) -> OwlToolResult {
+    /// Counts and logs a call; the refusal when over the budget.
+    private func admit(_ call: OwlToolCall) -> OwlToolResult? {
         let n: Int = lock.withLock { calls += 1; _log.append(call); return calls }
         guard n <= Self.maxCalls else {
             return OwlToolResult(text: "error: tool limit reached; answer now with what you have", proposal: nil,
                                  summary: "tool limit reached", ok: false)
         }
+        return nil
+    }
+
+    /// The document tools (everything but describe_image), synchronously.
+    public func run(_ call: OwlToolCall) -> OwlToolResult {
+        if let refused = admit(call) { return refused }
+        return runAdmitted(call)
+    }
+
+    private func runAdmitted(_ call: OwlToolCall) -> OwlToolResult {
         let name = OwlToolName(rawValue: call.name)
         if name == .searchDocument { onEvent(.phase(.searching)) }
         if name == .proposeEdit, proposal != nil {
@@ -99,6 +116,38 @@ public final class OwlToolbox: @unchecked Sendable {
         }
         return r
     }
+
+    /// Any tool, describe_image included (it renders and reads the picture
+    /// off the main thread, time-limited).
+    public func perform(_ call: OwlToolCall) async -> OwlToolResult {
+        guard OwlToolName(rawValue: call.name) == .describeImage else { return run(call) }
+        if let refused = admit(call) { return refused }
+        guard allowed.contains(.describeImage), let imageSource else { return runAdmitted(call) }
+        onEvent(.phase(.searching))
+        let r = await OwlVision.describe(PictureOnce(toolbox: self, source: imageSource))
+        onEvent(.tool(.describeImage, r.ok ? r.summary : String(localized: "A tool call was refused: \(r.summary)")))
+        return r
+    }
+
+    /// The document's picture, rendered once per question (Apple
+    /// Intelligence may see it attached and also call describe_image).
+    public func picture() async throws -> OwlRenderedImage {
+        guard let imageSource else { throw OwlImageError.unreadable }
+        let task: Task<OwlRenderedImage, Error> = lock.withLock {
+            if let t = _picture { return t }
+            let t = Task { try await imageSource.render(maxPixels: OwlVision.maxPixels) }
+            _picture = t
+            return t
+        }
+        return try await task.value
+    }
+}
+
+/// The toolbox's cached rendering, as an image source.
+private struct PictureOnce: OwlImageSource {
+    let toolbox: OwlToolbox
+    let source: any OwlImageSource
+    func render(maxPixels: Int) async throws -> OwlRenderedImage { try await toolbox.picture() }
 }
 
 /// A question for the runner.
@@ -118,13 +167,16 @@ public struct OwlChatRequest: Sendable {
     /// the verdict is forced to "Don't run it" (`ScriptVerdict`).
     public var scanHasHigh: Bool
     public var scanTruncated: Bool
+    /// The document draws a picture (an SVG): describe_image can look at it.
+    public var imageSource: (any OwlImageSource)?
 
     public init(question: String, action: OwlQuickAction? = nil, context: OwlChatContext, snapshot: OwlDocumentSnapshot,
                 history: [OwlChatEntry] = [], useTools: Bool, prose: Bool, maxTokens: Int = 700, scan: String? = nil,
-                scanHasHigh: Bool = false, scanTruncated: Bool = false) {
+                scanHasHigh: Bool = false, scanTruncated: Bool = false, imageSource: (any OwlImageSource)? = nil) {
         self.question = question; self.action = action; self.context = context; self.snapshot = snapshot
         self.history = history; self.useTools = useTools; self.prose = prose; self.maxTokens = maxTokens
         self.scan = scan; self.scanHasHigh = scanHasHigh; self.scanTruncated = scanTruncated
+        self.imageSource = imageSource
     }
 
     /// The model saw only part of the document (trimmed to fit, or not
@@ -145,7 +197,14 @@ public struct OwlChatRequest: Sendable {
         return question
     }
 
-    public var tools: [OwlToolName] { useTools ? (action?.tools ?? OwlToolName.allCases) : [] }
+    /// The tools offered. describe_image only with a picture, and then even
+    /// for a model not trusted with the other tools (`OwlToolGate`): it
+    /// is read-only and the only way to see the picture.
+    public var tools: [OwlToolName] {
+        var t = useTools ? (action?.tools ?? OwlToolName.allCases.filter { $0 != .describeImage }) : []
+        if imageSource != nil, action == nil || action == .explain || action == .summarise { t.append(.describeImage) }
+        return t
+    }
 }
 
 public struct OwlChatOutcome: Sendable, Equatable {
@@ -163,11 +222,12 @@ public enum OwlChatRunner {
     public static func run(_ req: OwlChatRequest, engine: any OwlChatEngine, model: String = "",
                            onEvent: @escaping @Sendable (OwlChatEvent) -> Void) async throws -> OwlChatOutcome {
         let specs = OwlTools.specs(req.tools)
-        let toolbox = OwlToolbox(snapshot: req.snapshot, allowed: Set(req.tools), onEvent: onEvent)
+        let toolbox = OwlToolbox(snapshot: req.snapshot, allowed: Set(req.tools), imageSource: req.imageSource, onEvent: onEvent)
         var messages = OwlPrompts.chatMessages(question: req.prompt, context: req.context,
                                                language: Language(rawValue: req.snapshot.language)?.displayName ?? req.snapshot.language,
                                                fileName: req.snapshot.fileName, history: req.history,
-                                               toolsOn: !specs.isEmpty, model: model, server: engine.usesServer)
+                                               toolsOn: !specs.isEmpty, model: model, server: engine.usesServer,
+                                               canDescribeImage: req.tools.contains(.describeImage))
         onEvent(.phase(.thinking))
         let wrote = Flag()
         let onText: @Sendable (String) -> Void = { t in
@@ -192,7 +252,7 @@ public enum OwlChatRunner {
                 for i in calls.indices where calls[i].id.isEmpty { calls[i].id = "call_\(rounds)_\(i)" }
                 messages.append(.toolCalls(calls))
                 for c in calls {
-                    let r = toolbox.run(c)
+                    let r = await toolbox.perform(c)
                     messages.append(.toolResult(callID: c.id, name: c.name, content: r.text))
                 }
                 continue

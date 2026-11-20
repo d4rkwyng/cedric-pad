@@ -2,9 +2,10 @@ import Foundation
 import CedricCore
 
 /// The fixed tool-prompt set behind model gating (Scripts/owl-tools-eval.sh):
-/// 40 questions over six sample documents (Markdown, Swift, JSON, CSV,
-/// prose, HTML). The model sees only lines 1–12 (as in the panel's
-/// "Visible text"), with all six tools offered, and must either pick the
+/// 46 questions over seven sample documents (Markdown, Swift, JSON, CSV,
+/// prose, HTML, and an SVG icon). The model sees only lines 1–12 (as in
+/// the panel's "Visible text"), with every tool offered (describe_image
+/// too, so a text document must leave it alone), and must either pick the
 /// expected tool with usable arguments or answer directly when no tool is
 /// needed. Scores ≥ `OwlToolGate.threshold` (0.8) turn tools on for that
 /// model; the results go to Resources/AI/owl-tool-scores.json.
@@ -63,6 +64,20 @@ public enum OwlToolEval {
         for i in 1...12 { html += "  <section>\n    <h2>Loaf \(i)</h2>\n    <p>Price: \(i + 2) euros</p>\n  </section>\n" }
         html += "  <footer>Contact: hello@example.com</footer>\n</body>\n</html>\n"
         d["html"] = ("html", "index.html", html)
+        // The binoculars icon from Derek's question (Lucide-style strokes).
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="53" height="53" viewBox="0 0 24 24"
+             fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 10h4"/>
+          <path d="M19 7V4a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v3"/>
+          <path d="M20 21a2 2 0 0 0 2-2v-3.851c0-1.39-2-2.962-2-4.829V8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v11a2 2 0 0 0 2 2z"/>
+          <path d="M22 16H2"/>
+          <path d="M4 21a2 2 0 0 1-2-2v-3.851c0-1.39 2-2.962 2-4.829V8a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v11a2 2 0 0 1-2 2z"/>
+          <path d="M9 7V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v3"/>
+        </svg>
+
+        """
+        d["svg"] = ("html", "binoculars.svg", svg)
         return d
     }()
 
@@ -120,6 +135,13 @@ public enum OwlToolEval {
             c("html", "What is the h1 text on line 7?", []),
             c("md", "In one sentence, what is a raised garden bed? No need to look at the document.", []),
             c("swift", "What does the keyword 'guard' mean in Swift, in general?", []),
+            // describe_image: an SVG's picture; never for a text document.
+            c("svg", "What is it a picture of?", [.describeImage]),
+            c("svg", "What does this image show?", [.describeImage]),
+            c("svg", "Describe the icon this file draws.", [.describeImage]),
+            c("svg", "What is the stroke width on line 2?", []),
+            c("prose", "What is this a picture of?", []),
+            c("md", "Is there an image in these notes?", []),
         ]
     }()
 
@@ -133,7 +155,8 @@ public enum OwlToolEval {
         let ctx = OwlChatContext.build(snap, scope: .visible, budget: 6000)!
         let toolbox = OwlToolbox(snapshot: snap, allowed: Set(OwlToolName.allCases))
         let messages = OwlPrompts.chatMessages(question: c.question, context: ctx, language: Language(rawValue: d.language)?.displayName ?? d.language,
-                                               fileName: d.file, history: [], toolsOn: true, model: engine.scoreKey)
+                                               fileName: d.file, history: [], toolsOn: true, model: engine.scoreKey,
+                                               canDescribeImage: OwlPicture.isPicture(fileName: d.file))
         let expected = c.expect.isEmpty ? "answer" : c.expect.map(\.rawValue).sorted().joined(separator: "|")
         let turn: OwlTurn
         do {
@@ -153,7 +176,8 @@ public enum OwlToolEval {
         var pass = false
         if let name = OwlToolName(rawValue: call.name), c.expect.contains(name) {
             let r = OwlTools.run(call, on: snap)
-            pass = r.ok || name == .proposeEdit && call.arguments["start"]?.int != nil
+            // describe_image needs the app's renderer: choosing it is the test.
+            pass = r.ok || name == .proposeEdit && call.arguments["start"]?.int != nil || name == .describeImage
             if let arg = c.arg, pass {
                 let v = call.arguments[arg.key]
                 if arg.key == "start" {

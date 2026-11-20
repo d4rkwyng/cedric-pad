@@ -37,7 +37,11 @@ public struct AppleChatEngine: OwlChatEngine {
             for spec in tools { if let t = try? AppleOwlTool(spec: spec, toolbox: toolbox) { appleTools.append(t) } }
         }
         let session = LanguageModelSession(model: SystemLanguageModel.default, tools: appleTools, instructions: system)
-        let stream = session.streamResponse(to: prompt, options: GenerationOptions(temperature: 0, maximumResponseTokens: maxTokens))
+        let options = GenerationOptions(temperature: 0, maximumResponseTokens: maxTokens)
+        // One stream per session: a second one before the first ends is an error.
+        let picture = await Self.picture(toolbox)
+        let stream = picture.map { Self.streamWithPicture(session, prompt: prompt, picture: $0, options: options) }
+            ?? session.streamResponse(to: prompt, options: options)
         var sent = ""
         for try await snapshot in stream {
             try Task.checkCancellation()
@@ -49,6 +53,34 @@ public struct AppleChatEngine: OwlChatEngine {
             sent = full
         }
         return .answer(sent)
+    }
+
+    /// The model can take an image as input (FoundationModels 2, macOS 27:
+    /// `Attachment` and the `.vision` capability): the document's picture
+    /// goes in the prompt itself, rendered once and time-limited. Before
+    /// that (macOS 26) only describe_image's Vision text reaches it.
+    static func picture(_ toolbox: OwlToolbox?) async -> OwlRenderedImage? {
+        #if canImport(FoundationModels, _version: 2.0)
+        guard #available(macOS 27.0, *), let toolbox, toolbox.imageSource != nil, toolbox.allowed.contains(.describeImage),
+              SystemLanguageModel.default.capabilities.contains(.vision) else { return nil }
+        return try? await OwlVision.withDeadline(10) { try await toolbox.picture() }
+        #else
+        return nil
+        #endif
+    }
+
+    @available(macOS 26.0, *)
+    static func streamWithPicture(_ session: LanguageModelSession, prompt: String, picture: OwlRenderedImage,
+                                  options: GenerationOptions) -> LanguageModelSession.ResponseStream<String> {
+        #if canImport(FoundationModels, _version: 2.0)
+        if #available(macOS 27.0, *) {
+            return session.streamResponse(to: Prompt {
+                prompt + "\n\nThe document's rendered picture is attached (rendered on this Mac)."
+                Attachment(picture.image)
+            }, options: options)
+        }
+        #endif
+        return session.streamResponse(to: prompt, options: options)
     }
 }
 
@@ -86,7 +118,7 @@ struct AppleOwlTool: Tool {
 
     func call(arguments: GeneratedContent) async throws -> String {
         let args = OwlJSON.parse(arguments.jsonString) ?? .object([:])
-        return toolbox.run(OwlToolCall(id: "apple", name: name, arguments: args)).text
+        return await toolbox.perform(OwlToolCall(id: "apple", name: name, arguments: args)).text
     }
 }
 
