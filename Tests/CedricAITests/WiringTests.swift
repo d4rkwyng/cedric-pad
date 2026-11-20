@@ -216,7 +216,11 @@ final class SlowProvider: OwlHintProvider, @unchecked Sendable {
         var s = LocalAISettings(enabled: true)
         s.backend = .builtIn
         let built = AIEngines.engine(for: s)
+        #if os(iOS)   // no llama runtime in the test bundle (the app sets one on a device)
+        #expect(!built.isAvailable && built.unavailableReason == BuiltInPlatform.unavailableReason && !built.needsAddress)
+        #else
         #expect(built.isAvailable && built.unavailableReason == nil && !built.needsAddress)
+        #endif
         s.backend = .apple
         let apple = AIEngines.engine(for: s)
         #expect(!apple.needsAddress)
@@ -232,7 +236,11 @@ final class SlowProvider: OwlHintProvider, @unchecked Sendable {
         let bridge = LocalAIOwlBridge(registry: registry, makeProvider: { _ in nil })
         await bridge.apply(LocalAISettings(enabled: true, backend: .builtIn))
         #expect(!registry.hasAIProvider)
+        #if os(iOS)
+        #expect(bridge.lastProblem == BuiltInPlatform.unavailableReason)
+        #else
         #expect(bridge.lastProblem?.contains("No model downloaded") == true)
+        #endif
         await bridge.apply(LocalAISettings(enabled: true, backend: .lmStudio))
         #expect(bridge.lastProblem?.contains("start the server") == true)
     }

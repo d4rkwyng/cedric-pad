@@ -70,6 +70,7 @@ import Testing
         #expect(throws: TextToolError.self) { try t(.jsonMinify, "\"open") }
     }
 
+    #if os(macOS)   // iOS has no XMLDocument: the tool isn't offered there
     @Test func xmlPretty() throws {
         let out = try t(.xmlPrettyPrint, "<root b=\"2\" a=\"1\"><item>x</item><empty/><!-- c --></root>")
         #expect(out.contains("<root b=\"2\" a=\"1\">"))
@@ -78,6 +79,7 @@ import Testing
         #expect(!out.hasPrefix("<?xml"))
         #expect(throws: TextToolError.self) { try t(.xmlPrettyPrint, "<a><b></a>") }
     }
+    #endif
 
     @Test func base64() throws {
         #expect(try t(.base64Encode, "héllo") == "aMOpbGxv")

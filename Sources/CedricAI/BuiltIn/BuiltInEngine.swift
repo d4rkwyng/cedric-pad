@@ -24,9 +24,11 @@ public struct BuiltInEngine: AIEngine {
         catalog == nil ? "This copy of Owlink is missing its model list (Resources/AI/models.json)." : nil
     }
     #else
-    public var isAvailable: Bool { catalog != nil && BuiltInPlatform.runtime != nil }
+    /// iOS: only with a real runtime (a device build sets one; the
+    /// simulator has none).
+    public var isAvailable: Bool { catalog != nil && !(host.runtime is NoBuiltInRuntime) }
     public var unavailableReason: String? {
-        if BuiltInPlatform.runtime == nil { return BuiltInPlatform.unavailableReason }
+        if host.runtime is NoBuiltInRuntime { return BuiltInPlatform.unavailableReason }
         return catalog == nil ? "This copy of Owlink is missing its model list (AI/models.json)." : nil
     }
     #endif
