@@ -1090,24 +1090,41 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             else { self.dismiss(animated: true) { self.showSettings() } }
         }
         askModel = model
-        // Wide screens (an iPad, an unfolded iPhone Duo): docked beside the
-        // text, meeting it at the fold, code on one side and Cedric on the
-        // other. Compact: the sheet.
+        // An iPad at regular width docks Cedric beside the text. A phone
+        // always gets the sheet, including landscape, where the width is
+        // regular but a side panel is too narrow to read. An iPad panel can
+        // still be popped out into that sheet.
         closeHint()
-        if EditorPanes.askPresentation(regularWidth: traitCollection.horizontalSizeClass == .regular) == .panel {
+        if askUsesPanel {
             openAskPanel(model)
             return
         }
         presentAskSheet(model)
     }
 
+    /// Side panel only on an iPad that has room. A phone, and an iPad in a
+    /// narrow split, use the sheet.
+    private var askUsesPanel: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && traitCollection.horizontalSizeClass == .regular
+    }
+
     private func presentAskSheet(_ model: AskCedricModel) {
         let host = UIHostingController(rootView: AskCedricView(model: model))
-        host.modalPresentationStyle = .formSheet
+        // Default sizing uses the SwiftUI ideal size. A ScrollView's ideal
+        // size is its whole transcript, so the sheet clipped long answers
+        // instead of scrolling them.
+        host.sizingOptions = []
+        host.modalPresentationStyle = .pageSheet
         if let sheet = host.sheetPresentationController {
             sheet.detents = [.medium(), .large()]
             sheet.prefersGrabberVisible = true
+            sheet.selectedDetentIdentifier = .medium
+            // Medium leaves the editor visible and undimmed behind the sheet.
+            sheet.largestUndimmedDetentIdentifier = .medium
             sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            // Compact height (iPhone landscape): stay attached to the bottom
+            // edge. The default there is a floating card.
+            sheet.prefersEdgeAttachedInCompactHeight = true
             sheet.delegate = self
         }
         askSheet = host
@@ -1115,10 +1132,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     }
 
     private func openAskPanel(_ model: AskCedricModel) {
-        closeAskPanel()
+        // Drop a previous panel without stopping: `askModel` is already the
+        // conversation we're about to show.
+        detachAskPanel()
         var root = AskCedricView(model: model)
         root.onDone = { [weak self] in self?.closeAskPanel() }
+        root.onPopOut = { [weak self] in self?.popOutAskPanel() }
         let host = UIHostingController(rootView: root)
+        host.sizingOptions = []
         addChild(host)
         host.view.translatesAutoresizingMaskIntoConstraints = false
         host.view.accessibilityIdentifier = "ask.panel"
@@ -1143,8 +1164,20 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     }
 
     func closeAskPanel() {
-        guard let host = askPanel else { return }
         askModel?.stop()
+        detachAskPanel()
+    }
+
+    /// The iPad side panel becomes the sheet, same conversation still running.
+    private func popOutAskPanel() {
+        guard let model = askModel else { return }
+        detachAskPanel()
+        presentAskSheet(model)
+    }
+
+    /// Takes the side panel out of the editor. Does not stop the conversation.
+    private func detachAskPanel() {
+        guard let host = askPanel else { return }
         host.willMove(toParent: nil)
         host.view.removeFromSuperview()
         host.removeFromParent()
@@ -1169,28 +1202,20 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         if w.constant != clamped { w.constant = clamped }
     }
 
-    /// Folded shut with the panel open: it becomes the sheet, same
-    /// conversation; unfolded with the sheet up: it becomes the panel (a
-    /// form sheet left up on a wide screen showed as a centred card).
+    /// An iPad losing regular width (Split View) turns the panel into the
+    /// sheet, same conversation; gaining it docks the sheet again. A phone
+    /// stays a sheet in landscape, where the width class is regular.
     private func updateAskPanelForWidth() {
         let current: EditorPanes.Ask = askPanel != nil ? .panel : askSheet != nil ? .sheet : .none
-        guard let model = askModel,
-              let want = EditorPanes.askSwitch(from: current, regularWidth: traitCollection.horizontalSizeClass == .regular) else { return }
+        let want: EditorPanes.Ask = askUsesPanel ? .panel : .sheet
+        guard current != .none, current != want, let model = askModel else { return }
         if want == .panel {
             guard let sheet = askSheet else { return }
             askSheet = nil
             sheet.dismiss(animated: false) { [weak self] in self?.openAskPanel(model) }
             return
         }
-        let host = askPanel
-        host?.willMove(toParent: nil)
-        host?.view.removeFromSuperview()
-        host?.removeFromParent()
-        askPanel = nil
-        askPanelWidth = nil
-        splitTrailing.isActive = false
-        splitTrailing = split.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor)
-        splitTrailing.isActive = true
+        detachAskPanel()
         presentAskSheet(model)
     }
 
@@ -1279,7 +1304,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     /// Never three columns: Ask Cedric's panel takes the preview's place on
     /// a wide screen (EditorPanes).
     var paneLayout: EditorPanes.Layout {
-        EditorPanes.layout(previewOn: previewOn, askOpen: askPanel != nil || askSheet != nil, focus: focusOn,
+        // Only the docked panel takes a column. The sheet floats over the
+        // editor, so a phone in landscape keeps text and preview side by side.
+        EditorPanes.layout(previewOn: previewOn, askOpen: askPanel != nil, focus: focusOn,
                            regularWidth: traitCollection.horizontalSizeClass == .regular)
     }
 

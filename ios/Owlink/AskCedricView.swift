@@ -140,6 +140,9 @@ struct AskCedricView: View {
     /// Called by Done instead of dismissing, when the view is not in a sheet
     /// (the docked side panel on wide screens).
     var onDone: (() -> Void)? = nil
+    /// The iPad side panel, offered as a sheet over the editor instead.
+    /// Nil in the sheet itself.
+    var onPopOut: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focused: Bool
@@ -212,6 +215,18 @@ struct AskCedricView: View {
                 }
             }
             Spacer(minLength: 8)
+            if let onPopOut {
+                Button(action: onPopOut) {
+                    Image(systemName: "rectangle.portrait.on.rectangle.portrait")
+                        .font(.body)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(c.accent)
+                .accessibilityLabel(String(localized: "Show as Sheet"))
+                .accessibilityIdentifier("ask.popOut")
+            }
             Button {
                 model.stop()
                 if let onDone { onDone() } else { dismiss() }
@@ -326,7 +341,9 @@ struct AskCedricView: View {
                 }
                 if let p = e.proposal {
                     Text(p.reason.isEmpty ? String(localized: "Proposed edit") : p.reason).font(.footnote).foregroundStyle(c.secondary)
-                    Text(p.replacement).font(.system(.footnote, design: .monospaced)).lineLimit(12)
+                    Text(p.replacement).font(.system(.footnote, design: .monospaced))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(c.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
