@@ -109,29 +109,31 @@ import Testing
     }
 
     /// An `[include]`'d file that sets `gc.recentObjectsHook` must be refused
-    /// (GHSA-h2g3-rwxm-xfm3 / include follow-up).
+    /// by the real probe (`git config --list --includes`), and the hook must
+    /// not run (GHSA-h2g3-rwxm-xfm3).
     @Test func includedRecentObjectsHookIsHostile() throws {
-        let root = tempDir()
+        guard GitRunner.executable != nil else { return }
+        let root = tempDir(), markers = root.appendingPathComponent("markers")
         defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: markers, withIntermediateDirectories: true)
         let repo = root.appendingPathComponent("repo")
-        try FileManager.default.createDirectory(at: repo.appendingPathComponent(".git"), withIntermediateDirectories: true)
-        try "ref: refs/heads/main\n".write(to: repo.appendingPathComponent(".git/HEAD"), atomically: true, encoding: .utf8)
-        try "[gc]\n\trecentObjectsHook = \"touch /tmp/cedric-gc-hook; false\"\n"
-            .write(to: repo.appendingPathComponent(".git/hook.inc"), atomically: true, encoding: .utf8)
-        try "[core]\n\tbare = false\n[include]\n\tpath = hook.inc\n"
-            .write(to: repo.appendingPathComponent(".git/config"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        #expect(GitRunner.run(["init", "-q", "-b", "main"], cwd: repo)?.status == 0)
         try "x\n".write(to: repo.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        let marker = markers.appendingPathComponent("gc-hook").path
+        try "[gc]\n\trecentObjectsHook = \"touch \(marker); false\"\n"
+            .write(to: repo.appendingPathComponent(".git/evil.inc"), atomically: true, encoding: .utf8)
+        let cfg = repo.appendingPathComponent(".git/config")
+        var c = try String(contentsOf: cfg, encoding: .utf8)
+        c += "[include]\n\tpath = evil.inc\n"
+        try c.write(to: cfg, atomically: true, encoding: .utf8)
         let file = repo.appendingPathComponent("a.txt")
         let loc = try #require(GitLocation.find(for: file))
-        let scanned = GitConfigSafety.scanRepository(at: loc.gitDir, workTree: loc.workTree)
-        let keys = Set(GitConfigSafety.dangerousKeys(scanned).map { $0.lowercased() })
-        #expect(keys.contains("gc.recentobjectshook"), "include-relative path is followed: \(keys.sorted())")
-        if GitRunner.executable != nil {
-            let p = GitProbe.probe(file: file, location: loc)
-            #expect(p?.refused == true)
-            let refused = Set(p?.refusedKeys.map { $0.lowercased() } ?? [])
-            #expect(refused.contains("gc.recentobjectshook"))
-        }
+        let p = try #require(GitProbe.probe(file: file, location: loc))
+        #expect(p.refused)
+        let refused = Set(p.refusedKeys.map { $0.lowercased() })
+        #expect(refused.contains("gc.recentobjectshook"), "included hook is seen: \(refused.sorted())")
+        #expect(markersIn(markers).isEmpty, "the hook did not run: \(markersIn(markers))")
     }
 
     @Test func probeWithoutStatus() throws {

@@ -371,21 +371,17 @@ public enum GitRunner {
 
 /// A repository's own config (`.git/config`, `config.worktree` and every
 /// file they include) read as `git config --list --includes --show-scope
-/// -z` prints it — and also walked from disk without invoking git: the
-/// keys that would make git run a program. Cedric overrides the ones it
-/// knows of on every call and never runs a command that uses the rest,
-/// but a repository that asks for any of them gets no git at all (a
-/// second layer). Global and system config are the user's own and are
-/// trusted.
+/// -z` prints it: the keys that would make git run a program. Cedric
+/// overrides the ones it knows of on every call and never runs a command
+/// that uses the rest, but a repository that asks for any of them gets no
+/// git at all (a second layer). Global and system config are the user's
+/// own and are trusted.
 public enum GitConfigSafety {
     public struct Entry: Equatable, Sendable {
         public var scope: String
         public var key: String
         public var value: String?
     }
-
-    /// Git's own include nesting limit.
-    public static let maxIncludeDepth = 10
 
     /// Parses `scope\0key\nvalue\0` records (`key` alone for a valueless key).
     public static func parse(_ z: String) -> [Entry] {
@@ -458,208 +454,6 @@ public enum GitConfigSafety {
     public static func value(_ entries: [Entry], _ key: String) -> String? {
         entries.last { $0.key.caseInsensitiveCompare(key) == .orderedSame }?.value
     }
-
-    /// Reads `.git/config` and `config.worktree`, following `[include]` /
-    /// `[includeIf]` the way git does: paths relative to the including
-    /// file, `~` expansion; `includeIf gitdir:` / `gitdir/i:` evaluated,
-    /// other conditions treated as "assume it applies". Depth-limited.
-    /// No git process — so a hostile include cannot hide behind a config
-    /// read that itself triggers hooks or lazy fetch.
-    public static func scanRepository(at gitDir: URL, workTree: URL, fileManager fm: FileManager = .default) -> [Entry] {
-        var out: [Entry] = []
-        var seen = Set<String>()
-        func load(_ file: URL, scope: String, depth: Int) {
-            let resolved = file.resolvingSymlinksInPath().path
-            guard depth <= maxIncludeDepth, seen.insert(resolved).inserted else { return }
-            guard let text = try? String(contentsOf: file, encoding: .utf8) else { return }
-            for item in parseConfigText(text) {
-                switch item {
-                case .include(let condition, let pathValue):
-                    if let condition, !includeIfApplies(condition, gitDir: gitDir, workTree: workTree) { continue }
-                    guard let target = resolveIncludePath(pathValue, relativeTo: file.deletingLastPathComponent()) else { continue }
-                    load(target, scope: scope, depth: depth + 1)
-                case .entry(let key, let value):
-                    out.append(Entry(scope: scope, key: key, value: value))
-                }
-            }
-        }
-        load(gitDir.appendingPathComponent("config"), scope: "local", depth: 0)
-        let worktreeCfg = gitDir.appendingPathComponent("config.worktree")
-        if fm.fileExists(atPath: worktreeCfg.path) {
-            load(worktreeCfg, scope: "worktree", depth: 0)
-        }
-        return out
-    }
-
-    enum ConfigItem {
-        case include(condition: String?, path: String)
-        case entry(key: String, value: String?)
-    }
-
-    /// One config file's body into includes and `section[.sub].key` entries.
-    static func parseConfigText(_ text: String) -> [ConfigItem] {
-        enum SectionKind {
-            case normal(section: String, subsection: String?)
-            case include(condition: String?)
-        }
-        var out: [ConfigItem] = []
-        var kind: SectionKind?
-        for raw in text.split(whereSeparator: \.isNewline) {
-            var line = String(raw)
-            if let i = line.firstIndex(of: "#"), !isInsideQuotes(line, before: i) {
-                line = String(line[..<i])
-            }
-            if let i = line.firstIndex(of: ";"), !isInsideQuotes(line, before: i) {
-                line = String(line[..<i])
-            }
-            line = line.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty else { continue }
-            if line.hasPrefix("["), line.hasSuffix("]") {
-                let inner = String(line.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
-                kind = nil
-                if let q = inner.firstIndex(of: "\"") {
-                    let name = String(inner[..<q]).trimmingCharacters(in: .whitespaces)
-                    let after = inner[q...]
-                    guard let end = after.dropFirst().firstIndex(of: "\"") else { continue }
-                    let sub = String(after[after.index(after: after.startIndex)..<end])
-                    let nameLower = name.lowercased()
-                    if nameLower == "includeif" {
-                        kind = .include(condition: sub)
-                    } else if nameLower == "include" {
-                        kind = .include(condition: nil)
-                    } else {
-                        kind = .normal(section: name, subsection: sub)
-                    }
-                } else {
-                    let nameLower = inner.lowercased()
-                    if nameLower == "include" {
-                        kind = .include(condition: nil)
-                    } else {
-                        kind = .normal(section: inner, subsection: nil)
-                    }
-                }
-                continue
-            }
-            let key: String
-            let value: String?
-            if let eq = line.firstIndex(of: "=") {
-                key = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
-                value = unquoteConfigValue(String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces))
-            } else {
-                key = line.trimmingCharacters(in: .whitespaces)
-                value = nil
-            }
-            guard !key.isEmpty, let kind else { continue }
-            switch kind {
-            case .include(let condition):
-                if key.lowercased() == "path", let path = value {
-                    out.append(.include(condition: condition, path: path))
-                }
-            case .normal(let section, let subsection):
-                let full = subsection.map { "\(section).\($0).\(key)" } ?? "\(section).\(key)"
-                out.append(.entry(key: full, value: value))
-            }
-        }
-        return out
-    }
-
-    static func isInsideQuotes(_ line: String, before: String.Index) -> Bool {
-        var inQ = false, escape = false
-        var i = line.startIndex
-        while i < before {
-            let c = line[i]
-            if escape { escape = false }
-            else if c == "\\" { escape = true }
-            else if c == "\"" { inQ.toggle() }
-            i = line.index(after: i)
-        }
-        return inQ
-    }
-
-    static func unquoteConfigValue(_ raw: String) -> String {
-        guard raw.hasPrefix("\"") else { return raw }
-        var s = "", escape = false
-        for c in raw.dropFirst() {
-            if escape {
-                switch c {
-                case "n": s.append("\n")
-                case "t": s.append("\t")
-                case "b": s.append("\u{8}")
-                default: s.append(c)
-                }
-                escape = false
-            } else if c == "\\" {
-                escape = true
-            } else if c == "\"" {
-                break
-            } else {
-                s.append(c)
-            }
-        }
-        return s
-    }
-
-    /// Resolve an include `path`: absolute, `~/…`, or relative to the including file.
-    public static func resolveIncludePath(_ path: String, relativeTo baseDir: URL) -> URL? {
-        let trimmed = path.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return nil }
-        if trimmed == "~" || trimmed.hasPrefix("~/") {
-            return URL(fileURLWithPath: NSHomeDirectory() + String(trimmed.dropFirst()), isDirectory: false).standardizedFileURL
-        }
-        if trimmed.hasPrefix("/") {
-            return URL(fileURLWithPath: trimmed).standardizedFileURL
-        }
-        return baseDir.appendingPathComponent(trimmed).standardizedFileURL
-    }
-
-    /// `includeIf` condition: evaluate `gitdir:` / `gitdir/i:`; anything else
-    /// (onbranch, hasconfig, …) is assumed to apply so a hostile file cannot
-    /// hide behind a condition we do not model.
-    public static func includeIfApplies(_ condition: String, gitDir: URL, workTree: URL) -> Bool {
-        _ = workTree
-        let c = condition.trimmingCharacters(in: .whitespaces)
-        let lower = c.lowercased()
-        let caseInsensitive: Bool
-        let patternRaw: String
-        if lower.hasPrefix("gitdir/i:") {
-            caseInsensitive = true
-            patternRaw = String(c.dropFirst("gitdir/i:".count))
-        } else if lower.hasPrefix("gitdir:") {
-            caseInsensitive = false
-            patternRaw = String(c.dropFirst("gitdir:".count))
-        } else {
-            return true
-        }
-        var pattern = patternRaw
-        if pattern == "~" || pattern.hasPrefix("~/") {
-            pattern = NSHomeDirectory() + String(pattern.dropFirst(1))
-        }
-        if !pattern.hasPrefix("/") {
-            // Relative gitdir patterns depend on the process cwd; assume applies.
-            return true
-        }
-        if pattern.contains("*") || pattern.contains("?") {
-            return true
-        }
-        // POSIX realpath: on macOS `/var` → `/private/var`, matching git.
-        let prefix = pattern.hasSuffix("/")
-        if prefix { pattern = String(pattern.dropLast()) }
-        let gitPath = realPath(gitDir.path)
-        pattern = realPath(pattern)
-        let a = caseInsensitive ? pattern.lowercased() : pattern
-        let b = caseInsensitive ? gitPath.lowercased() : gitPath
-        if prefix {
-            return b == a || b.hasPrefix(a + "/")
-        }
-        return b == a
-    }
-
-    /// Canonical path the way git resolves `includeIf gitdir:` (POSIX realpath).
-    static func realPath(_ path: String) -> String {
-        guard let p = realpath(path, nil) else { return path }
-        defer { free(p) }
-        return String(cString: p)
-    }
 }
 
 /// What git says about one file, using only commands that never run a
@@ -687,15 +481,9 @@ public struct GitProbe: Sendable {
     /// the blob hasn't changed, so `cat-file` runs only when it did).
     public static func probe(file: URL, location: GitLocation, cached: (id: String, data: Data)? = nil) -> GitProbe? {
         let dir = file.deletingLastPathComponent(), name = file.lastPathComponent
-        var p = GitProbe()
-        // Refuse from disk first (follows includes; no git process), then
-        // again from `git config --list --includes` in case anything was
-        // missed.
-        let scanned = GitConfigSafety.scanRepository(at: location.gitDir, workTree: location.workTree)
-        p.refusedKeys = GitConfigSafety.dangerousKeys(scanned)
-        if p.refused { return p }
         guard let cfg = GitRunner.run(["config", "--list", "--includes", "--show-scope", "-z"], cwd: dir), cfg.status == 0 else { return nil }
         let entries = GitConfigSafety.parse(cfg.text)
+        var p = GitProbe()
         p.refusedKeys = GitConfigSafety.dangerousKeys(entries)
         if p.refused { return p }
         p.remoteURL = GitConfigSafety.value(entries, "remote.origin.url")
