@@ -178,17 +178,20 @@ their palettes); it has no shortcut now.
 
 ### Context Bar
 
-**View › Context Bar** shows one thin row of buttons above the text, for
-the kinds of file that have a set; for code, plain text and the other
-types there is no bar and no empty row. It is off by default, and one
-switch covers every tab. While it is off nothing about it is built, and
+**View › Show Context Bar** shows one thin row of buttons above the text,
+for the kinds of file that have a set; for code, plain text and the other
+types there is no bar and no empty row. It is on by default (**View › Hide
+Context Bar** puts it away, and Owlink remembers that), and one switch
+covers every tab. While it is off nothing about it is built, and
 typing is as fast with it shown as hidden.
 
 Markdown's set, left to right: a heading pull-down (Body, Heading 1,
-Heading 2, Heading 3), Bold, Italic, Inline Code, Link, Bulleted List,
-Numbered List, Checkbox, Quote, Code Block, Insert Table and Image Link
-(see [Markdown editing](#markdown-editing)), and at the far end a Show
-Preview toggle that lights up while the preview shows.
+Heading 2, Heading 3), Bold, Italic, Strikethrough, Inline Code, Link,
+Bulleted List, Numbered List, Checkbox, Quote, Code Block, Insert Table
+and Image Link (see [Markdown editing](#markdown-editing)), and at the far
+end a preview toggle (an eye) that lights up while the preview shows. The
+icons take their colour from the theme and stand out from the bar at
+least 3:1 in every theme.
 
 Every button runs the Format › Markdown or View command with the same
 name: the same thing happens from the bar, the menu, the shortcut and the

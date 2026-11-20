@@ -1,7 +1,7 @@
 #!/bin/bash
-# Context Bar check: View › Context Bar driven with real events
-# (CEDRIC_CHECK=contextbar, Sources/CedricApp/ContextBarCheck.swift). Off by
-# default with no view built; on, a click on Bold over a selection then ⌘Z,
+# Context Bar check: View › Show Context Bar driven with real events
+# (CEDRIC_CHECK=contextbar, Sources/CedricApp/ContextBarCheck.swift). On by
+# default; the check starts it off (no view built); on, a click on Bold over a selection then ⌘Z,
 # ⌘2 on a line, Checkbox on three lines, every other button with its undo,
 # the heading pull-down, the preview toggle, VoiceOver labels, keyboard
 # focus, light and dark themes, right-to-left, the palette's entries, and

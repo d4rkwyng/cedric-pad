@@ -862,7 +862,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleGrammar(_:)): item.state = s.checkGrammar ? .on : .off
         case #selector(toggleOwl(_:)): item.state = s.showOwl ? .on : .off
         // On for every tab; shown for the file types that have a set.
-        case #selector(toggleContextBarMenu(_:)): item.state = s.showContextBar ? .on : .off
+        case #selector(toggleContextBarMenu(_:)):
+            setShowHide(item, shown: s.showContextBar, show: String(localized: "Show Context Bar"), hide: String(localized: "Hide Context Bar"))
         case #selector(askCedricMenu(_:)): return s.owlChat && tab?.canAskCedric == true
         case #selector(checkGrammarWithAIMenu(_:)): return s.owlChat && tab?.canCheckGrammarWithAI == true
         case #selector(scriptSafetyMenu(_:)): return tab?.canCheckScriptSafety == true

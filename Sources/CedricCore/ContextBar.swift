@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Context Bar (View › Context Bar, 0.4.0): one thin row above the
+/// The Context Bar (View › Show Context Bar, 0.4.0; on by default): one thin row above the
 /// editor whose buttons depend on the file type. Declared here as data,
 /// so the Mac bar (and later the iPad keyboard row) draw the same items.
 /// Each item names a main-menu command by its action selector: a button
@@ -48,6 +48,7 @@ public enum ContextBarSet {
         ]),
         ContextBarItem("bold", "bold", "markdownBoldMenu:"),
         ContextBarItem("italic", "italic", "markdownItalicMenu:"),
+        ContextBarItem("strikethrough", "strikethrough", "markdownStrikethroughMenu:"),
         ContextBarItem("code", "chevron.left.forwardslash.chevron.right", "markdownCodeMenu:"),
         ContextBarItem("link", "link", "markdownLinkMenu:"),
         ContextBarItem("bulletList", "list.bullet", "markdownBulletListMenu:"),
@@ -57,7 +58,8 @@ public enum ContextBarSet {
         ContextBarItem("codeBlock", "curlybraces.square", "markdownCodeBlockMenu:"),
         ContextBarItem("table", "tablecells", "markdownTableMenu:"),
         ContextBarItem("image", "photo", "markdownImageMenu:"),
-        ContextBarItem("preview", "sidebar.right", "togglePreview:", trailing: true, toggle: true),
+        // An eye, not "sidebar.right" (read as a sidebar toggle, UX review #21).
+        ContextBarItem("preview", "eye", "togglePreview:", trailing: true, toggle: true),
     ]
 
     /// The bar's items for `language`; empty: no bar (general code, plain

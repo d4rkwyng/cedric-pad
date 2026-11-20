@@ -189,7 +189,7 @@ import Testing
 
     @Test func contextBarSets() {
         let md = ContextBarSet.items(for: .markdown)
-        #expect(md.map(\.id) == ["heading", "bold", "italic", "code", "link", "bulletList", "numberedList", "checkbox",
+        #expect(md.map(\.id) == ["heading", "bold", "italic", "strikethrough", "code", "link", "bulletList", "numberedList", "checkbox",
                                  "quote", "codeBlock", "table", "image", "preview"])
         #expect(md.first?.choices.map(\.command) == ["markdownBodyMenu:", "markdownHeading1Menu:", "markdownHeading2Menu:", "markdownHeading3Menu:"])
         #expect(md.last?.trailing == true && md.dropLast().allSatisfy { !$0.trailing })
@@ -197,5 +197,16 @@ import Testing
         // No bar for code or plain text.
         for l in [Language.plain, .swift, .python, .json, .html, .csv] { #expect(ContextBarSet.items(for: l).isEmpty) }
         #expect(ContextBarSet.hasBar(.markdown) && !ContextBarSet.hasBar(.swift))
+    }
+
+    /// UX review #21: Strikethrough on the bar (Format › Markdown's ⇧⌘X
+    /// command), and a preview symbol that doesn't read as a sidebar.
+    @Test func contextBarStrikethroughAndPreviewSymbol() {
+        let md = ContextBarSet.items(for: .markdown)
+        let strike = md.first { $0.id == "strikethrough" }
+        #expect(strike?.command == "markdownStrikethroughMenu:" && strike?.symbol == "strikethrough")
+        let preview = md.first { $0.id == "preview" }
+        #expect(preview?.symbol == "eye" && preview?.toggle == true)
+        #expect(!md.contains { $0.symbol.hasPrefix("sidebar") })
     }
 }

@@ -2,8 +2,8 @@ import AppKit
 import CedricCore
 
 /// CEDRIC_CHECK=contextbar (Scripts/contextbar-check.sh, also in
-/// tools-check.sh): View › Context Bar driven with real events. Off by
-/// default (no view); on, a Markdown tab gets the bar and a Swift tab
+/// tools-check.sh): View › Show Context Bar driven with real events. On by
+/// default, but the checks start with it off (no view); on, a Markdown tab gets the bar and a Swift tab
 /// doesn't. A mouse click on Bold over a selection, then ⌘Z; ⌘2 on a
 /// line; Checkbox over three lines; every other button once (one undo
 /// step each); the heading pull-down; the preview toggle's state; labels
@@ -29,7 +29,7 @@ extension DevChecks {
         }
         func menuItem(_ action: Selector) -> NSMenuItem? { ContextBarView.menuItem(NSStringFromSelector(action)) }
         func toggleBar() {
-            guard let i = menuItem(#selector(AppDelegate.toggleContextBarMenu(_:))) else { expect(false, "View › Context Bar exists"); return }
+            guard let i = menuItem(#selector(AppDelegate.toggleContextBarMenu(_:))) else { expect(false, "View › Show Context Bar exists"); return }
             NSApp.sendAction(i.action!, to: nil, from: i)
         }
         func undo() { key("z", [.command]) }
@@ -49,11 +49,13 @@ extension DevChecks {
         run([
             sync {
                 focus(tab)
-                expect(Settings.shared.showContextBar == false, "View › Context Bar is off by default")
+                expect(Settings.contextBarDefault, "View › Show Context Bar is on by default (UX review #3)")
+                expect(Settings.shared.showContextBar == false, "the checks start with it off (no session saving)")
                 expect(tab.contextBar == nil && code.contextBar == nil, "off: no bar view is built")
                 expect(!tab.stack.arrangedSubviews.contains { $0 is ContextBarView }, "off: nothing in the window's stack")
                 let item = menuItem(#selector(AppDelegate.toggleContextBarMenu(_:)))
-                expect(item != nil && CommandPalette.validate(item!, in: tab.window) && item?.state == .off, "the menu item is there, unchecked")
+                expect(item != nil && CommandPalette.validate(item!, in: tab.window) && item?.state == .off && item?.title == "Show Context Bar",
+                       "the menu item is there: Show Context Bar, no checkmark", item?.title ?? "-")
                 toggleBar()
                 expect(Settings.shared.showContextBar, "the menu item turns it on")
                 expect(bar != nil, "a Markdown tab shows the bar")
@@ -67,7 +69,7 @@ extension DevChecks {
                 expect(ids.allSatisfy { button($0) != nil }, "every Markdown item has a button", "\(bar?.buttons.keys.sorted() ?? [])")
                 let item2 = menuItem(#selector(AppDelegate.toggleContextBarMenu(_:)))
                 _ = item2.map { CommandPalette.validate($0, in: tab.window) }
-                expect(item2?.state == .on, "the menu item is checked now")
+                expect(item2?.title == "Hide Context Bar" && item2?.state == .off, "the menu item says Hide Context Bar now", item2?.title ?? "-")
             },
             snapshot("contextbar-dark.png"),
             sync {
@@ -114,6 +116,7 @@ extension DevChecks {
                 expect(tab.text == start, "⌘Z: the boxes go", tab.text.debugDescription)
             },
             sync { roundTrip("italic", select: "world", "hello *world*\nTitle line\na\nb\nc\n") },
+            sync { roundTrip("strikethrough", select: "world", "hello ~~world~~\nTitle line\na\nb\nc\n") },
             sync { roundTrip("code", select: "world", "hello `world`\nTitle line\na\nb\nc\n") },
             sync { roundTrip("link", select: "world", "hello [world]()\nTitle line\na\nb\nc\n") },
             sync { roundTrip("bulletList", select: "a\nb\nc", "hello world\nTitle line\n- a\n- b\n- c\n") },
@@ -194,7 +197,7 @@ extension DevChecks {
                 let h2 = rows.first { $0.candidate.title == "Heading 2" }
                 expect(h2?.shortcut == "⌘2" && h2?.candidate.path == "Format › Markdown" && h2?.candidate.enabled == true,
                        "the palette has Format › Markdown › Heading 2 (⌘2)", "\(h2?.shortcut ?? "-") \(h2?.candidate.path ?? "-")")
-                for t in ["Bulleted List", "Numbered List", "Quote", "Code Block", "Insert Table", "Image Link", "Context Bar"] {
+                for t in ["Bulleted List", "Numbered List", "Quote", "Code Block", "Insert Table", "Image Link", "Strikethrough", "Hide Context Bar"] {
                     expect(rows.contains { $0.candidate.title == t }, "the palette has \(t)")
                 }
                 // In a Swift tab the Markdown commands are disabled (⌘2 does nothing there).
@@ -209,6 +212,11 @@ extension DevChecks {
                 let p = tab.palette
                 expect(bar?.layer?.backgroundColor == NSColor(hex: p.statusBar).cgColor, "the bar takes the light theme's colour")
                 expect(bar?.appearance?.name == .aqua, "light symbols in the light theme")
+                // UX review #3: icons tinted from the palette, 3:1 on the bar.
+                expect(button("bold")?.contentTintColor == NSColor(hex: p.contextBarIcon), "the icons take the theme's icon colour")
+                let r = EditorPalettes.contrast(p.contextBarIcon, p.statusBar)
+                print(String(format: "check: contextbar icon contrast light %.2f", r))
+                expect(r >= 3, "icons reach 3:1 on the light bar", String(format: "%.2f", r))
             },
             snapshot("contextbar-light.png"),
             sync {

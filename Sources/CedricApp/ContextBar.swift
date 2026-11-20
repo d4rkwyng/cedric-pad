@@ -1,10 +1,15 @@
 import AppKit
 import CedricCore
 
-/// View › Context Bar (0.4.0): one thin row of buttons above the editor,
-/// for file types that have a set (`ContextBarSet` in CedricCore; only
-/// Markdown so far). Off by default. Nothing is built while it is off or
-/// for a file type without a set: the tab has no view, no observer.
+/// View › Show Context Bar (0.4.0): one thin row of buttons above the
+/// editor, for file types that have a set (`ContextBarSet` in CedricCore;
+/// only Markdown so far). On by default (UX review #3); the user's own
+/// choice in the menu is kept. Nothing is built while it is off or for a
+/// file type without a set: the tab has no view, no observer.
+///
+/// The icons are tinted from the palette (`contextBarIcon`, and
+/// `contextBarIconOn` for a toggle that is on), not left to the system
+/// grey, so they reach 3:1 on the bar in every theme (ThemeTests).
 ///
 /// Every button runs a main-menu item, found by its action, validated
 /// and sent the way the command palette does it (CommandPalette.target /
@@ -23,6 +28,8 @@ final class ContextBarView: NSView {
     private weak var tab: EditorWindowController?
     /// Clicks that ran a command (the check reads it).
     private(set) var runs = 0
+    /// The theme's colours (icon tints), set by `applyPalette`.
+    private(set) var palette: EditorPalette?
 
     init(language: Language, tab: EditorWindowController) {
         self.language = language
@@ -182,10 +189,25 @@ final class ContextBarView: NSView {
             let menus = commands.compactMap(Self.menuItem)
             b.isEnabled = menus.contains { CommandPalette.validate($0, in: window) }
             if item.toggle, let m = menus.first {
-                b.state = m.state
-                b.contentTintColor = m.state == .on ? .controlAccentColor : nil
-                b.setAccessibilityValue(m.state == .on ? String(localized: "on") : String(localized: "off"))
+                // Show/Hide items (UX review #7) carry no checkmark: "Hide …" means on.
+                let on = Self.isOn(m)
+                b.state = on ? .on : .off
+                b.setAccessibilityValue(on ? String(localized: "on") : String(localized: "off"))
             }
+        }
+        tint()
+    }
+
+    /// A view toggle's menu item is on when it is checked or offers "Hide".
+    static func isOn(_ m: NSMenuItem) -> Bool { m.state == .on || m.title.hasPrefix(String(localized: "Hide")) }
+
+    /// The icons' colours: the palette's, so they reach 3:1 on the bar.
+    func tint() {
+        guard let palette else { return }
+        let off = NSColor(hex: palette.contextBarIcon), on = NSColor(hex: palette.contextBarIconOn)
+        for item in items {
+            guard let b = buttons[item.id] else { continue }
+            b.contentTintColor = item.toggle && b.state == .on ? on : off
         }
     }
 
@@ -201,6 +223,8 @@ final class ContextBarView: NSView {
         layer?.backgroundColor = NSColor(hex: p.statusBar).cgColor
         // The symbols follow the editor's theme, not the system's.
         appearance = NSAppearance(named: p.isDark ? .darkAqua : .aqua)
+        palette = p
+        tint()
     }
 
     override func viewDidMoveToWindow() {
@@ -234,4 +258,13 @@ extension EditorWindowController {
 
 extension AppDelegate {
     @objc func toggleContextBarMenu(_ sender: Any?) { Settings.shared.showContextBar.toggle() }
+}
+
+/// A view toggle's title: "Show X" while hidden, "Hide X" while shown, no
+/// checkmark (HIG; UX review #7). Attribute toggles (Wrap Lines…) keep
+/// their checkmarks.
+@MainActor
+func setShowHide(_ item: NSMenuItem, shown: Bool, show: String, hide: String) {
+    item.title = shown ? hide : show
+    item.state = .off
 }

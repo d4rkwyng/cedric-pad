@@ -76,9 +76,13 @@ final class Settings {
     var contextBarOverride = DevEnvironment.values["CEDRIC_CONTEXT_BAR"].map { $0 == "1" }
         ?? (DevEnvironment.values["CEDRIC_NO_SESSION_SAVE"] == "1" ? false : nil)
 
-    /// View › Context Bar: off by default (ContextBar.swift).
+    /// View › Show Context Bar: on by default (UX review #3; the bar only
+    /// exists for Markdown, ContextBar.swift). Once the user picks Show or
+    /// Hide, that choice is kept.
+    static let contextBarDefault = true
+
     var showContextBar: Bool {
-        get { contextBarOverride ?? defaults.bool(forKey: "showContextBar") }
+        get { contextBarOverride ?? (defaults.object(forKey: "showContextBar") as? Bool ?? Self.contextBarDefault) }
         set {
             if contextBarOverride != nil { contextBarOverride = newValue } else { defaults.set(newValue, forKey: "showContextBar") }
             NotificationCenter.default.post(name: .cedricContextBarChanged, object: nil)
