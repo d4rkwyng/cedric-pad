@@ -119,6 +119,10 @@ public struct ModelStore: Sendable {
 
     func prepare() throws {
         try PrivateDirectory.make(partialDirectory)
+        #if os(iOS)
+        // iOS: gigabytes of re-downloadable weights stay out of iCloud backups.
+        PrivateDirectory.excludeFromBackup(directory)
+        #endif
     }
 
     /// Moves a verified partial into place and writes its marker.

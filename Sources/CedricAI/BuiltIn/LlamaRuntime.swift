@@ -1,3 +1,5 @@
+// macOS only: see Package.swift (CEDRIC_BUILTIN).
+#if CEDRIC_BUILTIN
 import Foundation
 import llama
 import CLlamaLoader
@@ -281,3 +283,4 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
         return ProcessInfo.processInfo.activeProcessorCount
     }
 }
+#endif

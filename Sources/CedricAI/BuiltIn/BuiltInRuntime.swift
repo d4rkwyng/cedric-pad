@@ -71,6 +71,27 @@ public protocol LoadedModel: AnyObject, Sendable {
     func unload()
 }
 
+#if !CEDRIC_BUILTIN
+/// iOS: the pinned llama.cpp XCFramework has an iOS device slice but no
+/// iOS Simulator slice, and SwiftPM can't tell the two apart, so CedricAI
+/// doesn't link it on iOS. The iOS app compiles LlamaRuntime.swift and
+/// CLlamaLoader.c itself for device builds only and sets `runtime` at
+/// launch, before anything touches `BuiltInModelHost.shared`.
+public enum BuiltInPlatform {
+    nonisolated(unsafe) public static var runtime: (any BuiltInRuntime)?
+    /// Shown where the built-in engine would be, when `runtime` is nil.
+    public static let unavailableReason = "Built-in model: needs a real device."
+}
+
+/// Every load fails with a clear reason (the iOS Simulator).
+public struct NoBuiltInRuntime: BuiltInRuntime {
+    public init() {}
+    public func load(modelAt url: URL) async throws -> any LoadedModel {
+        throw BuiltInError.loadFailed(BuiltInPlatform.unavailableReason)
+    }
+}
+#endif
+
 extension LoadedModel {
     public func generate(_ request: GenerationRequest, onText: @escaping @Sendable (String) -> Void) async throws -> GenerationResult {
         let r = try await generate(request)
@@ -87,7 +108,11 @@ public actor BuiltInModelHost {
     public static let defaultIdleTimeout: TimeInterval = 300
 
     /// The app's one host, so every provider shares the loaded model.
+    #if CEDRIC_BUILTIN
     public static let shared = BuiltInModelHost(runtime: LlamaRuntime())
+    #else
+    public static let shared = BuiltInModelHost(runtime: BuiltInPlatform.runtime ?? NoBuiltInRuntime())
+    #endif
 
     let runtime: any BuiltInRuntime
     let clock: any OwlClock

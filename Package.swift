@@ -8,7 +8,7 @@ let checks: [SwiftSetting] = [.define("CEDRIC_CHECKS", .when(configuration: .deb
 let package = Package(
     name: "cedric",
     defaultLocalization: "en",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "CedricCore", targets: ["CedricCore"]),
         .library(name: "CedricAI", targets: ["CedricAI"]),
@@ -33,7 +33,16 @@ let package = Package(
         // often" scheduler. OFF by default.
         .target(
             name: "CedricAI",
-            dependencies: ["CedricCore", "llama", "CLlamaLoader"]
+            // The pinned llama.cpp XCFramework has a macOS slice and an
+            // iOS device slice but no iOS Simulator slice, so the built-in
+            // engine is macOS-only: on iOS the owl uses Apple Intelligence
+            // or a LAN server (BuiltIn/*.swift sit behind CEDRIC_BUILTIN).
+            dependencies: [
+                "CedricCore",
+                .target(name: "llama", condition: .when(platforms: [.macOS])),
+                .target(name: "CLlamaLoader", condition: .when(platforms: [.macOS])),
+            ],
+            swiftSettings: [.define("CEDRIC_BUILTIN", .when(platforms: [.macOS]))]
         ),
 
         // llama.cpp's functions as pointers from dlopen/dlsym, so the app

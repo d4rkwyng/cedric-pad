@@ -171,6 +171,7 @@ public enum TextTools {
     }
 
     static func xmlPretty(_ text: String) throws -> String {
+        #if os(macOS)
         let doc: XMLDocument
         do {
             doc = try XMLDocument(xmlString: text, options: [.nodePreserveCDATA, .nodePreserveEmptyElements,
@@ -188,6 +189,10 @@ public enum TextTools {
         }
         if text.hasSuffix("\n") && !out.hasSuffix("\n") { out += "\n" }
         return out
+        #else
+        // iOS Foundation has no XMLDocument.
+        throw TextToolError.invalidXML("Formatting XML needs the Mac app.")
+        #endif
     }
 }
 

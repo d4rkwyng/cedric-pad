@@ -86,6 +86,40 @@ public struct ModelCatalog: Codable, Sendable, Equatable {
         return models.first { $0.id == id }
     }
 
+    /// What kind of device the catalog is offered on.
+    public enum Device: Sendable, Equatable {
+        case mac
+        case iPhone
+        /// `largeMemory`: 8 GB or more (the M-series iPads).
+        case iPad(largeMemory: Bool)
+
+        /// iPads with 8 GB or more are the M-series ones.
+        public static func iPad(physicalMemory: UInt64) -> Device {
+            .iPad(largeMemory: physicalMemory >= 7_500_000_000)
+        }
+    }
+
+    /// The models offered for download on `device`. A Mac gets the whole
+    /// list. iOS's per-app memory limit is far below the device's RAM, so an
+    /// iPhone (and an iPad without an M chip) gets only the small models
+    /// (up to 2B parameters, about 1 GB), and an M-series iPad also the 3–4B
+    /// ones. Never the 7B.
+    public func offered(on device: Device) -> [BuiltInModel] {
+        switch device {
+        case .mac: return models
+        case .iPhone, .iPad(largeMemory: false): return models.filter { $0.parametersB <= 2.0 }
+        case .iPad(largeMemory: true): return models.filter { $0.parametersB <= 4.0 }
+        }
+    }
+
+    /// The model suggested first on `device`: the catalog's default if it is
+    /// offered there, else the smallest offered one.
+    public func defaultModel(on device: Device) -> BuiltInModel? {
+        let list = offered(on: device)
+        if let d = defaultModel, list.contains(d) { return d }
+        return list.min { $0.sizeBytes < $1.sizeBytes }
+    }
+
     /// Decodes and validates: exactly one default, unique ids and file
     /// names, https on huggingface.co pinned to the listed revision, a
     /// 64-hex SHA-256, a positive size, a `.gguf` file name with no path.

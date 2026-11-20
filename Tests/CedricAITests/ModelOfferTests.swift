@@ -1,0 +1,33 @@
+import Foundation
+import Testing
+@testable import CedricAI
+import CedricCore
+
+/// Which built-in models each device is offered (the iOS port).
+@Suite struct ModelOfferTests {
+    let catalog = ModelCatalog.bundled()!
+
+    @Test func macGetsEveryModel() {
+        #expect(catalog.offered(on: .mac) == catalog.models)
+    }
+
+    @Test func iPhoneGetsOnlySmallModels() {
+        let list = catalog.offered(on: .iPhone)
+        #expect(!list.isEmpty)
+        #expect(list.allSatisfy { $0.parametersB <= 2.0 && $0.sizeBytes < 1_500_000_000 })
+        #expect(catalog.offered(on: .iPad(largeMemory: false)) == list)
+        #expect(catalog.defaultModel(on: .iPhone).map { list.contains($0) } == true)
+    }
+
+    @Test func mSeriesIPadAlsoGetsTheFourB() {
+        let list = catalog.offered(on: .iPad(largeMemory: true))
+        #expect(list.contains { $0.id == "qwen3-4b-instruct-2507-q4_k_m" })
+        #expect(!list.contains { $0.parametersB > 4.0 })
+        #expect(catalog.defaultModel(on: .iPad(largeMemory: true))?.id == catalog.defaultModel?.id)
+    }
+
+    @Test func iPadMemoryThreshold() {
+        #expect(ModelCatalog.Device.iPad(physicalMemory: 8 * 1_073_741_824) == .iPad(largeMemory: true))
+        #expect(ModelCatalog.Device.iPad(physicalMemory: 6 * 1_073_741_824) == .iPad(largeMemory: false))
+    }
+}

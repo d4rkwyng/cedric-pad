@@ -31,9 +31,15 @@ public enum AppleIntelligenceStatus: String, Sendable, Equatable {
     public var message: String? {
         switch self {
         case .available: return nil
+        #if os(iOS)
+        case .osTooOld, .unsupported: return "Needs iOS 26 or later on a device that supports Apple Intelligence."
+        case .deviceNotEligible: return "This device can’t run Apple Intelligence."
+        case .notEnabled: return "Turn on Apple Intelligence in Settings to use it."
+        #else
         case .osTooOld, .unsupported: return "Needs macOS 26 or later on Apple silicon."
         case .deviceNotEligible: return "This Mac can’t run Apple Intelligence."
         case .notEnabled: return "Turn on Apple Intelligence in System Settings to use it."
+        #endif
         case .modelNotReady: return "Apple Intelligence is still getting its model ready. Try again later."
         case .unknown: return "Apple Intelligence isn’t available right now."
         }
@@ -56,7 +62,7 @@ public struct AppleFoundationModelsProvider: OwlHintProvider {
         // Test hook: CEDRIC_SIMULATE_NO_APPLE_INTELLIGENCE=1 reports this Mac
         // as a CI VM does, to run the suite as on a Mac without Apple Intelligence.
         if DevEnvironment.values["CEDRIC_SIMULATE_NO_APPLE_INTELLIGENCE"] == "1" { return .deviceNotEligible }
-        guard #available(macOS 26.0, *) else { return .osTooOld }
+        guard #available(macOS 26.0, iOS 26.0, *) else { return .osTooOld }
         switch SystemLanguageModel.default.availability {
         case .available: return .available
         case .unavailable(let reason):
@@ -78,7 +84,7 @@ public struct AppleFoundationModelsProvider: OwlHintProvider {
 
     /// The throwing variant with the raw JSON and the latency, for the live check.
     public func requestHints(for context: OwlContext) async throws -> (hints: [OwlHint], raw: String, seconds: TimeInterval) {
-        guard #available(macOS 26.0, *), Self.isAvailable else { throw LocalAIError.transport("Apple Intelligence unavailable") }
+        guard #available(macOS 26.0, iOS 26.0, *), Self.isAvailable else { throw LocalAIError.transport("Apple Intelligence unavailable") }
         let text = HintPrompt.capped(context.text, maxBytes: Self.maxContextBytes)
         let messages = OwlPrompts.messages(for: .codeHints, context: context, text: text, model: "apple")
         let system = messages.first { $0.role == "system" }?.content ?? ""
@@ -98,7 +104,7 @@ public struct AppleFoundationModelsProvider: OwlHintProvider {
     }
 
     /// `{"hints":[{kind,title,detail,find,replacement,confidence}]}`, ≤ 2 hints.
-    @available(macOS 26.0, *)
+    @available(macOS 26.0, iOS 26.0, *)
     static func schema() throws -> GenerationSchema {
         let string = DynamicGenerationSchema(type: String.self)
         let hint = DynamicGenerationSchema(name: "Hint", properties: [
