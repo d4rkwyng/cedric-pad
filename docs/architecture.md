@@ -851,6 +851,48 @@ same target, so the search field never takes Copy or Select All.
   the rows. `CEDRIC_CHECK=palette` (Scripts/palette-check.sh) drives it
   with real key events and fails an open over 50 ms.
 
+## Context Bar
+
+View › Context Bar (`ContextBar.swift`), off by default
+(`Settings.showContextBar`; `CEDRIC_CONTEXT_BAR=0/1` for one run, and
+the checks keep it in memory). The items are data in CedricCore
+(`ContextBarSet.items(for:)`, `ContextBar.swift`): an id, an SF Symbol and
+the action selector of a main-menu item (or a pull-down of several), so
+the iPad keyboard row can draw the same list later. Only Markdown has a
+set; every other language returns none.
+
+- **Nothing when off.** `EditorWindowController.updateContextBar()` runs
+  at tab init, on a language change and on `.cedricContextBarChanged`;
+  with the switch off or no set it builds nothing, and turning it off
+  removes and drops the view. The only standing cost is one notification
+  observer per tab. Shown, it is one `ContextBarView` in the tab's stack,
+  just above `split`; nothing runs per keystroke.
+- **One command path.** A button looks its menu item up by action
+  (cached), then validates and sends it exactly as the palette does
+  (`CommandPalette.validate` / `target`). Labels and tooltips come from the
+  menu item's title and shortcut. Enabled and on/off states are read from
+  the same validation when the bar is shown, after each button, and when
+  the preview opens or closes.
+- **Look and access.** Background and appearance from the editor palette
+  (`applyPalette`, as the preview header). The bar is an accessibility
+  toolbar; buttons carry their command's name and the preview toggle an
+  on/off value. An `NSStackView` with leading and trailing gravity, so it
+  mirrors in right-to-left layouts.
+- **The commands.** `MarkdownBlocks` (CedricCore, `MarkdownBlocksTests`):
+  heading, bulleted and numbered list, quote, code block, table and image
+  link, each a pure toggle from text and selection to one `TextEdit`,
+  CRLF-safe (lines via `getLineStart`; inserted lines use the text's own
+  ending). Bold, italic and inline code are the existing `MarkdownFormat`
+  (wrapping now merges inner pairs of the same marker), the checkbox is
+  `MarkdownLists.toggleTasks`. ⌘1–⌘3 are new key equivalents; the
+  shortcut dump in tools-check fails on a clash.
+
+Checks: `CEDRIC_CHECK=contextbar` (`ContextBarCheck.swift`,
+`Scripts/contextbar-check.sh`, also in tools-check.sh) clicks the buttons
+with mouse events, uses ⌘1–3 and ⌘Z, the pull-down, the preview toggle,
+VoiceOver press and labels, both themes and RTL, and times keystrokes in
+a Markdown tab with the bar hidden and shown in alternating rounds.
+
 ## Folder sidebar
 
 File › Open Folder… (⇧⌘O), a folder dropped on the Dock icon or on an

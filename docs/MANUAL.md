@@ -173,6 +173,29 @@ selected command (with its shortcut and menu) as you move.
 Page Setup… gave up ⇧⌘P for it (VS Code, iA Writer and Drafts use ⇧⌘P for
 their palettes); it has no shortcut now.
 
+### Context Bar
+
+**View › Context Bar** shows one thin row of buttons above the text, for
+the kinds of file that have a set; for code, plain text and the other
+types there is no bar and no empty row. It is off by default, and one
+switch covers every tab. While it is off nothing about it is built, and
+typing is as fast with it shown as hidden.
+
+Markdown's set, left to right: a heading pull-down (Body, Heading 1,
+Heading 2, Heading 3), Bold, Italic, Inline Code, Link, Bulleted List,
+Numbered List, Checkbox, Quote, Code Block, Insert Table and Image Link
+(see [Markdown editing](#markdown-editing)), and at the far end a Show
+Preview toggle that lights up while the preview shows.
+
+Every button runs the Format › Markdown or View command with the same
+name: the same thing happens from the bar, the menu, the shortcut and the
+[command palette](#command-palette), a button is dimmed when the menu item
+is, and each is one undo step. Hold the pointer over a button for its name
+and shortcut. VoiceOver reads each button by its command's name (and the
+preview toggle as on or off), and with Full Keyboard Access on the
+buttons are in the window's keyboard focus order like any other. The bar
+follows the editor's theme, and in right-to-left languages it mirrors.
+
 ### Find and replace
 
 **Find and replace** in the current document, with regular expressions
@@ -608,9 +631,37 @@ session (restored just after the window first shows).
   selection put the pair in with the caret between. Each takes its
   markers off when they are already there (around or inside the
   selection, or around the caret's word), so ⌘I on `*word*` doesn't
-  stack another pair. ⌘K turns the selection into `[text](|)` with the
+  stack another pair; Bold over text that has bold inside it merges
+  them (`a **b** c` becomes `**a b c**`). ⌘K turns the selection into `[text](|)` with the
   caret in the URL, or uses the URL on the clipboard; a selected URL
   becomes `[](url)`; in a link it unlinks. Only in Markdown tabs.
+- **Headings:** Format › Markdown › Heading 1, Heading 2 and Heading 3
+  (⌘1, ⌘2, ⌘3) make the caret's line, or every selected line, a heading
+  of that level; pressed again on such a line it goes back to body text,
+  and on a heading of another level it changes the level (`# ` to `## `,
+  never `## # `). Body takes the heading off. One undo step.
+- **Lists, quotes and code blocks:** Format › Markdown › Bulleted List
+  and Numbered List turn the selected lines (or the caret's line) into a
+  list, after any indent or `> `; blank lines between them are left as
+  they are. When every line is already that kind of list, the markers
+  (and checkboxes) come off instead. A bulleted list keeps its `*` or `+`
+  if it had one; a numbered list counts from 1 at each indent level, or
+  on from a numbered item just above, and keeps `1)` if the list used it.
+  Quote puts `> ` in front of the lines (a blank line between them gets a
+  bare `>`), or takes one `>` off when they are all quoted. Code Block
+  puts ```` ``` ```` lines above and below them (on an empty line, an
+  empty block with the caret inside); with the caret or selection inside
+  a fenced block, or the whole block selected, its fence lines go and the
+  code stays. Each is one undo step; nothing changes inside fenced code
+  except with Code Block.
+- **Tables and images:** Format › Markdown › Insert Table puts a 3-column
+  table (a header row and two empty rows) below the caret's line, with a
+  blank line before and after it, and the caret in the first cell; Tab
+  then moves through the cells and lines them up (see Tables below).
+  Image Link turns the selection into `![selection]()` with the caret
+  between the parentheses (or uses a URL on the clipboard), a selected
+  URL into `![](url)`, and with the caret in an image it takes the image
+  markup off and leaves its alt text.
 - **Checkboxes:** Format › Markdown › Toggle Checkbox (⌘↩) checks
   or unchecks `- [ ]` / `- [x]` on the caret's line or every selected
   line, adds a box to a list item without one, and turns a plain line

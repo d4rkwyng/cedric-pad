@@ -13,6 +13,8 @@ extension Notification.Name {
     static let cedricAppearanceChanged = Notification.Name("CedricAppearanceChanged")
     /// The owl was switched on or off, or its hint source changed.
     static let cedricOwlSettingsChanged = Notification.Name("CedricOwlSettingsChanged")
+    /// View › Context Bar was switched on or off.
+    static let cedricContextBarChanged = Notification.Name("CedricContextBarChanged")
 }
 
 /// App-wide view settings: theme, font size, wrap, invisibles, line
@@ -66,6 +68,20 @@ final class Settings {
     var showOwl: Bool {
         get { owlOverride ?? defaults.bool(forKey: "showOwl") }
         set { defaults.set(newValue, forKey: "showOwl"); NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil) }
+    }
+
+    /// CEDRIC_CONTEXT_BAR=0/1 for one run; the checks (no session saving)
+    /// switch it here without saving.
+    var contextBarOverride = DevEnvironment.values["CEDRIC_CONTEXT_BAR"].map { $0 == "1" }
+        ?? (DevEnvironment.values["CEDRIC_NO_SESSION_SAVE"] == "1" ? false : nil)
+
+    /// View › Context Bar: off by default (ContextBar.swift).
+    var showContextBar: Bool {
+        get { contextBarOverride ?? defaults.bool(forKey: "showContextBar") }
+        set {
+            if contextBarOverride != nil { contextBarOverride = newValue } else { defaults.set(newValue, forKey: "showContextBar") }
+            NotificationCenter.default.post(name: .cedricContextBarChanged, object: nil)
+        }
     }
 
     /// View › Check Spelling While Typing: on by default.

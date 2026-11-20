@@ -154,6 +154,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var diskBar: NoticeBar?
     /// A one-off notice in this tab (the closed-tab "not saved" notice).
     var noticeBar: NoticeBar?
+    /// View › Context Bar (ContextBar.swift): nil while it is off or the
+    /// file type has no set.
+    var contextBar: ContextBarView?
     /// Highlight-all, marks, bookmarks and the other editing extras
     /// (EditingFeatures.swift).
     let editing = EditingState()
@@ -210,6 +213,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         applyAppearance()
         PerfTrace.mark("apply_appearance")
         observe()
+        updateContextBar()
         updateTitle()
         setOwlVisible(Settings.shared.showOwl)
         PerfTrace.mark("owl")
@@ -326,6 +330,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         observePane(primaryPane)
         observers.append(nc.addObserver(forName: .cedricAppearanceChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyAppearance() }
+        })
+        observers.append(nc.addObserver(forName: .cedricContextBarChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateContextBar() }
         })
     }
 
@@ -569,6 +576,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let p = palette
         for pane in panes { applyPaneAppearance(pane, palette: p) }
         statusBar.background = NSColor(hex: p.statusBar)
+        contextBar?.applyPalette(p)
         // Font and foreground over the whole text: one attribute run.
         let attrs = baseAttributes()
         if let storage = textView.textStorage, storage.length > 0,
@@ -746,6 +754,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         grammar.apply()
         updateStatus()
         previewLanguageChanged()
+        updateContextBar()
         if outlineVisible, !l.hasOutline { hideOutline() } else if outlineVisible { refreshOutline() }
         onChange?(self)
     }
@@ -1302,6 +1311,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if showsCertificatePanel { CertificatePanel.closedByUser = false }
         dock(makePreviewPane())
         renderPreview()
+        contextBar?.refreshStates()
         onChange?(self)
     }
 
@@ -1424,6 +1434,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         previewPane?.removeFromSuperview()
         previewPane = nil
         if docked { FolderSidebar.keepWidth(in: split) }
+        contextBar?.refreshStates()
         onChange?(self)
     }
 

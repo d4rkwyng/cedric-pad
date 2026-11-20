@@ -32,6 +32,28 @@ extension EditorWindowController {
         apply(e, actionName: String(localized: "Format Table"))
     }
 
+    /// The line commands (MarkdownBlocks in CedricCore): headings, lists,
+    /// quote, code block, table and image link. Each is one undo step; nil
+    /// from the transform (nothing to change) beeps.
+    func markdownBlock(_ name: String, inCode: Bool = false, _ f: (NSString, NSRange) -> TextEdit?) {
+        let sel = textView.selectedRange()
+        guard markdownEditable, inCode || textView.inFence?(sel.location) != true,
+              let e = f(textView.string as NSString, sel) else { NSSound.beep(); return }
+        apply(e, actionName: name)
+    }
+
+    func markdownHeading(_ level: Int) {
+        let name = level == 0 ? String(localized: "Body") : String(localized: "Heading \(level)")
+        markdownBlock(name) { MarkdownBlocks.heading(level, in: $0, selection: $1) }
+    }
+
+    func markdownImage() {
+        guard markdownEditable else { NSSound.beep(); return }
+        let clip = NSPasteboard.general.string(forType: .string)
+        apply(MarkdownBlocks.image(in: textView.string as NSString, selection: textView.selectedRange(), clipboard: clip),
+              actionName: String(localized: "Image Link"))
+    }
+
     func markdownLink() {
         guard markdownEditable else { NSSound.beep(); return }
         let clip = NSPasteboard.general.string(forType: .string)
@@ -48,11 +70,35 @@ extension AppDelegate {
     @objc func markdownLinkMenu(_ sender: Any?) { currentTab?.markdownLink() }
     @objc func toggleCheckboxMenu(_ sender: Any?) { currentTab?.toggleCheckboxes() }
     @objc func formatTableMenu(_ sender: Any?) { currentTab?.formatTable() }
+    @objc func markdownBodyMenu(_ sender: Any?) { currentTab?.markdownHeading(0) }
+    @objc func markdownHeading1Menu(_ sender: Any?) { currentTab?.markdownHeading(1) }
+    @objc func markdownHeading2Menu(_ sender: Any?) { currentTab?.markdownHeading(2) }
+    @objc func markdownHeading3Menu(_ sender: Any?) { currentTab?.markdownHeading(3) }
+    @objc func markdownBulletListMenu(_ sender: Any?) {
+        currentTab?.markdownBlock(String(localized: "Bulleted List")) { MarkdownBlocks.list(.bullet, in: $0, selection: $1) }
+    }
+    @objc func markdownNumberedListMenu(_ sender: Any?) {
+        currentTab?.markdownBlock(String(localized: "Numbered List")) { MarkdownBlocks.list(.numbered, in: $0, selection: $1) }
+    }
+    @objc func markdownQuoteMenu(_ sender: Any?) {
+        currentTab?.markdownBlock(String(localized: "Quote")) { MarkdownBlocks.quote(in: $0, selection: $1) }
+    }
+    /// In fenced code too: that is where it takes the fences off.
+    @objc func markdownCodeBlockMenu(_ sender: Any?) {
+        currentTab?.markdownBlock(String(localized: "Code Block"), inCode: true) { MarkdownBlocks.codeBlock(in: $0, selection: $1) }
+    }
+    @objc func markdownTableMenu(_ sender: Any?) {
+        currentTab?.markdownBlock(String(localized: "Insert Table")) { MarkdownBlocks.insertTable(in: $0, selection: $1) }
+    }
+    @objc func markdownImageMenu(_ sender: Any?) { currentTab?.markdownImage() }
 
     static let markdownActions: Set<Selector> = [
         #selector(markdownBoldMenu(_:)), #selector(markdownItalicMenu(_:)), #selector(markdownStrikethroughMenu(_:)),
         #selector(markdownCodeMenu(_:)), #selector(markdownLinkMenu(_:)), #selector(toggleCheckboxMenu(_:)),
-        #selector(formatTableMenu(_:)),
+        #selector(formatTableMenu(_:)), #selector(markdownBodyMenu(_:)), #selector(markdownHeading1Menu(_:)),
+        #selector(markdownHeading2Menu(_:)), #selector(markdownHeading3Menu(_:)), #selector(markdownBulletListMenu(_:)),
+        #selector(markdownNumberedListMenu(_:)), #selector(markdownQuoteMenu(_:)), #selector(markdownCodeBlockMenu(_:)),
+        #selector(markdownTableMenu(_:)), #selector(markdownImageMenu(_:)),
     ]
 
     func validateMarkdownItem(_ item: NSMenuItem) -> Bool? {
@@ -71,8 +117,21 @@ func markdownMenu() -> NSMenuItem {
         item(String(localized: "Strikethrough"), #selector(AppDelegate.markdownStrikethroughMenu(_:)), "x", [.command, .shift]),
         item(String(localized: "Inline Code"), #selector(AppDelegate.markdownCodeMenu(_:)), "`", [.control]),
         item(String(localized: "Link"), #selector(AppDelegate.markdownLinkMenu(_:)), "k"),
+        item(String(localized: "Image Link"), #selector(AppDelegate.markdownImageMenu(_:))),
         .separator(),
+        // ⌘1–⌘3 as in Bear (plain ⌘1–3 were free; ⌃⌘1 is the folder sidebar, ⌥⌘1… Open Recent).
+        item(String(localized: "Body"), #selector(AppDelegate.markdownBodyMenu(_:))),
+        item(String(localized: "Heading 1"), #selector(AppDelegate.markdownHeading1Menu(_:)), "1"),
+        item(String(localized: "Heading 2"), #selector(AppDelegate.markdownHeading2Menu(_:)), "2"),
+        item(String(localized: "Heading 3"), #selector(AppDelegate.markdownHeading3Menu(_:)), "3"),
+        .separator(),
+        item(String(localized: "Bulleted List"), #selector(AppDelegate.markdownBulletListMenu(_:))),
+        item(String(localized: "Numbered List"), #selector(AppDelegate.markdownNumberedListMenu(_:))),
         item(String(localized: "Toggle Checkbox"), #selector(AppDelegate.toggleCheckboxMenu(_:)), "\r"),
+        item(String(localized: "Quote"), #selector(AppDelegate.markdownQuoteMenu(_:))),
+        item(String(localized: "Code Block"), #selector(AppDelegate.markdownCodeBlockMenu(_:))),
+        .separator(),
+        item(String(localized: "Insert Table"), #selector(AppDelegate.markdownTableMenu(_:))),
         item(String(localized: "Format Table"), #selector(AppDelegate.formatTableMenu(_:))),
     ])
 }

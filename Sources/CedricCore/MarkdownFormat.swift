@@ -79,8 +79,11 @@ public enum MarkdownFormat {
                     return TextEdit(range: outer, replacement: text.substring(with: core), selection: NSRange(location: a - len, length: core.length))
                 }
             }
-            return TextEdit(range: core, replacement: m + text.substring(with: core) + m,
-                            selection: NSRange(location: a + len, length: core.length))
+            // Pairs of the same markers inside merge into the new one
+            // (bold over "a **b** c" is "**a b c**", not nested bold).
+            let inner = merged(style, text.substring(with: core))
+            return TextEdit(range: core, replacement: m + inner + m,
+                            selection: NSRange(location: a + len, length: (inner as NSString).length))
         }
         let caret = sel.location
         // Between an empty pair: take it away.
@@ -99,6 +102,35 @@ public enum MarkdownFormat {
                             selection: NSRange(location: newCaret, length: 0))
         }
         return TextEdit(range: sel, replacement: m + m, selection: NSRange(location: caret + len, length: 0))
+    }
+
+    /// `s` without its complete pairs of `style`'s own markers (runs of
+    /// exactly the marker's length; "_" and "***" are left alone).
+    static func merged(_ style: Style, _ s: String) -> String {
+        guard style != .code else { return s }
+        let c: unichar = style == .strikethrough ? 126 : 42
+        let len = (style.marker as NSString).length
+        let u = Array(s.utf16)
+        var runs: [Int] = []
+        var i = 0
+        while i < u.count {
+            guard u[i] == c else { i += 1; continue }
+            var n = 0
+            while i + n < u.count, u[i + n] == c { n += 1 }
+            if n == len { runs.append(i) }
+            i += n
+        }
+        guard !runs.isEmpty, runs.count % 2 == 0 else { return s }
+        var out: [unichar] = []
+        out.reserveCapacity(u.count)
+        var k = 0
+        i = 0
+        while i < u.count {
+            if k < runs.count, runs[k] == i { i += len; k += 1; continue }
+            out.append(u[i])
+            i += 1
+        }
+        return String(utf16CodeUnits: out, count: out.count)
     }
 
     /// `sel` moved inside the text (a stale or NSNotFound range never traps).
