@@ -1149,7 +1149,12 @@ final class EditorViewController: UIViewController, UITextViewDelegate {
         label.text = text
         label.font = .preferredFont(forTextStyle: .footnote)
         label.textColor = .label
-        label.backgroundColor = .tertiarySystemBackground
+        // tertiarySystemBackground is white in light mode, the same as the
+        // editor, so the toast read as loose text over the code. Use a
+        // contrasting fill and a hairline border so it stands out as a pill.
+        label.backgroundColor = .secondarySystemBackground
+        label.layer.borderWidth = 1
+        label.layer.borderColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
         label.layer.cornerRadius = 10
         label.layer.masksToBounds = true
         label.numberOfLines = 0
