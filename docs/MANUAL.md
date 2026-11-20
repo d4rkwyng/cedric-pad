@@ -400,17 +400,18 @@ its own icons for, with the app that opens each one now: plain text
 SQL and PowerShell.
 
 - **Tick a type** to make Owlink the app that opens it when you
-  double-click such a file. macOS asks you to confirm ("Do you want all
-  documents with the extension ".py" to open with "Owlink", or to keep
-  using "TextEdit"?"); if you keep the other app, nothing changes and
-  Settings says so.
+  double-click such a file. On macOS 26 and later, macOS asks you to
+  confirm ("Do you want all documents with the extension ".py" to open
+  with "Owlink", or to keep using "TextEdit"?"); if you keep the other
+  app, nothing changes and Settings says so. macOS 15 changes it without
+  asking.
 - **Untick it** to give the type back to the app Owlink took it from. If
   Owlink doesn't know that app (Owlink already opened the type), choose
   one in Finder: select a file, File › Get Info, Open with, pick the app,
   **Change All…**.
 - **Use Owlink for All Text Files** goes through every type in the list,
-  one macOS prompt each (shell scripts ask for .sh, .zsh and .bash
-  separately), and stops at the first one you decline.
+  one macOS prompt each on macOS 26 and later (shell scripts ask for .sh,
+  .zsh and .bash separately), and stops at the first one you decline.
 - **HTML is not in the list.** macOS treats the app for HTML files as your
   web browser and asks whether Owlink should become it. Use Get Info ›
   Change All on an .html file if you want that anyway.
@@ -423,7 +424,8 @@ opened, and Settings only reads the defaults until you click. One thing
 predates 0.3.0 and is unchanged: on a Mac where nothing but TextEdit
 opens text, Markdown, JSON and YAML files open in Owlink once it's
 installed, because Owlink names those types and TextEdit only claims
-"text". The labelled types never open in Owlink unless you choose it.
+"text". (On macOS 15, where .md files opened in nothing before, they now
+open in Owlink for the same reason.) The labelled types never open in Owlink unless you choose it.
 Changes you make in Get Info show in Settings the next time its window
 comes to the front.
 
@@ -449,8 +451,9 @@ files and the next restart show the new one.
 
 **Types macOS doesn't know.** macOS has no type for TypeScript, TOML,
 INI, SQL or PowerShell files on its own (Xcode adds some when installed),
-so Owlink declares them (`UTImportedTypeDeclarations`, with the
-identifiers Xcode uses): .tsx/.ts, .toml, .ini, .sql, .ps1/.psm1/.psd1.
+nor, before macOS 26, for Markdown, so Owlink declares them
+(`UTImportedTypeDeclarations`, with the identifiers Xcode and macOS 26
+use): .tsx/.ts, .toml, .ini, .sql, .ps1/.psm1/.psd1, .md/.markdown.
 Being text, they then open in TextEdit until you choose another app,
 where before they opened in nothing.
 

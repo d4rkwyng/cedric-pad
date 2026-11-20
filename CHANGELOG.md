@@ -8,8 +8,8 @@ are its section below (`Scripts/changelog-section.sh`).
 
 ### Added
 - **Owlink document icons.** Files you open with Owlink by default show in Finder as a page with Cedric on it and the type's name: TXT, MD, JSON, YAML, SWIFT, PY, JS, TS, SH, LOG, CSV, XML, HTML, CSS, TOML, INI, SQL and PS1 (other text gets the page and owl without a label). Finder uses them only for types you chose Owlink for; files that open in another app keep that app's icon.
-- **Settings › Default editor for…** lists 17 text file types with the app that opens each one now. Tick a type to make Owlink its default (macOS asks you to confirm), untick it to give it back to the app it had before, or click **Use Owlink for All Text Files**. HTML isn't listed, because macOS treats the HTML app as your web browser.
-- Owlink knows TypeScript (.tsx, .ts), TOML, INI, SQL and PowerShell (.ps1, .psm1, .psd1) files as text where macOS on its own doesn't, so they open in TextEdit (or the app you pick) instead of nothing. A .ts file is still a video to macOS first.
+- **Settings › Default editor for…** lists 17 text file types with the app that opens each one now. Tick a type to make Owlink its default (macOS 26 and later ask you to confirm), untick it to give it back to the app it had before, or click **Use Owlink for All Text Files**. HTML isn't listed, because macOS treats the HTML app as your web browser.
+- Owlink knows TypeScript (.tsx, .ts), TOML, INI, SQL and PowerShell (.ps1, .psm1, .psd1) files, and on macOS 15 Markdown, as text where macOS on its own doesn't, so they open in TextEdit, Owlink (Markdown) or the app you pick instead of nothing. A .ts file is still a video to macOS first.
 - Installing or updating Owlink still changes no default app: for every type macOS already knew, the app that opens it without your choice is the same as with 0.2.x.
 
 ## [0.2.1]
