@@ -4,7 +4,8 @@ import CedricCore
 /// CEDRIC_CHECK=diskconflict (Scripts/tools-check.sh): another process
 /// rewrites an open file, then ⌘S. The save must ask (Keep My Version /
 /// Reload Theirs / Compare) instead of overwriting; a window becoming key
-/// shows the "Changed on disk" bar for a tab with unsaved edits, owl off.
+/// shows the "Changed on disk" bar for a tab with unsaved edits, owl off;
+/// a deleted file shows the "deleted" bar and keeps its text unsaved.
 @MainActor
 extension DevChecks {
     /// Rewrites `url` from another process (as another app would).
@@ -99,6 +100,19 @@ extension DevChecks {
                 rewriteElsewhere(url, "clean reload\n")
                 tab.reloadIfChangedOnDisk()
                 expect(tab.text == "clean reload\n" && tab.diskBar?.isHidden != false, "a tab without edits just reloads", tab.text)
+                try? FileManager.default.removeItem(at: url)
+                tab.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: tab.window))
+            },
+            sync {
+                expect(tab.diskBar?.isHidden == false && tab.diskBar?.label.stringValue.contains("was deleted or moved") == true,
+                       "a deleted file shows the deleted bar", tab.diskBar?.label.stringValue ?? "no bar")
+                expect(tab.text == "clean reload\n" && tab.doc.isDirty && tab.doc.missingOnDisk,
+                       "and keeps the text, now unsaved", tab.text)
+                tab.diskBar?.button("Save")?.performClick(nil)
+            },
+            sync {
+                expect(disk() == "clean reload\n" && !tab.doc.isDirty && !tab.doc.missingOnDisk && tab.diskBar?.isHidden == true,
+                       "Save writes it back where it was", disk())
             },
         ])
     }

@@ -47,6 +47,9 @@ final class EditorDocument {
     private(set) var unsavedSince: Date?
     /// The file changed on disk while the tab had unsaved edits (clean tabs just reload).
     var changedOnDisk = false
+    /// The file was deleted or moved away while open (the "deleted" bar
+    /// was shown; the tab was made unsaved so its text survives).
+    var missingOnDisk = false
     /// Format › Indentation, picked for this tab (nil: the file's own, else Settings').
     var indentation: Indentation?
     /// What the text's first lines use (Indentation.detect), read the first
@@ -66,7 +69,7 @@ final class EditorDocument {
         changeCount += 1
         if !isDirty { unsavedSince = nil }
     }
-    func markSaved() { savedChangeCount = changeCount; unsavedSince = nil; changedOnDisk = false }
+    func markSaved() { savedChangeCount = changeCount; unsavedSince = nil; changedOnDisk = false; missingOnDisk = false }
     /// Restored from a session buffer: unsaved by definition.
     func markDirtyFromSession() { changeCount = savedChangeCount + 1; unsavedSince = unsavedSince ?? Date() }
 

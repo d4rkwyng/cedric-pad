@@ -150,6 +150,52 @@ extension EditorWindowController {
         bar.setAccessibilityLabel(bar.label.stringValue)
     }
 
+    // MARK: Deleted or moved away
+
+    static var missingKeep: String { String(localized: "Keep Open") }
+    static var missingSave: String { String(localized: "Save") }
+    static var missingSaveAs: String { String(localized: "Save As…") }
+    static var missingClose: String { String(localized: "Close") }
+
+    /// The open file is gone from its path (deleted, or moved or renamed
+    /// by another app). The text stays in the tab and the tab becomes
+    /// unsaved, so the session keeps it (quit, close, relaunch) until it
+    /// is saved somewhere. The bar offers Keep Open, Save (recreate it
+    /// where it was), Save As… and Close (a hot close: ⇧⌘T brings it
+    /// back). Shown once per disappearance; a file that comes back
+    /// untouched drops it, one that comes back changed gets the
+    /// "Changed on disk" bar.
+    func showFileMissing() {
+        guard !doc.missingOnDisk else { return }
+        doc.missingOnDisk = true
+        if !doc.isDirty {
+            doc.markDirtyFromSession()
+            updateTitle()
+            updateStatus()
+            onChange?(self)
+        }
+        let bar: NoticeBar
+        if let b = diskBar {
+            bar = b
+        } else {
+            bar = NoticeBar(symbol: "exclamationmark.arrow.circlepath")
+            stack.insertArrangedSubview(bar, at: 0)
+            diskBar = bar
+        }
+        bar.show(String(localized: "“\(doc.displayName)” was deleted or moved. Its text is still here, unsaved."), buttons: [
+            (Self.missingKeep, { [weak self] in
+                self?.hideDiskBar()
+                if let self { self.window?.makeFirstResponder(self.textView) }
+            }),
+            (Self.missingSave, { [weak self] in _ = self?.save() }),
+            (Self.missingSaveAs, { [weak self] in _ = self?.saveAs() }),
+            (Self.missingClose, { [weak self] in self?.window?.performClose(nil) }),
+        ])
+        bar.setAccessibilityLabel(bar.label.stringValue)
+        NSAccessibility.post(element: bar, notification: .announcementRequested,
+                             userInfo: [.announcement: bar.label.stringValue, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
+
     func hideDiskBar() {
         diskBar?.isHidden = true
     }
