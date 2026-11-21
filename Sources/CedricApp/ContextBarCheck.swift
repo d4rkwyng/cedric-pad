@@ -58,6 +58,10 @@ extension DevChecks {
                        "the menu item is there: Show Context Bar, no checkmark", item?.title ?? "-")
                 toggleBar()
                 expect(Settings.shared.showContextBar, "the menu item turns it on")
+                // With Full Keyboard Access the bar's pull-down is the first
+                // view of the key-view loop; a new tab must still start in the text.
+                expect(tab.window?.initialFirstResponder === tab.primaryTextView && code.window?.initialFirstResponder === code.primaryTextView,
+                       "a new tab gives the text the keyboard first, not the bar")
                 expect(bar != nil, "a Markdown tab shows the bar")
                 expect(code.contextBar == nil, "a Swift tab has no bar (no set for code)")
                 let stack = tab.stack.arrangedSubviews

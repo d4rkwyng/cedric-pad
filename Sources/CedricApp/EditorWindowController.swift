@@ -195,6 +195,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         super.init(window: window)
         window.delegate = self
         buildViews()
+        // The text gets the keyboard when the tab is first shown. Without
+        // this AppKit picks the first view of the key-view loop, and with
+        // Full Keyboard Access on that is a button: the Context Bar's
+        // heading pull-down (0.4.0, on by default for Markdown) or the
+        // folder sidebar's close button, so typing missed the text.
+        window.initialFirstResponder = primaryTextView
         PerfTrace.mark("build_views")
         colorizer = SyntaxColorizer(textView: primaryTextView, language: doc.language)
         primaryTextView.language = doc.language
