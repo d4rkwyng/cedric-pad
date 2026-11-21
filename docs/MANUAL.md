@@ -68,7 +68,7 @@ It is a close like any other: the tab goes to Reopen Closed Tab (⇧⌘T) with
 its unsaved text kept, and the next launch opens an empty Untitled tab.
 Quit (⌘Q) with tabs open brings them all back next launch.
 Detached previews, Settings and panels don't keep Owlink running.
-Settings › "Quit when the last window closes" turns this off.
+Settings › General › "Quit when the last window closes" turns this off.
 
 ### Fast to open
 
@@ -509,7 +509,7 @@ after **Turn On Anyway** or once the document isn't large.
 characters wide, as in iA Writer, however wide the window is; a window
 narrower than that wraps as usual. It is on by default for Markdown and
 plain text and off for code, and the menu item switches it for the
-current tab. The width is in Settings › Readable width (60–100
+current tab. The width is in Settings › Writing › Readable width (60–100
 characters). It needs View › Wrap Lines. Line numbers, folds and git bars
 stay beside their lines, and Typewriter Scrolling and Focus work the same
 in the column. Typing is as fast with it on: the column only moves when
@@ -532,7 +532,7 @@ checked a chunk at a time, in large mode only as far as the next word.
 
 ### Grammar in prose
 
-**Grammar in prose** (Settings › "Check grammar in prose", on by
+**Grammar in prose** (Settings › Writing › "Check grammar in prose", on by
 default; also Edit › Spelling and Grammar): macOS's own grammar checker
 (local, nothing sent anywhere) looks at documents written for people,
 never at code, data or logs. A document counts when it is Plain Text or
@@ -594,18 +594,38 @@ bar's items stay under the editor (both panes of a split).
 
 ### Settings
 
-**Settings** (Owlink › Settings…, ⌘,) holds the preferences that have
-no menu: theme, font and size, the default indentation for new files
-(Format › Indentation changes one tab), the readable width's column,
-git changes in the gutter, Ask Cedric, Cedric's style tips in code, and whether closing the last window
-quits. Each option lives in one place: wrap lines, invisibles, line
-numbers and highlight occurrences are in the View menu, auto-close
-brackets, spelling while typing and grammar in the Edit menu (all
-remembered, for every tab).
+**Settings** (Owlink › Settings…, ⌘,) is one window with four tabs in
+its toolbar. Every control takes effect the moment you change it; there
+is no Save or Cancel. A text field applies when you press Return or
+leave it. Settings opens on the tab you last used.
+
+- **General**: theme, font and size, whether closing the last window
+  quits, and Default editor for… (below).
+- **Editor**: the default indentation for new files (Format ›
+  Indentation changes one tab), Wrap lines, Show invisibles, Show line
+  numbers, Highlight occurrences, Auto-close brackets and quotes, and git
+  changes in the gutter.
+- **Writing**: the readable width's column, Check spelling while typing,
+  Check grammar in prose, and Style Check with its Also flag and Never
+  flag lists.
+- **Cedric**: Show Cedric, Ask Cedric, Style tips in code, and the
+  Cedric AI settings (see *The owl and his hints*). Cedric › Cedric AI
+  Settings… opens this tab.
+
+Wrap lines, invisibles, line numbers and highlight occurrences are also
+in the View menu, and auto-close brackets, spelling while typing and
+grammar in the Edit menu. The menu item and the checkbox are the same
+setting: change either and the other shows it (all remembered, for every
+tab).
+
+Each tab is a toolbar button with a name and an icon. Tab moves
+through a tab's text fields (and, with keyboard navigation on in System
+Settings, every control); VoiceOver reads each tab and control by its
+name.
 
 ### File types, default editor and document icons
 
-**Settings › Default editor for…** lists the text file types Owlink has
+**Settings › General › Default editor for…** lists the text file types Owlink has
 its own icons for, with the app that opens each one now: plain text
 (.txt), Markdown, JSON, YAML, Swift, Python, JavaScript, TypeScript
 (.tsx), shell scripts (.sh, .zsh, .bash), logs, CSV, XML, CSS, TOML, INI,
@@ -1012,10 +1032,17 @@ at the text in view (at most 8 KB):
 
 The bubble keeps off the lines it is about when the window has room.
 
-Optional AI hints (Cedric › Cedric AI Settings…, off by default) use a
-local model only. On Intel Macs automatic AI checks are **off** by
+Optional AI hints (Settings › Cedric, also Cedric › Cedric AI
+Settings…; off by default) use a local model only. Each choice there
+applies at once: ticking "Ask a local model for hints" or picking where
+the AI runs or a model switches the engine without a Save. The network
+address applies when you press Return or leave the field, and only once
+it is a local one. Test Connection and each built-in model's Download,
+Pause and Delete stay buttons, so nothing is downloaded or loaded until
+you click. On Intel Macs automatic AI checks are **off** by
 default so typing stays fast: click the owl and choose **Ask AI Now**,
-or turn on "Check automatically when I pause typing" in the settings.
+or turn on "Check automatically when I pause typing" in Settings ›
+Cedric.
 A one-word AI fix in prose ("definately" → "definitely") keeps its
 **Fix it**.
 In very large documents the owl only looks when clicked.
@@ -1118,14 +1145,14 @@ Some checks are about the whole file (a key set twice, a missing `#!`
 line, XML that doesn't parse, `cd` before a delete): in a file longer
 than Cedric's 8 KB view they wait until the whole file fits.
 
-**Settings › Style tips in code** (off by default) adds Cedric's style
+**Settings › Cedric › Style tips in code** (off by default) adds Cedric's style
 suggestions: a bare `except:` in Python (Fix it: `except Exception:`),
 `if x == True:` (Fix it: `if x:`, and `if not x:` for `== False`), shell
 backticks (Fix it: `$(…)`), and a Markdown image without alt text (Fix
 it starts one from the file name). The checks above are always on; each
 hint still has its own **Don't show again**.
 
-**Settings › Style Check** (off by default; like iA Writer's and
+**Settings › Writing › Style Check** (off by default; like iA Writer's and
 Ulysses') points out filler words ("very", "basically"), redundancies
 ("past history": Fix it makes it "history") and clichés ("at the end of
 the day") in Markdown and plain-text prose, one phrase at a time. Code
@@ -1180,7 +1207,7 @@ work offline.
 
 ### Ask Cedric
 
-**Ask Cedric** (Settings › "Ask Cedric"; on by default when a local
+**Ask Cedric** (Settings › Cedric › "Ask Cedric"; on by default when a local
 engine is ready: Apple Intelligence, a downloaded built-in model, or an
 LM Studio / Ollama / other-Mac server you set up and turned on; with
 none, clicking the owl offers **Set Up Ask Cedric…**). Click the owl:
