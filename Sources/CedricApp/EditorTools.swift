@@ -304,6 +304,10 @@ extension EditorWindowController {
         doc.fileModified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         updateTitle()
         setEditable(false)
+        // setText already dropped cards when the buffer was replaced. If the
+        // file could not be decoded, the ones still up were proposed against
+        // an editable tab and would keep showing Apply until the next edit.
+        if owlChat?.hasProposals == true { owlChat?.refreshCards() }
         window?.subtitle = String(localized: "Following")
         scrollToBottom()
         let me = WeakRef(self)
@@ -334,6 +338,10 @@ extension EditorWindowController {
         case .reset(let s):
             setText(s)
         }
+        // A reset drops cards inside setText. An append is not a user edit,
+        // so nothing else refreshes them: Apply would stay enabled on a
+        // read-only tab until the next keystroke.
+        if owlChat?.hasProposals == true { owlChat?.refreshCards() }
         textView.undoManager?.removeAllActions()
         doc.markSaved()
         doc.fileModified = doc.fileURL.flatMap { (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate }

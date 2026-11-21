@@ -417,6 +417,16 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         textView.undoManager?.removeAllActions()
         loading = false
+        // Opening is the first setText, before the appearance is applied,
+        // and there are no proposals yet. A later replacement (disk reload,
+        // encoding reopen, Follow File reset) drops every pending card and
+        // moves the generation: a `.lines` proposal matches a stored offset,
+        // and the new buffer can hold the same substring there. Follow's
+        // Apply button otherwise stayed enabled until the next refresh.
+        if didApplyAppearance {
+            doc.noteBufferReplacement()
+            owlChat?.documentBufferReplaced()
+        }
         // The storage already has `editorFont`. Crossing the large-document
         // boundary (either way) leaves `textView.font` on the previous face,
         // and the gutter, Readable Width and typewriter metrics read that.

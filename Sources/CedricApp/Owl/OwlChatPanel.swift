@@ -838,6 +838,15 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         layoutCards()
     }
 
+    /// The tab's buffer was replaced (`setText`). Every card goes, with no
+    /// "Skipped" note: the proposals were for the previous text. A `.text`
+    /// card whose find is still unique would otherwise stay Apply-ready.
+    func documentBufferReplaced() {
+        let kept = OwlBufferReplacement.kept(cards.map(\.proposal))
+        guard kept.count != cards.count else { return }
+        removeCards()
+    }
+
     /// Read-only: Apply never applies (a read-only tab, a followed file;
     /// on iOS, read mode).
     private var documentIsReadOnly: Bool {

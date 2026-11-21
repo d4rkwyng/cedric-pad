@@ -69,6 +69,17 @@ final class EditorDocument {
         changeCount += 1
         if !isDirty { unsavedSince = nil }
     }
+
+    /// The whole buffer was replaced (`setText`: disk reload, encoding
+    /// reopen, Follow File reset). The edit generation moves so a `.lines`
+    /// proposal cannot match the new text by its stored offset. A clean
+    /// document stays clean: this is not a user edit.
+    func noteBufferReplacement() {
+        let dirty = isDirty
+        changeCount = OwlBufferReplacement.generation(after: changeCount)
+        if !dirty { savedChangeCount = changeCount; unsavedSince = nil }
+    }
+
     func markSaved() { savedChangeCount = changeCount; unsavedSince = nil; changedOnDisk = false; missingOnDisk = false }
     /// Restored from a session buffer: unsaved by definition.
     func markDirtyFromSession() { changeCount = savedChangeCount + 1; unsavedSince = unsavedSince ?? Date() }
