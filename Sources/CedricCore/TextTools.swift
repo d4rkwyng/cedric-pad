@@ -1,6 +1,6 @@
 import Foundation
 
-/// Edit › Text Tools: pure String → String transforms. The app applies one
+/// Text › Text Tools: pure String → String transforms. The app applies one
 /// to the selection (or the whole document) as a single undoable change.
 public enum TextTool: String, CaseIterable, Sendable {
     case sortAscending, sortDescending, sortNumeric

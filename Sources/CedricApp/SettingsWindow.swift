@@ -333,7 +333,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let t = toggles
         return page([grid([
             [label(String(localized: "Default indent:")), indentRow],
-            [NSGridCell.emptyContentView, note(String(localized: "For new files and files that don't indent yet; a file's own indentation wins. Format › Indentation changes one tab."))],
+            [NSGridCell.emptyContentView, note(String(localized: "For new files and files that don't indent yet; a file's own indentation wins. Text › Indentation changes one tab."))],
             [label(String(localized: "View:")), t[.wrapLines]!],
             [NSGridCell.emptyContentView, t[.showInvisibles]!],
             [NSGridCell.emptyContentView, t[.showLineNumbers]!],

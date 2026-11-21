@@ -1,7 +1,7 @@
 import AppKit
 import CedricCore
 
-// Code folding (View › Folding). Regions come from FoldScanner (CedricCore),
+// Code folding (Text › Folding). Regions come from FoldScanner (CedricCore),
 // on demand: nothing is computed for a document nobody folds, except the
 // gutter's triangles for the visible lines while the pointer is over the
 // gutter. A tab's FoldingController is made on its first fold; until then
@@ -267,7 +267,7 @@ extension EditorWindowController {
         return true
     }
 
-    /// View › Folding › Fold: the region the caret's line starts, else the
+    /// Text › Folding › Fold: the region the caret's line starts, else the
     /// innermost one around the caret not yet folded.
     func foldAtCaret() {
         guard let scanner = foldScanner() else { NSSound.beep(); return }
@@ -282,7 +282,7 @@ extension EditorWindowController {
         f.fold([r])
     }
 
-    /// View › Folding › Unfold: the folds on the caret's line.
+    /// Text › Folding › Unfold: the folds on the caret's line.
     func unfoldAtCaret() {
         guard let f = folding else { NSSound.beep(); return }
         let mine = f.folds(header: caretLineForFolding, lineIndex)
@@ -374,7 +374,7 @@ extension AppDelegate {
     }
 }
 
-/// View › Folding.
+/// Text › Folding.
 @MainActor
 func foldingMenu() -> NSMenuItem {
     let left = String(UnicodeScalar(UInt16(NSLeftArrowFunctionKey))!)

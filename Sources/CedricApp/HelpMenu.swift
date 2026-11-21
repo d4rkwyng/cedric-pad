@@ -44,10 +44,10 @@ enum MenuShortcuts {
     /// which stays the text view's unless there are several carets):
     /// listed after the menus' in Help › Keyboard Shortcuts.
     static let extraRows: [(String, String)] = [
-        ("⌥-drag", String(localized: "Edit › Selection: column selection")),
-        ("⌘-click", String(localized: "Edit › Selection: add or remove a caret")),
-        ("⎋", String(localized: "Edit › Selection › Single Caret (with several carets)")),
-        ("click ▾ / ▸", String(localized: "View › Folding: fold or unfold (the triangles beside the line numbers)")),
+        ("⌥-drag", String(localized: "Text › Selection: column selection")),
+        ("⌘-click", String(localized: "Text › Selection: add or remove a caret")),
+        ("⎋", String(localized: "Text › Selection › Single Caret (with several carets)")),
+        ("click ▾ / ▸", String(localized: "Text › Folding: fold or unfold (the triangles beside the line numbers)")),
     ]
 }
 

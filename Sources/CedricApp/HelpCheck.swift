@@ -77,6 +77,24 @@ extension DevChecks {
                 expect(file.filter { $0 == "New Tab" }.count == 1, "File shows New Tab once", "\(file)")
                 let view = menu("View")?.items.map(\.title) ?? []
                 expect(!view.contains("Check Spelling While Typing"), "View no longer repeats Check Spelling While Typing")
+                // 0.4.1 (UX review #2): a Text menu between Edit and View; Compare and Follow File in File.
+                let bar = NSApp.mainMenu?.items.map(\.title) ?? []
+                expect(bar.firstIndex(of: "Text").map { $0 == (bar.firstIndex(of: "Edit") ?? -9) + 1 && bar[$0 + 1] == "View" } == true,
+                       "a Text menu sits between Edit and View", "\(bar)")
+                let text = menu("Text")?.items.filter { !$0.isSeparatorItem }.map(\.title) ?? []
+                expect(text == ["Selection", "Line", "Bookmarks", "Text Tools", "Indentation", "Folding"],
+                       "Text holds Selection, Line, Bookmarks, Text Tools, Indentation and Folding", "\(text)")
+                let edit = menu("Edit")?.items.map(\.title) ?? []
+                expect(!edit.contains { ["Selection", "Line", "Bookmarks", "Text Tools"].contains($0) }, "Edit no longer holds them", "\(edit)")
+                expect(!(menu("Format")?.items.map(\.title) ?? []).contains("Indentation"), "Format no longer holds Indentation")
+                expect(!view.contains { ["Folding", "Compare With…", "Compare with Last Commit", "Next Difference",
+                                         "Previous Difference", "Follow File"].contains($0) }, "View no longer holds Folding, Compare or Follow File", "\(view)")
+                let compare = menu("File")?.items.first { $0.title == "Compare" }?.submenu?.items.filter { !$0.isSeparatorItem }.map(\.title) ?? []
+                expect(compare == ["Compare With…", "Compare with Last Commit", "Next Difference", "Previous Difference"],
+                       "File › Compare holds the comparison commands", "\(compare)")
+                expect(menu("File")?.items.contains { $0.title == "Follow File" } == true, "File › Follow File")
+                expect(menu("Text")?.items.first { $0.title == "Line" }?.submenu?.items.contains { $0.title == "Comment Selection" } == true,
+                       "Comment Selection stays in Text › Line")
                 let wrap = menu("View")?.items.first { $0.title == "Wrap Lines" }
                 expect(wrap?.keyEquivalent == "z" && wrap?.keyEquivalentModifierMask == [.command, .option], "Wrap Lines is ⌥⌘Z")
                 let before = app.tabs.count

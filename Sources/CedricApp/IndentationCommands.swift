@@ -2,7 +2,7 @@ import AppKit
 import CedricCore
 
 // Indent and outdent (Tab / ⇧Tab on several lines, ⌘] / ⌘[), and the
-// per-tab indentation: Format › Indentation, else what the file already
+// per-tab indentation: Text › Indentation, else what the file already
 // uses (read from its first lines the first time it matters, not at
 // launch), else Settings' default.
 
@@ -42,14 +42,14 @@ extension EditorWindowController {
         apply(edit, actionName: right ? String(localized: "Indent") : String(localized: "Outdent"))
     }
 
-    /// Format › Indentation › Indent Using Spaces / Tabs, Tab Width: for this tab.
+    /// Text › Indentation › Indent Using Spaces / Tabs, Tab Width: for this tab.
     func setIndentation(_ ind: Indentation) {
         doc.indentation = ind
         tabWidthChanged()
         onChange?(self) // kept with the session
     }
 
-    /// Format › Indentation › Convert…: rewrites every line's leading
+    /// Text › Indentation › Convert…: rewrites every line's leading
     /// whitespace to `usesTabs`, as one undo step, and indents that way
     /// from now on.
     func convertIndentation(toTabs: Bool) {

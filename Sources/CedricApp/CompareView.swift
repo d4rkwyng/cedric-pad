@@ -1,7 +1,7 @@
 import AppKit
 import CedricCore
 
-/// View › Compare With…: two tabs side by side, line by line (LineDiff),
+/// File › Compare › Compare With…: two tabs side by side, line by line (LineDiff),
 /// read-only. Opens as its own tab next to the left document. The text is
 /// a snapshot taken when the comparison was made.
 @MainActor

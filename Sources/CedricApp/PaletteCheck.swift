@@ -65,7 +65,14 @@ extension DevChecks {
                 expect(!windowRows.contains("palette.txt"), "the Window menu's window list is left out", "\(windowRows)")
                 expect(!titles.contains { $0.contains("Services") }, "the Services menu is left out")
                 expect(row("UPPERCASE")?.shortcut == "⌃⌘U", "a Text Tool, with its shortcut", row("UPPERCASE")?.shortcut ?? "-")
-                expect(row("UPPERCASE")?.candidate.path == "Edit › Text Tools", "its menu path", row("UPPERCASE")?.candidate.path ?? "-")
+                expect(row("UPPERCASE")?.candidate.path == "Text › Text Tools", "its menu path", row("UPPERCASE")?.candidate.path ?? "-")
+                // The 0.4.1 Text menu and the moved View items are all still listed, under their new paths.
+                for (title, path) in [("Add Next Occurrence", "Text › Selection"), ("Duplicate Line", "Text › Line"),
+                                      ("Comment Selection", "Text › Line"), ("Bookmark Line", "Text › Bookmarks"),
+                                      ("Fold All", "Text › Folding"), ("Indent Using Tabs", "Text › Indentation"),
+                                      ("Compare With…", "File › Compare"), ("Next Difference", "File › Compare"), ("Follow File", "File")] {
+                    expect(row(title)?.candidate.path == path, "\(title) is listed under \(path)", row(title)?.candidate.path ?? "-")
+                }
                 expect(row("Bold")?.candidate.path == "Format › Markdown", "Markdown commands are there", row("Bold")?.candidate.path ?? "-")
                 expect(row("Page Setup…") != nil && row("Page Setup…")?.shortcut == "", "Page Setup… has no shortcut now")
                 expect(row("Save")?.candidate.enabled == true, "Save is enabled in a text tab")
@@ -85,15 +92,15 @@ extension DevChecks {
                 for _ in 0..<max(at, 0) { arrowDown() }
                 let sel = palette?.table.selectedRow ?? -1
                 expect(sel == at, "↓ moves the selection to Lowercase", "\(sel)")
-                expect(palette?.lastAnnouncement.hasPrefix("lowercase, ⌃⌘L, Edit › Text Tools") == true, "VoiceOver hears the selected row",
+                expect(palette?.lastAnnouncement.hasPrefix("lowercase, ⌃⌘L, Text › Text Tools") == true, "VoiceOver hears the selected row",
                        palette?.lastAnnouncement ?? "-")
             },
             { next in snapshot("palette-query.png", window: CommandPalette.shared?.panel)(next) },
             sync {
                 press("\r", 36)
                 expect(palette?.isOpen == false, "Return closes the palette")
-                expect(tab.text == "hello palette\nsecond line\n", "Return ran Edit › Text Tools › Lowercase", tab.text)
-                expect(CommandPalette.recents.ids.first == "Edit › Text Tools › lowercase", "it is now a recent command")
+                expect(tab.text == "hello palette\nsecond line\n", "Return ran Text › Text Tools › Lowercase", tab.text)
+                expect(CommandPalette.recents.ids.first == "Text › Text Tools › lowercase", "it is now a recent command")
                 expect(tab.window?.firstResponder === tab.textView, "the text view has the keyboard back")
             },
             sync {

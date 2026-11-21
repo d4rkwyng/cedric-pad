@@ -146,7 +146,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         return g
     }()
     var grammarStep: GrammarStepController?
-    /// View › Follow File (EditorTools.swift).
+    /// File › Follow File (EditorTools.swift).
     var tail: FileTail?
     /// Large mode (LargeDocumentMode.swift): why, and "Turn On Anyway".
     var largeReason: LargeDocument.Reason?

@@ -50,7 +50,7 @@ final class EditorDocument {
     /// The file was deleted or moved away while open (the "deleted" bar
     /// was shown; the tab was made unsaved so its text survives).
     var missingOnDisk = false
-    /// Format › Indentation, picked for this tab (nil: the file's own, else Settings').
+    /// Text › Indentation, picked for this tab (nil: the file's own, else Settings').
     var indentation: Indentation?
     /// What the text's first lines use (Indentation.detect), read the first
     /// time it is needed after the text was set, never at launch.

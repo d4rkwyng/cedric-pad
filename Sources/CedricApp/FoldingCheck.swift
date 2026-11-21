@@ -3,7 +3,7 @@ import CedricCore
 
 /// CEDRIC_CHECK=folding (Scripts/tools-check.sh): code folding driven by
 /// real events: mouse clicks on the gutter's triangles and on the "⋯"
-/// pill, the View › Folding shortcuts (⌥⌘←/→, ⌥⇧⌘←/→) and arrow keys
+/// pill, the Text › Folding shortcuts (⌥⌘←/→, ⌥⇧⌘←/→) and arrow keys
 /// through the window. Checks that hidden lines aren't laid out (TextKit's
 /// fragments skip them, so the gutter's numbers jump), that the text
 /// storage never changes, that typing next to a fold keeps it and typing
@@ -99,7 +99,7 @@ extension DevChecks {
                                                (#selector(AppDelegate.foldAllMenu(_:)), "Fold All", left, [.option, .shift, .command]),
                                                (#selector(AppDelegate.unfoldAllMenu(_:)), "Unfold All", right, [.option, .shift, .command])] {
                     let i = menuItem(action: sel)
-                    expect(i?.keyEquivalent == key && i?.keyEquivalentModifierMask == mods, "View › Folding › \(name) has its shortcut")
+                    expect(i?.keyEquivalent == key && i?.keyEquivalentModifierMask == mods, "Text › Folding › \(name) has its shortcut")
                 }
                 expect(menuItem(action: #selector(AppDelegate.foldMenu(_:))).map { app.validateMenuItem($0) } == true, "Fold is enabled in a Swift tab")
                 expect(menuItem(action: #selector(AppDelegate.unfoldAllMenu(_:))).map { app.validateMenuItem($0) } == false,

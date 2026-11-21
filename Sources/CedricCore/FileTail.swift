@@ -1,6 +1,6 @@
 import Foundation
 
-/// View › Follow File: watches a file with a DispatchSource and reports
+/// File › Follow File: watches a file with a DispatchSource and reports
 /// what was appended, or the whole new content after it was truncated,
 /// replaced or rotated (deleted or renamed, then recreated).
 public final class FileTail: @unchecked Sendable {

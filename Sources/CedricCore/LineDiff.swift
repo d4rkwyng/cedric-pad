@@ -1,7 +1,7 @@
 import Foundation
 
 /// A line diff (Myers' O(ND) algorithm, no dependencies) and its
-/// side-by-side layout for View › Compare With….
+/// side-by-side layout for File › Compare › Compare With….
 public enum LineDiff {
     public enum Op: Equatable, Sendable {
         case equal(Int, Int)   // a line, b line
