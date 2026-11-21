@@ -16,6 +16,8 @@ enum AppSettings {
         static let styleCheck = "styleCheck"
         static let styleCheckExtra = "styleCheckExtra"
         static let styleCheckExceptions = "styleCheckExceptions"
+        static let readableWidthDefault = "readableWidthDefault"
+        static let readableColumns = "readableColumns"
         static let saveAutomatically = "ios.saveAutomatically"
         static let openReadOnly = "ios.openReadOnly"
         static let theme = EditorTheme.defaultsKey
@@ -87,6 +89,21 @@ enum AppSettings {
     /// What the owl's rules get. Nil while Style Check is off.
     static var styleCheckSettings: StyleCheck.Settings? {
         styleCheck ? StyleCheck.Settings(language: "en", extra: styleCheckExtra, exceptions: styleCheckExceptions) : nil
+    }
+
+    /// The default for a tab that has not chosen. Off until turned on.
+    static var readableWidthDefault: Bool {
+        get { defaults.bool(forKey: Key.readableWidthDefault) }
+        set { defaults.set(newValue, forKey: Key.readableWidthDefault); post() }
+    }
+
+    /// How many characters the column is wide (60–100, 72 if unset).
+    static var readableColumns: Int {
+        get {
+            let v = defaults.integer(forKey: Key.readableColumns)
+            return v > 0 ? ReadableWidth.clamp(v) : ReadableWidth.defaultColumns
+        }
+        set { defaults.set(ReadableWidth.clamp(newValue), forKey: Key.readableColumns); post() }
     }
 
     /// "very, kind of ,, actually" → ["very", "kind of", "actually"].

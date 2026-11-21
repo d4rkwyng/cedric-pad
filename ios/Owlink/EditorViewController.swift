@@ -13,6 +13,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     private(set) var lineIndex = LineIndex()
     /// Left inset of the text before line numbers claim any of it.
     private let editorTextInsetLeft: CGFloat = 8
+    /// This file's Readable Width choice. Nil follows Settings, which is off.
+    private var readableWidthChoice: Bool?
+    private var readableWidthOn: Bool { readableWidthChoice ?? AppSettings.readableWidthDefault }
     /// This tab only. Off until a jump (a citation, Find next, Go to Line)
     /// needs the numbers. Not written to the saved setting.
     private var showLineNumbers = false
@@ -508,6 +511,12 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         let goTo = UIAction(title: String(localized: "Go to Line…"), image: UIImage(systemName: "arrow.down.to.line")) { [weak self] _ in
             self?.goToLine()
         }
+        let readable = UIAction(title: String(localized: "Readable Width"), image: UIImage(systemName: "text.aligncenter")) { [weak self] _ in
+            self?.toggleReadableWidth()
+        }
+        readable.state = readableWidthOn ? .on : .off
+        readable.attributes = AppSettings.wrap ? [] : .disabled
+        readable.accessibilityIdentifier = "editor.menu.readableWidth"
         let check = UIAction(title: String(localized: "Check with Cedric"), image: UIImage(systemName: "sparkles")) { [weak self] _ in
             self?.checkWithCedric()
         }
@@ -517,7 +526,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         let settings = UIAction(title: String(localized: "Settings"), image: UIImage(systemName: "gear")) { [weak self] _ in
             self?.showSettings()
         }
-        var first: [UIMenuElement] = [save, replace, goTo, ask, check]
+        var first: [UIMenuElement] = [save, replace, goTo, readable, ask, check]
         if document.language.language == .markdown {
             let focus = UIAction(title: String(localized: "Focus Preview"), image: UIImage(systemName: "arrow.up.left.and.arrow.down.right")) { [weak self] _ in
                 self?.toggleFocusPreview()
@@ -839,6 +848,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             c.size = CGSize(width: 20_000, height: CGFloat.greatestFiniteMagnitude)
         }
         textView.textLayoutManager?.textViewportLayoutController.layoutViewport()
+        view.setNeedsLayout()
     }
 
     // MARK: Owl
@@ -1689,6 +1699,13 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     @objc func actualSizeFont() { if focusOn { preview?.actualSize() } else { AppSettings.resetFontSize() } }
     @objc func toggleWrap() { AppSettings.wrap.toggle() }
 
+    /// The document menu's switch for this file. Lines must wrap.
+    @objc func toggleReadableWidth() {
+        guard AppSettings.wrap else { return }
+        readableWidthChoice = !readableWidthOn
+        view.setNeedsLayout()
+    }
+
     @objc func showSettings() {
         let host = UIHostingController(rootView: SettingsView())
         host.modalPresentationStyle = .formSheet
@@ -1744,24 +1761,51 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         layoutGutter()
     }
 
+    /// Horizontal insets for the text. Off, the gutter consumes the left
+    /// inset as before. On, the column is centred; the gutter sits in the
+    /// left margin when that margin is wide enough, otherwise it consumes
+    /// width and the column centres in what remains.
+    private func textInsets(gutterWidth: CGFloat) -> (left: CGFloat, right: CGFloat, gutterX: CGFloat) {
+        let plain = (left: editorTextInsetLeft + gutterWidth, right: CGFloat(8), gutterX: CGFloat(0))
+        guard readableWidthOn, AppSettings.wrap, textView.bounds.width > 1 else { return plain }
+        let font = textView.font ?? AppSettings.font(for: traitCollection)
+        let charWidth = ("0" as NSString).size(withAttributes: [.font: font]).width
+        let padding = textView.textContainer.lineFragmentPadding
+        let column = ReadableWidth.columnWidth(columns: AppSettings.readableColumns,
+                                               charWidth: Double(max(charWidth, 1)), padding: Double(padding))
+        let full = Double(textView.bounds.width)
+        let insetFull = ReadableWidth.inset(viewWidth: full, column: column)
+        if gutterWidth == 0 || ReadableWidth.overlaidGutterMinX(textMinX: insetFull, gutterWidth: Double(gutterWidth), sidebarWidth: 0) != nil {
+            return (CGFloat(insetFull), CGFloat(insetFull), CGFloat(insetFull) - gutterWidth)
+        }
+        let content = max(0, full - Double(gutterWidth))
+        let inset = ReadableWidth.inset(viewWidth: content, column: column)
+        return (gutterWidth + CGFloat(inset), CGFloat(inset), 0)
+    }
+
     /// Places the gutter over the text's left inset and fills it with the
     /// visible line numbers. Hidden while the text itself is hidden.
+    /// Readable Width, when this file has it on and lines wrap, centres a
+    /// column and draws the gutter in that margin when it fits.
     private func layoutGutter() {
+        let font = (textView.font ?? AppSettings.font(for: traitCollection)).withSize(
+            max(10, (textView.font?.pointSize ?? 13) * 0.85))
+        let width = showLineNumbers ? LineNumberGutter.width(lineCount: lineIndex.lineCount, font: font) : 0
+        let insets = textInsets(gutterWidth: width)
+        var edge = textView.textContainerInset
+        if abs(edge.left - insets.left) > 0.5 || abs(edge.right - insets.right) > 0.5 {
+            edge.left = insets.left
+            edge.right = insets.right
+            textView.textContainerInset = edge
+        }
         guard showLineNumbers else {
             lineNumberGutter.isHidden = true
             return
         }
-        let font = (textView.font ?? AppSettings.font(for: traitCollection)).withSize(
-            max(10, (textView.font?.pointSize ?? 13) * 0.85))
-        let width = LineNumberGutter.width(lineCount: lineIndex.lineCount, font: font)
-        let inset = editorTextInsetLeft + width
-        if abs(textView.textContainerInset.left - inset) > 0.5 {
-            textView.textContainerInset.left = inset
-        }
         lineNumberGutter.isHidden = textView.isHidden || textView.superview == nil
         guard !lineNumberGutter.isHidden else { return }
         let frame = textView.convert(textView.bounds, to: split)
-        let next = CGRect(x: frame.minX, y: frame.minY, width: width, height: frame.height)
+        let next = CGRect(x: frame.minX + insets.gutterX, y: frame.minY, width: width, height: frame.height)
         if lineNumberGutter.frame != next { lineNumberGutter.frame = next }
         lineNumberGutter.font = font
         lineNumberGutter.numberColor = UIColor(hex: palette.gutterForeground)

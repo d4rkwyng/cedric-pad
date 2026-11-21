@@ -59,8 +59,10 @@ struct SettingsView: View {
     @AppStorage(AppSettings.Key.saveAutomatically) private var saveAutomatically = true
     @AppStorage(AppSettings.Key.openReadOnly) private var openReadOnly = AppSettings.openReadOnlyDefault
     @AppStorage(AppSettings.Key.styleCheck) private var styleCheck = false
+    @AppStorage(AppSettings.Key.readableWidthDefault) private var readableWidthDefault = false
     @State private var styleExtra = ""
     @State private var styleExcept = ""
+    @State private var readableColumns = AppSettings.readableColumns
     @State private var ai = LocalAISettings.load()
     @State private var address = ""
     @State private var testResult: String?
@@ -112,14 +114,26 @@ struct SettingsView: View {
                     TextField(String(localized: "Never flag"), text: $styleExcept)
                         .disabled(!styleCheck)
                         .accessibilityIdentifier("settings.styleExceptions")
+                    Toggle(String(localized: "Readable Width"), isOn: $readableWidthDefault)
+                        .accessibilityIdentifier("settings.readableWidth")
+                    Stepper(value: $readableColumns, in: ReadableWidth.columnRange) {
+                        HStack {
+                            Text(String(localized: "Column Width"))
+                            Spacer()
+                            Text("\(readableColumns)").foregroundStyle(.secondary).monospacedDigit()
+                        }
+                    }
+                    .accessibilityIdentifier("settings.readableColumns")
                 } header: {
                     Text(String(localized: "Writing"))
                 } footer: {
-                    Text(String(localized: "Style Check points out filler words, redundancies (“past history”) and clichés in Markdown and plain text, one at a time, never in code. Offline, no AI. Off until you turn it on. Separate phrases with commas. Ignore on a hint adds that phrase to Never flag."))
+                    Text(String(localized: "Style Check points out filler words, redundancies (“past history”) and clichés in Markdown and plain text, one at a time, never in code. Offline, no AI. Off until you turn it on. Separate phrases with commas. Ignore on a hint adds that phrase to Never flag.\n\nReadable Width centres the text in a column while lines wrap. Off until you turn it on. The document menu switches the open file and keeps that choice; this switch is the default for every other file."))
                 }
                 .onChange(of: styleCheck) { AppSettings.post() }
                 .onChange(of: styleExtra) { writeStylePhrases() }
                 .onChange(of: styleExcept) { writeStylePhrases() }
+                .onChange(of: readableWidthDefault) { AppSettings.post() }
+                .onChange(of: readableColumns) { AppSettings.readableColumns = readableColumns }
 
                 Section {
                     LabeledContent(String(localized: "Apple Intelligence"), value: AIStatus.appleLine)
