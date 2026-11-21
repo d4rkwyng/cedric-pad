@@ -81,8 +81,17 @@ unfolded and 13 pt folded unless one was chosen. Layout rules are pure
 functions in CedricCore (`FoldLayout`, `OwlPlacement`, `OwlBadge`,
 `EditorContinuity`) with tests in `DuoLayoutTests`.
 
+On iOS, as on the Mac: the writing checks run with Cedric’s offline hints.
+Settings › Writing holds Style Check and Readable Width, both off until
+turned on; the document menu also switches Readable Width for the open
+file. Open Quickly (⌥⌘O) finds files in a folder Owlink can list and the
+headings of the open Markdown document. Ask Cedric can call check_document
+and read_section, and a propose_edit is a card with Apply and Skip (never
+applied while the file is read-only).
+
 Not on iOS: the `cedric` command, Replace in Files, the folder sidebar, Git,
-the certificate view, XML formatting.
+the certificate view, XML formatting, and the command palette’s menu
+commands.
 
 ## Cedric AI on iOS
 

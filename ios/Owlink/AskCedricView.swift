@@ -9,12 +9,32 @@ import CedricAI
 /// core's `OwlChatRunner` runs it, as on the Mac.
 @MainActor
 final class AskCedricModel: ObservableObject {
+    /// One propose_edit (or a quick action's block) shown as a card.
+    struct Card: Identifiable, Equatable {
+        let id: Int
+        var proposal: OwlEditProposal
+        var state: OwlEditProposal.ApplyState = .stale
+        var shownAll = false
+        var needsShowAll: Bool
+        var firstLine: Int
+        var lastLine: Int
+    }
+
     struct Entry: Identifiable, Equatable {
         let id = UUID()
         var role: OwlChatEntry.Role
         var text: String
-        var proposal: OwlEditProposal?
-        var applied = false
+        var cards: [Card] = []
+    }
+
+    /// The live document, for Apply / Skip. Tools still read the snapshot
+    /// taken when the question was asked.
+    struct DocumentNow {
+        var text: NSString
+        var generation: Int
+        var readOnly: Bool
+        var large: Bool
+        var lines: LineIndex
     }
 
     @Published var question = ""
@@ -23,20 +43,20 @@ final class AskCedricModel: ObservableObject {
     @Published var engineTitle: String?
     @Published var unavailable: String?
 
-    let text: String
-    let selection: NSRange
-    let visible: NSRange
     let fileName: String?
     let language: Language
     var apply: (OwlEditProposal) -> Bool = { _ in false }
     var openSettings: () -> Void = {}
+    var documentNow: () -> DocumentNow = { DocumentNow(text: "", generation: 0, readOnly: true, large: false, lines: LineIndex()) }
+    var makeSnapshot: () -> OwlDocumentSnapshot = { OwlDocumentSnapshot(text: "", generation: 0) }
+    var askIsVisible: () -> Bool = { false }
     private var task: Task<Void, Never>?
+    private var recheck: Task<Void, Never>?
+    private var lastQuestion = ""
+    private var lastAction: OwlQuickAction?
     private let gate = OwlToolGate.bundled()
 
-    init(text: String, selection: NSRange, visible: NSRange, fileName: String?, language: Language) {
-        self.text = text
-        self.selection = selection
-        self.visible = visible
+    init(fileName: String?, language: Language) {
         self.fileName = fileName
         self.language = language
     }
@@ -70,8 +90,9 @@ final class AskCedricModel: ObservableObject {
         entries.append(Entry(role: .owl, text: ""))
         question = ""
         running = true
-        let snap = OwlDocumentSnapshot(text: text, generation: 0, selection: selection, visible: visible,
-                                       fileName: fileName, language: language.rawValue)
+        lastQuestion = q
+        lastAction = action
+        let snap = makeSnapshot()
         let prose = self.prose
         task = Task { [weak self] in
             guard let self else { return }
@@ -81,7 +102,7 @@ final class AskCedricModel: ObservableObject {
                 return
             }
             self.engineTitle = engine.title
-            let scope: OwlChatScope = self.selection.length > 0 ? .selection : .wholeDocument
+            let scope: OwlChatScope = snap.selection.length > 0 ? .selection : .wholeDocument
             guard let ctx = OwlChatContext.build(snap, scope: scope, budget: engine.contextBudget)
                     ?? OwlChatContext.build(snap, scope: .visible, budget: engine.contextBudget) else {
                 self.finish(error: String(localized: "Too much text for this model: select less and ask again."))
@@ -98,8 +119,9 @@ final class AskCedricModel: ObservableObject {
                 try? await Task.sleep(for: .milliseconds(50))   // let queued text land first
                 if var last = self.entries.last, last.role == .owl {
                     last.text = OwlChatRunner.stripThinking(outcome.answer)
-                    last.proposal = outcome.proposal
+                    last.cards = Self.cards(Array(outcome.proposals.prefix(OwlTools.maxProposals)))
                     self.entries[self.entries.count - 1] = last
+                    self.refreshCards()
                 }
             } catch is CancellationError {
                 self.finish(error: String(localized: "Stopped."))
@@ -125,13 +147,122 @@ final class AskCedricModel: ObservableObject {
 
     func stop() { task?.cancel() }
 
-    func applyProposal(_ e: Entry) {
-        guard let p = e.proposal, let i = entries.firstIndex(of: e) else { return }
-        if apply(p) {
-            entries[i].applied = true
-        } else {
-            entries.append(Entry(role: .note, text: String(localized: "The text changed since Cedric read it, so the edit wasn’t applied.")))
+    private static func cards(_ proposals: [OwlEditProposal]) -> [Card] {
+        proposals.enumerated().map { i, p in
+            Card(id: i, proposal: p,
+                 needsShowAll: OwlEditReview.needsShowAll(rows: p.diffLines.map(\.text), charsPerRow: OwlEditReview.fallbackCharsPerRow),
+                 firstLine: p.firstLine, lastLine: p.lastLine)
         }
+    }
+
+    /// The document changed. One recheck per burst, and only while Ask
+    /// Cedric is on screen. A large document is not searched.
+    func documentEdited() {
+        guard askIsVisible(), entries.contains(where: { !$0.cards.isEmpty }) else { return }
+        let now = documentNow()
+        if now.large {
+            refreshCards()
+            return
+        }
+        guard OwlCardRefresh.shouldRefresh(panelVisible: true, largeDocument: false, extrasPaused: false, hasCards: true) else { return }
+        recheck?.cancel()
+        recheck = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(OwlCardRefresh.debounce * 1000)))
+            guard !Task.isCancelled else { return }
+            self?.refreshCards()
+        }
+    }
+
+    /// The buffer was replaced (a reload). The proposals were for the previous text.
+    func documentReplaced() {
+        recheck?.cancel()
+        var list = entries
+        var changed = false
+        for i in list.indices where !list[i].cards.isEmpty {
+            list[i].cards = OwlBufferReplacement.kept(list[i].cards.map(\.proposal)).enumerated().map { j, p in
+                Card(id: j, proposal: p, needsShowAll: false, firstLine: p.firstLine, lastLine: p.lastLine)
+            }
+            changed = true
+        }
+        if changed { entries = list }
+    }
+
+    func refreshCards() {
+        let now = documentNow()
+        var list = entries
+        var changed = false
+        for i in list.indices {
+            guard !list[i].cards.isEmpty else { continue }
+            let proposals = list[i].cards.map(\.proposal)
+            let states = OwlEditProposal.refresh(proposals, text: now.text, generation: now.generation,
+                                                 readOnly: now.readOnly || now.large).states
+            for j in list[i].cards.indices {
+                let state = j < states.count ? states[j] : OwlEditProposal.ApplyState.stale
+                if list[i].cards[j].state != state {
+                    list[i].cards[j].state = state
+                    changed = true
+                }
+                if case .ready(let range) = state {
+                    let span = OwlEditProposal.lineSpan(range, in: now.lines)
+                    if list[i].cards[j].firstLine != span.first || list[i].cards[j].lastLine != span.last {
+                        list[i].cards[j].firstLine = span.first
+                        list[i].cards[j].lastLine = span.last
+                        changed = true
+                    }
+                }
+            }
+        }
+        if changed { entries = list }
+    }
+
+    func noteWidth(entry: UUID, card: Int, charsPerRow: Int) {
+        guard let i = entries.firstIndex(where: { $0.id == entry }),
+              let j = entries[i].cards.firstIndex(where: { $0.id == card }) else { return }
+        let needs = OwlEditReview.needsShowAll(rows: entries[i].cards[j].proposal.diffLines.map(\.text), charsPerRow: charsPerRow)
+        guard entries[i].cards[j].needsShowAll != needs else { return }
+        entries[i].cards[j].needsShowAll = needs
+    }
+
+    func showAll(entry: UUID, card: Int) {
+        guard let i = entries.firstIndex(where: { $0.id == entry }),
+              let j = entries[i].cards.firstIndex(where: { $0.id == card }) else { return }
+        entries[i].cards[j].shownAll = true
+    }
+
+    func skipCard(entry: UUID, card: Int) {
+        removeCard(entry: entry, card: card, note: String(localized: "Skipped."))
+    }
+
+    func askAgain() {
+        let q = lastQuestion
+        let action = lastAction
+        for i in entries.indices { entries[i].cards = [] }
+        guard !q.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || action != nil else { return }
+        ask(action == nil ? q : "", action: action)
+    }
+
+    func applyCard(entry: UUID, card: Int) {
+        guard let i = entries.firstIndex(where: { $0.id == entry }),
+              let j = entries[i].cards.firstIndex(where: { $0.id == card }) else { return }
+        let card = entries[i].cards[j]
+        let now = documentNow()
+        let state = card.proposal.state(text: now.text, generation: now.generation, readOnly: now.readOnly || now.large)
+        entries[i].cards[j].state = state
+        let ready = if case .ready = state { true } else { false }
+        guard OwlEditReview.applyEnabled(ready: ready, needsShowAll: card.needsShowAll, hasShownAll: card.shownAll) else { return }
+        guard apply(card.proposal) else {
+            entries.append(Entry(role: .note, text: String(localized: "The text changed since Cedric read it, so the edit wasn’t applied.")))
+            refreshCards()
+            return
+        }
+        removeCard(entry: entry, card: card.id, note: String(localized: "Applied. Undo puts it back."))
+        refreshCards()
+    }
+
+    private func removeCard(entry: UUID, card: Int, note: String) {
+        guard let i = entries.firstIndex(where: { $0.id == entry }) else { return }
+        entries[i].cards.removeAll { $0.id == card }
+        entries.append(Entry(role: .note, text: note))
     }
 }
 
@@ -347,17 +478,13 @@ struct AskCedricView: View {
                         .tint(c.accent)
                         .accessibilityIdentifier("ask.answer")
                 }
-                if let p = e.proposal {
-                    Text(p.reason.isEmpty ? String(localized: "Proposed edit") : p.reason).font(.footnote).foregroundStyle(c.secondary)
-                    Text(p.replacement).font(.system(.footnote, design: .monospaced))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(c.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(c.hairline, lineWidth: 1))
-                    Button(e.applied ? String(localized: "Applied") : String(localized: "Apply")) { model.applyProposal(e) }
-                        .buttonStyle(.borderedProminent).disabled(e.applied)
+                ForEach(e.cards) { card in
+                    AskEditCard(entry: e.id, card: card, count: e.cards.count, colors: c,
+                                apply: { model.applyCard(entry: e.id, card: card.id) },
+                                skip: { model.skipCard(entry: e.id, card: card.id) },
+                                showAll: { model.showAll(entry: e.id, card: card.id) },
+                                askAgain: { model.askAgain() },
+                                noteWidth: { model.noteWidth(entry: e.id, card: card.id, charsPerRow: $0) })
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -409,6 +536,112 @@ struct AskCedricView: View {
         .background(c.bar.ignoresSafeArea(.container, edges: [.bottom, .horizontal]).ignoresSafeArea(.keyboard, edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(c.hairline).frame(height: 1).ignoresSafeArea(.container, edges: .horizontal) }
     }
+}
+
+/// One proposed edit: the reason, the before/after lines, Apply and Skip.
+/// Apply stays off until the proposal matches the live document and a long
+/// replacement has been opened. Read-only never applies.
+struct AskEditCard: View {
+    let entry: UUID
+    let card: AskCedricModel.Card
+    let count: Int
+    let colors: AskColors
+    var apply: () -> Void
+    var skip: () -> Void
+    var showAll: () -> Void
+    var askAgain: () -> Void
+    var noteWidth: (Int) -> Void
+
+    private var ready: Bool { if case .ready = card.state { return true }; return false }
+    private var canApply: Bool { OwlEditReview.applyEnabled(ready: ready, needsShowAll: card.needsShowAll, hasShownAll: card.shownAll) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.footnote.weight(.semibold))
+            if !card.proposal.reason.isEmpty {
+                Text(card.proposal.reason).font(.footnote).foregroundStyle(colors.secondary)
+            }
+            if OwlEditInvisibles.contains(card.proposal.original) || OwlEditInvisibles.contains(card.proposal.replacement) {
+                Text(OwlEditInvisibles.warning).font(.footnote.weight(.semibold)).foregroundStyle(.purple)
+            }
+            diff
+            if card.needsShowAll && !card.shownAll {
+                Button(String(localized: "Show all"), action: showAll)
+                    .font(.footnote)
+                    .accessibilityIdentifier("ask.showAll")
+            }
+            if case .stale = card.state {
+                Text(String(localized: "Text changed or isn’t unique; ask again.")).font(.footnote).foregroundStyle(.orange)
+                Button(String(localized: "Ask Again"), action: askAgain).font(.footnote)
+            } else if case .readOnly = card.state {
+                Text(String(localized: "This document is read-only, so the change can’t be applied.")).font(.footnote).foregroundStyle(.orange)
+            }
+            HStack {
+                Button(String(localized: "Apply"), action: apply)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canApply)
+                    .accessibilityIdentifier("ask.apply")
+                Button(String(localized: "Skip"), action: skip)
+                    .accessibilityIdentifier("ask.skip")
+            }
+            .font(.footnote)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(colors.hairline, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("ask.card")
+    }
+
+    private var title: String {
+        let lines = card.firstLine == card.lastLine
+            ? String(localized: "line \(card.firstLine)")
+            : String(localized: "lines \(card.firstLine)–\(card.lastLine)")
+        if count > 1 { return String(localized: "Change \(card.id + 1) of \(count), \(lines)") }
+        return card.firstLine == card.lastLine
+            ? String(localized: "Proposed change to line \(card.firstLine)")
+            : String(localized: "Proposed change to lines \(card.firstLine)–\(card.lastLine)")
+    }
+
+    private var label: String {
+        var text = title
+        if !card.proposal.reason.isEmpty { text += ": " + card.proposal.reason }
+        text += ". " + card.proposal.spokenDiff
+        return text
+    }
+
+    private var diff: some View {
+        let rows = card.proposal.diffLines
+        let cap: CGFloat = card.shownAll || !card.needsShowAll ? 220 : CGFloat(OwlEditReview.visibleRows) * 18
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    let rendered = OwlEditInvisibles.render(row.text).text
+                    let prefix = row.kind == .removed ? "- " : row.kind == .added ? "+ " : "  "
+                    Text(prefix + rendered)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(row.kind == .removed ? Color.red.opacity(0.18) : row.kind == .added ? Color.green.opacity(0.18) : Color.clear)
+                }
+            }
+            .background(GeometryReader { geo in
+                Color.clear.preference(key: AskDiffWidth.self, value: geo.size.width)
+            })
+        }
+        .frame(maxHeight: cap)
+        .onPreferenceChange(AskDiffWidth.self) { width in
+            let sample = ("0" as NSString).size(withAttributes: [.font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)]).width
+            guard sample > 0.5, width > 20 else { return }
+            noteWidth(max(8, Int(width / sample)))
+        }
+    }
+}
+
+private struct AskDiffWidth: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// The view's colours, from the editor theme's palette.

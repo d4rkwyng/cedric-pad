@@ -604,6 +604,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         updateBarButtons()
         scheduleOwl()
         refreshPreview()
+        askModel?.documentReplaced()
     }
 
     @objc private func storageEdited() {
@@ -624,6 +625,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         updateUndoItems()
         updateStatus()
         scheduleOwl()
+        askModel?.documentEdited()
         if showLineNumbers { layoutGutter() }
         if previewOn || DetachedPreviews.hasPreviews(forPath: document.recoveryPath) {
             previewTimer?.invalidate()
@@ -1148,10 +1150,11 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     @objc func askCedric() {
         // Ask is about the text: Focus Preview ends.
         if focusOn { exitFocusPreview() }
-        let snap = owlSnapshot()
-        let model = AskCedricModel(text: snap.text as String, selection: snap.selection, visible: snap.visible,
-                                   fileName: document.displayName, language: document.language.language)
+        let model = AskCedricModel(fileName: document.displayName, language: document.language.language)
         model.apply = { [weak self] proposal in self?.apply(proposal) ?? false }
+        model.documentNow = { [weak self] in self?.currentDocument() ?? AskCedricModel.DocumentNow(text: "", generation: 0, readOnly: true, large: false, lines: LineIndex()) }
+        model.makeSnapshot = { [weak self] in self?.askSnapshot() ?? OwlDocumentSnapshot(text: "", generation: 0) }
+        model.askIsVisible = { [weak self] in self?.askPanel != nil || self?.askSheet != nil }
         model.openSettings = { [weak self] in
             guard let self else { return }
             if self.askPanel != nil { self.closeAskPanel(); self.showSettings() }
@@ -1294,15 +1297,37 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         presentAskSheet(model)
     }
 
-    /// Applies an Ask Cedric edit if the text it replaces is unchanged.
+    /// The document as it is now, for an edit card's Apply.
+    private func currentDocument() -> AskCedricModel.DocumentNow {
+        let large = LargeDocument.reason(for: lineIndex) != nil
+        let readOnly = OwlEditAccess.readOnly(editable: editGate.isEditable, following: false,
+                                              largeDocument: large, extrasPaused: false)
+        return AskCedricModel.DocumentNow(text: textView.text as NSString, generation: generation,
+                                          readOnly: readOnly, large: large, lines: lineIndex)
+    }
+
+    /// Frozen for one question, including the facts check_document reads.
+    private func askSnapshot() -> OwlDocumentSnapshot {
+        let s = owlSnapshot()
+        return OwlDocumentSnapshot(text: s.text as String, generation: s.generation, selection: s.selection,
+                                   visible: s.visible, fileName: s.fileName, language: s.language.rawValue, facts: s.facts)
+    }
+
+    /// Applies an Ask Cedric edit where it matches the live document, as one undo step.
     private func apply(_ p: OwlEditProposal) -> Bool {
-        guard editableOrSay() else { return false }
-        let ns = textView.textStorage.string as NSString
-        guard NSMaxRange(p.range) <= ns.length, ns.substring(with: p.range) == p.original,
-              let start = textView.position(from: textView.beginningOfDocument, offset: p.range.location),
-              let end = textView.position(from: start, offset: p.range.length),
+        let now = currentDocument()
+        guard case .ready(let range) = p.state(text: now.text, generation: now.generation, readOnly: now.readOnly) else { return false }
+        guard let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
+              let end = textView.position(from: start, offset: range.length),
               let r = textView.textRange(from: start, to: end) else { return false }
+        let um = textView.undoManager
+        um?.beginUndoGrouping()
         textView.replace(r, withText: p.replacement)
+        um?.setActionName(String(localized: "Cedric’s Edit"))
+        um?.endUndoGrouping()
+        let placed = NSRange(location: range.location, length: (p.replacement as NSString).length)
+        textView.selectedRange = placed
+        textView.scrollRangeToVisible(placed)
         return true
     }
 
@@ -1914,6 +1939,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         updateUndoItems()
         _ = configuredEditItem()
         if isViewLoaded { updateStatus() }
+        askModel?.documentEdited()
     }
 
     /// Edit / Done / Read Only for the bar (nil: read mode not in use).
