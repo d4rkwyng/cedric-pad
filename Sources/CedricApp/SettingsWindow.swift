@@ -1,66 +1,204 @@
 import AppKit
 import CedricCore
 
-/// Cedric › Settings… (⌘,): the preferences that have no menu of their
-/// own (0.2.1: each option lives in one place; settings-audit.md). Built
-/// the first time it is opened, never at launch. Every control writes
-/// straight to `Settings` (which restyles the open tabs). The View and
-/// Edit menu toggles (wrap, invisibles, line numbers, occurrences,
-/// auto-close, spelling, grammar) are only in those menus.
+/// One tab of the Settings window: its view is built the first time the
+/// tab is shown (`make`), so a tab nobody opens costs nothing.
+@MainActor
+final class SettingsPaneController: NSViewController {
+    let pane: SettingsPane
+    private let make: () -> NSView
+
+    init(pane: SettingsPane, title: String, make: @escaping () -> NSView) {
+        self.pane = pane
+        self.make = make
+        super.init(nibName: nil, bundle: nil)
+        self.title = title
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func loadView() { view = make() }
+
+    /// The view's natural size (the window takes it when the tab is shown).
+    var fittingContentSize: NSSize {
+        view.layoutSubtreeIfNeeded()
+        let s = view.fittingSize
+        return NSSize(width: max(s.width, SettingsWindowController.minimumWidth), height: s.height)
+    }
+}
+
+/// The toolbar tabs; reports each selection (saved, and the window fits it).
+@MainActor
+final class SettingsTabController: NSTabViewController {
+    var onSelect: ((SettingsPaneController) -> Void)?
+
+    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: tabViewItem)
+        if let pane = tabViewItem?.viewController as? SettingsPaneController { onSelect?(pane) }
+    }
+}
+
+/// Owlink › Settings… (⌘,), 0.4.1 (UX review #1): one window with toolbar
+/// tabs (General, Editor, Writing, Cedric), every control applied the
+/// moment it changes, no Save or Cancel. The View and Edit menu toggles
+/// (wrap, invisibles, line numbers, occurrences, auto-close, spelling,
+/// grammar) are checkboxes here too, bound to the same settings, so either
+/// place updates the other. The Cedric tab holds what was the separate
+/// Cedric AI window (`AISettingsSection`); Cedric › Cedric AI Settings…
+/// opens it. The window is built the first time it is opened, never at
+/// launch, and each tab when it is first shown. It reopens on the tab it
+/// was left on.
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static private(set) var shared: SettingsWindowController?
+    static let minimumWidth: CGFloat = 520
 
-    static func show() {
+    /// The checks (no session saving) keep the last tab in memory only.
+    private static let savesPane = DevEnvironment.values["CEDRIC_NO_SESSION_SAVE"] != "1"
+    private static var paneInMemory: SettingsPane?
+
+    /// The tab Settings was last on (General the first time).
+    static var savedPane: SettingsPane {
+        get { savesPane ? SettingsPane.restored(UserDefaults.standard.string(forKey: SettingsPane.defaultsKey)) : paneInMemory ?? .general }
+        set { if savesPane { UserDefaults.standard.set(newValue.rawValue, forKey: SettingsPane.defaultsKey) } else { paneInMemory = newValue } }
+    }
+
+    /// Shows the window on `pane`, or on the tab it was left on.
+    static func show(pane: SettingsPane? = nil) {
+        let target = pane ?? savedPane
         let c = shared ?? SettingsWindowController()
+        let first = shared == nil
         shared = c
+        c.select(target)
         c.refresh()
-        c.window?.center()
+        if first { c.window?.center() }
         c.showWindow(nil)
         c.window?.makeKeyAndOrderFront(nil)
     }
 
+    // General
     let theme = NSPopUpButton()
     let fontPopup = NSPopUpButton()
     let fontSize = NSTextField()
     let fontStepper = NSStepper()
-    let gitChanges = NSButton(checkboxWithTitle: String(localized: "Show git changes in the gutter"), target: nil, action: nil)
     let quitOnLastClose = NSButton(checkboxWithTitle: String(localized: "Quit when the last window closes"), target: nil, action: nil)
-    let owlChat = NSButton(checkboxWithTitle: String(localized: "Ask Cedric"), target: nil, action: nil)
-    let styleTips = NSButton(checkboxWithTitle: String(localized: "Style tips in code"), target: nil, action: nil)
+    /// Default editor for… (0.3.0), built with the General tab.
+    private(set) var defaultEditor: DefaultEditorPane?
+    // Editor
+    let indentKind = NSPopUpButton()
+    let tabWidth = NSPopUpButton()
+    let gitChanges = NSButton(checkboxWithTitle: String(localized: "Show git changes in the gutter"), target: nil, action: nil)
+    /// The menu toggles as checkboxes (Editor and Writing tabs).
+    let toggles: [MenuToggleSetting: NSButton]
+    // Writing
+    /// View › Readable Width's column, in characters (ReadableWidthView.swift).
+    let readableColumns = NSTextField()
+    let readableStepper = NSStepper()
     /// Style Check (0.4.0) and its two lists, comma-separated.
     let styleCheck = NSButton(checkboxWithTitle: String(localized: "Style Check: filler words, redundancies, clichés"), target: nil, action: nil)
     let styleExtra = NSTextField()
     let styleExceptions = NSTextField()
-    let indentKind = NSPopUpButton()
-    let tabWidth = NSPopUpButton()
-    /// View › Readable Width's column, in characters (ReadableWidthView.swift).
-    let readableColumns = NSTextField()
-    let readableStepper = NSStepper()
-    private var observer: NSObjectProtocol?
-    /// Default editor for… (0.3.0), below the form.
-    private(set) var defaultEditor: DefaultEditorPane!
+    // Cedric
+    let showOwl = NSButton(checkboxWithTitle: String(localized: "Show Cedric"), target: nil, action: nil)
+    let owlChat = NSButton(checkboxWithTitle: String(localized: "Ask Cedric"), target: nil, action: nil)
+    let styleTips = NSButton(checkboxWithTitle: String(localized: "Style tips in code"), target: nil, action: nil)
+    /// Cedric AI (was its own window with Save/Cancel until 0.4.1): built
+    /// with the Cedric tab.
+    private(set) var ai: AISettingsSection?
+
+    let tabs = SettingsTabController()
+    private(set) var panes: [SettingsPane: SettingsPaneController] = [:]
+    private var observers: [NSObjectProtocol] = []
 
     /// The font menu's families: fixed-pitch fonts installed (read when the
-    /// window is built). Tag 0 is the system's monospaced font.
+    /// General tab is built). Tag 0 is the system's monospaced font.
     private var fontNames: [String?] = [nil]
 
+    static func toggleTitle(_ t: MenuToggleSetting) -> String {
+        switch t {
+        case .wrapLines: return String(localized: "Wrap lines")
+        case .showInvisibles: return String(localized: "Show invisibles")
+        case .showLineNumbers: return String(localized: "Show line numbers")
+        case .highlightOccurrences: return String(localized: "Highlight occurrences")
+        case .autoCloseBrackets: return String(localized: "Auto-close brackets and quotes")
+        case .checkSpellingWhileTyping: return String(localized: "Check spelling while typing")
+        case .checkGrammar: return String(localized: "Check grammar in prose")
+        }
+    }
+
+    static func paneTitle(_ p: SettingsPane) -> String {
+        switch p {
+        case .general: return String(localized: "General")
+        case .editor: return String(localized: "Editor")
+        case .writing: return String(localized: "Writing")
+        case .cedric: return String(localized: "Cedric")
+        }
+    }
+
     init() {
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 360), styleMask: [.titled, .closable],
-                         backing: .buffered, defer: true)
-        w.title = String(localized: "Settings")
+        var t: [MenuToggleSetting: NSButton] = [:]
+        for k in MenuToggleSetting.allCases { t[k] = NSButton(checkboxWithTitle: Self.toggleTitle(k), target: nil, action: nil) }
+        toggles = t
+        tabs.tabStyle = .toolbar
+        tabs.transitionOptions = []
+        let w = NSWindow(contentViewController: tabs)
+        w.styleMask = [.titled, .closable]
+        w.toolbarStyle = .preference
         w.isReleasedWhenClosed = false
         w.tabbingMode = .disallowed
         w.identifier = NSUserInterfaceItemIdentifier("CedricSettings")
+        w.autorecalculatesKeyViewLoop = true
         super.init(window: w)
         w.delegate = self
-        build()
-        observer = NotificationCenter.default.addObserver(forName: .cedricAppearanceChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+        for p in SettingsPane.allCases {
+            let vc = SettingsPaneController(pane: p, title: Self.paneTitle(p)) { [unowned self] in self.build(p) }
+            panes[p] = vc
+            let item = NSTabViewItem(viewController: vc)
+            item.label = vc.title ?? ""
+            item.identifier = p.rawValue
+            item.image = NSImage(systemSymbolName: p.symbolName, accessibilityDescription: item.label)
+                ?? NSImage(systemSymbolName: "gearshape", accessibilityDescription: item.label)
+            item.toolTip = item.label
+            tabs.addTabViewItem(item)
+        }
+        tabs.onSelect = { [weak self] vc in
+            Self.savedPane = vc.pane
+            self?.fit(vc)
+        }
+        for name in [Notification.Name.cedricAppearanceChanged, .cedricSettingsChanged, .cedricOwlSettingsChanged] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh() }
+            })
+        }
+        for b in [gitChanges, owlChat, showOwl, styleTips, styleCheck, quitOnLastClose] + Array(toggles.values) {
+            b.target = self; b.action = #selector(changed(_:))
         }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// The selected tab.
+    var selectedPane: SettingsPane {
+        (tabs.tabViewItems[safe: tabs.selectedTabViewItemIndex]?.viewController as? SettingsPaneController)?.pane ?? .general
+    }
+
+    func select(_ pane: SettingsPane) {
+        guard let i = SettingsPane.allCases.firstIndex(of: pane) else { return }
+        if tabs.selectedTabViewItemIndex != i { tabs.selectedTabViewItemIndex = i }
+        if let vc = panes[pane] { fit(vc) }
+    }
+
+    /// The window takes the tab's natural size, its top edge kept.
+    func fit(_ vc: SettingsPaneController) {
+        guard let w = window, tabs.tabViewItems[safe: tabs.selectedTabViewItemIndex]?.viewController === vc else { return }
+        let size = vc.fittingContentSize
+        var f = w.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        f.origin = NSPoint(x: w.frame.minX, y: w.frame.maxY - f.height)
+        if f.size != w.frame.size { w.setFrame(f, display: true, animate: false) }
+        w.recalculateKeyViewLoop()
+    }
+
+    // MARK: Building
 
     private func label(_ s: String) -> NSTextField {
         let l = NSTextField(labelWithString: s)
@@ -68,7 +206,69 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         return l
     }
 
-    private func build() {
+    /// A grid row: "Name:" and its control, which VoiceOver reads by that name.
+    private func row(_ name: String, _ control: NSView, spoken: String? = nil) -> [NSView] {
+        control.setAccessibilityLabel(spoken ?? name.trimmingCharacters(in: CharacterSet(charactersIn: ":")))
+        return [label(name), control]
+    }
+
+    private func note(_ s: String) -> NSTextField {
+        let n = NSTextField(wrappingLabelWithString: s)
+        n.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        n.textColor = .secondaryLabelColor
+        n.preferredMaxLayoutWidth = 320
+        return n
+    }
+
+    private func grid(_ rows: [[NSView]]) -> NSGridView {
+        let g = NSGridView(views: rows)
+        g.rowSpacing = 8
+        g.columnSpacing = 8
+        g.column(at: 0).xPlacement = .trailing
+        g.rowAlignment = .firstBaseline
+        return g
+    }
+
+    /// The tab's view: `parts` stacked, 20 pt from the top, 24 from the sides.
+    private func page(_ parts: [NSView]) -> NSView {
+        let stack = NSStackView(views: parts)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        let content = NSView()
+        content.addSubview(stack)
+        for p in parts where p is NSBox { p.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        let bottom = stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20)
+        bottom.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
+            bottom,
+        ])
+        return content
+    }
+
+    private func rule() -> NSBox {
+        let r = NSBox()
+        r.boxType = .separator
+        return r
+    }
+
+    private func build(_ pane: SettingsPane) -> NSView {
+        let v: NSView
+        switch pane {
+        case .general: v = buildGeneral()
+        case .editor: v = buildEditor()
+        case .writing: v = buildWriting()
+        case .cedric: v = buildCedric()
+        }
+        refresh()
+        return v
+    }
+
+    private func buildGeneral() -> NSView {
         for t in EditorTheme.allCases { theme.addItem(withTitle: t.displayName); theme.lastItem?.representedObject = t.rawValue }
         theme.target = self; theme.action = #selector(changed(_:))
 
@@ -97,109 +297,132 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         fontPopup.target = self; fontPopup.action = #selector(changed(_:))
         fontSize.alignment = .right
         fontSize.target = self; fontSize.action = #selector(changed(_:))
+        fontSize.cell?.sendsActionOnEndEditing = true
         fontSize.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        fontSize.setAccessibilityLabel(String(localized: "Font size in points"))
         fontStepper.minValue = 6; fontStepper.maxValue = 72; fontStepper.increment = 1
         fontStepper.target = self; fontStepper.action = #selector(stepped(_:))
+        fontStepper.setAccessibilityLabel(String(localized: "Font size"))
         let fontRow = NSStackView(views: [fontPopup, fontSize, fontStepper, NSTextField(labelWithString: "pt")])
         fontRow.spacing = 6
+        fontPopup.setAccessibilityLabel(String(localized: "Font"))
 
-        for b in [gitChanges, owlChat, styleTips, styleCheck, quitOnLastClose] { b.target = self; b.action = #selector(changed(_:)) }
-        for (f, hint) in [(styleExtra, String(localized: "Also flag: words or phrases, comma-separated")),
-                          (styleExceptions, String(localized: "Never flag: words or phrases, comma-separated"))] {
-            f.placeholderString = hint
-            f.target = self; f.action = #selector(changed(_:))
-            f.widthAnchor.constraint(equalToConstant: 300).isActive = true
-        }
+        let pane = DefaultEditorPane()
+        defaultEditor = pane
+        let paneView = pane.view
+        return page([
+            grid([
+                row(String(localized: "Theme:"), theme),
+                [label(String(localized: "Font:")), fontRow],
+                [label(String(localized: "App:")), quitOnLastClose],
+            ]),
+            rule(),
+            paneView,
+        ])
+    }
+
+    private func buildEditor() -> NSView {
         indentKind.addItems(withTitles: [String(localized: "Spaces"), String(localized: "Tabs")])
         indentKind.target = self; indentKind.action = #selector(changed(_:))
+        indentKind.setAccessibilityLabel(String(localized: "Default indent"))
         for wdt in Indentation.widths { tabWidth.addItem(withTitle: "\(wdt)"); tabWidth.lastItem?.tag = wdt }
         tabWidth.target = self; tabWidth.action = #selector(changed(_:))
+        tabWidth.setAccessibilityLabel(String(localized: "Indent width"))
         let indentRow = NSStackView(views: [indentKind, NSTextField(labelWithString: String(localized: "width")), tabWidth])
         indentRow.spacing = 6
-        let note = NSTextField(wrappingLabelWithString: String(localized: "For new files and files that don't indent yet; a file's own indentation wins. Format › Indentation changes one tab."))
-        note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        note.textColor = .secondaryLabelColor
-        note.preferredMaxLayoutWidth = 300
+        let t = toggles
+        return page([grid([
+            [label(String(localized: "Default indent:")), indentRow],
+            [NSGridCell.emptyContentView, note(String(localized: "For new files and files that don't indent yet; a file's own indentation wins. Format › Indentation changes one tab."))],
+            [label(String(localized: "View:")), t[.wrapLines]!],
+            [NSGridCell.emptyContentView, t[.showInvisibles]!],
+            [NSGridCell.emptyContentView, t[.showLineNumbers]!],
+            [NSGridCell.emptyContentView, t[.highlightOccurrences]!],
+            [label(String(localized: "Typing:")), t[.autoCloseBrackets]!],
+            [label(String(localized: "Gutter:")), gitChanges],
+            [NSGridCell.emptyContentView, note(String(localized: "Also in the View and Edit menus; a change in either place shows in both."))],
+        ])])
+    }
 
+    private func buildWriting() -> NSView {
         readableColumns.alignment = .right
         readableColumns.target = self; readableColumns.action = #selector(changed(_:))
+        readableColumns.cell?.sendsActionOnEndEditing = true
         readableColumns.widthAnchor.constraint(equalToConstant: 44).isActive = true
         readableColumns.toolTip = String(localized: "How wide View › Readable Width's column is, in characters (\(ReadableWidth.columnRange.lowerBound)–\(ReadableWidth.columnRange.upperBound)).")
+        readableColumns.setAccessibilityLabel(String(localized: "Readable width in characters"))
         readableStepper.minValue = Double(ReadableWidth.columnRange.lowerBound)
         readableStepper.maxValue = Double(ReadableWidth.columnRange.upperBound)
         readableStepper.increment = 1
         readableStepper.target = self; readableStepper.action = #selector(stepped(_:))
+        readableStepper.setAccessibilityLabel(String(localized: "Readable width"))
         let readableRow = NSStackView(views: [readableColumns, readableStepper, NSTextField(labelWithString: String(localized: "characters"))])
         readableRow.spacing = 6
-
-        let elsewhere = NSTextField(wrappingLabelWithString: String(localized: "Wrap lines, invisibles, line numbers and occurrences are in the View menu; auto-close, spelling and grammar in the Edit menu."))
-        elsewhere.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        elsewhere.textColor = .secondaryLabelColor
-        elsewhere.preferredMaxLayoutWidth = 300
-
-        let grid = NSGridView(views: [
-            [label(String(localized: "Theme:")), theme],
-            [label(String(localized: "Font:")), fontRow],
-            [label(String(localized: "Default indent:")), indentRow],
-            [NSGridCell.emptyContentView, note],
+        for (f, hint, spoken) in [(styleExtra, String(localized: "Also flag: words or phrases, comma-separated"), String(localized: "Also flag")),
+                                  (styleExceptions, String(localized: "Never flag: words or phrases, comma-separated"), String(localized: "Never flag"))] {
+            f.placeholderString = hint
+            f.target = self; f.action = #selector(changed(_:))
+            f.cell?.sendsActionOnEndEditing = true
+            f.widthAnchor.constraint(equalToConstant: 320).isActive = true
+            f.setAccessibilityLabel(spoken)
+            f.setAccessibilityHelp(hint)
+        }
+        let t = toggles
+        return page([grid([
             [label(String(localized: "Readable width:")), readableRow],
-            [label(String(localized: "Gutter:")), gitChanges],
-            [label(String(localized: "Cedric:")), owlChat],
-            [NSGridCell.emptyContentView, styleTips],
-            [label(String(localized: "Writing:")), styleCheck],
+            [label(String(localized: "Spelling:")), t[.checkSpellingWhileTyping]!],
+            [label(String(localized: "Grammar:")), t[.checkGrammar]!],
+            [label(String(localized: "Style:")), styleCheck],
             [NSGridCell.emptyContentView, styleExtra],
             [NSGridCell.emptyContentView, styleExceptions],
-            [label(String(localized: "App:")), quitOnLastClose],
-            [NSGridCell.emptyContentView, elsewhere],
-        ])
-        grid.rowSpacing = 8
-        grid.columnSpacing = 8
-        grid.column(at: 0).xPlacement = .trailing
-        grid.rowAlignment = .firstBaseline
-        grid.translatesAutoresizingMaskIntoConstraints = false
-        let content = NSView()
-        content.addSubview(grid)
-        defaultEditor = DefaultEditorPane()
-        let pane = defaultEditor.view
-        pane.translatesAutoresizingMaskIntoConstraints = false
-        let rule = NSBox()
-        rule.boxType = .separator
-        rule.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(rule)
-        content.addSubview(pane)
-        NSLayoutConstraint.activate([
-            grid.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
-            grid.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -24),
-            grid.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
-            rule.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 16),
-            rule.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
-            rule.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
-            pane.topAnchor.constraint(equalTo: rule.bottomAnchor, constant: 12),
-            pane.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
-            pane.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -24),
-            pane.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
-        ])
-        window?.contentView = content
-        // As tall as the form (the rows keep their natural spacing).
-        content.layoutSubtreeIfNeeded()
-        window?.setContentSize(content.fittingSize)
+        ])])
     }
 
-    /// Shows the current settings.
+    private func buildCedric() -> NSView {
+        let section = AISettingsSection(settings: AIStore.load())
+        section.onResize = { [weak self] in
+            guard let self, let vc = self.panes[.cedric], vc.isViewLoaded else { return }
+            self.fit(vc)
+        }
+        ai = section
+        let heading = NSTextField(labelWithString: String(localized: "Cedric AI"))
+        heading.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+        heading.setAccessibilityRole(.staticText)
+        let top = grid([
+            [label(String(localized: "Cedric:")), showOwl],
+            [NSGridCell.emptyContentView, owlChat],
+            [NSGridCell.emptyContentView, styleTips],
+        ])
+        // One label column for both grids, so the checkboxes line up.
+        top.column(at: 0).width = section.labelColumnWidth
+        return page([
+            top,
+            rule(),
+            heading,
+            section.view,
+        ])
+    }
+
+    // MARK: State
+
+    /// Shows the current settings (in the tabs built so far).
     func refresh() {
         let s = Settings.shared
         theme.selectItem(at: EditorTheme.allCases.firstIndex(of: s.theme) ?? 0)
-        fontPopup.selectItem(at: fontNames.firstIndex(of: s.fontName) ?? 0)
+        if fontPopup.numberOfItems > 0 { fontPopup.selectItem(at: fontNames.firstIndex(of: s.fontName) ?? 0) }
         fontSize.integerValue = Int(s.fontSize)
         fontStepper.integerValue = Int(s.fontSize)
         gitChanges.state = s.showGitChanges ? .on : .off
         quitOnLastClose.state = s.quitWhenLastWindowCloses ? .on : .off
+        for (k, b) in toggles { b.state = s[toggle: k] ? .on : .off }
+        showOwl.state = s.showOwl ? .on : .off
+        showOwl.toolTip = String(localized: "Cedric the owl in the corner of the editor, with one hint at a time. Also Cedric › Show Cedric.")
         owlChat.state = s.owlChat ? .on : .off
         styleTips.state = s.owlStyleTips ? .on : .off
         styleCheck.state = s.styleCheck ? .on : .off
         styleCheck.toolTip = String(localized: "Cedric points out filler words, redundancies (“past history”) and clichés in Markdown and plain-text prose, one at a time, never in code. Offline, no AI. Off by default.")
-        styleExtra.stringValue = s.styleCheckExtra.joined(separator: ", ")
-        styleExceptions.stringValue = s.styleCheckExceptions.joined(separator: ", ")
+        if styleExtra.currentEditor() == nil { styleExtra.stringValue = s.styleCheckExtra.joined(separator: ", ") }
+        if styleExceptions.currentEditor() == nil { styleExceptions.stringValue = s.styleCheckExceptions.joined(separator: ", ") }
         styleExtra.isEnabled = s.styleCheck
         styleExceptions.isEnabled = s.styleCheck
         styleTips.toolTip = String(localized: "Cedric’s style suggestions for code, on top of his checks for code that breaks or does the wrong thing (those are always on). Off by default.")
@@ -207,15 +430,21 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         owlChat.toolTip = String(localized: "Ask Cedric… (⌥⌘/, or click the owl): questions, quick actions and proposed edits from a local AI engine (Apple Intelligence, the built-in model, or your LM Studio / Ollama). On by default when one is ready.")
             + " " + AskCedricEngine.privacy(autoGrammar: autoGrammar).settingsSentence
         let ind = s.defaultIndentation
-        indentKind.selectItem(at: ind.usesTabs ? 1 : 0)
-        tabWidth.selectItem(withTag: ind.width)
+        if indentKind.numberOfItems > 0 {
+            indentKind.selectItem(at: ind.usesTabs ? 1 : 0)
+            tabWidth.selectItem(withTag: ind.width)
+        }
         readableColumns.integerValue = s.readableColumns
         readableStepper.integerValue = s.readableColumns
         defaultEditor?.refresh()
     }
 
-    /// Back from Finder's Get Info (or another app): show the defaults as they are now.
-    func windowDidBecomeKey(_ notification: Notification) { defaultEditor?.refresh() }
+    /// Back from Finder's Get Info, or from another window that changed
+    /// Cedric AI: show the settings as they are now.
+    func windowDidBecomeKey(_ notification: Notification) {
+        defaultEditor?.refresh()
+        ai?.reloadIfIdle()
+    }
 
     /// "very, kind of ,, actually" → ["very", "kind of", "actually"].
     static func phrases(_ s: String) -> [String] {
@@ -236,18 +465,24 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     @objc func changed(_ sender: Any?) {
         let s = Settings.shared
+        if let b = sender as? NSButton, let k = toggles.first(where: { $0.value === b })?.key {
+            s[toggle: k] = b.state == .on
+            refresh()
+            return
+        }
         switch sender as? NSObject {
         case theme: if let raw = theme.selectedItem?.representedObject as? String, let t = EditorTheme(rawValue: raw) { s.theme = t }
         case fontPopup: s.fontName = fontNames[max(0, fontPopup.indexOfSelectedItem)]
-        case fontSize: if fontSize.integerValue >= 6 { s.fontSize = CGFloat(fontSize.integerValue) }
-        case readableColumns: if readableColumns.integerValue > 0 { s.readableColumns = readableColumns.integerValue }
+        case fontSize: if fontSize.integerValue >= 6, CGFloat(fontSize.integerValue) != s.fontSize { s.fontSize = CGFloat(fontSize.integerValue) }
+        case readableColumns: if readableColumns.integerValue > 0, readableColumns.integerValue != s.readableColumns { s.readableColumns = readableColumns.integerValue }
         case gitChanges: s.showGitChanges = gitChanges.state == .on
         case quitOnLastClose: s.quitWhenLastWindowCloses = quitOnLastClose.state == .on
+        case showOwl: s.showOwl = showOwl.state == .on
         case owlChat: s.owlChat = owlChat.state == .on
         case styleTips: s.owlStyleTips = styleTips.state == .on
         case styleCheck: s.styleCheck = styleCheck.state == .on
-        case styleExtra: s.styleCheckExtra = Self.phrases(styleExtra.stringValue)
-        case styleExceptions: s.styleCheckExceptions = Self.phrases(styleExceptions.stringValue)
+        case styleExtra: if Self.phrases(styleExtra.stringValue) != s.styleCheckExtra { s.styleCheckExtra = Self.phrases(styleExtra.stringValue) }
+        case styleExceptions: if Self.phrases(styleExceptions.stringValue) != s.styleCheckExceptions { s.styleCheckExceptions = Self.phrases(styleExceptions.stringValue) }
         case indentKind, tabWidth:
             s.defaultIndentation = Indentation(usesTabs: indentKind.indexOfSelectedItem == 1, width: tabWidth.selectedTag() > 0 ? tabWidth.selectedTag() : 4)
         default: break
@@ -256,6 +491,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
+private extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
+}
+
 extension AppDelegate {
     @objc func showSettings(_ sender: Any?) { SettingsWindowController.show() }
+    /// Cedric › Cedric AI Settings…: Settings on the Cedric tab.
+    @objc func showAISettings(_ sender: Any?) { SettingsWindowController.show(pane: .cedric) }
 }

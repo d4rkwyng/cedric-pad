@@ -820,7 +820,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func askCedricMenu(_ sender: Any?) { currentTab?.openAskCedric() }
     @objc func checkGrammarWithAIMenu(_ sender: Any?) { currentTab?.checkGrammarWithAI() }
     @objc func scriptSafetyMenu(_ sender: Any?) { currentTab?.checkScriptSafety() }
-    @objc func showAISettings(_ sender: Any?) { AISettingsSheet.show(on: currentTab?.window) }
     @objc func pickOwlHintSource(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let src = OwlHintSource(rawValue: raw) { Settings.shared.owlHintSource = src }
     }

@@ -16,6 +16,9 @@ extension Notification.Name {
     /// View › Context Bar was switched on or off.
     static let cedricContextBarChanged = Notification.Name("CedricContextBarChanged")
     static let cedricFocusUnitChanged = Notification.Name("CedricFocusUnitChanged")
+    /// A setting nothing restyles for changed (auto-close, quit on last
+    /// close): the Settings window shows it.
+    static let cedricSettingsChanged = Notification.Name("CedricSettingsChanged")
 }
 
 /// App-wide view settings: theme, font size, wrap, invisibles, line
@@ -190,7 +193,7 @@ final class Settings {
     var quitWhenLastWindowCloses: Bool {
         // bool(forKey:): a `-quitWhenLastWindowCloses NO` argument is a string.
         get { defaults.object(forKey: "quitWhenLastWindowCloses") == nil || defaults.bool(forKey: "quitWhenLastWindowCloses") }
-        set { defaults.set(newValue, forKey: "quitWhenLastWindowCloses") }
+        set { defaults.set(newValue, forKey: "quitWhenLastWindowCloses"); NotificationCenter.default.post(name: .cedricSettingsChanged, object: nil) }
     }
 
     /// Settings › "Show git changes in the gutter": change bars against
@@ -203,7 +206,34 @@ final class Settings {
     /// Edit › Auto-Close Brackets and Quotes (code only, not prose). On by default.
     var autoCloseBrackets: Bool {
         get { defaults.object(forKey: "autoCloseBrackets") as? Bool ?? true }
-        set { defaults.set(newValue, forKey: "autoCloseBrackets") }
+        set { defaults.set(newValue, forKey: "autoCloseBrackets"); NotificationCenter.default.post(name: .cedricSettingsChanged, object: nil) }
+    }
+
+    /// A menu toggle by name: the same property its menu item flips
+    /// (Settings › Editor and Writing show them as checkboxes).
+    subscript(toggle toggle: MenuToggleSetting) -> Bool {
+        get {
+            switch toggle {
+            case .wrapLines: return wrapLines
+            case .showInvisibles: return showInvisibles
+            case .showLineNumbers: return showLineNumbers
+            case .highlightOccurrences: return highlightOccurrences
+            case .autoCloseBrackets: return autoCloseBrackets
+            case .checkSpellingWhileTyping: return checkSpellingWhileTyping
+            case .checkGrammar: return checkGrammar
+            }
+        }
+        set {
+            switch toggle {
+            case .wrapLines: wrapLines = newValue
+            case .showInvisibles: showInvisibles = newValue
+            case .showLineNumbers: showLineNumbers = newValue
+            case .highlightOccurrences: highlightOccurrences = newValue
+            case .autoCloseBrackets: autoCloseBrackets = newValue
+            case .checkSpellingWhileTyping: checkSpellingWhileTyping = newValue
+            case .checkGrammar: checkGrammar = newValue
+            }
+        }
     }
 
     /// The checks move the owl without saving where he is.

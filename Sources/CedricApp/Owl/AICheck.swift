@@ -6,10 +6,11 @@ import CedricAI
 /// process, with real NSEvents. Open a Swift file of 250+ lines (over the
 /// 8 KB context cap, so the context starts mid-file) with the owl on.
 ///
-///   1. Cedric › Cedric AI Settings… (through the menu action); snapshot the
-///      sheet. Live (CEDRIC_AI_CHECK_MODEL=id): Test Connection, wait for
-///      the list, pick that model; snapshot again. Tick "Ask a local model"
-///      and click Save.
+///   1. Cedric › Cedric AI Settings… (through the menu action) opens
+///      Settings on its Cedric tab, with no Save or Cancel; snapshot it.
+///      Live (CEDRIC_AI_CHECK_MODEL=id): Test Connection, wait for the
+///      list, pick that model; snapshot again. Tick "Ask a local model":
+///      it applies at once (0.4.1, instant-apply Settings).
 ///   2. The provider registered and the source is now "Rules + AI".
 ///   3. Go to line 200 and type a Swift off-by-one (`0...items.count`).
 ///   4. The owl takes its thinking pose while the request runs (snapshot).
@@ -90,16 +91,26 @@ enum AICheck {
         OwlHub.shared.appActiveChanged()
         check(!OwlHub.shared.registry.hasAIProvider, "no AI provider before the settings are saved")
         NSApp.sendAction(#selector(AppDelegate.showAISettings(_:)), to: app, from: nil)
-        guard let sheet = AISettingsSheet.current else { check(false, "the settings sheet opened"); finish(); return }
+        guard let settings = SettingsWindowController.shared, let panel = settings.window, let sheet = settings.ai else {
+            check(false, "Cedric AI Settings… opened Settings with its AI section"); finish(); return
+        }
+        check(panel.isVisible && settings.selectedPane == .cedric, "Cedric AI Settings… opens Settings on the Cedric tab")
+        let buttons = allButtons(panel.contentView).map(\.title)
+        check(!buttons.contains("Save") && !buttons.contains("Cancel"), "no Save or Cancel: every control applies at once")
         check(sheet.enabledBox.state == .off, "AI is off by default")
         OwlCheck.after(0.3) {
-            OwlCheck.snapshot(sheet.panel, "\(out)/0-sheet.png") {
+            OwlCheck.snapshot(panel, "\(out)/0-sheet.png") {
                 if let model = live { liveSheet(sheet, model: model, tab: tab, out: out) } else { saveSheet(sheet, tab: tab, out: out) }
             }
         }
     }
 
-    static func liveSheet(_ sheet: AISettingsSheet, model: String, tab: EditorWindowController, out: String) {
+    static func allButtons(_ v: NSView?) -> [NSButton] {
+        guard let v else { return [] }
+        return v.subviews.compactMap { $0 as? NSButton } + v.subviews.flatMap { allButtons($0) }
+    }
+
+    static func liveSheet(_ sheet: AISettingsSection, model: String, tab: EditorWindowController, out: String) {
         press(sheet.testButton, "Test Connection") { sheet.testing || sheet.report != nil }
         wait("Test Connection", timeout: 20, { !sheet.testing && sheet.report != nil }) { _ in
             let r = sheet.report
@@ -118,16 +129,19 @@ enum AICheck {
         }
     }
 
-    static func saveSheet(_ sheet: AISettingsSheet, tab: EditorWindowController, out: String) {
+    static func saveSheet(_ sheet: AISettingsSection, tab: EditorWindowController, out: String) {
+        let applied = sheet.applyCount
         press(sheet.enabledBox, "the checkbox") { sheet.enabledBox.state == .on }
         check(sheet.enabledBox.state == .on, "ticked “Ask a local model for hints”")
+        check(sheet.applyCount > applied, "the tick is applied at once, no Save")
         OwlCheck.after(0.2) {
-            OwlCheck.snapshot(sheet.panel, "\(out)/0-sheet-\(live == nil ? "enabled" : "tested").png") {
-                press(sheet.saveButton, "Save") { AISettingsSheet.current == nil }
+            guard let panel = SettingsWindowController.shared?.window else { check(false, "Settings is still open"); finish(); return }
+            OwlCheck.snapshot(panel, "\(out)/0-sheet-\(live == nil ? "enabled" : "tested").png") {
+                panel.close()
                 let hub = OwlHub.shared
                 wait("the provider to register", timeout: 15, { hub.ai.isActive && hub.coordinator.source == .rulesAndAI }) { ok in
                     if !ok { log("state: active=\(hub.ai.isActive) problem=\(hub.ai.lastProblem ?? "-") source=\(hub.coordinator.source) settings=\(Settings.shared.owlHintSource) saved=\(AIStore.load())") }
-                    check(ok, "saved: provider \(hub.ai.providerName ?? "none") registered, source is Rules + AI")
+                    check(ok, "applied: provider \(hub.ai.providerName ?? "none") registered, source is Rules + AI")
                     check(Settings.shared.owlHintSource == .rulesAndAI, "Cedric’s Hints › Rules + AI is selected")
                     if !ok { finish(); return }
                     typeBug(tab, out: out, attempt: 1)
