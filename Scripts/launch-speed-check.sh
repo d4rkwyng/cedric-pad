@@ -8,6 +8,8 @@
 #   restore   a saved session: 8 tabs in one window (6 files of 20 KB to
 #             1 MB, 2 untitled tabs with unsaved buffers)
 #   medium    no session, a 500 KB Swift file opened at launch
+#   markdown  no session, a 200 KB Markdown file opened at launch (the
+#             Context Bar and readable width built)
 #
 # Columns (CEDRIC_LAUNCH_TRACE, see Sources/CedricApp/LaunchTrace.swift):
 #   main         main.swift reached (before it: dyld, static init)
@@ -59,6 +61,9 @@ def fill(name, target, line):
     return p
 swift = lambda i: ("func f%d(_ x: Int) -> Int {\n    // comment %d\n    let s = \"value \\(x)\"\n    return x * %d + s.count\n}\n" % (i, i, i % 97))
 medium = fill("medium.swift", 500_000, swift)
+# A Markdown document opened on its own: the Context Bar (on by default
+# since 0.4.0) and readable width are built at launch.
+fill("medium.md", 200_000, lambda i: "## Section %d\n\nSome *prose* with `code`, a [link](https://example.com/%d) and **bold** words.\n\n- item %d\n- [ ] task %d\n\n" % (i, i, i, i))
 files = [
     fill("a.swift", 120_000, swift),
     fill("b.json", 1_000_000, lambda i: '  {"id": %d, "name": "row %d", "tags": ["a", "b"], "ok": true},\n' % (i, i)),
@@ -98,6 +103,7 @@ run_scenario() { # name, env...
 run_scenario empty CEDRIC_SESSION_DIR="$W/empty-session"
 run_scenario restore CEDRIC_SESSION_DIR="$W/restore-session"
 run_scenario medium CEDRIC_SESSION_DIR="$W/empty-session" CEDRIC_NO_RESTORE=1 CEDRIC_OPEN="$W/medium.swift"
+run_scenario markdown CEDRIC_SESSION_DIR="$W/empty-session" CEDRIC_NO_RESTORE=1 CEDRIC_OPEN="$W/medium.md"
 
 python3 - "$W" "$RUNS" "${LIMIT_FRAME:-0}" "${LIMIT_KEY:-0}" <<'PY'
 import sys, os, statistics
@@ -105,7 +111,7 @@ w, runs, lf, lk = sys.argv[1], int(sys.argv[2]), float(sys.argv[3]), float(sys.a
 cols = ["main", "did_finish", "tabs_ready", "first_frame", "key_drawn", "idle"]
 print("%-8s %s   (median ms of %d runs since process start)" % ("", " ".join("%11s" % c for c in cols), runs))
 fail = 0
-for name in ["empty", "restore", "medium"]:
+for name in ["empty", "restore", "medium", "markdown"]:
     vals = {}
     bad = set()
     for line in open(os.path.join(w, name + ".out")):

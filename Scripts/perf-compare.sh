@@ -78,7 +78,7 @@ def metrics(side, r):
         for line in open(p):
             f = line.split()
             if f[:1] == ["main"]: cols = f[:6]
-            elif cols and f and f[0] in ("empty", "restore", "medium"):
+            elif cols and f and f[0] in ("empty", "restore", "medium", "markdown"):
                 for c, v in zip(cols, f[1:7]):
                     if c in ("first_frame", "key_drawn") and v != "-": m["launch.%s.%s" % (f[0], c)] = float(v)
     p = os.path.join(w, "perf-%s-%d.txt" % (side, r))
