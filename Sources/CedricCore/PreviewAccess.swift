@@ -86,6 +86,65 @@ public enum PreviewFolderAccess {
     }
 }
 
+/// Folder grants the iOS preview keeps. One bookmark per resolved path,
+/// and one security-scoped start per resolved path for this value's
+/// lifetime (one app launch). `apply` decides before anything is started
+/// or stored, so a duplicate never starts access and never adds a bookmark.
+public struct PreviewGrantSet: Equatable, Sendable {
+    public struct Decision: Equatable, Sendable {
+        /// Call `startAccessingSecurityScopedResource`. False when this
+        /// resolved path was already started.
+        public var start: Bool
+        /// Write a bookmark. False when this resolved path is already stored.
+        public var store: Bool
+
+        public init(start: Bool, store: Bool) {
+            self.start = start
+            self.store = store
+        }
+    }
+
+    /// Resolved paths already stored, oldest first.
+    public private(set) var stored: [String]
+    /// Resolved paths whose security scope has already been started.
+    public private(set) var started: Set<String>
+
+    public init() {
+        stored = []
+        started = []
+    }
+
+    /// The path grants are compared by, with symbolic links resolved.
+    public static func resolvedPath(_ url: URL) -> String {
+        var path = PreviewFolder.resolved(url.standardizedFileURL).standardizedFileURL.path
+        if path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path
+    }
+
+    /// What to do with `url`, before starting access or storing a bookmark.
+    public func decide(_ url: URL) -> Decision {
+        let path = Self.resolvedPath(url)
+        return Decision(start: !started.contains(path), store: !stored.contains(path))
+    }
+
+    /// Starts access at most once and stores at most one bookmark per
+    /// resolved path. `start` is skipped when this path was already
+    /// started; `store` is skipped when it is already stored. A `false`
+    /// from `store` leaves the path unstored, so a later call can try the
+    /// bookmark again without starting access a second time.
+    public mutating func apply(_ url: URL, start: (URL) -> Void, store: (URL) -> Bool) {
+        let decision = decide(url)
+        if decision.start {
+            start(url)
+            started.insert(Self.resolvedPath(url))
+        }
+        if decision.store, store(url) {
+            let path = Self.resolvedPath(url)
+            if !stored.contains(path) { stored.append(path) }
+        }
+    }
+}
+
 /// How the preview's custom-scheme handler answers, so a WKWebView will
 /// paint the page and its images.
 ///

@@ -289,6 +289,18 @@ final class PreviewController: UIViewController, WKNavigationDelegate, UIGesture
 
     // MARK: Folder access
 
+    /// http and https leave the app only after the person confirms the host.
+    private func confirmSafari(_ url: URL, host: String) {
+        let shown = PromptText.visible(host)
+        let a = UIAlertController(title: String(localized: "Open \(shown) in Safari?"), message: nil, preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: String(localized: "Open"), style: .default) { _ in
+            UIApplication.shared.open(url)
+        })
+        a.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+        a.preferredAction = a.actions.first
+        present(a, animated: true)
+    }
+
     /// Asks for the document's folder (or one above it, a site's root).
     private func askForFolder() {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
@@ -303,13 +315,16 @@ final class PreviewController: UIViewController, WKNavigationDelegate, UIGesture
         if let last { show(markdown: last.markdown, palette: last.palette) }
     }
 
-    /// Links open in Safari (asked for), never inside the preview; a
-    /// wikilink or a link to a text file in the folder opens it in Owlink.
+    /// Web links ask, then open in Safari, never inside the preview. A
+    /// wikilink or a link to a text file under the document's folder, a
+    /// granted folder or the site root opens it in Owlink; anything else
+    /// is refused.
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
-        if action.navigationType == .linkActivated, let url = action.request.url, ["http", "https"].contains(url.scheme ?? "") {
-            UIApplication.shared.open(url)
+        if action.navigationType == .linkActivated, let url = action.request.url,
+           let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
             decisionHandler(.cancel)
+            if let host = url.host, !host.isEmpty { confirmSafari(url, host: host) }
             return
         }
         if action.navigationType == .linkActivated, let url = action.request.url {

@@ -76,13 +76,12 @@ final class PreviewFiles: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) { stopped.insert(ObjectIdentifier(task)) }
 
-    /// A clicked link's file, if it exists: as given, or a site-root
-    /// path's page (`/projects/intelbrew` → `content/projects/intelbrew.md`).
+    /// A clicked link's file, when its resolved path sits under the
+    /// document's folder, a granted folder, the vault or the site root
+    /// it resolved in. Anything else is refused (nil).
     func linkTarget(_ url: URL) -> URL? {
-        guard url.scheme == PreviewFolder.scheme, let file = PreviewFolder.fileURL(for: url) else { return nil }
-        if FileManager.default.fileExists(atPath: file.path) { return file }
-        guard let folder, let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath else { return nil }
-        return PreviewRoot.resolve(path, from: folder, openedRoot: openedRoot, pages: true)?.file
+        guard let folder else { return nil }
+        return PreviewFolder.linkTarget(url, folder: folder, openedRoot: openedRoot, vaultRoot: vaultRoot)
     }
 }
 
@@ -93,13 +92,16 @@ private final class PreviewTaskBox: @unchecked Sendable {
 
 /// Folders the person let the preview read (from the "Open the folder"
 /// hint), kept as bookmarks so the grant outlives the launch. A folder
-/// covers every document inside it.
+/// covers every document inside it. Each resolved path is stored once,
+/// and its security scope is started once for the app's lifetime.
 @MainActor
 final class PreviewFolderGrants {
     static let shared = PreviewFolderGrants()
     private static let key = "previewFolderGrants"
     private var open: [URL] = []
     private var loaded = false
+    /// One start and one bookmark per resolved path (see PreviewGrantSet).
+    private var grants = PreviewGrantSet()
 
     /// The granted folder holding `folder` (the nearest), access started.
     func root(for folder: URL) -> URL? {
@@ -111,26 +113,57 @@ final class PreviewFolderGrants {
 
     func add(_ url: URL) {
         loadIfNeeded()
-        _ = url.startAccessingSecurityScopedResource()
-        let u = url.standardizedFileURL
-        if !open.contains(u) { open.append(u) }
-        var saved = (AppSettings.defaults.array(forKey: Self.key) as? [Data]) ?? []
-        if let b = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
-            saved.append(b)
-            AppSettings.defaults.set(Array(saved.suffix(20)), forKey: Self.key)
-        }
+        grants.apply(url, start: { _ = $0.startAccessingSecurityScopedResource() }, store: { url in
+            self.storeBookmark(url)
+        })
+        adopt(url)
+    }
+
+    /// Keeps `url` if its resolved path is not already open.
+    private func adopt(_ url: URL) {
+        let path = PreviewGrantSet.resolvedPath(url)
+        guard !open.contains(where: { PreviewGrantSet.resolvedPath($0) == path }) else { return }
+        open.append(url.standardizedFileURL)
+    }
+
+    /// Appends one bookmark, unless the same resolved path is already stored.
+    /// The caller (`PreviewGrantSet`) has already decided it is new.
+    private func storeBookmark(_ url: URL) -> Bool {
+        guard let b = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) else { return false }
+        var saved = savedBookmarks
+        saved.append(b)
+        AppSettings.defaults.set(Array(saved.suffix(20)), forKey: Self.key)
+        return true
+    }
+
+    private var savedBookmarks: [Data] {
+        (AppSettings.defaults.array(forKey: Self.key) as? [Data]) ?? []
     }
 
     private func loadIfNeeded() {
         guard !loaded else { return }
         loaded = true
-        for data in (AppSettings.defaults.array(forKey: Self.key) as? [Data]) ?? [] {
+        let saved = savedBookmarks
+        var kept: [Data] = []
+        var changed = false
+        for data in saved {
             var stale = false
-            guard let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else { continue }
-            if url.startAccessingSecurityScopedResource() || FileManager.default.isReadableFile(atPath: url.path) {
-                let u = url.standardizedFileURL
-                if !open.contains(u) { open.append(u) }
+            guard let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else {
+                kept.append(data)
+                continue
+            }
+            let count = grants.stored.count
+            grants.apply(url, start: { url in
+                if url.startAccessingSecurityScopedResource() || FileManager.default.isReadableFile(atPath: url.path) {
+                    self.adopt(url)
+                }
+            }, store: { _ in true })
+            if grants.stored.count == count {
+                changed = true
+            } else {
+                kept.append(data)
             }
         }
+        if changed { AppSettings.defaults.set(kept, forKey: Self.key) }
     }
 }

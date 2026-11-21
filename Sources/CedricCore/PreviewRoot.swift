@@ -96,6 +96,36 @@ extension PreviewFolder {
               let page = pageURL(forFile: hit.file) else { return nil }
         return file(for: page, in: hit.root, scriptOn: scriptOn)
     }
+
+    /// A clicked link's file, or nil when it must not be opened.
+    ///
+    /// The real path, symbolic links resolved, has to sit under the
+    /// document's folder, a granted folder, the vault, or the site root
+    /// the path resolved in. That is the same rule `file(for:in:openedRoot:vaultRoot:scriptOn:)`
+    /// uses for images (`..`, an absolute path and a link that leaves its
+    /// root are refused). A site-root link may name a page
+    /// (`/projects/intelbrew` → `projects/intelbrew.md`). A directory is
+    /// not a file, so it is refused too.
+    public static func linkTarget(_ url: URL, folder: URL, openedRoot: URL?, vaultRoot: URL? = nil,
+                                  fileManager fm: FileManager = .default) -> URL? {
+        guard url.scheme == scheme else { return nil }
+        if let file = file(for: url, in: folder, openedRoot: openedRoot, vaultRoot: vaultRoot, scriptOn: false),
+           isExistingFile(file, fm) {
+            return file
+        }
+        guard let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath,
+              let hit = PreviewRoot.resolve(path, from: folder, openedRoot: openedRoot, pages: true, fileManager: fm),
+              let page = pageURL(forFile: hit.file),
+              let file = file(for: page, in: hit.root, scriptOn: false),
+              isExistingFile(file, fm) else { return nil }
+        return file
+    }
+
+    /// `file` exists and is not a directory, following symbolic links.
+    private static func isExistingFile(_ file: URL, _ fm: FileManager) -> Bool {
+        var isDir: ObjCBool = false
+        return fm.fileExists(atPath: resolved(file).path, isDirectory: &isDir) && !isDir.boolValue
+    }
 }
 
 /// Images the preview can't show because the app may not read the
