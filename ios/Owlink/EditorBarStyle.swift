@@ -6,17 +6,21 @@ import CedricCore
 /// The editor uses `navigationItem.style = .editor` with `documentProperties`,
 /// so the file name is the document title (a menu), not the bar's plain
 /// title label. On iOS 26/27 that title is drawn from the window scene: its
-/// foreground comes from the scene's interface style and from this window's
-/// tint and the navigation bar's tint. It ignores `titleTextAttributes` on
-/// the bar instance. Setting only those attributes, or only the navigation
+/// foreground comes from the scene's interface style and from the
+/// navigation bar's tint. It ignores `titleTextAttributes` on the bar
+/// instance. Setting only those attributes, or only the navigation
 /// controller's interface style, leaves the name on the phone's label
 /// colour — near-black on a dark theme while the phone is in light mode.
+///
+/// A fixed theme sets that bar tint and the scene's interface style. System
+/// sets neither, so the phone's accent and appearance stay. The window's
+/// own tint is left alone: painting it with the text colour replaces the
+/// accent on sheets, alerts, toggles and Open Quickly.
 ///
 /// Nothing here writes `UINavigationBar.appearance()`. That proxy is
 /// process-wide: a detached preview never put it back, and one editor
 /// dismissing cleared it under every other editor. Each window keeps its
-/// own tint and interface style, and dismissing an editor restores only
-/// that window.
+/// own interface style, and dismissing an editor restores only that window.
 enum EditorBarStyle {
     /// System follows the phone. A fixed theme forces its own light or dark.
     static func interfaceStyle(theme: EditorTheme, isDark: Bool) -> UIUserInterfaceStyle {
@@ -44,13 +48,16 @@ enum EditorBarStyle {
                       interfaceStyle: UIUserInterfaceStyle) {
         let appearance = appearance(foreground: foreground)
         let titleAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: foreground]
+        // System (.unspecified) follows the phone. A fixed theme forces its
+        // light or dark, and tints the bar — not the window — with the text colour.
+        let fixed = interfaceStyle != .unspecified
         if let bar = navigationController?.navigationBar {
             bar.standardAppearance = appearance
             bar.compactAppearance = appearance
             bar.scrollEdgeAppearance = appearance
             bar.compactScrollEdgeAppearance = appearance
-            bar.tintColor = foreground
             bar.titleTextAttributes = titleAttributes
+            bar.tintColor = fixed ? foreground : nil
             bar.overrideUserInterfaceStyle = interfaceStyle
         }
         item.standardAppearance = appearance
@@ -59,20 +66,21 @@ enum EditorBarStyle {
         item.compactScrollEdgeAppearance = appearance
         // iOS 26 draws `attributedTitle` (and ignores it when a title view
         // is set; the editor does not set one). The document title still
-        // follows the tint, which is why the tint is set as well.
+        // follows the bar tint and the scene style, which is why those are set.
         if #available(iOS 26.0, *) {
             item.attributedTitle = colored(item.title, foreground)
             item.attributedSubtitle = colored(item.subtitle, foreground)
         }
         if let nav = navigationController {
-            nav.view.tintColor = foreground
+            // A tint on the controller's view reaches every control in it.
+            if nav.view.tintColor != nil { nav.view.tintColor = nil }
             if nav.overrideUserInterfaceStyle != interfaceStyle {
                 nav.overrideUserInterfaceStyle = interfaceStyle
                 nav.setNeedsStatusBarAppearanceUpdate()
             }
         }
         guard let window else { return }
-        window.tintColor = foreground
+        if window.tintColor != nil { window.tintColor = nil }
         if window.overrideUserInterfaceStyle != interfaceStyle {
             window.overrideUserInterfaceStyle = interfaceStyle
         }

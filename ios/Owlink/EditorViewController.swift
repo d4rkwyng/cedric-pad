@@ -819,10 +819,9 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     /// already nil by the time the editor has disappeared.
     private weak var themedWindow: UIWindow?
 
-    /// Title, bar tint and the window's interface style follow the theme.
-    /// System leaves the window unspecified so it tracks the phone; the
-    /// title colour is still the palette's foreground, recomputed when the
-    /// trait changes. See `EditorBarStyle`.
+    /// Title and bar tint follow the theme. A fixed theme also sets this
+    /// window's interface style; System leaves it unspecified so it tracks
+    /// the phone, and never replaces the accent tint. See `EditorBarStyle`.
     private func applyBarStyle() {
         let style = EditorBarStyle.interfaceStyle(theme: AppSettings.theme, isDark: palette.isDark)
         if let window = view.window { themedWindow = window }
