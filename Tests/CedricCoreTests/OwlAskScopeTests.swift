@@ -79,7 +79,10 @@ import Testing
         #expect(OwlTools.run(OwlToolCall(name: "get_outline"), on: snap()).lines == nil)
     }
 
-    /// The coverage note is only for a question about the open document.
+    /// The coverage note is on for a question about the open document, and
+    /// also when that is only doubtful. It is off for a pure sum and for
+    /// an explicit translation, definition, or general-knowledge question
+    /// whose subject is not in the file.
     @Test func coverageQuestionIsAboutTheDocument() {
         let s = snap()
         let yes = [
@@ -93,18 +96,53 @@ import Testing
             "What does this file say about Genesis?",
             "Any errors?",
             "What's on line 12?",
+            "What's this about?",
+            "Explain this.",
+            // Not a sum, and not an explicit fact question: "how many" can be about the file.
+            "How many feet are in a mile?",
+            // Not one of the forms that suppress the note.
+            "Check the weather tomorrow",
         ]
         let no = [
             "What is 12 times 7?",
+            "3+4*2",
             "What is the capital of France?",
             "Translate hello into French",
-            "How many feet are in a mile?",
             "Define photosynthesis",
             "What is 2 plus 2?",
             "Who wrote Hamlet?",
-            "Check the weather tomorrow",
         ]
-        for q in yes { #expect(OwlTools.asksAboutDocument(q, snapshot: s), "\(q) is about the document") }
-        for q in no { #expect(!OwlTools.asksAboutDocument(q, snapshot: s), "\(q) is not about the document") }
+        for q in yes { #expect(OwlTools.coverageNoteApplies(q, snapshot: s), "\(q) keeps the coverage note") }
+        for q in no { #expect(!OwlTools.coverageNoteApplies(q, snapshot: s), "\(q) is clearly unrelated") }
+    }
+
+    /// Cursor's cases: the file's own words need not be the question's.
+    /// A fact whose subject does appear in the file keeps the note.
+    @Test func coverageNoteStaysWhenTheWordingIsNotInTheFile() {
+        let titles = """
+        # Catalogue
+
+        ## Platforms
+        - title one
+        - title two
+
+        The list is titles and platforms.
+        """
+        #expect(!titles.localizedCaseInsensitiveContains("games"))
+        #expect(!titles.localizedCaseInsensitiveContains("system"))
+        #expect(OwlTools.coverageNoteApplies("How many games per system?", snapshot: snap(titles)))
+
+        let players = "The cabinet supports two-player mode on the same screen.\n"
+        #expect(!players.localizedCaseInsensitiveContains("multiplayer"))
+        #expect(OwlTools.coverageNoteApplies("What does it say about multiplayer?", snapshot: snap(players)))
+
+        let s = snap()
+        #expect(OwlTools.coverageNoteApplies("What's this about?", snapshot: s))
+        #expect(OwlTools.coverageNoteApplies("Explain this.", snapshot: s))
+
+        let trip = "We spent a week in France and ate too much bread.\n"
+        #expect(OwlTools.coverageNoteApplies("What is the capital of France?", snapshot: snap(trip)))
+        #expect(!OwlTools.coverageNoteApplies("What is the capital of France?", snapshot: s))
+        #expect(!OwlTools.coverageNoteApplies("What is 12 times 7?", snapshot: s))
     }
 }

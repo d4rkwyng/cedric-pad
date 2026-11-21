@@ -524,89 +524,69 @@ public enum OwlTools {
         return out
     }
 
-    /// Whether a typed question is about the open document. The coverage
-    /// note ("I can see lines 1–40 of 111…") is only for those: a fact, a
-    /// definition, a translation or a sum is answered on its own and says
-    /// nothing about which lines were shown. Cheap, on this Mac: a few
-    /// phrases, task words (count, list, find, summarise) and structure
-    /// words (line, section, heading), then whether the question's own
-    /// words appear in the document. Not the tool gate (`typedTools`).
-    public static func asksAboutDocument(_ question: String, snapshot s: OwlDocumentSnapshot) -> Bool {
+    /// Whether the coverage note applies ("I can see lines 1–40 of 111…").
+    /// On by default when the question is non-empty: a missing note reads
+    /// as if the whole file had been seen, which is worse than an extra
+    /// note. It stays off only when the question is clearly not about the
+    /// open document — a pure sum ("what is 12 times 7", "3+4*2"), or an
+    /// explicit translation, definition, or general-knowledge question
+    /// whose subject words appear nowhere in the file ("translate hello
+    /// into French", "what is the capital of France" when France isn't in
+    /// it). A question that merely uses other words than the file
+    /// ("how many games?" on a list of titles) keeps the note. Not the
+    /// tool gate (`typedTools`).
+    public static func coverageNoteApplies(_ question: String, snapshot s: OwlDocumentSnapshot) -> Bool {
         let q = question.lowercased()
         if q.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
-        if askDocumentPhrases.contains(where: { q.contains($0) }) { return true }
-        let words = Set(normalizedWords(q))
-        if asksAboutStructure(words, question: q) { return true }
-        let content = words.filter(isAskContentWord)
-        // Problems in the file ("any errors?"), unless the question also
-        // names something that isn't in the document ("check the weather").
-        if OwlChecks.asksAboutProblems(question),
-           content.isEmpty || content.contains(where: { documentHasWord($0, in: s.text) }) { return true }
-        if content.contains(where: { documentHasWord($0, in: s.text) }) { return true }
-        // "Summarise", "how many?" — a task with no topic of its own is about the open text.
-        if content.isEmpty, isDocumentTask(words, question: q) { return true }
-        return false
+        if isPureArithmetic(q) { return false }
+        if let subjects = explicitOutsideSubjects(q), !subjects.isEmpty,
+           !subjects.contains(where: { documentHasWord($0, in: s.text) }) {
+            return false
+        }
+        return true
     }
 
-    /// "this file", "the whole document", and the same for a note or script.
-    private static let askDocumentPhrases: [String] = [
-        "this file", "this document", "this doc", "this note", "this text", "this page", "this script", "this code",
-        "this selection", "the whole file", "the whole document", "whole document", "whole file",
-        "in the file", "in this file", "in the document", "in this document", "in the note", "in this note",
-        "in this text", "the open file", "my document", "my file", "my notes", "the script",
-    ]
-
-    /// Count, list, find, search, summarise (and the American spelling).
-    private static let askTaskWords: Set<String> = [
-        "count", "counts", "counting", "list", "lists", "listed", "listing", "find", "finding", "search", "searching",
-        "summarise", "summarize", "summarise", "summary", "summarizing", "summarising",
-    ]
-
-    /// Lines, sections, headings: the question is about the document's shape.
-    private static let askStructureWords: Set<String> = [
-        "section", "sections", "heading", "headings", "chapter", "chapters", "paragraph", "paragraphs",
-        "subsection", "subsections", "outline",
-    ]
-
-    /// Too common, or a sum's own words ("12 times 7"), to count as a term from the document.
-    /// "line" and "lines" are not here: they only count in `asksAboutStructure`.
-    private static let askStopWords: Set<String> = [
-        "the", "and", "for", "are", "but", "not", "you", "your", "yours", "can", "could", "would", "should",
-        "what", "whats", "which", "who", "whom", "why", "when", "where", "how", "does", "did", "don", "dont",
-        "this", "that", "these", "those", "there", "here", "with", "from", "into", "about", "per", "each", "every",
-        "all", "any", "some", "have", "has", "was", "were", "will", "its", "than", "then", "them", "they", "their",
-        "his", "her", "she", "him", "our", "out", "off", "too", "also", "just", "tell", "give", "show", "please",
-        "want", "need", "like", "make", "much", "many", "more", "most", "other", "only", "over", "such", "onto",
-        "been", "being", "having", "doing", "done", "get", "got", "let", "say", "says", "said", "see", "look",
-        "use", "used", "using", "via", "between", "across", "after", "before", "again", "once", "times", "plus",
-        "minus", "divided", "multiply", "multiplied", "equals", "equal", "squared", "square", "half", "percent",
-        "really", "very", "just", "into", "over", "under", "above", "below", "hello", "please", "thanks",
-        "translate", "translation", "define", "definition", "convert", "calculate", "compute", "explain",
-        "row", "rows", "item", "items", "word", "words", "character", "characters", "sentence", "sentences",
-    ]
-
-    private static func isAskContentWord(_ w: String) -> Bool {
-        w.count >= 3 && w.count <= 40 && !w.allSatisfy(\.isNumber)
-            && !askStopWords.contains(w) && !askTaskWords.contains(w) && !askStructureWords.contains(w)
-            && !OwlChecks.problemWords.contains(w)
+    /// A sum and nothing else: digits, an operator or an arithmetic word
+    /// ("plus", "times"), and question words. "How many games per system?"
+    /// is not one; neither is "how many times does Sonic appear?".
+    private static func isPureArithmetic(_ question: String) -> Bool {
+        let words = normalizedWords(question)
+        let arith: Set<String> = ["plus", "minus", "times", "divided", "multiply", "multiplied", "multiplying",
+                                  "squared", "square", "percent", "percentage", "half"]
+        let hasOperator = question.range(of: #"\d\s*[+*/×÷^\-]\s*\d"#, options: .regularExpression) != nil
+            || question.range(of: #"\d\s+x\s+\d"#, options: .regularExpression) != nil
+        let hasNumber = words.contains { $0.allSatisfy(\.isNumber) }
+        guard hasNumber, hasOperator || words.contains(where: { arith.contains($0) }) else { return false }
+        let filler: Set<String> = ["what", "whats", "is", "are", "was", "how", "much", "many", "does", "do", "did",
+                                   "the", "a", "an", "of", "please", "equals", "equal", "calculate", "compute",
+                                   "calculation", "sum", "product", "quotient", "difference", "by", "and", "to",
+                                   "it", "me", "answer", "result"]
+        return words.allSatisfy { filler.contains($0) || arith.contains($0) || $0.allSatisfy(\.isNumber) }
     }
 
-    /// "how many", "list", "find", "summarise": the open document is the thing being asked about
-    /// when the question names no other topic.
-    private static func isDocumentTask(_ words: Set<String>, question q: String) -> Bool {
-        if q.contains("how many") || q.contains("how much") || q.contains("number of") { return true }
-        return !words.isDisjoint(with: askTaskWords)
-    }
-
-    /// A section, heading, chapter, paragraph or outline, or a line named by number
-    /// ("line 12", "how many lines"). "the bottom line" is not one.
-    private static func asksAboutStructure(_ words: Set<String>, question q: String) -> Bool {
-        if !words.isDisjoint(with: askStructureWords) { return true }
-        guard words.contains("line") || words.contains("lines") else { return false }
-        if q.contains("how many") || q.contains("how much") { return true }
-        if q.range(of: #"\blines?\s+\d"#, options: .regularExpression) != nil { return true }
-        if q.range(of: #"\b(which|what|on) lines?\b"#, options: .regularExpression) != nil { return true }
-        return false
+    /// Subject words of an explicit translation, definition, or
+    /// general-knowledge question. nil when the question is not one of
+    /// those, so the coverage note stays (a "how many" or "what does it
+    /// say" question is not one). An empty list means the subject is a
+    /// pronoun ("translate this"): not clearly unrelated.
+    private static func explicitOutsideSubjects(_ question: String) -> [String]? {
+        let words = normalizedWords(question)
+        let translation = question.range(of: #"\btranslat(?:e|ion|ing)\b"#, options: .regularExpression) != nil
+            || question.range(of: #"\bhow do you say\b"#, options: .regularExpression) != nil
+        let definition = words.contains("define") || question.contains("definition of")
+            || question.range(of: #"\bwhat does [a-z0-9][a-z0-9'-]{1,40} mean\b"#, options: .regularExpression) != nil
+        let knowledge = question.range(of: #"\bcapital of\b"#, options: .regularExpression) != nil
+            || question.range(of: #"\bwho (?:wrote|invented|discovered|painted|composed|directed|founded)\b"#,
+                              options: .regularExpression) != nil
+        guard translation || definition || knowledge else { return nil }
+        let boilerplate: Set<String> = [
+            "translate", "translation", "translating", "into", "to", "from", "in", "the", "a", "an",
+            "what", "whats", "is", "are", "of", "define", "definition", "capital", "who", "wrote",
+            "invented", "discovered", "painted", "composed", "directed", "founded", "does", "do",
+            "mean", "means", "how", "you", "say", "please", "word", "phrase", "this", "that", "it",
+            "me", "for", "and", "its", "my", "your",
+        ]
+        return words.filter { $0.count >= 2 && !boilerplate.contains($0) && !$0.allSatisfy(\.isNumber) }
     }
 
     /// `word` as a whole word in `text` (also the form without a trailing s, so "games" matches "game").
