@@ -35,4 +35,36 @@ import Testing
         let p = try OwlEditProposal.anchored(find: "Seeds cost 40 euros.", replace: "Seeds cost 45 euros.", in: snap()).get()
         #expect(p.state(text: Self.doc as NSString, generation: 4, readOnly: true) == .readOnly)
     }
+
+    @Test func cardsAreSearchedOncePerFindAndOnlyWhileThePanelIsVisible() throws {
+        #expect(OwlCardRefresh.debounce == 0.15)
+        #expect(!OwlCardRefresh.shouldRefresh(panelVisible: false, largeDocument: false, extrasPaused: false, hasCards: true))
+        #expect(!OwlCardRefresh.shouldRefresh(panelVisible: true, largeDocument: true, extrasPaused: false, hasCards: true))
+        #expect(!OwlCardRefresh.shouldRefresh(panelVisible: true, largeDocument: false, extrasPaused: true, hasCards: true))
+        #expect(!OwlCardRefresh.shouldRefresh(panelVisible: true, largeDocument: false, extrasPaused: false, hasCards: false))
+        #expect(OwlCardRefresh.shouldRefresh(panelVisible: true, largeDocument: false, extrasPaused: false, hasCards: true))
+
+        let s = snap()
+        let ns = Self.doc as NSString
+        let seeds = try OwlEditProposal.anchored(find: "Seeds cost 40 euros.", replace: "Seeds cost 45 euros.", in: s).get()
+        let seedsAgain = try OwlEditProposal.anchored(find: "Seeds cost 40 euros.", replace: "Seeds cost 41 euros.", in: s).get()
+        let compost = try OwlEditProposal.anchored(find: "Compost cost 25 euros.", replace: "Compost cost 30 euros.", in: s).get()
+        let once = OwlEditProposal.refresh([seeds, seedsAgain, compost], text: ns, generation: 9, readOnly: false)
+        #expect(once.searches == 2)
+        #expect(once.states.count == 3 && once.states.allSatisfy { if case .ready = $0 { return true }; return false })
+
+        let lines = try #require(OwlEditProposal.lines(3, 3, with: "Seeds cost 45 euros.", in: s))
+        let byLine = OwlEditProposal.refresh([lines], text: ns, generation: s.generation, readOnly: false)
+        #expect(byLine.searches == 0 && byLine.states == [.ready(lines.range)])
+
+        let many = String(repeating: "a", count: 5_000) as NSString
+        let hit = OwlEditProposal(range: NSRange(location: 0, length: 1), original: "a", replacement: "b",
+                                  reason: "", firstLine: 1, lastLine: 1, generation: 1, anchor: .text)
+        let bounded = OwlEditProposal.refresh([hit, hit], text: many, generation: 1, readOnly: false)
+        #expect(bounded.searches == 1 && bounded.states == [.stale, .stale])
+        #expect(OwlEditProposal.occurrences(of: "a", in: many, limit: 2).count == 2)
+
+        let blocked = OwlEditProposal.refresh([seeds, compost], text: ns, generation: 4, readOnly: true)
+        #expect(blocked.searches == 0 && blocked.states == [.readOnly, .readOnly])
+    }
 }

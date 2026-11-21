@@ -456,6 +456,9 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         panel.title = String(localized: "Ask Cedric — \(tab.doc.displayName)")
         render()
         updateButtons()
+        // Opening (or a check refreshing the panel) catches cards up. Typing
+        // does not come through here.
+        refreshCards()
     }
 
     private var isProse: Bool {
@@ -861,9 +864,13 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         return p.state(text: tab.textView.string as NSString, generation: tab.doc.changeCount, readOnly: documentIsReadOnly)
     }
 
-    /// Every card's Apply, against the document as it is now.
+    /// Every card's Apply, against the document as it is now. One search
+    /// per distinct find, and none at all when Apply is already refused.
     func refreshCards() {
-        for c in cards { c.show(state(of: c.proposal)) }
+        guard !cards.isEmpty, let tab else { layoutCards(); return }
+        let result = OwlEditProposal.refresh(cards.map(\.proposal), text: tab.textView.string as NSString,
+                                             generation: tab.doc.changeCount, readOnly: documentIsReadOnly)
+        for (c, s) in zip(cards, result.states) { c.show(s) }
         layoutCards()
     }
 
@@ -943,16 +950,24 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private var recheckQueued = false
 
     /// The document changed: a card may have gone stale (or come back).
-    /// Rechecked once per burst of typing, not per key.
+    /// Rechecked once per burst of typing, not per key, and only while the
+    /// panel is visible and the tab is not in large mode.
     func documentEdited() {
-        guard !cards.isEmpty, !recheckQueued else { return }
+        guard !recheckQueued, shouldRefreshCards() else { return }
         recheckQueued = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + OwlCardRefresh.debounce) { [weak self] in
             MainActor.assumeIsolated {
-                self?.recheckQueued = false
-                self?.refreshCards()
+                guard let self else { return }
+                self.recheckQueued = false
+                guard self.shouldRefreshCards() else { return }
+                self.refreshCards()
             }
         }
+    }
+
+    private func shouldRefreshCards() -> Bool {
+        OwlCardRefresh.shouldRefresh(panelVisible: isShown, largeDocument: tab?.isLargeDocument == true,
+                                     extrasPaused: tab?.extrasPaused == true, hasCards: !cards.isEmpty)
     }
 
     // MARK: History
