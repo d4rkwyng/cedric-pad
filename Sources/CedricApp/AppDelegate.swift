@@ -38,6 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var closedTabs: [SessionTab] = []
     /// Files' word goals (the stats popover), from and to the session.
     var fileWordGoals: [FileWordGoal] = []
+    /// Words written today, across documents (the stats popover's second ring).
+    let dailyWords = DailyWordCounter()
     var closedTexts: [UUID: String] = [:]
 
     // MARK: Launch
@@ -45,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillFinishLaunching(_ notification: Notification) {
         LaunchTrace.mark("will_finish")
         NSWindow.allowsAutomaticWindowTabbing = true
+        dailyWords.onChange = { [weak self] in self?.refreshOpenStatsPopovers() }
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         rotateCLIToken()
@@ -127,9 +130,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// The quit path: the session (unsaved buffers included) written and
     /// waited for, `cedric -w` waiters released.
+    /// An open stats popover follows today's count (the ring, not a recount
+    /// of the document on the keystroke path).
+    func refreshOpenStatsPopovers() {
+        for tab in tabs where tab.editing.statsPopover?.popover.isShown == true {
+            tab.editing.statsPopover?.refresh()
+        }
+    }
+
     private func prepareToQuit() {
         // Replace in Files' disk writes under way finish first.
         ReplaceInFiles.waitForWrites()
+        // The last words of the day, if typing hadn't paused yet.
+        tabs.forEach { $0.commitDailyWords() }
         saveSession()
         releaseAllWaiters()
         terminating = true
@@ -170,6 +183,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        // Left open across local midnight: today's ring starts at zero.
+        dailyWords.rollToNow()
         tabs.forEach { $0.reloadIfChangedOnDisk() }
         viewerTabs.forEach { $0.reloadIfChangedOnDisk() }
         tabs.forEach { $0.gitState?.scheduleRefresh() }

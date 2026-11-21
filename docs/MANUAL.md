@@ -491,6 +491,18 @@ a new tab. It is kept in Owlink's session, never written into the file.
 Empty the field to clear it. An untitled tab keeps its own goal, and takes
 it to the file when you save it.
 
+### Daily word target
+
+The same popover has a **Daily target**, off until you set one. Type a
+number and press Return (empty, or 0, clears it). The second ring fills
+with the words you write today, in every document, not with the length of
+the file: opening a file does not count the words already in it. Deleting
+text takes those words back, and the day never goes below zero. It resets
+at midnight on this Mac. Owlink updates the count when you save, when you
+close the tab, and when you pause typing, so typing stays as fast with a
+target as without one. The target and the count are kept for Owlink, not
+written into any file.
+
 ### Writing Mode
 
 **View › Writing Mode** has two switches for writing prose, both off by

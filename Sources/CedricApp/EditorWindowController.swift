@@ -437,6 +437,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         updateStatus()
         PerfTrace.mark("status")
         gitState?.scheduleRefresh()
+        // Opening or reloading is not writing: this count is the baseline.
+        armDailyBaseline()
     }
 
     var text: String { textView.string }
@@ -559,6 +561,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         grammar.schedule()
         onChange?(self)
+        // Today's words: one count after typing pauses, not on this keystroke.
+        scheduleDailyWords()
     }
 
     /// Folding: a key move skips hidden text, anything else opens it (Folding.swift).
@@ -731,7 +735,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         statusBar.languageButton.target = self
         statusBar.encodingButton.target = self
         statusBar.counts.onClick = { [weak self] in self?.toggleStatsPopover() }
-        statusBar.counts.toolTip = String(localized: "Words, reading time and a word goal")
+        statusBar.counts.toolTip = String(localized: "Words, reading time, a word goal and a daily target")
     }
 
     func updateStatus() {
@@ -948,6 +952,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if let goal = editing.wordGoal { (NSApp.delegate as? AppDelegate)?.setFileWordGoal(goal, path: url.path) }
         updateTitle()
         updateStatus()
+        // A save counts toward today even if typing hasn't paused.
+        commitDailyWords()
         owl?.noteSave()
         gitSaved()
         onChange?(self)
@@ -1111,6 +1117,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if let pw = previewWindow { previewWindow = nil; pw.closeWithTab() }
         owl?.detach()
         sniffTimer?.invalidate()
+        // Words typed since the last pause, before the timer goes.
+        commitDailyWords()
         editing.stop()
         spellStep?.closeWithTab()
         grammar.stop()

@@ -965,6 +965,17 @@ View › Writing Mode (`WritingMode.swift`, pure parts in CedricCore's
   (`FileWordGoals`, newest last, 500 at most), so a new tab on the file
   finds it; an untitled tab's is `SessionTab.wordGoal`, moved to the path
   on Save As. Nothing is written into the file.
+  The second ring is a daily target (`DailyWordLog` / `DailyWords` in
+  CedricCore, `DailyWordCounter` in the app), off until a number is set
+  (`dailyWordTarget` in UserDefaults). Words written today are the net of
+  each document's word-count change since it was last noted, keyed by
+  local date (`dailyWords.yyyy-MM-dd`), never below zero, and zero on a
+  new local day. A document's first count is a baseline (opening a file
+  adds nothing); a reload replaces the baseline and does not count the
+  file. The note runs on save, on close, on quit, and one second after
+  typing pauses — `scheduleDailyWords` only resets a timer — and a small
+  document reuses the status bar's cached count. A check run
+  (`CEDRIC_CHECK`) keeps the counter in memory.
 
 Checks: `CEDRIC_CHECK=writing` then `writingrestore` (`WritingCheck.swift`,
 `Scripts/writing-check.sh`, in tools-check.sh): 40 typed lines with the

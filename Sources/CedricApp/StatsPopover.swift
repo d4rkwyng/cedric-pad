@@ -59,13 +59,19 @@ final class GoalRingView: NSView {
     override func accessibilityRole() -> NSAccessibility.Role? { .progressIndicator }
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityValue() -> Any? { "\(Int((progress * 100).rounded(.down))) %" }
-    override func accessibilityLabel() -> String? { String(localized: "Word goal progress") }
+    /// The file's ring leaves this nil ("Word goal progress"). The daily
+    /// ring sets its own name.
+    var ringLabel: String?
+    override func accessibilityLabel() -> String? { ringLabel ?? String(localized: "Word goal progress") }
 }
 
 /// Click on the status bar's word count: words, characters, lines and
 /// reading time of the document (and of the selection, when there is
-/// one), and the file's word goal with its ring. The goal is kept in the
-/// session (never in the file). Nothing is built until the first click.
+/// one), the file's word goal with its ring, and a daily target with a
+/// second ring. The file's goal is kept in the session (never in the
+/// file). The daily target counts words written today, across documents,
+/// and is kept for the app, also never in the file. Nothing is built
+/// until the first click.
 @MainActor
 final class StatsPopover: NSObject, NSPopoverDelegate, NSTextFieldDelegate {
     let popover = NSPopover()
@@ -76,6 +82,9 @@ final class StatsPopover: NSObject, NSPopoverDelegate, NSTextFieldDelegate {
     let goalField = NSTextField()
     let ring = GoalRingView()
     let goalLabel = NSTextField(labelWithString: "")
+    let dailyField = NSTextField()
+    let dailyRing = GoalRingView()
+    let dailyLabel = NSTextField(labelWithString: "")
     private var cells: [String: NSTextField] = [:]
     private let selectionHeader = NSTextField(labelWithString: String(localized: "Selection"))
     private var refreshTimer: Timer?
@@ -137,11 +146,33 @@ final class StatsPopover: NSObject, NSPopoverDelegate, NSTextFieldDelegate {
         goalRow.spacing = 10
         goalRow.alignment = .centerY
 
+        dailyField.placeholderString = String(localized: "Off")
+        dailyField.delegate = self
+        dailyField.alignment = .right
+        dailyField.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        dailyField.widthAnchor.constraint(equalToConstant: 90).isActive = true
+        dailyField.setAccessibilityLabel(String(localized: "Daily target"))
+        dailyField.toolTip = String(localized: "Words written today, in every document. Resets at midnight. Empty: no target. Kept on this Mac, never in the file.")
+        dailyLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        dailyLabel.textColor = .secondaryLabelColor
+        dailyRing.ringLabel = String(localized: "Daily target progress")
+        let dailyTitle = label(String(localized: "Daily target"), bold: true)
+        let dailyFields = NSStackView(views: [dailyTitle, dailyField])
+        dailyFields.spacing = 8
+        let dailyText = NSStackView(views: [dailyFields, dailyLabel])
+        dailyText.orientation = .vertical
+        dailyText.alignment = .leading
+        dailyText.spacing = 4
+        dailyRing.setContentHuggingPriority(.required, for: .horizontal)
+        let dailyRow = NSStackView(views: [dailyRing, dailyText])
+        dailyRow.spacing = 10
+        dailyRow.alignment = .centerY
+
         let note = NSTextField(labelWithString: String(localized: "Reading time at \(ReadingTime.wordsPerMinute) words a minute."))
         note.font = .systemFont(ofSize: NSFont.smallSystemFontSize - 1)
         note.textColor = .tertiaryLabelColor
 
-        let stack = NSStackView(views: [grid, NSBox.separator(), goalRow, note])
+        let stack = NSStackView(views: [grid, NSBox.separator(), goalRow, dailyRow, note])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -150,6 +181,10 @@ final class StatsPopover: NSObject, NSPopoverDelegate, NSTextFieldDelegate {
     }
 
     func show(relativeTo view: NSView) {
+        // One count as it opens, so the ring isn't waiting on the pause.
+        // Not the typing path.
+        (NSApp.delegate as? AppDelegate)?.dailyWords.rollToNow()
+        tab?.commitDailyWords()
         refresh()
         popover.show(relativeTo: view.bounds, of: view, preferredEdge: .maxY)
     }
@@ -184,6 +219,7 @@ final class StatsPopover: NSObject, NSPopoverDelegate, NSTextFieldDelegate {
             tab.editing.documentCounts = .some(docCounts)
         }
         set("", docCounts, lines: tab.lineIndex.lineCount)
+        updateDaily()
         let sel = tab.textView.selectedRange()
         let hasSel = sel.length > 0
         selectionHeader.isHidden = !hasSel
@@ -225,12 +261,44 @@ final class StatsPopover: NSObject, NSPopoverDelegate, NSTextFieldDelegate {
         values["goal.percent"] = "\(pct)"
     }
 
-    /// Return or leaving the field sets the goal; empty (or 0) clears it.
-    func controlTextDidEndEditing(_ obj: Notification) { commitGoal() }
+    /// The second ring: words written today against the daily target.
+    /// Off (no target) draws an empty ring. The number comes from the
+    /// app's counter, which does not move on a keystroke.
+    private func updateDaily() {
+        let counter = (NSApp.delegate as? AppDelegate)?.dailyWords
+        let goal = counter?.target
+        let written = counter?.wordsToday ?? 0
+        if dailyField.currentEditor() == nil { dailyField.stringValue = goal.map(fmt) ?? "" }
+        guard let goal else {
+            dailyRing.progress = 0
+            dailyLabel.stringValue = String(localized: "Set a target for today.")
+            values["daily"] = nil
+            values["daily.words"] = nil
+            values["daily.percent"] = nil
+            return
+        }
+        dailyRing.progress = WordGoal.progress(words: written, goal: goal)
+        let pct: Int = WordGoal.percent(words: written, goal: goal)
+        let ws: String = fmt(written), gs: String = fmt(goal)
+        dailyLabel.stringValue = String(localized: "\(ws) of \(gs) words today (\(pct) %)")
+        values["daily"] = gs
+        values["daily.words"] = ws
+        values["daily.percent"] = "\(pct)"
+    }
+
+    /// Return or leaving a field sets that goal; empty (or 0) clears it.
+    func controlTextDidEndEditing(_ obj: Notification) {
+        if (obj.object as? NSTextField) === dailyField { commitDaily() } else { commitGoal() }
+    }
 
     func commitGoal() {
         guard let tab else { return }
         tab.setWordGoal(WordGoal.parse(goalField.stringValue))
+        refresh()
+    }
+
+    func commitDaily() {
+        (NSApp.delegate as? AppDelegate)?.dailyWords.setTarget(WordGoal.parse(dailyField.stringValue))
         refresh()
     }
 
