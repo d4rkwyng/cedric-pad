@@ -187,6 +187,16 @@ func context(_ text: String, language: String = "plain") -> OwlContext { window(
         reg.unregister(name: "local:test")
         #expect(!reg.hasAIProvider)
     }
+
+    /// Settings selects Rules + AI only when the AI goes from off to on.
+    /// An interval or model change while it is already on leaves Rules.
+    @Test func rulesPlusAIOnlyWhenTheAITurnsOn() {
+        #expect(OwlHintSource.rules.afterAIApply(wasActive: false, isActive: true) == .rulesAndAI)
+        #expect(OwlHintSource.rules.afterAIApply(wasActive: true, isActive: true) == .rules)
+        #expect(OwlHintSource.rulesAndAI.afterAIApply(wasActive: true, isActive: true) == .rulesAndAI)
+        #expect(OwlHintSource.rules.afterAIApply(wasActive: false, isActive: false) == .rules)
+        #expect(OwlHintSource.rulesAndAI.afterAIApply(wasActive: true, isActive: false) == .rulesAndAI)
+    }
 }
 
 @Suite struct OwlRulesTests {

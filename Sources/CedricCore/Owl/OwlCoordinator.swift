@@ -4,6 +4,13 @@ import Foundation
 public enum OwlHintSource: String, Sendable, CaseIterable {
     case rules
     case rulesAndAI
+
+    /// Rules + AI is selected only when the AI goes from off to on.
+    /// A later change (the interval, the model, the address) leaves a
+    /// Rules choice made in Cedric's Hints.
+    public func afterAIApply(wasActive: Bool, isActive: Bool) -> OwlHintSource {
+        isActive && !wasActive ? .rulesAndAI : self
+    }
 }
 
 /// The providers the owl asks, in order. The rules register at launch; an

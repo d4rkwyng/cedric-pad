@@ -55,12 +55,15 @@ final class OwlHub {
 
     // MARK: Local AI
 
-    /// Saves new AI settings and applies them; turning the AI on also
-    /// selects "Rules + AI".
+    /// Saves new AI settings and applies them. Turning the AI on (it was
+    /// off, and the engine is now running) selects "Rules + AI". A change
+    /// while it is already on leaves a Rules choice the user made.
     func applyAISettings(_ s: LocalAISettings) async {
+        let wasActive = ai.isActive
         AIStore.save(s)
         await ai.apply(s)
-        if ai.isActive, Settings.shared.owlHintSource != .rulesAndAI { Settings.shared.owlHintSource = .rulesAndAI }
+        let source = Settings.shared.owlHintSource.afterAIApply(wasActive: wasActive, isActive: ai.isActive)
+        if source != Settings.shared.owlHintSource { Settings.shared.owlHintSource = source }
     }
 
     func appActiveChanged() {
