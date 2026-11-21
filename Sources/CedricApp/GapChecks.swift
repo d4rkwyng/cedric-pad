@@ -124,7 +124,7 @@ extension DevChecks {
                 key("z", [.command])
             },
             sync {
-                // Format › Indentation: tabs, width 2.
+                // Text › Indentation: tabs, width 2.
                 choose(#selector(AppDelegate.indentUsingTabsMenu(_:)))
                 choose(#selector(AppDelegate.tabWidthMenu(_:)), 2)
                 expect(tab.indentation == Indentation(usesTabs: true, width: 2), "the tab's indentation is picked from the menu", "\(tab.indentation)")

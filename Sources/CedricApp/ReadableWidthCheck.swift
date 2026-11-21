@@ -29,7 +29,7 @@ extension DevChecks {
         }
         func columnChars(_ t: EditorWindowController) -> CGFloat {
             let tv = t.textView, f = tv.font ?? Settings.shared.font
-            let w = ("0" as NSString).size(withAttributes: [.font: f]).width
+            let w = f.readableCharacterWidth
             return ((tv.textContainer?.size.width ?? 0) - 2 * (tv.textContainer?.lineFragmentPadding ?? 0)) / w
         }
         let lineHeight: CGFloat = {

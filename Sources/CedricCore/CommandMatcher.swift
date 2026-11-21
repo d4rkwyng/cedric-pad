@@ -14,7 +14,7 @@ public enum CommandMatcher {
         /// Stable identity, used for the recent list: the menu path and title.
         public var id: String
         public var title: String
-        /// The menus above the item, "Edit › Text Tools" (may be empty).
+        /// The menus above the item, "Text › Text Tools" (may be empty).
         public var path: String
         public var enabled: Bool
 

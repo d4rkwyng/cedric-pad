@@ -1,6 +1,6 @@
 import Foundation
 
-/// How a language's text folds (View › Folding).
+/// How a language's text folds (Text › Folding).
 public enum FoldKind: Sendable, Equatable {
     /// No folding: plain text, CSV, diff, batch, .reg, HTML/XML (tags are
     /// for a later version).

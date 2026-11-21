@@ -114,10 +114,10 @@ gutter, status bar, go-to-line and highlighter all use it.
 |---|---|---|
 | Column selection (or a column of carets, dragging straight down) | ⌥-drag | |
 | Add or remove a caret | ⌘-click (⌘-drag adds a selection) | |
-| Add Caret Above / Below | Edit › Selection | ⌃⇧↑ / ⌃⇧↓ |
-| Add Next Occurrence (first press: the word at the caret) | Edit › Selection | ⌘D |
-| Select All Occurrences | Edit › Selection | ⌃⌘G |
-| Single Caret | Edit › Selection (no key in the menu) | ⎋ while there are several |
+| Add Caret Above / Below | Text › Selection | ⌃⇧↑ / ⌃⇧↓ |
+| Add Next Occurrence (first press: the word at the caret) | Text › Selection | ⌘D |
+| Select All Occurrences | Text › Selection | ⌃⌘G |
+| Single Caret | Text › Selection (no key in the menu) | ⎋ while there are several |
 
 **Why NSTextView's own multi-range editing isn't used.** Probed on TextKit 2
 with the app's exact stack (plan-0.2.0.md §0): `setSelectedRanges` keeps
@@ -218,10 +218,10 @@ text at three carets.
 
 | Action | Menu / gesture | Shortcut |
 |---|---|---|
-| Fold the region at or around the caret | View › Folding › Fold | ⌥⌘← |
-| Unfold the caret line's folds | View › Folding › Unfold | ⌥⌘→ |
-| Fold All / Unfold All | View › Folding | ⌥⇧⌘← / ⌥⇧⌘→ |
-| Fold to Level 1–3 | View › Folding | |
+| Fold the region at or around the caret | Text › Folding › Fold | ⌥⌘← |
+| Unfold the caret line's folds | Text › Folding › Unfold | ⌥⌘→ |
+| Fold All / Unfold All | Text › Folding | ⌥⇧⌘← / ⌥⇧⌘→ |
+| Fold to Level 1–3 | Text › Folding | |
 | Fold or unfold one region | a click on the gutter's triangle, or on the "⋯" pill | |
 
 **Regions (CedricCore/Folding.swift, `FoldScanner`).** `Language.foldKind`:
@@ -666,16 +666,16 @@ window); the app side is `EditorTools.swift`, `FindInFilesPanel.swift` and
 | Feature | Menu | Shortcut |
 |---|---|---|
 | Open Recent | File › Open Recent (+ Clear Menu) | ⌥⌘1 … ⌥⌘9 |
-| Sort lines A→Z / Z→A / numerically | Edit › Text Tools | ⌃⌘S / ⌃⇧⌘S / ⌃⌥⌘S |
-| Remove duplicate lines / reverse lines | Edit › Text Tools | ⌃⌘R / ⌃⇧⌘R |
-| Join lines / trim trailing whitespace | Edit › Text Tools | ⌃⌘J / ⌃⌘W |
-| UPPER / lower / Title case | Edit › Text Tools | ⌃⌘U / ⌃⌘L / ⌃⌘T |
-| JSON pretty-print / minify, XML pretty-print | Edit › Text Tools | ⌃⌥⌘J / ⌃⌥⇧⌘J / ⌃⌥⌘X |
-| Base64 encode / decode, URL encode / decode | Edit › Text Tools | ⌃⌘B / ⌃⇧⌘B, ⌃⌘E / ⌃⇧⌘E |
+| Sort lines A→Z / Z→A / numerically | Text › Text Tools | ⌃⌘S / ⌃⇧⌘S / ⌃⌥⌘S |
+| Remove duplicate lines / reverse lines | Text › Text Tools | ⌃⌘R / ⌃⇧⌘R |
+| Join lines / trim trailing whitespace | Text › Text Tools | ⌃⌘J / ⌃⌘W |
+| UPPER / lower / Title case | Text › Text Tools | ⌃⌘U / ⌃⌘L / ⌃⌘T |
+| JSON pretty-print / minify, XML pretty-print | Text › Text Tools | ⌃⌥⌘J / ⌃⌥⇧⌘J / ⌃⌥⌘X |
+| Base64 encode / decode, URL encode / decode | Text › Text Tools | ⌃⌘B / ⌃⇧⌘B, ⌃⌘E / ⌃⇧⌘E |
 | Find in Files | Edit › Find in Files… | ⇧⌘F |
 | Replace in Files (+ Undo Replace in Files) | Edit › Replace in Files… / Edit › Undo Replace in Files | ⌥⇧⌘F / none |
-| Compare two tabs | View › Compare With… (next/previous difference) | ⌥⌘C (⌥⌘↓ / ⌥⌘↑) |
-| Follow a log file | View › Follow File | ⌥⌘T |
+| Compare two tabs | File › Compare › Compare With… (next/previous difference) | ⌥⌘C (⌥⌘↓ / ⌥⌘↑) |
+| Follow a log file | File › Follow File | ⌥⌘T |
 | Folder sidebar | File › Open Folder… / View › Show Folder Sidebar | ⇧⌘O / ⌃⌘1 |
 
 `CEDRIC_DUMP_SHORTCUTS=1` prints every key equivalent in the main menu and
@@ -975,6 +975,37 @@ popover opened by a click with its numbers checked; a goal typed into it;
 a real quit and a second launch on the session. `CEDRIC_PERF_WRITING=1
 Scripts/perf-check.sh` times the big files with Writing Mode on.
 
+## Prose font
+
+Settings › Writing › "Use a prose font for Markdown and plain text"
+(0.4.1, UX review #9; `Settings.useProseFont`, `proseFontName`,
+`proseFontSize`), off by default. The rules are in CedricCore's
+`ProseFont.swift` (`ProseFontTests`): it applies to `.markdown` and `.plain`
+only; its size is `proseFontSize × fontSize / defaultFontSize`, so zoom (which
+changes `fontSize`) scales both fonts; Readable Width's character is a
+proportional font's average lowercase letter (`NSFont.readableCharacterWidth`).
+`Settings.font(for:)` picks the font, `EditorWindowController.editorFont` is
+the tab's, and every per-tab use (base attributes, the gutter width, split
+panes, printing, Follow File's line height) goes through it; a language change
+re-applies the appearance when the font differs. The text is still one font
+run. Large mode (`largeReason != nil`, even after Turn On Anyway) keeps the
+monospaced font: with the prose font on, perf-compare measured typing in the
+636,293-character one-line file 20-29 % slower (start and middle medians,
+2/2 rounds), and no difference with it off; an edit that makes the document
+large re-applies the appearance. `proseFontName` is a PostScript name,
+`ProseFont.systemSerif` for New York (no public PostScript name; built with
+`withDesign(.serif)`), or nil for SF Pro. Columns: Ln/Col counts characters,
+⌥-drag (`columnCarets`) is by x position, Add Caret Above/Below keeps the
+tab-expanded character column (`MultiCaret.visualColumn`); there are no
+indentation guides. Checked by the settings check (`ProseFontCheck.swift`).
+
+## Menus (0.4.1)
+
+Text (between Edit and View, `textMenu()` in main.swift) holds Selection,
+Line, Bookmarks, Text Tools, Indentation and Folding; File holds Compare
+(a submenu) and Follow File. The shortcuts didn't change: compare
+`CEDRIC_DUMP_SHORTCUTS=1` before and after with the menu path stripped.
+
 ## Folder sidebar
 
 File › Open Folder… (⇧⌘O), a folder dropped on the Dock icon or on an
@@ -1262,7 +1293,7 @@ offers hints in a speech bubble.
   `${…}`, `%s`, `****`, the user name again…).
 - **Explain & tidy** (`RegexExplain.swift`, `Decode.swift`, `Todos.swift`
   in CedricCore; `CedricApp/Owl/OwlTools.swift`): pure, on demand only,
-  from Edit › Text Tools and the owl's popover; the result is a small
+  from Text › Text Tools and the owl's popover; the result is a small
   popover by the selection. `RegexExplain` is a hand-written parser over
   the common syntax (no engine is run); `Decode` never verifies or sends
   a JWT; `Todos` keeps only comments where a `CodeMask` exists.

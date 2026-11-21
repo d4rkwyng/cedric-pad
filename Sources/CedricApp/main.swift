@@ -30,7 +30,7 @@ func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
     return parent
 }
 
-/// Edit › Text Tools, with their key equivalents (⌃⌘ + a letter; ⇧ for
+/// Text › Text Tools, with their key equivalents (⌃⌘ + a letter; ⇧ for
 /// the inverse). `CEDRIC_DUMP_SHORTCUTS=1` lists every shortcut and fails
 /// on a clash.
 let textToolShortcuts: [(TextTool?, String, NSEvent.ModifierFlags)] = [
@@ -91,6 +91,72 @@ func cedricMenu() -> NSMenuItem {
     ])
 }
 
+/// The Text menu (0.4.1, UX review #2), between Edit and View as in BBEdit
+/// (Text) and Xcode (Editor): the commands that change or move through the
+/// text itself, taken out of Edit (Selection, Line, Bookmarks, Text Tools),
+/// View (Folding) and Format (Indentation). Edit keeps the standard
+/// clipboard, find and spelling commands; every shortcut is unchanged.
+@MainActor
+func textMenu() -> NSMenuItem {
+    submenu(String(localized: "Text"), [
+        // Multiple carets and column selection (MultiCaretEditing.swift).
+        submenu(String(localized: "Selection"), [
+            item(String(localized: "Add Next Occurrence"), #selector(AppDelegate.addNextOccurrenceMenu(_:)), "d"),
+            item(String(localized: "Select All Occurrences"), #selector(AppDelegate.selectAllOccurrencesMenu(_:)), "g", [.control, .command]),
+            .separator(),
+            item(String(localized: "Add Caret Above"), #selector(AppDelegate.addCaretAboveMenu(_:)),
+                 String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), [.control, .shift]),
+            item(String(localized: "Add Caret Below"), #selector(AppDelegate.addCaretBelowMenu(_:)),
+                 String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .shift]),
+            // ⎋ while there are 2 or more carets (no key equivalent here: see MultiCaretEditing.swift).
+            item(String(localized: "Single Caret"), #selector(AppDelegate.singleCaretMenu(_:))),
+        ]),
+        submenu(String(localized: "Line"), [
+            item(String(localized: "Duplicate Line"), #selector(AppDelegate.duplicateLineMenu(_:)), "d", [.command, .shift]),
+            item(String(localized: "Move Line Up"), #selector(AppDelegate.moveLineUpMenu(_:)),
+                 String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), [.control, .command]),
+            item(String(localized: "Move Line Down"), #selector(AppDelegate.moveLineDownMenu(_:)),
+                 String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .command]),
+            item(String(localized: "Delete Line"), #selector(AppDelegate.deleteLineMenu(_:)), "k", [.command, .shift]),
+            // "Comment Selection", as in Xcode (it uncomments commented lines too); no "Toggle" titles (UX review #17).
+            item(String(localized: "Comment Selection"), #selector(AppDelegate.toggleCommentMenu(_:)), "/"),
+            .separator(),
+            item(String(localized: "Indent"), #selector(AppDelegate.indentLinesMenu(_:)), "]"),
+            item(String(localized: "Outdent"), #selector(AppDelegate.outdentLinesMenu(_:)), "["),
+            .separator(),
+            item(String(localized: "Keep Lines Matching…"), #selector(AppDelegate.keepLinesMatchingMenu(_:))),
+            item(String(localized: "Delete Lines Matching…"), #selector(AppDelegate.deleteLinesMatchingMenu(_:))),
+        ]),
+        submenu(String(localized: "Bookmarks"), [
+            // "Remove Bookmark" on a bookmarked line (EditingFeatures.validateEditingItem).
+            item(String(localized: "Bookmark Line"), #selector(AppDelegate.toggleBookmarkMenu(_:)), f2, [.command]),
+            item(String(localized: "Next Bookmark"), #selector(AppDelegate.nextBookmarkMenu(_:)), f2, []),
+            item(String(localized: "Previous Bookmark"), #selector(AppDelegate.previousBookmarkMenu(_:)), f2, [.shift]),
+            item(String(localized: "Bookmark All Matches"), #selector(AppDelegate.bookmarkAllMatchesMenu(_:)), f2, [.command, .option]),
+            item(String(localized: "Clear Bookmarks"), #selector(AppDelegate.clearBookmarksMenu(_:)), f2, [.command, .shift]),
+            .separator(),
+            item(String(localized: "Copy Bookmarked Lines"), #selector(AppDelegate.copyBookmarkedLinesMenu(_:))),
+            item(String(localized: "Delete Bookmarked Lines"), #selector(AppDelegate.deleteBookmarkedLinesMenu(_:))),
+        ]),
+        .separator(),
+        submenu(String(localized: "Text Tools"), textToolItems()),
+        .separator(),
+        submenu(String(localized: "Indentation"), [
+            item(String(localized: "Indent Using Spaces"), #selector(AppDelegate.indentUsingSpacesMenu(_:))),
+            item(String(localized: "Indent Using Tabs"), #selector(AppDelegate.indentUsingTabsMenu(_:))),
+            .separator(),
+        ] + Indentation.widths.map {
+            item(String(localized: "Tab Width: \($0)"), #selector(AppDelegate.tabWidthMenu(_:)), represented: $0)
+        } + [
+            .separator(),
+            item(String(localized: "Convert Indentation to Spaces"), #selector(AppDelegate.convertIndentationToSpacesMenu(_:))),
+            item(String(localized: "Convert Indentation to Tabs"), #selector(AppDelegate.convertIndentationToTabsMenu(_:))),
+        ]),
+        // Code folding (Folding.swift).
+        foldingMenu(),
+    ])
+}
+
 /// F2, as a key equivalent (bookmarks, as in Notepad++: F2 / ⇧F2 / ⌘F2).
 let f2 = String(UnicodeScalar(UInt16(NSF2FunctionKey))!)
 
@@ -143,10 +209,24 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Save As…"), #selector(AppDelegate.saveDocumentAs(_:)), "s", [.command, .shift]),
         item(String(localized: "Save All"), #selector(AppDelegate.saveAll(_:)), "s", [.command, .option]),
         item(String(localized: "Revert to Saved"), #selector(AppDelegate.revertToSaved(_:))),
+        // Reloads the file as it grows, like tail -f (EditorTools.swift). In File, not View (0.4.1):
+        // it changes where the tab's text comes from, not how the window looks.
+        item(String(localized: "Follow File"), #selector(AppDelegate.followFileMenu(_:)), "t", [.command, .option]),
         .separator(),
         // Files in a git repository with a GitHub remote (GitIntegration.swift).
         item(String(localized: "Open on GitHub"), #selector(AppDelegate.openOnGitHubMenu(_:))),
         item(String(localized: "Copy GitHub Link"), #selector(AppDelegate.copyGitHubLinkMenu(_:))),
+        // Two files side by side (CompareView.swift). In File, not View (0.4.1): it opens a comparison
+        // of two documents (as FileMerge's File menu does); Next/Previous Difference act in its window.
+        submenu(String(localized: "Compare"), [
+            item(String(localized: "Compare With…"), #selector(AppDelegate.compareWithMenu(_:)), "c", [.command, .option]),
+            item(String(localized: "Compare with Last Commit"), #selector(AppDelegate.compareWithLastCommitMenu(_:))),
+            .separator(),
+            item(String(localized: "Next Difference"), #selector(CompareWindowController.nextDifference(_:)),
+                 String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.command, .option]),
+            item(String(localized: "Previous Difference"), #selector(CompareWindowController.previousDifference(_:)),
+                 String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), [.command, .option]),
+        ]),
         .separator(),
         // No shortcut: ⇧⌘P is View › Command Palette… (0.4.0), as in VS Code and iA Writer.
         item(String(localized: "Page Setup…"), #selector(AppDelegate.pageSetup(_:))),
@@ -176,18 +256,6 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Copy as Rich Text"), #selector(AppDelegate.copyAsRichTextMenu(_:))),
         item(String(localized: "Paste"), #selector(NSText.paste(_:)), "v"),
         item(String(localized: "Select All"), #selector(NSText.selectAll(_:)), "a"),
-        // Multiple carets and column selection (MultiCaretEditing.swift).
-        submenu(String(localized: "Selection"), [
-            item(String(localized: "Add Next Occurrence"), #selector(AppDelegate.addNextOccurrenceMenu(_:)), "d"),
-            item(String(localized: "Select All Occurrences"), #selector(AppDelegate.selectAllOccurrencesMenu(_:)), "g", [.control, .command]),
-            .separator(),
-            item(String(localized: "Add Caret Above"), #selector(AppDelegate.addCaretAboveMenu(_:)),
-                 String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), [.control, .shift]),
-            item(String(localized: "Add Caret Below"), #selector(AppDelegate.addCaretBelowMenu(_:)),
-                 String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .shift]),
-            // ⎋ while there are 2 or more carets (no key equivalent here: see MultiCaretEditing.swift).
-            item(String(localized: "Single Caret"), #selector(AppDelegate.singleCaretMenu(_:))),
-        ]),
         .separator(),
         submenu(String(localized: "Find"), findItems),
         item(String(localized: "Find in Files…"), #selector(AppDelegate.findInFilesMenu(_:)), "f", [.command, .shift]),
@@ -197,34 +265,6 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Go to Line…"), #selector(AppDelegate.goToLine(_:)), "l"),
         item(String(localized: "Go to Heading…"), #selector(AppDelegate.goToHeadingMenu(_:)), "j", [.command, .shift]),
         .separator(),
-        submenu(String(localized: "Line"), [
-            item(String(localized: "Duplicate Line"), #selector(AppDelegate.duplicateLineMenu(_:)), "d", [.command, .shift]),
-            item(String(localized: "Move Line Up"), #selector(AppDelegate.moveLineUpMenu(_:)),
-                 String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), [.control, .command]),
-            item(String(localized: "Move Line Down"), #selector(AppDelegate.moveLineDownMenu(_:)),
-                 String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.control, .command]),
-            item(String(localized: "Delete Line"), #selector(AppDelegate.deleteLineMenu(_:)), "k", [.command, .shift]),
-            // "Comment Selection", as in Xcode (it uncomments commented lines too); no "Toggle" titles (UX review #17).
-            item(String(localized: "Comment Selection"), #selector(AppDelegate.toggleCommentMenu(_:)), "/"),
-            .separator(),
-            item(String(localized: "Indent"), #selector(AppDelegate.indentLinesMenu(_:)), "]"),
-            item(String(localized: "Outdent"), #selector(AppDelegate.outdentLinesMenu(_:)), "["),
-            .separator(),
-            item(String(localized: "Keep Lines Matching…"), #selector(AppDelegate.keepLinesMatchingMenu(_:))),
-            item(String(localized: "Delete Lines Matching…"), #selector(AppDelegate.deleteLinesMatchingMenu(_:))),
-        ]),
-        submenu(String(localized: "Bookmarks"), [
-            // "Remove Bookmark" on a bookmarked line (EditingFeatures.validateEditingItem).
-            item(String(localized: "Bookmark Line"), #selector(AppDelegate.toggleBookmarkMenu(_:)), f2, [.command]),
-            item(String(localized: "Next Bookmark"), #selector(AppDelegate.nextBookmarkMenu(_:)), f2, []),
-            item(String(localized: "Previous Bookmark"), #selector(AppDelegate.previousBookmarkMenu(_:)), f2, [.shift]),
-            item(String(localized: "Bookmark All Matches"), #selector(AppDelegate.bookmarkAllMatchesMenu(_:)), f2, [.command, .option]),
-            item(String(localized: "Clear Bookmarks"), #selector(AppDelegate.clearBookmarksMenu(_:)), f2, [.command, .shift]),
-            .separator(),
-            item(String(localized: "Copy Bookmarked Lines"), #selector(AppDelegate.copyBookmarkedLinesMenu(_:))),
-            item(String(localized: "Delete Bookmarked Lines"), #selector(AppDelegate.deleteBookmarkedLinesMenu(_:))),
-        ]),
-        submenu(String(localized: "Text Tools"), textToolItems()),
         item(String(localized: "Auto-Close Brackets and Quotes"), #selector(AppDelegate.toggleAutoCloseBrackets(_:))),
         submenu(String(localized: "Spelling and Grammar"), [
             item(String(localized: "Show Spelling and Grammar"), #selector(NSText.showGuessPanel(_:)), ":"),
@@ -236,6 +276,8 @@ func buildMainMenu() -> NSMenu {
             item(String(localized: "Check Grammar in Prose"), #selector(AppDelegate.toggleGrammar(_:))),
         ]),
     ]))
+
+    main.addItem(textMenu())
 
     main.addItem(submenu(String(localized: "View"), [
         // Every menu command, searchable (CommandPalette.swift).
@@ -276,19 +318,9 @@ func buildMainMenu() -> NSMenu {
         item(String(localized: "Show Invisibles"), #selector(AppDelegate.toggleInvisibles(_:)), "i", [.command, .option]),
         item(String(localized: "Show Line Numbers"), #selector(AppDelegate.toggleLineNumbers(_:))),
         item(String(localized: "Highlight Occurrences"), #selector(AppDelegate.toggleHighlightOccurrences(_:))),
-        // Code folding (Folding.swift).
-        foldingMenu(),
         .separator(),
         // Two panes on one document (SplitEditor.swift).
     ] + splitEditorMenuItems() + [
-        .separator(),
-        item(String(localized: "Compare With…"), #selector(AppDelegate.compareWithMenu(_:)), "c", [.command, .option]),
-        item(String(localized: "Compare with Last Commit"), #selector(AppDelegate.compareWithLastCommitMenu(_:))),
-        item(String(localized: "Next Difference"), #selector(CompareWindowController.nextDifference(_:)),
-             String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), [.command, .option]),
-        item(String(localized: "Previous Difference"), #selector(CompareWindowController.previousDifference(_:)),
-             String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), [.command, .option]),
-        item(String(localized: "Follow File"), #selector(AppDelegate.followFileMenu(_:)), "t", [.command, .option]),
         .separator(),
         item(String(localized: "Zoom In"), #selector(AppDelegate.zoomIn(_:)), "="),
         item(String(localized: "Zoom Out"), #selector(AppDelegate.zoomOut(_:)), "-"),
@@ -313,17 +345,6 @@ func buildMainMenu() -> NSMenu {
         submenu(String(localized: "Line Endings"), LineEnding.allCases.map {
             item($0.displayName, #selector(AppDelegate.pickLineEndingMenu(_:)), represented: $0.rawValue)
         }),
-        submenu(String(localized: "Indentation"), [
-            item(String(localized: "Indent Using Spaces"), #selector(AppDelegate.indentUsingSpacesMenu(_:))),
-            item(String(localized: "Indent Using Tabs"), #selector(AppDelegate.indentUsingTabsMenu(_:))),
-            .separator(),
-        ] + Indentation.widths.map {
-            item(String(localized: "Tab Width: \($0)"), #selector(AppDelegate.tabWidthMenu(_:)), represented: $0)
-        } + [
-            .separator(),
-            item(String(localized: "Convert Indentation to Spaces"), #selector(AppDelegate.convertIndentationToSpacesMenu(_:))),
-            item(String(localized: "Convert Indentation to Tabs"), #selector(AppDelegate.convertIndentationToTabsMenu(_:))),
-        ]),
     ]))
 
     main.addItem(cedricMenu())

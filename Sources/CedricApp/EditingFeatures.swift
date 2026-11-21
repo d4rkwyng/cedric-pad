@@ -309,7 +309,7 @@ extension EditorWindowController {
 
 // MARK: - Line operations
 
-/// Edit › Line: what to do to the selected lines.
+/// Text › Line: what to do to the selected lines.
 enum LineCommand {
     case duplicate, moveUp, moveDown, delete, toggleComment
 

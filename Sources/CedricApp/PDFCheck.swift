@@ -207,7 +207,7 @@ extension DevChecks {
                 for (action, name) in [(#selector(AppDelegate.revertToSaved(_:)), "Revert to Saved"),
                                        (#selector(AppDelegate.pickLanguageMenu(_:)), "Format › Language"),
                                        (#selector(AppDelegate.pickEncodingMenu(_:)), "Format › Encoding"),
-                                       (#selector(AppDelegate.indentUsingSpacesMenu(_:)), "Format › Indentation"),
+                                       (#selector(AppDelegate.indentUsingSpacesMenu(_:)), "Text › Indentation"),
                                        (#selector(AppDelegate.followFileMenu(_:)), "Follow File")] {
                     let it = menuItem(action: action)
                     expect(it != nil && !(it.map(enabled) ?? true), "disabled on a PDF tab: \(name)")

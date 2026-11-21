@@ -124,7 +124,7 @@ extension EditorWindowController {
         tv.isEditable = first.isEditable
         tv.language = first.language
         tv.folding = folding
-        tv.font = Settings.shared.font
+        tv.font = editorFont
         tv.textColor = NSColor(hex: palette.foreground)
         tv.typingAttributes = baseAttributes()
         applyPaneAppearance(pane, palette: palette)

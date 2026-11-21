@@ -135,7 +135,7 @@ extension DevChecks {
                                                (#selector(AppDelegate.addCaretAboveMenu(_:)), "Add Caret Above", up, [.control, .shift]),
                                                (#selector(AppDelegate.addCaretBelowMenu(_:)), "Add Caret Below", down, [.control, .shift])] {
                     let i = menuItem(action: sel)
-                    expect(i?.keyEquivalent == key && i?.keyEquivalentModifierMask == mods, "Edit › Selection › \(name) has its shortcut")
+                    expect(i?.keyEquivalent == key && i?.keyEquivalentModifierMask == mods, "Text › Selection › \(name) has its shortcut")
                     expect(i.map { app.validateMenuItem($0) } == true, "\(name) is enabled in a text tab")
                 }
                 let single = menuItem(action: #selector(AppDelegate.singleCaretMenu(_:)))

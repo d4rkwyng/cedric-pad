@@ -104,6 +104,8 @@ extension EditorWindowController {
         grammar.apply()
         if extrasPaused != wasPaused { OwlHub.shared.largeModeChanged(self) }
         writingLargeModeChanged()
+        // An edit made the document large: the prose font (if any) gives way to the monospaced one.
+        if !newText, textView.font != editorFont { applyAppearance() }
     }
 
     /// "Turn On Anyway".

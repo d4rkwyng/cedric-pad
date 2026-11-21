@@ -317,7 +317,7 @@ extension EditorWindowController {
 
     var isScrolledToBottom: Bool {
         let clip = scrollView.contentView
-        let lineHeight = Settings.shared.font.boundingRectForFont.height
+        let lineHeight = editorFont.boundingRectForFont.height
         return clip.bounds.maxY >= textView.frame.maxY - lineHeight
     }
 

@@ -161,6 +161,19 @@ folder that points outside the document's folder.
 
 ## Editing
 
+### The Text menu
+
+The **Text** menu, between Edit and View (as BBEdit's Text menu and
+Xcode's Editor menu), holds the commands that change or move through the
+text: **Selection** (multiple carets), **Line** (duplicate, move, delete,
+Comment Selection, indent, filter lines), **Bookmarks**, **Text Tools**,
+**Indentation** (spaces or tabs and the tab width for one tab) and
+**Folding**. Edit keeps the clipboard, Find and spelling commands; View
+keeps how the window looks. **File › Compare** holds Compare With… (⌥⌘C),
+Compare with Last Commit and Next / Previous Difference (⌥⌘↓ / ⌥⌘↑), and
+**File › Follow File** (⌥⌘T) reloads a growing log file. Every shortcut is
+the same as before 0.4.1; only the menus moved.
+
 ### Command palette
 
 **View › Command Palette…** (⇧⌘P) lists every command in the menu bar,
@@ -297,7 +310,7 @@ bar there.
 | Select every match | ⌃⌘G |
 | Go back to one caret | ⎋ |
 
-The menu items are in Edit › Selection. Typing, Delete, Return (with
+The menu items are in Text › Selection. Typing, Delete, Return (with
 indent), Tab, auto-closed brackets and quotes, copy, cut, paste, the
 arrow keys and ⇧-arrows work at every caret. Pasting as many lines as
 there are carets puts one line at each. The status bar shows the number
@@ -315,11 +328,11 @@ pill to unfold.
 
 | To | Do |
 |---|---|
-| Fold the block at (or around) the caret | ⌥⌘← (View › Folding › Fold) |
+| Fold the block at (or around) the caret | ⌥⌘← (Text › Folding › Fold) |
 | Unfold the caret line's block | ⌥⌘→ |
 | Fold every block | ⌥⇧⌘← |
 | Unfold everything | ⌥⇧⌘→ |
-| Show only the outer levels | View › Folding › Fold to Level 1, 2 or 3 |
+| Show only the outer levels | Text › Folding › Fold to Level 1, 2 or 3 |
 
 What folds:
 
@@ -379,7 +392,7 @@ searched, so typing stays fast in big files.
 
 ### Line operations
 
-**Line operations** (Edit › Line): Duplicate Line (⇧⌘D), Move Line Up /
+**Line operations** (Text › Line): Duplicate Line (⇧⌘D), Move Line Up /
 Down (⌃⌘↑ / ⌃⌘↓), Delete Line (⇧⌘K), Comment Selection (⌘/, with the
 language's own comment marker: `//`, `#`, `/* */` or `<!-- -->`). Each
 works on every line the selection touches and is one undo step. ⌘X with
@@ -388,10 +401,10 @@ nothing selected cuts the whole line.
 ### Indent and outdent
 
 Tab and ⇧Tab on a selection of several lines
-(or Edit › Line › Indent ⌘] / Outdent ⌘[) shift every line by one step,
+(or Text › Line › Indent ⌘] / Outdent ⌘[) shift every line by one step,
 as one undo step. Each tab follows the file's own indentation (tabs, or
 2, 3, 4 or 8 spaces, read from its first lines), else the default in
-Settings; Format › Indentation picks spaces or tabs and the tab width for
+Settings; Text › Indentation picks spaces or tabs and the tab width for
 one tab (kept with the session) and converts the whole file between
 them. Where spaces were chosen (the file's own, the tab's, or a default
 saved in Settings), Tab inserts spaces to the next tab stop; otherwise
@@ -418,7 +431,7 @@ bracket next to the caret and its partner are boxed.
 
 ### Bookmarks
 
-**Bookmarks** (Edit › Bookmarks, as in Notepad++): Bookmark Line (⌘F2,
+**Bookmarks** (Text › Bookmarks, as in Notepad++): Bookmark Line (⌘F2,
 or click a line number; it reads Remove Bookmark on a bookmarked line), Next / Previous Bookmark (F2 / ⇧F2, wrapping),
 Bookmark All Matches (⌥⌘F2: every line matching the find bar's search,
 or the selection or word under the caret), Clear Bookmarks (⇧⌘F2).
@@ -430,7 +443,7 @@ act on them all.
 
 ### Filter lines
 
-**Filter lines** (Edit › Line › Keep Lines Matching… / Delete Lines
+**Filter lines** (Text › Line › Keep Lines Matching… / Delete Lines
 Matching…): plain text or a regular expression, with or without case,
 as one undo step; bookmarks on the lines that stay follow them.
 
@@ -515,6 +528,35 @@ stay beside their lines, and Typewriter Scrolling and Focus work the same
 in the column. Typing is as fast with it on: the column only moves when
 the window, the font or the setting changes.
 
+### Prose font
+
+**Settings › Writing › Use a prose font for Markdown and plain text**
+(off by default, so nothing changes until you turn it on) sets Markdown
+and plain-text tabs in a font of their own: the system font (SF Pro) by
+default, New York, or any installed family, at its own size (15 pt by
+default). Code tabs keep the monospaced font from Settings › General, and
+a tab switches font when its language changes. Zoom (⌘+ / ⌘− / ⌘0, the
+status bar's percentage) scales both fonts by the same ratio. A large
+document (large-document mode: a line over 20,000 characters, or a file
+over about 25 MB) keeps the monospaced font, even after Turn On Anyway:
+a proportional font made typing on a very long line noticeably slower.
+
+Line numbers, folding, git bars, Readable Width, Writing Mode's Focus and
+Typewriter Scrolling, printing and split view work the same with it.
+Readable Width counts a proportional font's characters by its average
+lowercase letter, so the column still holds about the number of
+characters set. Things that depend on columns:
+
+- **Ln, Col** in the status bar counts characters, as before; it doesn't
+  depend on the font.
+- **⌥-drag** (column selection) selects the rectangle you drag, by
+  position, so each row's selection starts and ends under the pointer
+  rather than at the same character.
+- **Add Caret Above / Below** (⌃⇧↑ / ⌃⇧↓) keeps the character column, as
+  in a monospaced font; in a proportional font the new caret need not sit
+  directly above or below.
+- Owlink draws no indentation guides, so there are none to misalign.
+
 ## Spelling and grammar
 
 ### Fix Typos…
@@ -587,7 +629,8 @@ menu overrides it.
 System (light or dark with macOS), Light, Dark, Tankard (deep
 purple and amber) and Dracula, the same set as Tankard. Every theme's text
 colours meet WCAG AA contrast (4.5:1), checked by a test. SF Mono by
-default, or any installed fixed-pitch font; ⌘+ / ⌘− / ⌘0 zoom. The zoom
+default, or any installed fixed-pitch font (Markdown and plain text can
+have their own *prose font*, below); ⌘+ / ⌘− / ⌘0 zoom. The zoom
 in the status bar ("110%") is a menu too: Zoom In, Zoom Out, Actual Size
 and 75 % to 200 %. With the preview docked beside the editor, the status
 bar's items stay under the editor (both panes of a split).
@@ -601,11 +644,11 @@ leave it. Settings opens on the tab you last used.
 
 - **General**: theme, font and size, whether closing the last window
   quits, and Default editor for… (below).
-- **Editor**: the default indentation for new files (Format ›
+- **Editor**: the default indentation for new files (Text ›
   Indentation changes one tab), Wrap lines, Show invisibles, Show line
   numbers, Highlight occurrences, Auto-close brackets and quotes, and git
   changes in the gutter.
-- **Writing**: the readable width's column, Check spelling while typing,
+- **Writing**: the prose font (below), the readable width's column, Check spelling while typing,
   Check grammar in prose, and Style Check with its Also flag and Never
   flag lists.
 - **Cedric**: Show Cedric, Ask Cedric, Style tips in code, and the
@@ -965,7 +1008,7 @@ deleted (Settings: "Show git changes in the gutter", on by default).
 **File › Open on GitHub** and **Copy GitHub Link** link to the file
 with `#L10` or `#L10-L20` for the selection (the branch if it has an
 upstream, else the commit), for a github.com or GitHub Enterprise
-`origin`; **View › Compare with Last Commit** shows the last commit
+`origin`; **File › Compare › Compare with Last Commit** shows the last commit
 beside the current text. Owlink runs the local git only, after the
 window is up, on a background queue; no network, no sign-in. Without
 the developer tools (or another git) it does nothing, rather than
@@ -1188,7 +1231,7 @@ Cedric looks at the document.
 
 ### Explain Regex, Decode Selection, Find TODOs
 
-In Edit › Text Tools, and in the owl's menu when they apply. All three
+In Text › Text Tools, and in the owl's menu when they apply. All three
 work offline.
 
 - **Explain Regex** (with a regular expression selected; a JavaScript

@@ -1,7 +1,7 @@
 import AppKit
 import CedricCore
 
-/// Multiple carets and column selection (0.2.0): Edit › Selection › Add
+/// Multiple carets and column selection (0.2.0): Text › Selection › Add
 /// Next Occurrence (⌘D), Select All Occurrences (⌃⌘G), Add Caret Above
 /// (⌃⇧↑), Add Caret Below (⌃⇧↓) and Single Caret; ⌥-drag for a column,
 /// ⌘-click to add or remove a caret, ⎋ back to one caret.
@@ -113,7 +113,7 @@ extension EditorTextView {
         needsDisplay = true
     }
 
-    /// ⎋ / Edit › Selection › Single Caret: back to the primary caret.
+    /// ⎋ / Text › Selection › Single Caret: back to the primary caret.
     func collapseToPrimary() {
         guard let m = multiCarets else { return }
         setCarets([m[multiPrimary]], primary: 0)

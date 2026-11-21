@@ -98,6 +98,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let styleCheck = NSButton(checkboxWithTitle: String(localized: "Style Check: filler words, redundancies, clichés"), target: nil, action: nil)
     let styleExtra = NSTextField()
     let styleExceptions = NSTextField()
+    /// The prose font (0.4.1, UX review #9): Markdown and plain-text tabs
+    /// in their own font, usually proportional; off by default.
+    let useProseFont = NSButton(checkboxWithTitle: String(localized: "Use a prose font for Markdown and plain text"), target: nil, action: nil)
+    let proseFontPopup = NSPopUpButton()
+    let proseFontSize = NSTextField()
+    let proseFontStepper = NSStepper()
     // Cedric
     let showOwl = NSButton(checkboxWithTitle: String(localized: "Show Cedric"), target: nil, action: nil)
     let owlChat = NSButton(checkboxWithTitle: String(localized: "Ask Cedric"), target: nil, action: nil)
@@ -170,7 +176,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                 MainActor.assumeIsolated { self?.refresh() }
             })
         }
-        for b in [gitChanges, owlChat, showOwl, styleTips, styleCheck, quitOnLastClose] + Array(toggles.values) {
+        for b in [gitChanges, owlChat, showOwl, styleTips, styleCheck, quitOnLastClose, useProseFont] + Array(toggles.values) {
             b.target = self; b.action = #selector(changed(_:))
         }
     }
@@ -333,7 +339,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let t = toggles
         return page([grid([
             [label(String(localized: "Default indent:")), indentRow],
-            [NSGridCell.emptyContentView, note(String(localized: "For new files and files that don't indent yet; a file's own indentation wins. Format › Indentation changes one tab."))],
+            [NSGridCell.emptyContentView, note(String(localized: "For new files and files that don't indent yet; a file's own indentation wins. Text › Indentation changes one tab."))],
             [label(String(localized: "View:")), t[.wrapLines]!],
             [NSGridCell.emptyContentView, t[.showInvisibles]!],
             [NSGridCell.emptyContentView, t[.showLineNumbers]!],
@@ -367,8 +373,37 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             f.setAccessibilityLabel(spoken)
             f.setAccessibilityHelp(hint)
         }
+        // The prose font: every installed family (the system's two faces first).
+        let pm = proseFontPopup.menu ?? NSMenu()
+        for (title, rep) in [(String(localized: "System Font (SF Pro)"), ""), (String(localized: "New York (System Serif)"), ProseFont.systemSerif)] {
+            proseFontPopup.addItem(withTitle: title)
+            proseFontPopup.lastItem?.representedObject = rep
+        }
+        pm.addItem(.separator())
+        for fam in NSFontManager.shared.availableFontFamilies where !fam.hasPrefix(".") {
+            let i = NSMenuItem(title: fam, action: nil, keyEquivalent: "")
+            i.representedObject = "family:" + fam
+            pm.addItem(i)
+        }
+        proseFontPopup.target = self; proseFontPopup.action = #selector(changed(_:))
+        proseFontPopup.setAccessibilityLabel(String(localized: "Prose font"))
+        proseFontSize.alignment = .right
+        proseFontSize.target = self; proseFontSize.action = #selector(changed(_:))
+        proseFontSize.cell?.sendsActionOnEndEditing = true
+        proseFontSize.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        proseFontSize.setAccessibilityLabel(String(localized: "Prose font size in points"))
+        proseFontStepper.minValue = ProseFont.sizeRange.lowerBound; proseFontStepper.maxValue = ProseFont.sizeRange.upperBound
+        proseFontStepper.increment = 1
+        proseFontStepper.target = self; proseFontStepper.action = #selector(stepped(_:))
+        proseFontStepper.setAccessibilityLabel(String(localized: "Prose font size"))
+        let proseRow = NSStackView(views: [proseFontPopup, proseFontSize, proseFontStepper, NSTextField(labelWithString: "pt")])
+        proseRow.spacing = 6
+        useProseFont.toolTip = String(localized: "Markdown and plain-text tabs use this font; code keeps the monospaced font in General. Zoom changes both.")
         let t = toggles
         return page([grid([
+            [label(String(localized: "Prose font:")), useProseFont],
+            [NSGridCell.emptyContentView, proseRow],
+            [NSGridCell.emptyContentView, note(String(localized: "Markdown and plain text only; code keeps the font in General. Zoom changes both. Text › Selection › Add Caret Above and Below keep the character column, which need not line up in a proportional font."))],
             [label(String(localized: "Readable width:")), readableRow],
             [label(String(localized: "Spelling:")), t[.checkSpellingWhileTyping]!],
             [label(String(localized: "Grammar:")), t[.checkGrammar]!],
@@ -437,6 +472,22 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             indentKind.selectItem(at: ind.usesTabs ? 1 : 0)
             tabWidth.selectItem(withTag: ind.width)
         }
+        if proseFontPopup.numberOfItems > 0 {
+            let want: String
+            switch s.proseFontName {
+            case nil: want = ""
+            case ProseFont.systemSerif?: want = ProseFont.systemSerif
+            case let n?: want = "family:" + (NSFont(name: n, size: 13)?.familyName ?? n)
+            }
+            let i = proseFontPopup.indexOfItem(withRepresentedObject: want)
+            proseFontPopup.selectItem(at: i >= 0 ? i : 0)
+        }
+        useProseFont.state = s.useProseFont ? .on : .off
+        if proseFontSize.currentEditor() == nil {
+            proseFontSize.integerValue = Int(s.proseFontSize)
+            proseFontStepper.integerValue = Int(s.proseFontSize)
+        }
+        for c in [proseFontPopup, proseFontSize, proseFontStepper] as [NSControl] { c.isEnabled = s.useProseFont }
         if readableColumns.currentEditor() == nil {
             readableColumns.integerValue = s.readableColumns
             readableStepper.integerValue = s.readableColumns
@@ -459,6 +510,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func stepped(_ sender: NSStepper) {
+        if sender === proseFontStepper {
+            proseFontSize.integerValue = sender.integerValue
+            changed(proseFontSize)
+            return
+        }
         if sender === readableStepper {
             readableColumns.integerValue = sender.integerValue
             changed(readableColumns)
@@ -480,6 +536,22 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         case fontPopup: s.fontName = fontNames[max(0, fontPopup.indexOfSelectedItem)]
         case fontSize: if fontSize.integerValue >= 6, CGFloat(fontSize.integerValue) != s.fontSize { s.fontSize = CGFloat(fontSize.integerValue) }
         case readableColumns: if readableColumns.integerValue > 0, readableColumns.integerValue != s.readableColumns { s.readableColumns = readableColumns.integerValue }
+        case useProseFont: s.useProseFont = useProseFont.state == .on
+        case proseFontPopup:
+            let rep = proseFontPopup.selectedItem?.representedObject as? String ?? ""
+            if rep.hasPrefix("family:") {
+                let fam = String(rep.dropFirst(7))
+                // The family's regular face (else any face of it).
+                let face = NSFontManager.shared.font(withFamily: fam, traits: [], weight: 5, size: 13)
+                    ?? NSFontManager.shared.availableMembers(ofFontFamily: fam)?.first.flatMap { ($0.first as? String).flatMap { NSFont(name: $0, size: 13) } }
+                s.proseFontName = face?.fontName
+            } else {
+                s.proseFontName = rep.isEmpty ? nil : rep
+            }
+        case proseFontSize:
+            if proseFontSize.integerValue >= Int(ProseFont.sizeRange.lowerBound), CGFloat(proseFontSize.integerValue) != s.proseFontSize {
+                s.proseFontSize = CGFloat(proseFontSize.integerValue)
+            }
         case gitChanges: s.showGitChanges = gitChanges.state == .on
         case quitOnLastClose: s.quitWhenLastWindowCloses = quitOnLastClose.state == .on
         case showOwl: s.showOwl = showOwl.state == .on

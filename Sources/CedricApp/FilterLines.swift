@@ -1,7 +1,7 @@
 import AppKit
 import CedricCore
 
-// Edit › Line › Keep / Delete Lines Matching… and Edit › Bookmarks › Copy
+// Text › Line › Keep / Delete Lines Matching… and Text › Bookmarks › Copy
 // / Delete Bookmarked Lines (LineFilter in CedricCore). Each is one undo
 // step; bookmarks on lines that stay follow them.
 

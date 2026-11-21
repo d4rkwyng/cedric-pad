@@ -158,7 +158,7 @@ extension DevChecks {
             },
             snapshot("git-gutter.png"),
             sync {
-                expect(choose("Compare with Last Commit"), "View › Compare with Last Commit is enabled")
+                expect(choose("Compare with Last Commit"), "File › Compare › Compare with Last Commit is enabled")
             },
             wait("the compare tab") { app.compareWindows.last?.window?.title == "notes.swift (HEAD) ↔ notes.swift" },
             sync {

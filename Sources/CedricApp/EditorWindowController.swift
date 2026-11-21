@@ -146,7 +146,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         return g
     }()
     var grammarStep: GrammarStepController?
-    /// View › Follow File (EditorTools.swift).
+    /// File › Follow File (EditorTools.swift).
     var tail: FileTail?
     /// Large mode (LargeDocumentMode.swift): why, and "Turn On Anyway".
     var largeReason: LargeDocument.Reason?
@@ -423,8 +423,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
 
     var text: String { textView.string }
 
+    /// The tab's font: Settings' prose font for Markdown and plain text
+    /// when "Use a prose font" is on (0.4.1), else the monospaced editor
+    /// font. A large document (large mode, even after Turn On Anyway) keeps
+    /// the monospaced font: laying out a 600,000-character line in a
+    /// proportional font made typing 20-29 % slower (perf-compare).
+    var editorFont: NSFont { largeReason != nil ? Settings.shared.font : Settings.shared.font(for: doc.language) }
+
     func baseAttributes() -> [NSAttributedString.Key: Any] {
-        let font = Settings.shared.font
+        let font = editorFont
         let para = NSMutableParagraphStyle()
         let space = (String(repeating: " ", count: tabWidth) as NSString).size(withAttributes: [.font: font]).width
         para.tabStops = []
@@ -605,8 +612,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if editing.writing.focus { applyFocusNow(force: true) }
         // Font and foreground over the whole text: one attribute run.
         let attrs = baseAttributes()
+        let font = editorFont
         if let storage = textView.textStorage, storage.length > 0,
-           (storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont) != s.font
+           (storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont) != font
             || (storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) != NSColor(hex: p.foreground) {
             loading = true
             storage.beginEditing()
@@ -615,7 +623,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
             loading = false
         }
         for tv in panes.map(\.textView) {
-            tv.font = s.font
+            tv.font = font
             tv.textColor = NSColor(hex: p.foreground)
             tv.typingAttributes = attrs
         }
@@ -682,7 +690,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let fold = foldingAvailable ? GutterView.foldColumnWidth : 0
         for pane in panes {
             pane.gutter.foldColumn = fold
-            pane.container.gutterWidth = pane.gutter.requiredWidth(lines: lineIndex.lineCount, font: Settings.shared.font)
+            pane.container.gutterWidth = pane.gutter.requiredWidth(lines: lineIndex.lineCount, font: editorFont)
             pane.gutter.needsDisplay = true
         }
     }
@@ -773,6 +781,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         let l = doc.language
         colorizer.setLanguage(l)
         panes.forEach { $0.textView.language = l }
+        // Prose and code can use different fonts (Settings › Writing › prose font).
+        if textView.font != editorFont { applyAppearance() }
         foldingContextChanged()
         updateGutterWidth()
         applyReadableWidth()
