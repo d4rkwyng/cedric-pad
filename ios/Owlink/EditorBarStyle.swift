@@ -6,19 +6,24 @@ import CedricCore
 /// The editor uses `navigationItem.style = .editor` with `documentProperties`,
 /// so the file name is the document title (a menu), not the bar's plain
 /// title label. On iOS 26/27 that title is drawn from the window scene: its
-/// foreground comes from the scene's interface style and from the window
-/// and navigation-bar tint, including `UINavigationBar.appearance()`, and
-/// it ignores `titleTextAttributes` on the bar instance. Setting only those
-/// attributes, or only the navigation controller's interface style, leaves
-/// the name on the phone's label colour — near-black on a dark theme while
-/// the phone is in light mode.
+/// foreground comes from the scene's interface style and from this window's
+/// tint and the navigation bar's tint. It ignores `titleTextAttributes` on
+/// the bar instance. Setting only those attributes, or only the navigation
+/// controller's interface style, leaves the name on the phone's label
+/// colour — near-black on a dark theme while the phone is in light mode.
+///
+/// Nothing here writes `UINavigationBar.appearance()`. That proxy is
+/// process-wide: a detached preview never put it back, and one editor
+/// dismissing cleared it under every other editor. Each window keeps its
+/// own tint and interface style, and dismissing an editor restores only
+/// that window.
 enum EditorBarStyle {
     /// System follows the phone. A fixed theme forces its own light or dark.
     static func interfaceStyle(theme: EditorTheme, isDark: Bool) -> UIUserInterfaceStyle {
         theme == .system ? .unspecified : (isDark ? .dark : .light)
     }
 
-    /// One appearance, shared by the bar, the item and the appearance proxy.
+    /// One appearance, shared by the bar and the navigation item.
     static func appearance(foreground: UIColor) -> UINavigationBarAppearance {
         let appearance = UINavigationBarAppearance()
         appearance.configureWithDefaultBackground()
@@ -39,16 +44,6 @@ enum EditorBarStyle {
                       interfaceStyle: UIUserInterfaceStyle) {
         let appearance = appearance(foreground: foreground)
         let titleAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: foreground]
-        // The document title is built from the process-wide proxy, not only
-        // the bar it is shown in. Restored when the editor goes away.
-        let proxy = UINavigationBar.appearance()
-        proxy.tintColor = foreground
-        proxy.titleTextAttributes = titleAttributes
-        proxy.standardAppearance = appearance
-        proxy.compactAppearance = appearance
-        proxy.scrollEdgeAppearance = appearance
-        proxy.compactScrollEdgeAppearance = appearance
-        proxy.overrideUserInterfaceStyle = interfaceStyle
         if let bar = navigationController?.navigationBar {
             bar.standardAppearance = appearance
             bar.compactAppearance = appearance
@@ -85,19 +80,11 @@ enum EditorBarStyle {
         window.windowScene?.traitOverrides.userInterfaceStyle = interfaceStyle
     }
 
-    /// Puts the appearance proxy and the scene back to the phone's style
-    /// once the editor (or a detached preview) has gone.
+    /// Puts this window back on the phone's style once its editor has gone.
+    /// Other windows are left as they are. A detached preview has no call:
+    /// its window goes away with the scene, and there is no shared proxy
+    /// to put back.
     static func restore(window: UIWindow?) {
-        let proxy = UINavigationBar.appearance()
-        let blank = UINavigationBarAppearance()
-        blank.configureWithDefaultBackground()
-        proxy.tintColor = nil
-        proxy.titleTextAttributes = nil
-        proxy.standardAppearance = blank
-        proxy.compactAppearance = blank
-        proxy.scrollEdgeAppearance = blank
-        proxy.compactScrollEdgeAppearance = blank
-        proxy.overrideUserInterfaceStyle = .unspecified
         window?.tintColor = nil
         window?.overrideUserInterfaceStyle = .unspecified
         window?.traitOverrides.userInterfaceStyle = .unspecified
