@@ -260,6 +260,80 @@ final class SlowProvider: OwlHintProvider, @unchecked Sendable {
         await bridge.apply(s)
         #expect(registry.entries.map(\.provider.name) == ["local:qwen2.5-coder-1.5b-instruct-mlx"])
     }
+
+    /// Interval and automatic checks retune the scheduler. They must not
+    /// rebuild the provider or cancel a check that's already running.
+    @Test func intervalOrAutomaticChangeKeepsTheProviderAndTheCheck() async {
+        let provider = SlowProvider(delay: 0.4)
+        let rig = Rig(provider: provider)
+        await rig.bridge.apply(Self.fast)
+        let running = rig.bridge.scheduler
+        let doc = UUID()
+        #expect(rig.bridge.checkNow(context("if i <= n {}", gen: 1, doc: doc)))
+        #expect(await eventually { @MainActor in rig.bridge.thinking.contains(doc) })
+        var tweaked = Self.fast
+        tweaked.minInterval = 30
+        tweaked.automaticChecks = false
+        tweaked.pauseDelay = 2
+        tweaked.timeout = 8
+        tweaked.minIdle = 1
+        await rig.bridge.apply(tweaked)
+        #expect(rig.factoryBox.value == 1)
+        #expect(rig.bridge.scheduler === running)
+        #expect(rig.bridge.providerName == "local:test-qwen")
+        #expect(rig.bridge.thinking.contains(doc))
+        let config = await rig.bridge.scheduler?.config
+        #expect(config?.minInterval == 30 && config?.automatic == false)
+        #expect(config?.pauseDelay == 2 && config?.timeout == 8 && config?.minIdle == 1)
+        #expect(await eventually { @MainActor in rig.hints.first?.1.first?.title == "Off by one" })
+        #expect(provider.calls == 1)
+    }
+
+    /// A new backend, model or address rebuilds the provider (and, with no
+    /// model chosen, asks the server for its list). The schedule does not.
+    @Test func backendModelOrAddressChangesRebuildTheProvider() async {
+        let server = StubServer()
+        server.json("/v1/models", ["data": [["id": "qwen/qwen3.8-27b"], ["id": "qwen2.5-coder-1.5b-instruct-mlx"],
+                                            ["id": "qwen2.5-coder-3b-instruct"]]])
+        let registry = OwlProviderRegistry()
+        let calls = Box(0)
+        let session = server.session
+        let bridge = LocalAIOwlBridge(registry: registry, makeProvider: { s in
+            calls.mutate { $0 += 1 }
+            return await LocalAIOwl.makeProvider(settings: s, session: session)
+        })
+        func modelHits() -> Int { server.recorded.filter { $0.path == "/v1/models" }.count }
+        var s = LocalAISettings(enabled: true, backend: .custom, baseURL: server.baseURL, minInterval: 90, automaticChecks: true)
+        await bridge.apply(s)
+        #expect(calls.value == 1 && modelHits() == 1)
+        #expect(bridge.providerName == "local:qwen2.5-coder-3b-instruct")
+        let first = bridge.scheduler
+
+        s.minInterval = 30
+        s.automaticChecks = false
+        await bridge.apply(s)
+        #expect(calls.value == 1 && modelHits() == 1)
+        #expect(bridge.scheduler === first)
+        #expect(await bridge.scheduler?.config.minInterval == 30)
+        #expect(await bridge.scheduler?.config.automatic == false)
+
+        s.model = "qwen2.5-coder-1.5b-instruct-mlx"
+        await bridge.apply(s)
+        #expect(calls.value == 2 && modelHits() == 1)
+        #expect(bridge.providerName == "local:qwen2.5-coder-1.5b-instruct-mlx")
+        #expect(bridge.scheduler !== first)
+
+        s.baseURL = URL(string: "http://127.0.0.1:\(server.port)/v1")!
+        await bridge.apply(s)
+        #expect(calls.value == 3 && modelHits() == 1)
+
+        s.backend = .ollama
+        s.baseURL = server.baseURL
+        s.model = nil
+        await bridge.apply(s)
+        #expect(calls.value == 4 && modelHits() == 2)
+        #expect(bridge.providerName == "local:qwen2.5-coder-3b-instruct")
+    }
 }
 
 @Suite struct EngineAndPromptTests {

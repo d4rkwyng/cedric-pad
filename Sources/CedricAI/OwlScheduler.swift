@@ -171,7 +171,20 @@ public actor OwlScheduler {
         docs[id] = nil
     }
 
-    public func updateConfig(_ config: Config) { self.config = config }
+    /// New pause, interval, timeout or automatic flag. In-flight checks keep
+    /// running. Pause timers are armed again from the new config, or dropped
+    /// when automatic checks are off.
+    public func updateConfig(_ config: Config) {
+        self.config = config
+        let now = clock.now
+        for id in Array(docs.keys) {
+            docs[id]?.timer?.cancel()
+            docs[id]?.timer = nil
+            guard config.automatic, let doc = docs[id], doc.inflight == nil else { continue }
+            guard doc.askedGeneration != doc.context.editGeneration else { continue }
+            arm(id, after: remainingWait(doc, now))
+        }
+    }
 
     /// The provider is going away (AI switched off, settings changed):
     /// cancel every timer and request and forget the documents.

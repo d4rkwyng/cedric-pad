@@ -28,6 +28,29 @@ import CedricCore
         }
     }
 
+    /// A new interval or automatic flag retimes the scheduler. It does not
+    /// cancel a check that has already started.
+    @Test func updateConfigRetimesWithoutCancellingTheCheck() async {
+        let rig = Rig(hang: true)
+        let doc = UUID()
+        await rig.scheduler.contextChanged(context(gen: 1, doc: doc))
+        #expect(await eventually { rig.clock.pendingSleepers == 1 })
+        await rig.scheduler.updateConfig(.init(pauseDelay: 30, minInterval: 90, timeout: 20, automatic: false))
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        #expect(rig.clock.pendingSleepers == 0)
+        #expect(rig.provider.calls.isEmpty)
+        await rig.scheduler.updateConfig(.init(pauseDelay: 1, minInterval: 10, timeout: 20, automatic: true))
+        await rig.advance(1)
+        #expect(await eventually { rig.provider.calls == [1] })
+        #expect(rig.provider.cancellations == 0)
+        await rig.scheduler.updateConfig(.init(pauseDelay: 1, minInterval: 30, timeout: 5, automatic: true))
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        #expect(rig.provider.cancellations == 0)
+        #expect(await rig.scheduler.config.minInterval == 30)
+        #expect(await rig.scheduler.config.timeout == 5)
+        #expect(await rig.scheduler.config.automatic)
+    }
+
     @Test func firesOnlyAfterTypingPauses() async {
         let rig = Rig()
         let doc = UUID()

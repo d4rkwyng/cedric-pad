@@ -69,11 +69,21 @@ public final class LocalAIOwlBridge {
 
     public var isActive: Bool { scheduler != nil }
 
-    /// Applies new settings: tears down the old provider and, when enabled
-    /// with a local endpoint and a model (configured or auto-picked),
-    /// registers the new one. A later `apply` wins over an earlier one
-    /// still waiting on model discovery.
+    /// Applies new settings. A change of only the schedule (the interval,
+    /// automatic checks, the pause or the timeout) updates the running
+    /// scheduler and leaves the provider in place, so an in-flight check
+    /// is not cancelled and a server is not asked for its models again.
+    /// Anything else (turning AI off, or a new backend, model or address)
+    /// tears the provider down and, when enabled with a local endpoint and
+    /// a model (configured or auto-picked), registers a new one. A later
+    /// `apply` wins over an earlier one still waiting on model discovery.
     public func apply(_ new: LocalAISettings) async {
+        let previous = settings
+        if new.enabled, previous.enabled, Self.sameEngine(previous, new) {
+            settings = new
+            if let sched = scheduler { await sched.updateConfig(Self.schedulerConfig(new)) }
+            return
+        }
         applyToken += 1
         let token = applyToken
         settings = new
@@ -99,8 +109,7 @@ public final class LocalAIOwlBridge {
         }
         let sched = OwlScheduler(
             provider: provider,
-            config: .init(pauseDelay: new.pauseDelay, minInterval: new.minInterval, timeout: new.timeout, minIdle: new.minIdle,
-                          automatic: new.automaticChecks),
+            config: Self.schedulerConfig(new),
             clock: clock, power: power,
             onOutcome: { [weak self] id, outcome in
                 Task { @MainActor in
@@ -156,6 +165,17 @@ public final class LocalAIOwlBridge {
         case .cancelled, .stale: result = "interrupted by an edit"
         }
         return "Last checked \(ago) ago · \(engine) · \(result)"
+    }
+
+    /// Backend, model and address. The schedule is not part of this: those
+    /// changes go through `OwlScheduler.updateConfig`.
+    private static func sameEngine(_ a: LocalAISettings, _ b: LocalAISettings) -> Bool {
+        a.backend == b.backend && a.model == b.model && a.baseURL == b.baseURL
+    }
+
+    private static func schedulerConfig(_ s: LocalAISettings) -> OwlScheduler.Config {
+        .init(pauseDelay: s.pauseDelay, minInterval: s.minInterval, timeout: s.timeout,
+              minIdle: s.minIdle, automatic: s.automaticChecks)
     }
 
     private func teardown() {
