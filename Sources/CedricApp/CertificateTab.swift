@@ -41,7 +41,6 @@ final class CertificateDetailsView: NSView, NSTextViewDelegate {
     /// Copies `copyTargets[index].value` to the general pasteboard, as is.
     func performCopy(_ index: Int) {
         guard copyTargets.indices.contains(index) else { NSSound.beep(); return }
-        PasteboardCopy.claim()
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(copyTargets[index].value, forType: .string)
@@ -302,7 +301,6 @@ final class CertificateTabController: NSWindowController, NSWindowDelegate, NSMe
     @objc func copyAsPEM(_ sender: Any?) {
         let text = pemText
         guard !text.isEmpty else { NSSound.beep(); return }
-        PasteboardCopy.claim()
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         statusBar.counts.stringValue = String(localized: "Copied as PEM")

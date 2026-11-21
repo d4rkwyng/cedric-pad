@@ -36,7 +36,6 @@ extension EditorWindowController {
     func copyBookmarkedLines() {
         guard !editing.bookmarks.isEmpty else { NSSound.beep(); return }
         let s = LineFilter.copying(lines: editing.bookmarks.lines, in: textView.string as NSString)
-        PasteboardCopy.claim()
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(s, forType: .string)

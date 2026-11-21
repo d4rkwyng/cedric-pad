@@ -496,15 +496,12 @@ final class EditorTextView: NSTextView {
     var onCutLine: (() -> Void)?
 
     override func cut(_ sender: Any?) {
-        // A synchronous clipboard write: a stale Copy as Rich Text must not replace it.
-        MainActor.assumeIsolated { _ = PasteboardCopy.claim() }
         if multiCarets != nil, multiCopy(cut: true) { return }
         if selectedRange().length == 0, let onCutLine { onCutLine(); return }
         super.cut(sender)
     }
 
     override func copy(_ sender: Any?) {
-        MainActor.assumeIsolated { _ = PasteboardCopy.claim() }
         if multiCarets != nil, multiCopy(cut: false) { return }
         super.copy(sender)
     }

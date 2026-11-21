@@ -423,7 +423,6 @@ extension EditorWindowController {
 
     @objc func copyBranchName(_ sender: Any?) {
         guard let label = gitState?.status?.label else { NSSound.beep(); return }
-        PasteboardCopy.claim()
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(label, forType: .string)
     }
@@ -440,7 +439,6 @@ extension EditorWindowController {
 
     @objc func copyGitHubLink(_ sender: Any?) {
         guard let s = gitState?.gitHubLink(lines: gitLinkLines) else { NSSound.beep(); return }
-        PasteboardCopy.claim()
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(s, forType: .string)
     }

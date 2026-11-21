@@ -3,24 +3,6 @@ import CedricCore
 import PDFKit
 import WebKit
 
-/// The generation of copies onto the general pasteboard. Main actor only.
-/// Every copy takes the next number, and an async Copy as Rich Text (or
-/// Copy as HTML) completion writes only when its number is still the
-/// latest and its tab is still the active one.
-@MainActor
-enum PasteboardCopy {
-    private static var generation = CopyGeneration()
-
-    /// The next generation. Call for every copy that writes the pasteboard,
-    /// including a synchronous plain copy.
-    @discardableResult
-    static func claim() -> UInt64 { generation.issue() }
-
-    static func allowsWrite(ticket: UInt64, documentIsActive: Bool) -> Bool {
-        generation.allowsPasteboardWrite(ticket: ticket, documentIsActive: documentIsActive)
-    }
-}
-
 /// File › Export as HTML… / Export as PDF…, and Edit › Copy as HTML /
 /// Copy as Rich Text, for Markdown: the rendered document (as the preview
 /// renders it, fenced code coloured) in a theme-neutral light style,
@@ -94,14 +76,15 @@ extension EditorWindowController {
     /// Edit › Copy as HTML: the rendered HTML of the selection (or the
     /// whole document), as text. Rendered off the main thread; `done`
     /// runs once the pasteboard has it, or once this copy is no longer
-    /// the one that should write (a newer copy, or another tab in front).
+    /// the one that should write (the pasteboard changed, or another tab
+    /// is in front).
     func copyAsHTML(done: (@MainActor () -> Void)? = nil) {
         guard doc.language == .markdown else { NSSound.beep(); return }
-        let ticket = PasteboardCopy.claim()
+        let write = PasteboardWrite(changeCount: NSPasteboard.general.changeCount)
         let md = exportSelectionMarkdown
         let vault = PreviewController.exportVault(for: doc.fileURL?.deletingLastPathComponent())
         MarkdownWork.run({ HTMLScrub.noScript(Markdown.render(md, options: .export(vault: vault))) }) { [weak self] html in
-            guard let self, self.pasteboardCopyIsCurrent(ticket) else { done?(); return }
+            guard let self, self.pasteboardWriteIsCurrent(write) else { done?(); return }
             let pb = NSPasteboard.general
             pb.clearContents()
             pb.setString(html, forType: .string)
@@ -116,13 +99,15 @@ extension EditorWindowController {
     /// with `[[wikilinks]]` reuses the preview's index when that is already
     /// built, and otherwise builds it on a background queue before the
     /// pasteboard is written. With no wikilinks, `done` runs synchronously.
-    /// The async completion writes only when this copy's generation is still
-    /// the latest and this tab is still the active one.
+    /// The async completion writes only when the general pasteboard's
+    /// change count is still what it was when this request started (no
+    /// copy has happened since, in this app or any other) and this tab
+    /// is still the active one.
     func copyAsRichText(done: (@MainActor () -> Void)? = nil) {
         guard doc.language == .markdown else { NSSound.beep(); done?(); return }
-        // Taken now, before the background index walk, so a later copy has
-        // a higher generation before this completion can write.
-        let ticket = PasteboardCopy.claim()
+        // Taken now, before the background index walk. A later copy — plain
+        // AppKit included — advances this count before the completion writes.
+        let write = PasteboardWrite(changeCount: NSPasteboard.general.changeCount)
         let markdown = exportSelectionMarkdown
         let title = exportBaseName
         let folder = doc.fileURL?.deletingLastPathComponent()
@@ -142,27 +127,31 @@ extension EditorWindowController {
             vault.prepareIndex()
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self, self.pasteboardCopyIsCurrent(ticket) else { done?(); return }
-                    self.writeRichText(markdown: markdown, title: title, vault: vault)
+                    guard let self else { done?(); return }
+                    self.writeRichText(markdown: markdown, title: title, vault: vault, write: write)
                     done?()
                 }
             }
         }
     }
 
-    /// This copy's generation is still the latest, and this tab is still active.
-    private func pasteboardCopyIsCurrent(_ ticket: UInt64) -> Bool {
+    /// The pasteboard's change count is still the one this copy recorded, and this tab is still active.
+    private func pasteboardWriteIsCurrent(_ write: PasteboardWrite) -> Bool {
         let active = (NSApp.delegate as? AppDelegate)?.currentTab === self
-        return PasteboardCopy.allowsWrite(ticket: ticket, documentIsActive: active)
+        return write.allowsWrite(changeCount: NSPasteboard.general.changeCount, documentIsActive: active)
     }
 
     /// Renders `markdown` and puts RTF, HTML and plain text on the pasteboard.
     /// Main thread only: AppKit's HTML importer runs there. Nothing remote,
-    /// so the importer does not fetch a tracking image.
-    private func writeRichText(markdown: String, title: String, vault: WikiVault?) {
+    /// so the importer does not fetch a tracking image. When `write` is
+    /// set (an async copy), the pasteboard is written only if that change
+    /// count is still current and this tab is still active — checked after
+    /// the HTML import, which can spin the run loop.
+    private func writeRichText(markdown: String, title: String, vault: WikiVault?, write: PasteboardWrite? = nil) {
         let page = HTMLScrub.noScriptNoRemote(Self.exportPage(markdown: markdown, title: title, vault: vault))
         guard let attributed = NSAttributedString(html: Data(page.utf8), options: [.characterEncoding: String.Encoding.utf8.rawValue],
                                                   documentAttributes: nil) else { NSSound.beep(); return }
+        if let write, !pasteboardWriteIsCurrent(write) { return }
         let pb = NSPasteboard.general
         pb.clearContents()
         let item = NSPasteboardItem()
