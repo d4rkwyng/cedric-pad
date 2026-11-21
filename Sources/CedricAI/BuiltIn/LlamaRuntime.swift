@@ -1,4 +1,13 @@
+// The Mac's CedricAI compiles this (CEDRIC_BUILTIN, Package.swift). On iOS
+// the app target compiles it for device builds only (ios/Owlink.xcodeproj
+// sets CEDRIC_BUILTIN for the iphoneos SDK): the pinned XCFramework has no
+// simulator slice.
+#if CEDRIC_BUILTIN
 import Foundation
+#if os(iOS)
+import CedricAI
+import os
+#endif
 import llama
 import CLlamaLoader
 
@@ -55,6 +64,11 @@ public struct LlamaRuntime: BuiltInRuntime {
         guard let model = ModelCatalog.bundled()?.models.first(where: { $0.fileName == url.lastPathComponent }) else {
             throw BuiltInError.loadFailed("not a model from Owlink's list")
         }
+        #if os(iOS)
+        if let why = ModelMemoryGate.refusal(for: model, available: Int64(os_proc_available_memory())) {
+            throw BuiltInError.loadFailed(why)
+        }
+        #endif
         let store = ModelStore(directory: url.deletingLastPathComponent())
         return try await withCheckedThrowingContinuation { cont in
             LlamaModel.queue.async {
@@ -376,3 +390,4 @@ final class LlamaModel: LoadedModel, @unchecked Sendable {
         return ProcessInfo.processInfo.activeProcessorCount
     }
 }
+#endif

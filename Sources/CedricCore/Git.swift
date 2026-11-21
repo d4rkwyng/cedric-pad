@@ -336,6 +336,7 @@ public enum GitRunner {
     }
 
     static func launch(_ path: String, _ args: [String], cwd: URL?, timeout: TimeInterval) -> Result? {
+        #if os(macOS)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
@@ -366,6 +367,9 @@ public enum GitRunner {
         p.waitUntilExit()
         timer.cancel()
         return Result(status: p.terminationStatus, output: data)
+        #else
+        return nil // iOS: no Process, no git.
+        #endif
     }
 }
 

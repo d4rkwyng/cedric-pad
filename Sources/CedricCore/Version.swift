@@ -16,10 +16,14 @@ public enum CedricVersion {
         bundleIdentifier: Bundle.main.bundleIdentifier,
         shortVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
 
-    /// The rule behind `string`: Cedric's own bundle (net.mindtricks.cedric)
-    /// with a non-empty short version uses it.
+    /// The apps that carry their own version: the Mac app and the iOS app.
+    public static let appBundleIdentifiers: Set<String> = ["net.mindtricks.cedric", "app.owlink.ios"]
+
+    /// The rule behind `string`: one of Cedric's own app bundles (the Mac's
+    /// net.mindtricks.cedric, the iOS app's app.owlink.ios) with a non-empty
+    /// short version uses it. The marketing version only, never the build.
     public static func resolve(bundleIdentifier: String?, shortVersion: String?) -> String {
-        guard bundleIdentifier == "net.mindtricks.cedric",
+        guard let id = bundleIdentifier, appBundleIdentifiers.contains(id),
               let v = shortVersion?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty
         else { return source }
         return v

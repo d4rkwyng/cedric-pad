@@ -590,7 +590,7 @@ final class FakeRuntime: BuiltInRuntime, @unchecked Sendable {
 
     #if canImport(FoundationModels) && arch(arm64)
     @Test func appleSchemaBuilds() throws {
-        if #available(macOS 26.0, *) { _ = try AppleFoundationModelsProvider.schema() }
+        if #available(macOS 26.0, iOS 26.0, *) { _ = try AppleFoundationModelsProvider.schema() }
     }
     #endif
 }
@@ -656,6 +656,16 @@ struct LiveAppleTests {
     /// the settings sheet shows, no status line, nothing registered and no
     /// provider asked for.
     @MainActor @Test func bridgeWithoutAppleIntelligence() async {
+        #if os(iOS)
+        let expected: [(AppleIntelligenceStatus, String)] = [
+            (.unsupported, "Needs iOS 26 or later on a device that supports Apple Intelligence."),
+            (.osTooOld, "Needs iOS 26 or later on a device that supports Apple Intelligence."),
+            (.deviceNotEligible, "This device can’t run Apple Intelligence."),
+            (.notEnabled, "Turn on Apple Intelligence in Settings to use it."),
+            (.modelNotReady, "Apple Intelligence is still getting its model ready. Try again later."),
+            (.unknown, "Apple Intelligence isn’t available right now."),
+        ]
+        #else
         let expected: [(AppleIntelligenceStatus, String)] = [
             (.unsupported, "Needs macOS 26 or later on Apple silicon."),
             (.osTooOld, "Needs macOS 26 or later on Apple silicon."),
@@ -664,6 +674,7 @@ struct LiveAppleTests {
             (.modelNotReady, "Apple Intelligence is still getting its model ready. Try again later."),
             (.unknown, "Apple Intelligence isn’t available right now."),
         ]
+        #endif
         for (status, message) in expected {
             let engine = AppleIntelligenceEngine(status: status)
             #expect(!engine.isAvailable && engine.unavailableReason == message)

@@ -76,6 +76,27 @@ public protocol LoadedModel: AnyObject, Sendable {
     func unload()
 }
 
+#if !CEDRIC_BUILTIN
+/// iOS: the pinned llama.cpp XCFramework has an iOS device slice but no
+/// iOS Simulator slice, and SwiftPM can't tell the two apart, so CedricAI
+/// doesn't link it on iOS. The iOS app compiles LlamaRuntime.swift and
+/// CLlamaLoader.c itself for device builds only and sets `runtime` at
+/// launch, before anything touches `BuiltInModelHost.shared`.
+public enum BuiltInPlatform {
+    nonisolated(unsafe) public static var runtime: (any BuiltInRuntime)?
+    /// Shown where the built-in engine would be, when `runtime` is nil.
+    public static let unavailableReason = "Built-in model: needs a real device."
+}
+
+/// Every load fails with a clear reason (the iOS Simulator).
+public struct NoBuiltInRuntime: BuiltInRuntime {
+    public init() {}
+    public func load(modelAt url: URL) async throws -> any LoadedModel {
+        throw BuiltInError.loadFailed(BuiltInPlatform.unavailableReason)
+    }
+}
+#endif
+
 extension LoadedModel {
     public func generate(_ request: GenerationRequest, onText: @escaping @Sendable (String) -> Void) async throws -> GenerationResult {
         let r = try await generate(request)
@@ -92,7 +113,11 @@ public actor BuiltInModelHost {
     public static let defaultIdleTimeout: TimeInterval = 300
 
     /// The app's one host, so every provider shares the loaded model.
+    #if CEDRIC_BUILTIN
     public static let shared = BuiltInModelHost(runtime: LlamaRuntime())
+    #else
+    public static let shared = BuiltInModelHost(runtime: BuiltInPlatform.runtime ?? NoBuiltInRuntime())
+    #endif
 
     let runtime: any BuiltInRuntime
     let clock: any OwlClock
@@ -184,5 +209,25 @@ public actor BuiltInModelHost {
         }
         armIdleTimer()
         return false
+    }
+}
+
+/// iOS kills an app (jetsam) that goes past its memory limit, which is far
+/// below the device's RAM. Before loading a model the iOS app asks how much
+/// it may still use (`os_proc_available_memory`) and refuses with a clear
+/// message rather than getting killed mid-load.
+public enum ModelMemoryGate {
+    /// Weights, plus the KV cache and compute buffers for a 4K context
+    /// (about a quarter of the weights, at least 400 MB), plus 256 MB slack.
+    public static func bytesNeeded(forModelOfSize size: Int64) -> Int64 {
+        size + max(400 * 1_048_576, size / 4) + 256 * 1_048_576
+    }
+
+    /// Nil when `available` bytes are enough for `model`, else why not.
+    public static func refusal(for model: BuiltInModel, available: Int64) -> String? {
+        let need = bytesNeeded(forModelOfSize: model.sizeBytes)
+        guard available < need else { return nil }
+        let gb = { (b: Int64) in String(format: "%.1f GB", Double(b) / 1_073_741_824) }
+        return "Not enough memory for \(model.name): it needs about \(gb(need)) and Owlink can use \(gb(max(0, available))) right now. Close other apps or pick a smaller model."
     }
 }

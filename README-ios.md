@@ -1,0 +1,264 @@
+# Owlink for iPhone and iPad
+
+The iOS app lives in `ios/` and builds on the same `CedricCore` and
+`CedricAI` packages as the Mac app; only the UI is separate.
+
+| | |
+|---|---|
+| Project | `ios/Owlink.xcodeproj`, scheme **Owlink** |
+| Bundle ID | `app.owlink.ios` |
+| Version | 0.3.0 (1), set in `ios/Scripts/gen-xcodeproj.py` |
+| Devices | iPhone and iPad (universal), iOS 17 or later |
+| Signing | Automatic, team `V868MD2SHX` |
+
+The project file is generated: edit `ios/Scripts/gen-xcodeproj.py` and run
+`python3 ios/Scripts/gen-xcodeproj.py`, rather than changing build settings
+in Xcode (a change made in Xcode is lost the next time the script runs).
+Source files can be added in Xcode or Finder: `ios/Owlink`,
+`ios/OwlinkUITests` and `Tests/*` are synchronized folders.
+
+## What it does
+
+- Opens and saves files from the Files app, iCloud Drive and other file
+  providers (a document browser in each window). The encoding and line
+  ending are detected and written back unchanged (the core's `TextCodec`).
+- Syntax colouring (the core's highlighter), the seven themes including
+  Dracula, font size, wrap.
+- Find and replace (`⌘F`, `⌥⌘F`, or the magnifier and the ⋯ menu).
+- Data safety: "Edited" under the title while there are unsaved changes
+  (UIDocument's `hasUnsavedChanges`); Undo and Redo in the bar; Revert to
+  Opened Version in the ⋯ menu (a private copy of the file as opened, in
+  Caches, not kept over 20 MB, deleted on close; the revert is one Undo).
+  Settings › Saving › Save Automatically (on by default): off, the file
+  changes only on Save (`⌘S` or the bar's Save) and closing asks Save /
+  Don't Save / Cancel. Either way, unsaved text is copied every 3 s at most
+  to Application Support/Owlink/Recovery (out of backups) and offered after
+  a crash or a forced quit. Rules and stores: `SavePolicy`, `RecoveryStore`,
+  `RevertStore` in CedricCore (`SaveSafetyTests`). Debug builds:
+  `-OwlinkSaveCheck <dir>` runs these in the app and writes `savecheck.txt`
+  and PNGs.
+- Markdown preview (`⇧⌘P`), side by side on iPad and an unfolded iPhone
+  Duo. **Focus Preview** (the bar's expand button, the ⋯ menu, `⌥⌘P`)
+  shows the preview alone on any screen; back with Edit, Esc, `⇧⌘P`, a
+  swipe down at the top of the page or a swipe in from the leading edge.
+  Text and preview open at the same place both ways (`ScrollSync`). Side
+  by side, the handle between them drags (44 pt wide) and snaps to 1/3,
+  1/2, 2/3 and the fold (the default, a strong snap); double-tap resets
+  it; kept per size class; VoiceOver "Resize preview", swipe up or down
+  for the stops. Pinch the preview (or `⌘+`, `⌘−`, `⌘0` in Focus
+  Preview) for its text size, kept for the app, on top of Dynamic Type.
+  The page is laid out at the device width (a viewport; it was laid out
+  980 px wide and shrunk). Rules: `PreviewSplit`, `PreviewSplitStore`,
+  `PreviewZoom` (`PreviewSplitTests`).
+- Never three columns (`EditorPanes`, `EditorPanesTests`): on a wide
+  screen Ask Cedric is always the side panel and takes the preview's
+  place while open (a sheet left up from the folded phone becomes the
+  panel on unfolding); the owl stays in the text pane, off the panel.
+- Cedric's offline hints with **Fix it**; Ask Cedric (`⇧⌘K`) and Check
+  with Cedric (`⌥⌘H`).
+- iPad: menu bar and keyboard shortcuts, several windows, Stage Manager.
+- Cedric sits in the editor's corner as on the Mac (the same owl art):
+  tap him for his bubble with the waiting hint (a count badge and a short
+  pulse say one arrived; no pulse with Reduce Motion), or for Ask Cedric
+  when there is none; drag him to another edge or corner (he snaps, and
+  the place is kept); double-tap puts him back; long-press for his menu.
+  He fades while the caret is near him.
+- Ask Cedric is a sheet on a phone and a panel beside the text on a wide
+  screen (iPad, an unfolded iPhone Duo).
+
+### iPhone Duo
+
+Opening and closing the phone is a size-class change (compact outside,
+regular inside). Unfolded, text and Markdown preview meet at the fold
+(the system's `.division` reserved region), and the owl, his bubble, the
+toast and the Ask Cedric panel keep off it. Folded shut with the preview
+on, the preview takes the screen; reopening puts back the caret,
+selection, scroll position and keyboard. The status line and the text
+stay inside the safe area and clear of the rounded corners and the
+vertical bar the system moves the toolbar into; the toolbar's extra
+commands are in the system's overflow menu. The font defaults to 15 pt
+unfolded and 13 pt folded unless one was chosen. Layout rules are pure
+functions in CedricCore (`FoldLayout`, `OwlPlacement`, `OwlBadge`,
+`EditorContinuity`) with tests in `DuoLayoutTests`.
+
+Not on iOS: the `cedric` command, Replace in Files, the folder sidebar, Git,
+the certificate view, XML formatting.
+
+## Cedric AI on iOS
+
+Off by default, as on the Mac. The offline hints never use the network.
+
+- **Apple Intelligence** (iOS 26 or later on a device that supports it,
+  with Apple Intelligence turned on). Settings › Cedric AI shows whether it
+  is available, or why not (device not eligible, turned off, model not
+  ready). On-device only; Private Cloud Compute is never used.
+- **Built-in model** (llama.cpp): **real devices only**. The pinned
+  XCFramework has an iOS device slice but no simulator slice, so simulator
+  builds leave it out and Settings says "Built-in model: needs a real
+  device". iPhones (and iPads without an M chip) are offered the small
+  models (up to 2B parameters, about 1.1 GB); M-series iPads also the 3–4B
+  ones. Downloads come from huggingface.co only when asked, show the licence
+  first, are checked against their SHA-256, and are kept out of iCloud
+  backups. Before loading, the app checks `os_proc_available_memory()` and
+  refuses with a message rather than being killed for using too much memory.
+- **A server on your network** (LM Studio, Ollama, another Mac): local
+  addresses only.
+
+Device builds run `ios/Scripts/fetch-llama.sh` first, which takes the iOS
+slice from SwiftPM's download cache or downloads the same pinned zip from
+GitHub, and checks it against the SHA-256 in `Package.swift`.
+
+## Option A: archive and upload from Xcode (recommended now)
+
+On a Mac signed in to the Apple developer account for team V868MD2SHX:
+
+1. `git checkout feat/ios-app` (once merged: `main`), then open
+   `ios/Owlink.xcodeproj` in Xcode 27.1 or later (the iPhone Duo APIs
+   need the iOS 27.1 SDK).
+2. Xcode › Settings › Accounts: make sure the account is signed in.
+3. Select the **Owlink** target › Signing & Capabilities: Team
+   V868MD2SHX, "Automatically manage signing" on. Xcode registers the
+   bundle ID `app.owlink.ios` and the Increased Memory Limit
+   capability on first use.
+4. In App Store Connect (https://appstoreconnect.apple.com) › Apps › **+**
+   › New App: platform iOS, name "Owlink: Text & Code" ("Owlink" itself
+   is taken), bundle ID `app.owlink.ios`, SKU e.g. `owlink-ios`.
+5. In Xcode, choose the destination **Any iOS Device (arm64)**, then
+   Product › **Archive**. The first device build downloads the llama.cpp
+   zip (about 65 MB) unless SwiftPM already has it cached.
+6. In the Organizer: **Distribute App** › **App Store Connect** ›
+   Distribute. Xcode signs the app and the embedded `llama.framework`.
+7. App Store Connect › the app › **TestFlight**: once the build has
+   finished processing, answer the export-compliance question (the Info.plist
+   already says no non-exempt encryption), add yourself as an internal
+   tester, and install it with the TestFlight app.
+
+Before an App Store release (not needed for internal TestFlight): a privacy
+policy URL, the App Privacy answers ("Data Not Collected" matches
+`PrivacyInfo.xcprivacy`), screenshots and a description.
+
+## Option B: build in CI (GitHub Actions)
+
+Not set up. What it would need:
+
+- **Secrets** (created by Derek in App Store Connect › Users and Access ›
+  Integrations › App Store Connect API, role App Manager):
+  `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8` (the .p8 file's contents).
+  With an API key, `xcodebuild -allowProvisioningUpdates` can create the
+  signing certificate and profiles itself (cloud-managed signing), so no
+  certificate has to be exported into a secret.
+- **A macOS runner** with Xcode 27.1 or later (`macos-26` or a self-hosted
+  Mac).
+- **Workflow outline** (`.github/workflows/ios-testflight.yml`, run by
+  hand or on a tag):
+
+```yaml
+on: workflow_dispatch
+jobs:
+  testflight:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: API key
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8
+        env: { ASC_KEY_P8: "${{ secrets.ASC_KEY_P8 }}", ASC_KEY_ID: "${{ secrets.ASC_KEY_ID }}" }
+      - name: Archive
+        run: |
+          xcodebuild -project ios/Owlink.xcodeproj -scheme Owlink \
+            -destination 'generic/platform=iOS' -archivePath build/Owlink.xcarchive \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
+            archive
+      - name: Upload to TestFlight
+        run: |
+          cat > ExportOptions.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>V868MD2SHX</string>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive -archivePath build/Owlink.xcarchive \
+            -exportOptionsPlist ExportOptions.plist -exportPath build/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
+```
+
+The build number must go up with every upload (`CURRENT_PROJECT_VERSION`
+above). A runner without SwiftPM's cache downloads the llama zip on every
+run; caching `~/Library/Caches/org.swift.swiftpm` avoids that.
+
+## Building and testing on this Mac
+
+`xcode-select` may point at the Command Line Tools; use full Xcode:
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+cd ios
+xcodebuild -project Owlink.xcodeproj -scheme Owlink -destination 'platform=iOS Simulator,name=iPhone 17' build
+xcodebuild -project Owlink.xcodeproj -scheme Owlink -destination 'platform=iOS Simulator,name=iPhone 17' test
+xcodebuild -project Owlink.xcodeproj -scheme Owlink -destination 'generic/platform=iOS' \
+  -archivePath /tmp/Owlink.xcarchive CODE_SIGNING_ALLOWED=NO archive   # proves the device build compiles and links llama
+```
+
+Test targets:
+
+- `OwlinkCoreTests` and `OwlinkAITests` run the package's own
+  `Tests/CedricCoreTests` and `Tests/CedricAITests` on the simulator
+  (557 + 167 pass; the Mac-only files are listed in `gen-xcodeproj.py`).
+- `OwlinkUITests` (XCUITest) drives the app: open, edit, save and reopen;
+  the owl's fix; the Markdown preview; find. It opens bundled samples with
+  the launch argument `-OwlinkOpen <name>`, skipping the document browser.
+- `OwlinkSnapshotTests` compiles the app's sources into a test bundle and
+  drives the editor in a window, rendering PNGs.
+
+Run the last two on a device or a simulator that can draw. On the fleet
+Mac (geonosis) the iOS 27.2 simulator boots but never draws its home
+screen (SpringBoard stays on the Apple logo; Metal in the simulator), so
+apps can't launch there and any UIKit window hangs, in tests too. Run only
+the first two there (`-only-testing:OwlinkCoreTests -only-testing:OwlinkAITests`).
+
+### The self-check (debug builds)
+
+`-OwlinkSelfCheck <dir>` runs the editor through a script inside the app
+(open a sample, the owl's hint and Fix it, type, save and read the file
+back, the language menu, find, the Markdown preview, Ask Cedric with
+whatever engine is ready, the themes) and writes PNGs and
+`selfcheck.txt` (PASS/FAIL lines) to `<dir>`, then quits. Where the
+simulator can't draw, run it as a Mac Catalyst build, which uses the same
+UIKit code (a local-only project variant; never commit it):
+
+```sh
+OWLINK_CATALYST=1 python3 ios/Scripts/gen-xcodeproj.py
+xcodebuild -project ios/Owlink.xcodeproj -scheme Owlink -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath .dd build
+.dd/Build/Products/Debug-maccatalyst/Owlink.app/Contents/MacOS/Owlink -OwlinkSelfCheck /tmp/owlink-shots
+python3 ios/Scripts/gen-xcodeproj.py   # back to the committed project
+```
+
+**Warning:** launching a Catalyst build registers it with LaunchServices,
+and it can become the Mac's default app for a file type (it took `.csv`
+on geonosis once). Run it in a test VM, not on a Mac people use; if it ran
+on one, unregister it afterwards with
+`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u <path>/Owlink.app`
+and delete the build.
+
+Catalyst draws the iOS layouts in a Mac window (sizes forced to an
+iPhone and an iPad in landscape); the bars look slightly more Mac-like
+than on a device.
+
+## What only a real device can show
+
+- The built-in model actually loading and answering (Metal on iOS, memory).
+- Apple Intelligence answering (the simulator reports what the host Mac
+  allows; a device with Apple Intelligence on is the real test).
+- iCloud Drive syncing and conflicts, and other file providers.
+- Typing feel with the software keyboard and with a hardware keyboard.

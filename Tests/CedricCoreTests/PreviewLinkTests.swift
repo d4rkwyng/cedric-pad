@@ -40,4 +40,82 @@ import Testing
         // Untitled (no folder): a local file is only revealed.
         #expect(PreviewLinkAction.action(for: URL(fileURLWithPath: doc.path + "/a.md"), folder: nil, isText: isText) == .revealInFinder(doc.appendingPathComponent("a.md").standardizedFileURL))
     }
+
+    /// iOS opens a preview link only when the resolved path sits under the
+    /// document's folder, a granted folder, the vault or the site root.
+    @Test func linkTargetsStayInsideTheirRoots() throws {
+        let t = try makeTree([
+            "notes/a.md", "notes/sibling.md", "notes-evil/x.md",
+            "outside/secret.md",
+            "site/content/blog/post.md", "site/content/projects/intelbrew.md",
+            "vault/other.md",
+        ])
+        defer { try? FileManager.default.removeItem(at: t) }
+        let notes = t.appendingPathComponent("notes")
+        let outside = t.appendingPathComponent("outside/secret.md")
+        let sibling = notes.appendingPathComponent("sibling.md")
+        let fm = FileManager.default
+        try fm.createSymbolicLink(at: notes.appendingPathComponent("escape.md"), withDestinationURL: outside)
+        try fm.createSymbolicLink(at: t.appendingPathComponent("site/content/out.md"), withDestinationURL: outside)
+        func open(_ path: String, folder: URL, granted: URL? = nil, vault: URL? = nil) -> URL? {
+            PreviewFolder.linkTarget(URL(string: "cedric-doc://doc" + path)!, folder: folder, openedRoot: granted, vaultRoot: vault)
+        }
+        #expect(open(sibling.path, folder: notes)?.path == sibling.path, "a sibling in the folder opens")
+        #expect(open(notes.path + "/../outside/secret.md", folder: notes) == nil, "`..` is refused")
+        #expect(open(notes.path + "/%2E%2E/outside/secret.md", folder: notes) == nil, "encoded `..` is refused")
+        #expect(open(outside.path, folder: notes) == nil, "an absolute path outside the folder is refused")
+        #expect(open("/etc/passwd", folder: notes) == nil, "a cedric-doc URL of an absolute path is refused")
+        #expect(open(notes.appendingPathComponent("escape.md").path, folder: notes) == nil, "a symlink out of the folder is refused")
+        #expect(open(t.appendingPathComponent("notes-evil/x.md").path, folder: notes) == nil, "a look-alike prefix is refused")
+        #expect(open(outside.path, folder: notes, granted: t)?.path == outside.path, "a granted folder covers the file")
+        #expect(open(t.appendingPathComponent("vault/other.md").path, folder: notes, vault: t.appendingPathComponent("vault"))?.path == t.appendingPathComponent("vault/other.md").path)
+        let blog = t.appendingPathComponent("site/content/blog")
+        let page = t.appendingPathComponent("site/content/projects/intelbrew.md")
+        #expect(open("/projects/intelbrew", folder: blog)?.path == page.path, "a site-root page opens under the root it resolved in")
+        #expect(open("/out.md", folder: t.appendingPathComponent("site/content")) == nil, "a site-root symlink out of that root is refused")
+    }
+
+    /// One start and one stored bookmark per resolved path, including a
+    /// symlink to a folder already granted and a second pass over the same
+    /// bookmarks (the next time they are loaded).
+    @Test func folderGrantsStartAndStoreOnce() throws {
+        let t = try makeTree(["vault/a.md", "other/b.md"])
+        defer { try? FileManager.default.removeItem(at: t) }
+        let vault = t.appendingPathComponent("vault")
+        let via = t.appendingPathComponent("via")
+        try FileManager.default.createSymbolicLink(at: via, withDestinationURL: vault)
+        #expect(PreviewGrantSet.resolvedPath(via) == PreviewGrantSet.resolvedPath(vault))
+
+        var grants = PreviewGrantSet()
+        var starts = 0
+        var stores = 0
+        func add(_ url: URL, storeSucceeds: Bool = true) {
+            grants.apply(url, start: { _ in starts += 1 }, store: { _ in
+                guard storeSucceeds else { return false }
+                stores += 1
+                return true
+            })
+        }
+        add(vault, storeSucceeds: false)
+        #expect(starts == 1 && stores == 0 && grants.stored.isEmpty, "a failed bookmark is not remembered")
+        add(vault)
+        add(vault)
+        add(via)
+        #expect(starts == 1 && stores == 1, "the same folder, and a symlink to it, start and store once")
+        #expect(grants.stored == [PreviewGrantSet.resolvedPath(vault)])
+        let again = grants.decide(vault)
+        #expect(!again.start && !again.store)
+        let other = t.appendingPathComponent("other")
+        #expect(grants.decide(other) == PreviewGrantSet.Decision(start: true, store: true))
+        add(other)
+        #expect(starts == 2 && stores == 2 && grants.stored.count == 2)
+
+        var loaded = PreviewGrantSet()
+        var loadedStarts = 0
+        for url in [vault, vault, via, other] {
+            loaded.apply(url, start: { _ in loadedStarts += 1 }, store: { _ in true })
+        }
+        #expect(loadedStarts == 2, "loading duplicate bookmarks starts each resolved path once")
+        #expect(loaded.stored.count == 2)
+    }
 }

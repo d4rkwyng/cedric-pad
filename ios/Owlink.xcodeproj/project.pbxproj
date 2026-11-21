@@ -1,0 +1,979 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0211DE720D275A1CBA57A755 /* CedricCore-s */ = {
+			isa = PBXBuildFile;
+			productRef = D4088FF0B176B91AC2D64DB6;
+		};
+		039EA4697278EA3C61A16959 /* CLlamaLoader.c */ = {
+			isa = PBXBuildFile;
+			fileRef = DD5D1BB5B52B02002E1C1C98;
+		};
+		1AFB00150DD24F225E925815 /* AI */ = {
+			isa = PBXBuildFile;
+			fileRef = CE645F6034CD039B71B2C760;
+		};
+		1D0AAC9488BB62D478CA8DAD /* CedricCore */ = {
+			isa = PBXBuildFile;
+			productRef = 49EB84B0D4189C0E290EE45C;
+		};
+		3F9586AB71EDE647F83C10A9 /* AI-snap */ = {
+			isa = PBXBuildFile;
+			fileRef = CE645F6034CD039B71B2C760;
+		};
+		42AD768038B76BF850458DBE /* Samples */ = {
+			isa = PBXBuildFile;
+			fileRef = 7CF84AEF96569D79A72D5F6E;
+		};
+		473F28AB7FD6CF4A58A4A5D1 /* CedricAI-s */ = {
+			isa = PBXBuildFile;
+			productRef = EB5A9BDE4FA106E7F2776B53;
+		};
+		87B34196CDDE9BA35ACBB443 /* CedricCore-t2 */ = {
+			isa = PBXBuildFile;
+			productRef = BD2CBFEC16B2B40EC3D10CC0;
+		};
+		8B19FC93287620B83936DE12 /* LlamaRuntime.swift */ = {
+			isa = PBXBuildFile;
+			fileRef = 1657068545362DE2EF3A3963;
+		};
+		C5E79412CC76272801236068 /* CedricAI-t */ = {
+			isa = PBXBuildFile;
+			productRef = 389FF00F74C58EF39C79BFFB;
+		};
+		D6FD8B80BBBD844BB2AB5B87 /* CedricAI */ = {
+			isa = PBXBuildFile;
+			productRef = 0BB9F68C9D9EC5201F076B8B;
+		};
+		D9A6BF3B3CE0B853C1027804 /* CedricCore-t */ = {
+			isa = PBXBuildFile;
+			productRef = FC7B1814364D917743DC7A79;
+		};
+		FB1A6BC5AA1355B8E5C3DB34 /* Samples-snap */ = {
+			isa = PBXBuildFile;
+			fileRef = 7CF84AEF96569D79A72D5F6E;
+		};
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D9CDD8C1978B099A6EE1F8FD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 46F86FAA6BBF9AC94A7E4595;
+			proxyType = 1;
+			remoteGlobalIDString = 44E72BA6DA19BF345C0510A1;
+			remoteInfo = Owlink;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		1657068545362DE2EF3A3963 /* LlamaRuntime.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = "sourcecode.swift";
+			path = "../Sources/CedricAI/BuiltIn/LlamaRuntime.swift";
+			sourceTree = "<group>";
+			name = "LlamaRuntime.swift";
+		};
+		4AF1C737FDAFDC58C6242887 /* Owlink.entitlements */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = "text.plist.entitlements";
+			path = "Owlink.entitlements";
+			sourceTree = "<group>";
+		};
+		571CD3829D85311D5626CD79 /* Owlink.app */ = {
+			isa = PBXFileReference;
+			explicitFileType = "wrapper.application";
+			includeInIndex = 0;
+			path = "Owlink.app";
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		789B45D2280E8E07F7436C59 /* OwlinkSnapshotTests.xctest */ = {
+			isa = PBXFileReference;
+			explicitFileType = "wrapper.cfbundle";
+			includeInIndex = 0;
+			path = "OwlinkSnapshotTests.xctest";
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		7CF84AEF96569D79A72D5F6E /* Samples */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = folder;
+			path = Samples;
+			sourceTree = "<group>";
+		};
+		8ED180105DFAC39D610A4123 /* OwlinkAITests.xctest */ = {
+			isa = PBXFileReference;
+			explicitFileType = "wrapper.cfbundle";
+			includeInIndex = 0;
+			path = "OwlinkAITests.xctest";
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		B9D34007A0F9ED99675DCB6A /* Owlink-Info.plist */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = "text.plist.xml";
+			path = "Owlink-Info.plist";
+			sourceTree = "<group>";
+		};
+		CE645F6034CD039B71B2C760 /* AI */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = folder;
+			path = "../Resources/AI";
+			sourceTree = "<group>";
+			name = AI;
+		};
+		DD5D1BB5B52B02002E1C1C98 /* CLlamaLoader.c */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = "sourcecode.c.c";
+			path = "../Sources/CLlamaLoader/CLlamaLoader.c";
+			sourceTree = "<group>";
+			name = "CLlamaLoader.c";
+		};
+		DD636C72313A8BAD0ED9BF0B /* module.modulemap */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = "sourcecode.module-map";
+			path = "LlamaLoader/module.modulemap";
+			sourceTree = "<group>";
+			name = "module.modulemap";
+		};
+		E5CCAB171187D4AD914EFEFC /* OwlinkUITests.xctest */ = {
+			isa = PBXFileReference;
+			explicitFileType = "wrapper.cfbundle";
+			includeInIndex = 0;
+			path = "OwlinkUITests.xctest";
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		F054721B087FC9BCA940DB33 /* OwlinkCoreTests.xctest */ = {
+			isa = PBXFileReference;
+			explicitFileType = "wrapper.cfbundle";
+			includeInIndex = 0;
+			path = "OwlinkCoreTests.xctest";
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		61C361FC2460CEEC85664901 /* Exceptions for "CedricAITests" folder in "OwlinkAITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"LiveBuiltInTests.swift",
+			);
+			target = 70A7AD607E9CC750EBDAACA9;
+		};
+		6F0B60DD556AA42A2F32BE8A /* Exceptions for "CedricCoreTests" folder in "OwlinkCoreTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"CertificateTests.swift",
+				"GitSafetyTests.swift",
+				"SecurityReviewTests.swift",
+				"ViewerFormatsTests.swift",
+				"ScriptTokenTests.swift",
+			);
+			target = 12A5C6FEED62ED5491A2F4D1;
+		};
+		6FC954456D7342222AFF2E35 /* Exceptions for "Owlink" folder in "OwlinkSnapshotTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"AppDelegate.swift",
+			);
+			target = 4A9A38F44C3FE0C90C9FA25C;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		1C40DCE2178A89BEE3621995 /* OwlinkSnapshotTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = OwlinkSnapshotTests;
+			sourceTree = "<group>";
+		};
+		79626783C76C4E22B8181DF8 /* OwlinkUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = OwlinkUITests;
+			sourceTree = "<group>";
+		};
+		877051C9C5748B44CC215843 /* CedricAITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "../Tests/CedricAITests";
+			sourceTree = "<group>";
+			exceptions = (
+				61C361FC2460CEEC85664901,
+			);
+		};
+		C19BEAF09C5B43AB6D912A3B /* CedricCoreTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "../Tests/CedricCoreTests";
+			sourceTree = "<group>";
+			exceptions = (
+				6F0B60DD556AA42A2F32BE8A,
+			);
+		};
+		C4DC4ACB831CC5AAFFEC341F /* Owlink */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Owlink;
+			sourceTree = "<group>";
+			exceptions = (
+				6FC954456D7342222AFF2E35,
+			);
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		16DFE7BC73FA9A84AA8B707F /* at-frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C5E79412CC76272801236068,
+				87B34196CDDE9BA35ACBB443,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1C0BD0E8D32FBBB7D9A267A4 /* app-frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1D0AAC9488BB62D478CA8DAD,
+				D6FD8B80BBBD844BB2AB5B87,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B61E3C7340B1F406DE2B8EE0 /* ui-frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CF299C82559AB6AF071158EF /* sn-frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0211DE720D275A1CBA57A755,
+				473F28AB7FD6CF4A58A4A5D1,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4769633D6F438E958A0A34E /* ct-frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D9A6BF3B3CE0B853C1027804,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		139363E72819083888FDEAE9 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				1657068545362DE2EF3A3963,
+				DD5D1BB5B52B02002E1C1C98,
+				DD636C72313A8BAD0ED9BF0B,
+				CE645F6034CD039B71B2C760,
+			);
+			name = "Shared (llama: device builds only)";
+			sourceTree = "<group>";
+		};
+		956934E60556FDCE0710C957 /* main */ = {
+			isa = PBXGroup;
+			children = (
+				C4DC4ACB831CC5AAFFEC341F,
+				7CF84AEF96569D79A72D5F6E,
+				B9D34007A0F9ED99675DCB6A,
+				4AF1C737FDAFDC58C6242887,
+				139363E72819083888FDEAE9,
+				79626783C76C4E22B8181DF8,
+				1C40DCE2178A89BEE3621995,
+				C19BEAF09C5B43AB6D912A3B,
+				877051C9C5748B44CC215843,
+				CC0F68FE2D81F9614883F277,
+			);
+			sourceTree = "<group>";
+		};
+		CC0F68FE2D81F9614883F277 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				571CD3829D85311D5626CD79,
+				F054721B087FC9BCA940DB33,
+				8ED180105DFAC39D610A4123,
+				E5CCAB171187D4AD914EFEFC,
+				789B45D2280E8E07F7436C59,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		12A5C6FEED62ED5491A2F4D1 /* OwlinkCoreTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 185EA3265516732A57953897;
+			buildPhases = (
+				FFE8D1E5DC6808D7873EBE1B,
+				D4769633D6F438E958A0A34E,
+				EACA8AC0FE23C20E2C582DCF,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C19BEAF09C5B43AB6D912A3B,
+			);
+			name = OwlinkCoreTests;
+			packageProductDependencies = (
+				FC7B1814364D917743DC7A79,
+			);
+			productName = OwlinkCoreTests;
+			productReference = F054721B087FC9BCA940DB33;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		44E72BA6DA19BF345C0510A1 /* Owlink */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9CD70294FD33F5AFDCAD95D8;
+			buildPhases = (
+				C4723F4D87904A87C3FC0475,
+				6F2AC85242E106CDBA05FA27,
+				1C0BD0E8D32FBBB7D9A267A4,
+				F78B3D85826E089D77514644,
+				4B8CD85CEC1480BDC6C2160C,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C4DC4ACB831CC5AAFFEC341F,
+			);
+			name = Owlink;
+			packageProductDependencies = (
+				49EB84B0D4189C0E290EE45C,
+				0BB9F68C9D9EC5201F076B8B,
+			);
+			productName = Owlink;
+			productReference = 571CD3829D85311D5626CD79;
+			productType = "com.apple.product-type.application";
+		};
+		4A9A38F44C3FE0C90C9FA25C /* OwlinkSnapshotTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 380E92AB14BDE83CF747AF72;
+			buildPhases = (
+				09F581B3D324701693DDFEB1,
+				CF299C82559AB6AF071158EF,
+				F604A87420F3AD76311B1A07,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C4DC4ACB831CC5AAFFEC341F,
+				1C40DCE2178A89BEE3621995,
+			);
+			name = OwlinkSnapshotTests;
+			packageProductDependencies = (
+				D4088FF0B176B91AC2D64DB6,
+				EB5A9BDE4FA106E7F2776B53,
+			);
+			productName = OwlinkSnapshotTests;
+			productReference = 789B45D2280E8E07F7436C59;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		70A7AD607E9CC750EBDAACA9 /* OwlinkAITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E59EDE4EF6D8E2E7C1565423;
+			buildPhases = (
+				BA72E3AF5E7BF49851715F64,
+				16DFE7BC73FA9A84AA8B707F,
+				4E2A98C78901D82CA2405297,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				877051C9C5748B44CC215843,
+			);
+			name = OwlinkAITests;
+			packageProductDependencies = (
+				389FF00F74C58EF39C79BFFB,
+				BD2CBFEC16B2B40EC3D10CC0,
+			);
+			productName = OwlinkAITests;
+			productReference = 8ED180105DFAC39D610A4123;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		91CFCE13975432FADB261DBC /* OwlinkUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4D36FEFBB5E834E98E76C242;
+			buildPhases = (
+				DC5BFBB1AC902971A2C47004,
+				B61E3C7340B1F406DE2B8EE0,
+				CEB3F1E4D801F7BE558B684E,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1B64099F3936702BED2DA7E7,
+			);
+			fileSystemSynchronizedGroups = (
+				79626783C76C4E22B8181DF8,
+			);
+			name = OwlinkUITests;
+			packageProductDependencies = (
+			);
+			productName = OwlinkUITests;
+			productReference = E5CCAB171187D4AD914EFEFC;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		46F86FAA6BBF9AC94A7E4595 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					44E72BA6DA19BF345C0510A1 = {
+						CreatedOnToolsVersion = "27.2";
+					};
+				};
+			};
+			buildConfigurationList = 2CA666E9AB7FD185F98B8152;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 956934E60556FDCE0710C957;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A46A1BCE0B67C45BEC8F435B,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = CC0F68FE2D81F9614883F277;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				44E72BA6DA19BF345C0510A1,
+				12A5C6FEED62ED5491A2F4D1,
+				70A7AD607E9CC750EBDAACA9,
+				4A9A38F44C3FE0C90C9FA25C,
+				91CFCE13975432FADB261DBC,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		4E2A98C78901D82CA2405297 /* at-resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CEB3F1E4D801F7BE558B684E /* ui-resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EACA8AC0FE23C20E2C582DCF /* ct-resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F604A87420F3AD76311B1A07 /* sn-resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3F9586AB71EDE647F83C10A9,
+				FB1A6BC5AA1355B8E5C3DB34,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F78B3D85826E089D77514644 /* app-resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1AFB00150DD24F225E925815,
+				42AD768038B76BF850458DBE,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		4B8CD85CEC1480BDC6C2160C /* Embed llama (device) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			alwaysOutOfDate = 1;
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed llama (device)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			shellPath = "/bin/sh";
+			shellScript = "# Device builds only: embed llama.framework (loaded by CLlamaLoader / linked by the llama module) and sign it.
+[ \"$PLATFORM_NAME\" = \"iphoneos\" ] || exit 0
+src=\"$PROJECT_DIR/Vendor/llama.xcframework/ios-arm64/llama.framework\"
+dst=\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH\"
+mkdir -p \"$dst\"
+rm -rf \"$dst/llama.framework\"
+cp -R \"$src\" \"$dst/\"
+rm -rf \"$dst/llama.framework/Headers\" \"$dst/llama.framework/Modules\"
+if [ \"$CODE_SIGNING_ALLOWED\" = \"YES\" ] && [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ]; then
+  /usr/bin/codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --preserve-metadata=identifier,entitlements,flags --timestamp=none \"$dst/llama.framework\"
+fi
+";
+		};
+		C4723F4D87904A87C3FC0475 /* Fetch llama (device) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			alwaysOutOfDate = 1;
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Fetch llama (device)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			shellPath = "/bin/sh";
+			shellScript = "# Device builds only: the pinned llama.cpp XCFramework's iOS slice (no simulator slice).
+if [ \"$PLATFORM_NAME\" = \"iphoneos\" ]; then
+  \"$PROJECT_DIR/Scripts/fetch-llama.sh\"
+fi
+";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		09F581B3D324701693DDFEB1 /* sn-sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6F2AC85242E106CDBA05FA27 /* app-sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8B19FC93287620B83936DE12,
+				039EA4697278EA3C61A16959,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BA72E3AF5E7BF49851715F64 /* at-sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DC5BFBB1AC902971A2C47004 /* ui-sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FFE8D1E5DC6808D7873EBE1B /* ct-sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1B64099F3936702BED2DA7E7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 44E72BA6DA19BF345C0510A1;
+			targetProxy = D9CDD8C1978B099A6EE1F8FD;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		09BC63C21F1694C279CBB234 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = Owlink;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios";
+				INFOPLIST_FILE = "Owlink-Info.plist";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Owlink;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Owlink.entitlements";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos*]" = "$(inherited) CEDRIC_BUILTIN";
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/llama.xcframework/ios-arm64",
+				);
+				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/LlamaLoader",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../Sources/CLlamaLoader/include",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"-framework",
+					llama,
+				);
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = "LlamaRuntime.swift CLlamaLoader.c";
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = "LlamaRuntime.swift CLlamaLoader.c";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+			};
+			name = Debug;
+		};
+		0CC7CB92BD30EA833415E13C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				GENERATE_INFOPLIST_FILE = YES;
+				BUNDLE_LOADER = "";
+				TEST_HOST = "";
+				SWIFT_VERSION = "6.0";
+				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.coretests";
+			};
+			name = Debug;
+		};
+		3599CB1195220CCC58648B93 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				GENERATE_INFOPLIST_FILE = YES;
+				TEST_TARGET_NAME = Owlink;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.uitests";
+			};
+			name = Release;
+		};
+		4752817E434AF5D96BA2EB85 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				GENERATE_INFOPLIST_FILE = YES;
+				BUNDLE_LOADER = "";
+				TEST_HOST = "";
+				SWIFT_VERSION = "5.0";
+				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.snapshots";
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
+			};
+			name = Release;
+		};
+		49145FB40B2AB5A61A6DFAB6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = "5.0";
+				DEVELOPMENT_TEAM = V868MD2SHX;
+				CODE_SIGN_STYLE = Automatic;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				MARKETING_VERSION = "0.3.0";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+			};
+			name = Debug;
+		};
+		7BE30A37387C1B4AB6296D54 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = Owlink;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios";
+				INFOPLIST_FILE = "Owlink-Info.plist";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Owlink;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Owlink.entitlements";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos*]" = "$(inherited) CEDRIC_BUILTIN";
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/llama.xcframework/ios-arm64",
+				);
+				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/LlamaLoader",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../Sources/CLlamaLoader/include",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"-framework",
+					llama,
+				);
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = "LlamaRuntime.swift CLlamaLoader.c";
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = "LlamaRuntime.swift CLlamaLoader.c";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+			};
+			name = Release;
+		};
+		7F3843CA0D57F89DFC1252B5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				GENERATE_INFOPLIST_FILE = YES;
+				BUNDLE_LOADER = "";
+				TEST_HOST = "";
+				SWIFT_VERSION = "6.0";
+				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.aitests";
+			};
+			name = Debug;
+		};
+		92116701A59F56BE5BB97BAD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				GENERATE_INFOPLIST_FILE = YES;
+				BUNDLE_LOADER = "";
+				TEST_HOST = "";
+				SWIFT_VERSION = "5.0";
+				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.snapshots";
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
+			};
+			name = Debug;
+		};
+		C052FC7315D73878FC0412BF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				GENERATE_INFOPLIST_FILE = YES;
+				TEST_TARGET_NAME = Owlink;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.uitests";
+			};
+			name = Debug;
+		};
+		C9EFBDDD95B7B7B05CF58801 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				GENERATE_INFOPLIST_FILE = YES;
+				BUNDLE_LOADER = "";
+				TEST_HOST = "";
+				SWIFT_VERSION = "6.0";
+				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.aitests";
+			};
+			name = Release;
+		};
+		DA691954A00AE014CE48A807 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				GENERATE_INFOPLIST_FILE = YES;
+				BUNDLE_LOADER = "";
+				TEST_HOST = "";
+				SWIFT_VERSION = "6.0";
+				IPHONEOS_DEPLOYMENT_TARGET = "18.0";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.owlink.ios.coretests";
+			};
+			name = Release;
+		};
+		EF165C2CEF36C5B11F4B54C5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = "5.0";
+				DEVELOPMENT_TEAM = V868MD2SHX;
+				CODE_SIGN_STYLE = Automatic;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				MARKETING_VERSION = "0.3.0";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		185EA3265516732A57953897 /* Build configuration list for OwlinkCoreTests */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0CC7CB92BD30EA833415E13C,
+				DA691954A00AE014CE48A807,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2CA666E9AB7FD185F98B8152 /* Build configuration list for PBXProject "Owlink" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				49145FB40B2AB5A61A6DFAB6,
+				EF165C2CEF36C5B11F4B54C5,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		380E92AB14BDE83CF747AF72 /* Build configuration list for OwlinkSnapshotTests */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				92116701A59F56BE5BB97BAD,
+				4752817E434AF5D96BA2EB85,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4D36FEFBB5E834E98E76C242 /* Build configuration list for OwlinkUITests */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C052FC7315D73878FC0412BF,
+				3599CB1195220CCC58648B93,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9CD70294FD33F5AFDCAD95D8 /* Build configuration list for Owlink */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				09BC63C21F1694C279CBB234,
+				7BE30A37387C1B4AB6296D54,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E59EDE4EF6D8E2E7C1565423 /* Build configuration list for OwlinkAITests */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7F3843CA0D57F89DFC1252B5,
+				C9EFBDDD95B7B7B05CF58801,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A46A1BCE0B67C45BEC8F435B /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "..";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0BB9F68C9D9EC5201F076B8B /* CedricAI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A46A1BCE0B67C45BEC8F435B;
+			productName = CedricAI;
+		};
+		389FF00F74C58EF39C79BFFB /* CedricAI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A46A1BCE0B67C45BEC8F435B;
+			productName = CedricAI;
+		};
+		49EB84B0D4189C0E290EE45C /* CedricCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A46A1BCE0B67C45BEC8F435B;
+			productName = CedricCore;
+		};
+		BD2CBFEC16B2B40EC3D10CC0 /* CedricCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A46A1BCE0B67C45BEC8F435B;
+			productName = CedricCore;
+		};
+		D4088FF0B176B91AC2D64DB6 /* CedricCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A46A1BCE0B67C45BEC8F435B;
+			productName = CedricCore;
+		};
+		EB5A9BDE4FA106E7F2776B53 /* CedricAI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A46A1BCE0B67C45BEC8F435B;
+			productName = CedricAI;
+		};
+		FC7B1814364D917743DC7A79 /* CedricCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A46A1BCE0B67C45BEC8F435B;
+			productName = CedricCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+}

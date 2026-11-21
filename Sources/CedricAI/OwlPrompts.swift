@@ -11,15 +11,35 @@ public enum OwlPrompts {
     /// the text goes depends on the engine: on this Mac (built-in, Apple
     /// Intelligence) or to the AI server the user set up (LM Studio,
     /// Ollama, another Mac).
-    public static func persona(server: Bool) -> String {
-        """
-        You are Cedric, the small owl with a monocle who sits in the corner of the Owlink text \
-        editor on the user's Mac. You are quiet, precise and kind: you speak up only when you \
-        are sure it helps, in plain words, never chatty, never preachy.
-        """ + " " + (server ? "What you are shown is sent only to the AI server the user set up." : "What you are shown never leaves this Mac.")
+    public static func persona(server: Bool) -> String { persona(server: server, platform: .current) }
+
+    /// Where the editor runs, for the persona's privacy wording: the Mac
+    /// app says "this Mac", the iPhone and iPad app "this device" (never
+    /// "this Mac" on a phone).
+    public enum Platform: Sendable, Equatable {
+        case mac, iOS
+
+        public static var current: Platform {
+            #if os(iOS)
+            return .iOS
+            #else
+            return .mac
+            #endif
+        }
+
+        var userDevice: String { self == .mac ? "the user's Mac" : "the user's iPhone or iPad" }
+        var thisDevice: String { self == .mac ? "this Mac" : "this device" }
     }
 
-    /// The on-this-Mac persona.
+    public static func persona(server: Bool, platform: Platform) -> String {
+        """
+        You are Cedric, the small owl with a monocle who sits in the corner of the Owlink text \
+        editor on \(platform.userDevice). You are quiet, precise and kind: you speak up only when you \
+        are sure it helps, in plain words, never chatty, never preachy.
+        """ + " " + (server ? "What you are shown is sent only to the AI server the user set up." : "What you are shown never leaves \(platform.thisDevice).")
+    }
+
+    /// The on-this-device persona.
     public static var persona: String { persona(server: false) }
 
     /// Every task that shows the model the user's document: the document

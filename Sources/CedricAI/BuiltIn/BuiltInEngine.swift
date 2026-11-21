@@ -18,15 +18,29 @@ public struct BuiltInEngine: AIEngine {
     }
 
     public var kind: LocalAISettings.Backend { .builtIn }
+    #if CEDRIC_BUILTIN
     public var isAvailable: Bool { catalog != nil }
     public var unavailableReason: String? {
         catalog == nil ? "This copy of Owlink is missing its model list (Resources/AI/models.json)." : nil
     }
+    #else
+    /// iOS: only with a real runtime (a device build sets one; the
+    /// simulator has none).
+    public var isAvailable: Bool { catalog != nil && !(host.runtime is NoBuiltInRuntime) }
+    public var unavailableReason: String? {
+        if host.runtime is NoBuiltInRuntime { return BuiltInPlatform.unavailableReason }
+        return catalog == nil ? "This copy of Owlink is missing its model list (AI/models.json)." : nil
+    }
+    #endif
     public var needsAddress: Bool { false }
     public var note: String? {
+        #if CEDRIC_BUILTIN
         LlamaRuntime.isSlowHardware
             ? "Slow on Intel Macs: the built-in model runs on the CPU here. Another Mac on your network will be much faster."
             : nil
+        #else
+        nil
+        #endif
     }
 
     /// The downloaded (installed) models, in catalog order.

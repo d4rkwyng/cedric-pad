@@ -133,3 +133,49 @@ public struct OwlPlacement: Codable, Equatable, Sendable {
                       tailOnTop: !above, tailAtLeft: !towardsLeft)
     }
 }
+
+// MARK: UIKit (y-down) coordinates
+
+/// The same rules for a y-down (UIKit) view: the iOS app's owl. The math
+/// is the y-up one above, flipped inside `area`, so the Mac and iOS owls
+/// snap, clamp and place their bubble identically.
+extension OwlPlacement {
+    /// Flips a rect between y-up and y-down inside `area` (its own inverse).
+    public static func flipped(_ r: CGRect, in area: CGRect) -> CGRect {
+        CGRect(x: r.minX, y: area.minY + area.maxY - r.maxY, width: r.width, height: r.height)
+    }
+
+    /// His frame in a y-down `area`.
+    public func frameYDown(in area: CGRect, size: CGSize) -> CGRect {
+        Self.flipped(CGRect(origin: origin(in: area, size: size), size: size), in: area)
+    }
+
+    /// The placement for an owl dropped at y-down `frame` in `area`.
+    public static func snapped(frameYDown frame: CGRect, in area: CGRect) -> OwlPlacement {
+        snapped(origin: flipped(frame, in: area).origin, size: frame.size, in: area)
+    }
+
+    /// The bubble for a y-down owl frame, avoiding y-down `avoid`; the
+    /// result is y-down (`tailOnTop` true means the tail points up at him,
+    /// i.e. the bubble is below him on screen).
+    public static func bubbleYDown(owl: CGRect, size: CGSize, in area: CGRect, avoid: CGRect?) -> Bubble {
+        let b = bubble(owl: flipped(owl, in: area), size: size, in: area, avoid: avoid.map { flipped($0, in: area) })
+        // y-up "tail on top" = bubble below him; on screen that is still
+        // below him with the tail pointing up, so the flag carries over.
+        return Bubble(frame: flipped(b.frame, in: area), tailOnTop: b.tailOnTop, tailAtLeft: b.tailAtLeft)
+    }
+
+    /// Keeps a frame off the fold (iPhone Duo's division regions, y-down or
+    /// y-up alike: only x is used): moved to the side of the fold its centre
+    /// is on, by `gap`, and kept inside `area` horizontally. Folds that don't
+    /// cross the frame are ignored.
+    public static func avoidingFolds(_ frame: CGRect, folds: [CGRect], in area: CGRect, gap: CGFloat = 8) -> CGRect {
+        var f = frame
+        for fold in folds where fold.width >= 0 && f.minX < fold.maxX && f.maxX > fold.minX
+            && f.minY < fold.maxY && f.maxY > fold.minY {
+            f.origin.x = f.midX < fold.midX ? fold.minX - gap - f.width : fold.maxX + gap
+        }
+        f.origin.x = max(area.minX, min(f.origin.x, area.maxX - f.width))
+        return f
+    }
+}

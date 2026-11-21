@@ -341,8 +341,28 @@ import CedricCore
 
 /// The persona says where the text goes, from the engine in use.
 @Suite struct PersonaPrivacyTests {
+    /// The Mac's wording is byte-for-byte what it was; the iPhone and iPad
+    /// app never says "Mac".
+    @Test func personaNamesTheRightDevice() {
+        let mac = "You are Cedric, the small owl with a monocle who sits in the corner of the Owlink text "
+            + "editor on the user's Mac. You are quiet, precise and kind: you speak up only when you "
+            + "are sure it helps, in plain words, never chatty, never preachy. What you are shown never leaves this Mac."
+        #expect(OwlPrompts.persona(server: false, platform: .mac) == mac)
+        let ios = "You are Cedric, the small owl with a monocle who sits in the corner of the Owlink text "
+            + "editor on the user's iPhone or iPad. You are quiet, precise and kind: you speak up only when you "
+            + "are sure it helps, in plain words, never chatty, never preachy. What you are shown never leaves this device."
+        #expect(OwlPrompts.persona(server: false, platform: .iOS) == ios)
+        #expect(!OwlPrompts.persona(server: true, platform: .iOS).contains("Mac"))
+        #expect(OwlPrompts.persona(server: true, platform: .iOS).hasSuffix("What you are shown is sent only to the AI server the user set up."))
+        #if os(iOS)
+        #expect(OwlPrompts.Platform.current == .iOS && OwlPrompts.persona == ios)
+        #else
+        #expect(OwlPrompts.Platform.current == .mac && OwlPrompts.persona == mac)
+        #endif
+    }
+
     @Test func personaFollowsTheEngine() throws {
-        #expect(OwlPrompts.persona(server: false).hasSuffix("What you are shown never leaves this Mac."))
+        #expect(OwlPrompts.persona(server: false, platform: .mac).hasSuffix("What you are shown never leaves this Mac."))
         let server = OwlPrompts.persona(server: true)
         #expect(server.hasSuffix("What you are shown is sent only to the AI server the user set up."))
         #expect(!server.contains("never leaves"))

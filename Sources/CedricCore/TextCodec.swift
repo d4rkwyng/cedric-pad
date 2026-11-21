@@ -69,10 +69,29 @@ public struct DecodedText: Sendable {
     public var text: String
     public var encoding: TextEncoding
     public var lineEnding: LineEnding
-    /// The file mixed line endings; saving writes them all as `lineEnding`.
+    /// The file mixed line endings. The Mac app writes them all as
+    /// `lineEnding`; the iOS app keeps each line's own (`lineEndingLayout`).
     public var mixedLineEndings: Bool
     /// The bytes look like a binary file (`TextCodec.looksBinary`).
     public var looksBinary = false
+    /// The file began with its encoding's byte-order mark. False for UTF-16
+    /// recognised without one (writing it back adds none), and for the
+    /// encodings that have none.
+    public var hasBOM = false
+    /// With mixed line endings: each line's own, to write back unchanged.
+    public var lineEndingLayout: LineEndingLayout?
+}
+
+/// The line endings of a file that mixes them: one per line break of the
+/// LF-normalised `text`, in order.
+public struct LineEndingLayout: Equatable, Sendable {
+    public var text: String
+    public var endings: [LineEnding]
+
+    public init(text: String, endings: [LineEnding]) {
+        self.text = text
+        self.endings = endings
+    }
 }
 
 public enum TextCodec {
@@ -202,8 +221,54 @@ public enum TextCodec {
         }
         guard let raw = decoded else { return nil }
         let (ending, mixed) = detectLineEnding(raw)
-        return DecodedText(text: normalizeLineEndings(raw), encoding: enc, lineEnding: ending, mixedLineEndings: mixed,
-                           looksBinary: looksBinary(data))
+        let text = normalizeLineEndings(raw)
+        var d = DecodedText(text: text, encoding: enc, lineEnding: ending, mixedLineEndings: mixed, looksBinary: looksBinary(data))
+        d.hasBOM = !enc.bom.isEmpty && data.starts(with: enc.bom)
+        if mixed { d.lineEndingLayout = LineEndingLayout(text: text, endings: lineEndings(in: raw)) }
+        return d
+    }
+
+    /// Every line break of `raw` (not normalised), in order.
+    static func lineEndings(in raw: String) -> [LineEnding] {
+        var out: [LineEnding] = []
+        var copy = raw
+        copy.withUTF8 { b in
+            var i = 0
+            while i < b.count {
+                if b[i] == 13 {
+                    if i + 1 < b.count, b[i + 1] == 10 { out.append(.crlf); i += 2; continue }
+                    out.append(.cr)
+                } else if b[i] == 10 {
+                    out.append(.lf)
+                }
+                i += 1
+            }
+        }
+        return out
+    }
+
+    /// The line endings to write for `text` (LF-normalised), keeping the
+    /// original's where its lines are unchanged: the lines before the first
+    /// change and after the last keep theirs, and the changed lines between
+    /// get `fallback` (the file's most common ending). Unchanged text gets
+    /// exactly the original's.
+    public static func lineEndings(for text: String, keeping layout: LineEndingLayout, fallback: LineEnding) -> [LineEnding] {
+        let new = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let old = layout.text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard layout.endings.count == old.count - 1 else { return Array(repeating: fallback, count: new.count - 1) }
+        var prefix = 0
+        while prefix < min(new.count, old.count), new[prefix] == old[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < min(new.count, old.count) - prefix, new[new.count - 1 - suffix] == old[old.count - 1 - suffix] { suffix += 1 }
+        let shift = old.count - new.count
+        return (0..<(new.count - 1)).map { i in
+            // Break i ends line i: an unchanged line before the change or
+            // after it keeps its own ending; a changed or new line gets the
+            // fallback.
+            if i < prefix, i < layout.endings.count { return layout.endings[i] }
+            if i >= new.count - suffix { return layout.endings[i + shift] }
+            return fallback
+        }
     }
 
     /// The most common line ending, and whether more than one kind occurs.
@@ -239,17 +304,31 @@ public enum TextCodec {
     }
 
     /// Encodes LF-normalised text for saving: line endings converted, BOM
-    /// added. Nil if a character can't be represented (Latin-1).
-    public static func encode(_ text: String, encoding: TextEncoding, lineEnding: LineEnding) -> Data? {
+    /// added (unless `includeBOM` is false: UTF-16 that had none). With
+    /// `endings` (one per line break, `lineEndings(for:keeping:fallback:)`)
+    /// each break gets its own. Nil if a character can't be represented
+    /// (Latin-1).
+    public static func encode(_ text: String, encoding: TextEncoding, lineEnding: LineEnding, includeBOM: Bool = true,
+                              endings: [LineEnding]? = nil) -> Data? {
         var s = text
-        if lineEnding != .lf {
+        if let endings {
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            guard endings.count == lines.count - 1 else { return nil }
+            var out = ""
+            out.reserveCapacity(text.utf8.count + endings.count)
+            for (i, line) in lines.enumerated() {
+                out += line
+                if i < endings.count { out += endings[i].string }
+            }
+            s = out
+        } else if lineEnding != .lf {
             let m = NSMutableString(string: text)
             m.replaceOccurrences(of: "\n", with: lineEnding.string, options: .literal, range: NSRange(location: 0, length: m.length))
             s = m as String
         }
         guard let body = s.data(using: encoding.foundation, allowLossyConversion: false) else { return nil }
         // Foundation's .utf16LittleEndian/BigEndian write no BOM; add ours.
-        return encoding.bom.isEmpty ? body : Data(encoding.bom) + body
+        return encoding.bom.isEmpty || !includeBOM ? body : Data(encoding.bom) + body
     }
 
     /// Whether `text` can be saved in `encoding` without loss.

@@ -21,7 +21,7 @@ public struct AppleChatEngine: OwlChatEngine {
 
     public func turn(_ messages: [OwlChatMessage], tools: [OwlToolSpec], toolbox: OwlToolbox?, maxTokens: Int,
                      onText: @escaping @Sendable (String) -> Void) async throws -> OwlTurn {
-        guard #available(macOS 26.0, *), Self.isAvailable else { throw LocalAIError.transport("Apple Intelligence unavailable") }
+        guard #available(macOS 26.0, iOS 26.0, *), Self.isAvailable else { throw LocalAIError.transport("Apple Intelligence unavailable") }
         var system = ""
         var prompt = ""
         for m in messages {
@@ -84,7 +84,7 @@ public struct AppleChatEngine: OwlChatEngine {
     }
 }
 
-@available(macOS 26.0, *)
+@available(macOS 26.0, iOS 26.0, *)
 struct AppleOwlTool: Tool {
     typealias Arguments = GeneratedContent
     typealias Output = String

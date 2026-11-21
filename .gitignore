@@ -9,3 +9,8 @@ Package.resolved
 *.env.local
 dist/
 __pycache__/
+
+# iOS app: DerivedData kept in the worktree, the fetched llama slice
+.dd/
+ios/Vendor/
+!ios/Owlink.xcodeproj/

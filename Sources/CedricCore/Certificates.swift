@@ -316,6 +316,7 @@ public enum Certificates {
 
     /// The certificates in a PKCS#7 bundle (DER or PEM), as DER.
     public static func pkcs7Certificates(_ data: Data) -> [Data] {
+        #if os(macOS)
         var format = SecExternalFormat.formatPKCS7
         var type = SecExternalItemType.itemTypeAggregate
         var items: CFArray?
@@ -325,12 +326,16 @@ public enum Certificates {
             guard CFGetTypeID(obj) == SecCertificateGetTypeID() else { return nil }
             return SecCertificateCopyData(obj as! SecCertificate) as Data
         }
+        #else
+        return [] // iOS Security has no SecItemImport.
+        #endif
     }
 
     // MARK: One certificate
 
     /// Reads a DER certificate; nil if Security doesn't take it.
     public static func parse(_ der: Data) -> CertificateInfo? {
+        #if os(macOS)
         guard let cert = SecCertificateCreateWithData(nil, der as CFData) else { return nil }
         let values = (SecCertificateCopyValues(cert, nil, nil) as? [String: Any]) ?? [:]
         func value(_ oid: CFString) -> Any? { (values[oid as String] as? [String: Any])?[kSecPropertyKeyValue as String] }
@@ -401,6 +406,9 @@ public enum Certificates {
             sha256: hex(Array(SHA256.hash(data: der))),
             sha1: hex(Array(Insecure.SHA1.hash(data: der))),
             der: der)
+        #else
+        return nil // iOS Security has no SecCertificateCopyValues.
+        #endif
     }
 
     static func publicKeyDescription(_ cert: SecCertificate, algorithmOID: String?, keyData: Data? = nil) -> String {

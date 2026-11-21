@@ -1,0 +1,6 @@
+// CLlamaLoader for the iOS app's device builds (the Mac gets it from
+// SwiftPM). Found through SWIFT_INCLUDE_PATHS[sdk=iphoneos*].
+module CLlamaLoader {
+    header "../../Sources/CLlamaLoader/include/CLlamaLoader.h"
+    export *
+}
