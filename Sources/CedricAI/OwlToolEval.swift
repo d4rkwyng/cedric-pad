@@ -2,7 +2,7 @@ import Foundation
 import CedricCore
 
 /// The fixed tool-prompt set behind model gating (Scripts/owl-tools-eval.sh):
-/// 50 questions over seven sample documents (Markdown, Swift, JSON, CSV,
+/// 58 questions over seven sample documents (Markdown, Swift, JSON, CSV,
 /// prose, HTML, and an SVG icon). The model sees only lines 1–12 (as in
 /// the panel's "Visible text"), offered the tools the panel offers for
 /// that question (`OwlTools.typedTools`: a few, picked by the question)
@@ -129,6 +129,16 @@ public enum OwlToolEval {
             c("prose", "Rewrite line 3 to be more formal and propose it as an edit.", [.proposeEdit, .getLines], ("start", "3")),
             c("html", "Change the title on line 4 to \"Bakery Lane\" with a proposed edit.", [.proposeEdit, .getLines], ("start", "4")),
             c("csv", "Propose changing the header on line 1 to use rain instead of rain_mm.", [.proposeEdit, .getLines], ("start", "1")),
+            // propose_edit (0.4.1, find/replace): asked for in other words.
+            c("md", "Shorten line 3 to \"Garden notes for this year.\"", [.proposeEdit, .getLines], ("start", "3")),
+            c("prose", "Fix line 3: replace \"opening hours\" with \"open hours\".", [.proposeEdit, .getLines], ("start", "3")),
+            c("swift", "Please rename the function declared on line 8 from parseConfig to parseSettings, on that line only.", [.proposeEdit, .getLines], ("start", "8")),
+            c("json", "Could you update the theme on line 5 from dark to light?", [.proposeEdit, .getLines], ("start", "5")),
+            // Not propose_edit: questions about the text, even with an edit word in them.
+            c("md", "Is the sentence on line 3 correct English?", []),
+            c("swift", "What would you change on line 9 to make it safer? Just tell me.", []),
+            c("prose", "Change of plan: what is the greeting on line 1?", []),
+            c("json", "Does the version on line 3 need fixing?", []),
             // No tool: the answer is in what is shown, or needs no document.
             c("md", "What is the title on line 1?", []),
             c("swift", "What does line 1 import?", []),
@@ -173,7 +183,7 @@ public enum OwlToolEval {
         let messages = OwlPrompts.chatMessages(question: c.question, context: ctx, language: Language(rawValue: d.language)?.displayName ?? d.language,
                                                fileName: d.file, history: [], toolsOn: true, model: engine.scoreKey,
                                                canDescribeImage: OwlPicture.isPicture(fileName: d.file),
-                                               totalLines: snap.lineCount)
+                                               totalLines: snap.lineCount, canEdit: offered.contains(.proposeEdit))
         let expected = c.expect.isEmpty ? "answer" : c.expect.map(\.rawValue).sorted().joined(separator: "|")
         let turn: OwlTurn
         do {
@@ -194,10 +204,13 @@ public enum OwlToolEval {
         if let name = OwlToolName(rawValue: call.name), c.expect.contains(name) {
             let r = OwlTools.run(call, on: snap)
             // describe_image needs the app's renderer: choosing it is the test.
-            pass = r.ok || name == .proposeEdit && call.arguments["start"]?.int != nil || name == .describeImage
+            // propose_edit must be usable as asked: find occurs once, at the line asked about.
+            pass = r.ok || name == .describeImage
             if let arg = c.arg, pass {
                 let v = call.arguments[arg.key]
-                if arg.key == "start" {
+                if name == .proposeEdit, arg.key == "start" {
+                    pass = r.proposal.map { ($0.firstLine...$0.lastLine).contains(Int(arg.value)!) } ?? false
+                } else if arg.key == "start" {
                     // A range that includes the line counts.
                     let s = v?.int ?? -1, e = call.arguments["end"]?.int ?? s
                     pass = (s...max(s, e)).contains(Int(arg.value)!) || abs(s - Int(arg.value)!) <= 1

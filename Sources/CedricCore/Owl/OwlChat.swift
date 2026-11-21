@@ -2,7 +2,7 @@ import Foundation
 
 // Ask Cedric (the owl's chat panel): the pure parts. A frozen snapshot of
 // the document taken when the user asks, the context the model is shown,
-// the quick actions, the owl's six read-only tools and the edit proposal
+// the quick actions, the owl's read-only tools and the edit proposals
 // that becomes a diff the user applies (or not). No AppKit, no engines:
 // the engines are in CedricAI, the panel in the app.
 
@@ -367,11 +367,36 @@ public struct OwlToolCall: Sendable, Equatable {
     }
 }
 
-/// An edit the model proposed: shown as a diff, applied only by the user,
-/// and only while the document is still what the model saw.
+/// An edit the model proposed: shown as a diff card, applied only by the
+/// user's click, as one undo step. Two kinds of anchor:
+///
+/// - `.text` (propose_edit, 0.4.1): the exact text to find and its
+///   replacement. It applies only while `original` occurs exactly once in
+///   the document as it is now, wherever that is; edits elsewhere don't
+///   matter, an edit that touches it (or makes it ambiguous) makes it stale.
+/// - `.lines` (a quick action's ``` block): the lines the model was shown;
+///   it applies only while the document is unchanged since asking.
 public struct OwlEditProposal: Sendable, Equatable {
-    /// Document range (UTF-16) of the lines being replaced.
+    public enum Anchor: String, Sendable, Equatable { case text, lines }
+
+    /// Where the proposal stands against the live document.
+    public enum ApplyState: Sendable, Equatable {
+        /// Applies to this range of the live text.
+        case ready(NSRange)
+        /// The text changed under it, or isn't unique ("ask again").
+        case stale
+        /// The document can't be edited (read-only tab, iOS read mode).
+        case readOnly
+    }
+
+    /// Why propose_edit refused a find/replace pair.
+    public enum Refusal: Error, Sendable, Equatable {
+        case empty, tooLong, notFound, notUnique, noChange
+    }
+
+    /// Document range (UTF-16) in the snapshot of the text being replaced.
     public let range: NSRange
+    /// The text replaced (`.text`: the model's `find`).
     public let original: String
     public let replacement: String
     public let reason: String
@@ -379,11 +404,12 @@ public struct OwlEditProposal: Sendable, Equatable {
     public let lastLine: Int
     /// The snapshot's edit generation.
     public let generation: Int
+    public let anchor: Anchor
 
     public init(range: NSRange, original: String, replacement: String, reason: String,
-                firstLine: Int, lastLine: Int, generation: Int) {
+                firstLine: Int, lastLine: Int, generation: Int, anchor: Anchor = .lines) {
         self.range = range; self.original = original; self.replacement = replacement; self.reason = reason
-        self.firstLine = firstLine; self.lastLine = lastLine; self.generation = generation
+        self.firstLine = firstLine; self.lastLine = lastLine; self.generation = generation; self.anchor = anchor
     }
 
     /// Lines `first...last` of the snapshot replaced by `text`; nil when
@@ -402,12 +428,78 @@ public struct OwlEditProposal: Sendable, Equatable {
                                firstLine: first, lastLine: min(last, s.lineCount), generation: s.generation)
     }
 
-    /// The edit can be applied to the live document: same generation and
-    /// the same text still in its range. Otherwise it is stale ("Ask
-    /// again").
+    /// propose_edit: `find` (exact text, once in the snapshot) replaced by
+    /// `replace`. Forgiving about what small models add: "12| " line
+    /// numbers copied from the shown text (dropped from both when every
+    /// line of `find` has one), and a final newline `find` doesn't have.
+    public static func anchored(find: String, replace: String, reason: String = "",
+                                in s: OwlDocumentSnapshot) -> Result<OwlEditProposal, Refusal> {
+        guard !find.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failure(.empty) }
+        guard (find as NSString).length <= OwlTools.maxFindLength, (replace as NSString).length <= OwlTools.maxReplaceLength
+        else { return .failure(.tooLong) }
+        let text = s.text as NSString
+        var tries: [(find: String, replace: String)] = [(find, replace)]
+        let bare = OwlTools.stripLineNumbers(find)
+        if bare != find { tries.append((bare, OwlTools.stripLineNumbers(replace))) }
+        for t in tries where t.find.hasSuffix("\n") && t.find.count > 1 {
+            tries.append((String(t.find.dropLast()), t.replace.hasSuffix("\n") ? String(t.replace.dropLast()) : t.replace))
+        }
+        var ambiguous = false
+        for t in tries {
+            let hits = occurrences(of: t.find, in: text)
+            if hits.count > 1 { ambiguous = true; continue }
+            guard let r = hits.first else { continue }
+            var replacement = t.replace
+            if replacement.hasSuffix("\n"), !t.find.hasSuffix("\n") { replacement.removeLast() }
+            guard replacement != t.find else { return .failure(.noChange) }
+            let first = s.lineNumber(at: r.location)
+            let last = s.lineNumber(at: max(r.location, NSMaxRange(r) - 1))
+            let why = String(reason.trimmingCharacters(in: .whitespacesAndNewlines).prefix(OwlTools.maxReasonLength))
+            return .success(OwlEditProposal(range: r, original: t.find, replacement: replacement, reason: why,
+                                            firstLine: first, lastLine: last, generation: s.generation, anchor: .text))
+        }
+        return .failure(ambiguous ? .notUnique : .notFound)
+    }
+
+    /// Where `needle` occurs in `text` (overlapping matches count), at most
+    /// `limit` of them: two are enough to know it isn't unique.
+    public static func occurrences(of needle: String, in text: NSString, limit: Int = 2) -> [NSRange] {
+        let n = (needle as NSString).length
+        guard n > 0, n <= text.length else { return [] }
+        var out: [NSRange] = []
+        var at = 0
+        while out.count < limit, at + n <= text.length {
+            let r = text.range(of: needle, options: .literal, range: NSRange(location: at, length: text.length - at))
+            if r.location == NSNotFound { break }
+            out.append(r)
+            at = r.location + 1
+        }
+        return out
+    }
+
+    /// Against the live document: where it applies, or why it can't.
+    public func state(text: NSString, generation: Int, readOnly: Bool = false) -> ApplyState {
+        if readOnly { return .readOnly }
+        switch anchor {
+        case .text:
+            let hits = Self.occurrences(of: original, in: text)
+            return hits.count == 1 ? .ready(hits[0]) : .stale
+        case .lines:
+            guard generation == self.generation, NSMaxRange(range) <= text.length,
+                  text.substring(with: range) == original else { return .stale }
+            return .ready(range)
+        }
+    }
+
+    /// The edit can be applied to the live document now (`state`).
     public func isCurrent(text: NSString, generation: Int) -> Bool {
-        guard generation == self.generation, NSMaxRange(range) <= text.length else { return false }
-        return text.substring(with: range) == original
+        if case .ready = state(text: text, generation: generation) { return true }
+        return false
+    }
+
+    /// Overlaps `other` in the snapshot both were made from.
+    public func overlaps(_ other: OwlEditProposal) -> Bool {
+        NSIntersectionRange(range, other.range).length > 0 || range.location == other.range.location
     }
 
     /// The diff rows (LineDiff) between the original and the replacement.
@@ -466,6 +558,12 @@ public enum OwlTools {
     public static let maxCallsPerRound = 4
     public static let maxEditLines = 400
     public static let maxEditLength = 32_768
+    /// propose_edit (UTF-16 units): the text to find, its replacement, the reason.
+    public static let maxFindLength = 4_000
+    public static let maxReplaceLength = 8_000
+    public static let maxReasonLength = 120
+    /// Edits proposed per answer; more are refused.
+    public static let maxProposals = 5
 
     public static func spec(_ name: OwlToolName) -> OwlToolSpec {
         func obj(_ props: [String: OwlJSON], required: [String]) -> OwlJSON {
@@ -488,8 +586,10 @@ public enum OwlTools {
         case .documentStats:
             return OwlToolSpec(name: name, description: "Words, lines, characters, language and file name of the document.", parameters: obj([:], required: []))
         case .proposeEdit:
-            return OwlToolSpec(name: name, description: "Proposes replacing lines start to end with new_text. The user reviews and applies it.",
-                               parameters: obj(["start": int, "end": int, "new_text": str, "reason": str], required: ["start", "end", "new_text"]))
+            return OwlToolSpec(name: name, description: "Proposes replacing the exact text find (copied from the document without line numbers, long enough to occur only once) with replace. It only proposes: the user reviews and applies it. One call per separate change.",
+                               parameters: obj(["find": str, "replace": str,
+                                                "reason": .object(["type": .string("string"), "maxLength": .number(Double(maxReasonLength))])],
+                                               required: ["find", "replace", "reason"]))
         case .checkDocument:
             return OwlToolSpec(name: name, description: "Problems Owlink's offline checks found in the document (links, headings, footnotes, code rules, grammar), with line numbers.",
                                parameters: obj([:], required: []))
@@ -520,8 +620,54 @@ public enum OwlTools {
         }
         if OwlChecks.asksAboutProblems(question) { out.append(.checkDocument) }
         if asksAboutSection(words, snapshot: s) { out.append(.readSection) }
-        if !words.isDisjoint(with: editWords) { out.append(.proposeEdit) }
+        if asksForChange(question) {
+            out.append(.proposeEdit)
+            // An edit request keeps to five tools: get_lines finds the text to
+            // change; the outline goes first, then the stats, the section, the search.
+            for spare in [OwlToolName.getOutline, .documentStats, .readSection, .searchDocument] where out.count > 5 {
+                out.removeAll { $0 == spare }
+            }
+        }
         return out
+    }
+
+    /// The question asks for a change to the text ("Rewrite line 3",
+    /// "Can you fix the typo?", "In helper10, change the multiplier…"):
+    /// some clause starts with an edit verb, after polite fillers ("please",
+    /// "could you", "I want you to"). A question about the text ("Is line 3
+    /// correct?", "What would you change?", "How do I fix it?") is not one.
+    /// Only then is propose_edit offered, so a question can't turn into an
+    /// edit, and the document's text can't ask for one either.
+    public static func asksForChange(_ question: String) -> Bool {
+        let clauses = question.lowercased().components(separatedBy: CharacterSet(charactersIn: ".,;:!?\n()"))
+        for clause in clauses {
+            let words = clause.components(separatedBy: CharacterSet.letters.union(CharacterSet(charactersIn: "'’")).inverted)
+                .filter { !$0.isEmpty }
+            guard let verb = words.first(where: { !changeFillers.contains($0) }) else { continue }
+            if editVerbs.contains(verb) { return true }
+        }
+        return false
+    }
+
+    /// Words before the verb of a request ("please could you just …").
+    static let changeFillers: Set<String> = ["please", "pls", "can", "could", "would", "will", "you", "kindly", "now", "then", "also", "just",
+                                             "and", "so", "ok", "okay", "hey", "cedric", "help", "me", "let's", "lets", "let", "us", "go",
+                                             "ahead", "try", "to", "i", "i'd", "i’d", "id", "want", "like", "need", "we", "first", "next", "finally"]
+    /// Verbs that ask for an edit when they start a clause.
+    static let editVerbs: Set<String> = ["change", "edit", "rewrite", "rename", "replace", "fix", "correct", "propose", "update",
+                                         "add", "insert", "remove", "delete", "make", "convert", "shorten", "lengthen", "reword",
+                                         "rephrase", "simplify", "improve", "reformat", "capitalize", "capitalise", "swap", "sort",
+                                         "tidy", "polish", "proofread", "tighten", "trim", "condense", "expand",
+                                         "turn", "set", "move", "put", "uncomment", "indent", "spell", "punctuate"]
+
+    /// "12| text" lines → "text", only when every non-empty line has a number.
+    public static func stripLineNumbers(_ s: String) -> String {
+        let lines = s.components(separatedBy: "\n")
+        let re = try! NSRegularExpression(pattern: #"^\s*\d+\| ?"#)
+        let numbered = lines.allSatisfy { $0.isEmpty || re.firstMatch(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length)) != nil }
+        guard numbered, lines.contains(where: { !$0.isEmpty }) else { return s }
+        return lines.map { re.stringByReplacingMatches(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length), withTemplate: "") }
+            .joined(separator: "\n")
     }
 
     /// Whether the coverage note applies ("I can see lines 1–40 of 111…").
@@ -718,11 +864,6 @@ public enum OwlTools {
     }
 
     static let statsWords: Set<String> = ["words", "characters", "chars", "count", "length", "long", "filename", "language", "size", "stats", "statistics"]
-    static let editWords: Set<String> = ["change", "edit", "rewrite", "rename", "replace", "fix", "correct", "propose", "update", "add", "insert",
-                                         "remove", "delete", "make", "turn", "convert", "shorten", "shorter", "longer", "reword", "rephrase",
-                                         "translate", "simplify", "improve", "format", "reformat", "capitalize", "sort", "swap", "move", "put",
-                                         "set", "write", "comment", "tidy", "clean", "polish", "edits"]
-
     /// Caps `s` at `maxOutputBytes` of UTF-8 on a line boundary where possible.
     public static func cap(_ s: String, bytes: Int = maxOutputBytes) -> String {
         guard s.utf8.count > bytes else { return s }
@@ -820,16 +961,22 @@ public enum OwlTools {
             if s.hasSelection { body += "selection: lines \(s.lineSpan(s.selection).first)-\(s.lineSpan(s.selection).last)\n" }
             return OwlToolResult(text: body, proposal: nil, summary: String(localized: "Counted the document"), ok: true)
         case .proposeEdit:
-            guard let start = a["start"]?.int, let end = a["end"]?.int, let text = a["new_text"]?.string else {
-                return fail("propose_edit needs start, end and new_text")
+            guard case .string(let find)? = a["find"], case .string(let replace)? = a["replace"] else {
+                return fail("propose_edit needs find (the exact text to change), replace and reason")
             }
-            guard start >= 1, end >= start, start <= s.lineCount else { return fail("lines must be within 1...\(s.lineCount)") }
-            guard end - start < maxEditLines else { return fail("too many lines in one edit") }
-            guard let p = OwlEditProposal.lines(start, end, with: text, reason: a["reason"]?.string ?? "", in: s) else {
-                return fail("the new text is the same as the old")
+            switch OwlEditProposal.anchored(find: find, replace: replace, reason: a["reason"]?.string ?? "", in: s) {
+            case .failure(.empty): return fail("find is empty; copy the exact text to change from the document")
+            case .failure(.tooLong): return fail("too long: find at most \(maxFindLength) characters, replace at most \(maxReplaceLength); propose a smaller change")
+            case .failure(.notFound): return fail("find was not found; copy it exactly from the document, without the \"12| \" line numbers (call get_lines to see the text)")
+            case .failure(.notUnique): return fail("find occurs more than once; include more of the surrounding text so it occurs only once")
+            case .failure(.noChange): return fail("replace is the same as find")
+            case .success(let p):
+                let at = p.firstLine == p.lastLine ? "line \(p.firstLine)" : "lines \(p.firstLine)-\(p.lastLine)"
+                let summary = p.firstLine == p.lastLine ? String(localized: "Proposed a change to line \(p.firstLine)")
+                    : String(localized: "Proposed a change to lines \(p.firstLine)–\(p.lastLine)")
+                return OwlToolResult(text: "proposed: the user will review the change to \(at) and apply it or not. For another separate change call propose_edit again (at most \(maxProposals) in all); otherwise briefly say what you changed.",
+                                     proposal: p, summary: summary, ok: true)
             }
-            return OwlToolResult(text: "proposed: the user will review the change to lines \(p.firstLine)-\(p.lastLine). Now briefly say what you changed.",
-                                 proposal: p, summary: String(localized: "Proposed a change to lines \(p.firstLine)–\(p.lastLine)"), ok: true)
         case .checkDocument:
             let r = OwlChecks.run(s)
             return OwlToolResult(text: OwlChecks.listing(r, bytes: maxOutputBytes), proposal: nil,
@@ -968,10 +1115,16 @@ public struct OwlChatEntry: Sendable, Equatable {
     public enum Role: String, Sendable { case user, owl, tool, note, scan }
     public var role: Role
     public var text: String
-    public var proposal: OwlEditProposal?
+    /// The edits proposed with this answer, in the order proposed.
+    public var proposals: [OwlEditProposal]
+    public var proposal: OwlEditProposal? { proposals.first }
 
-    public init(role: Role, text: String, proposal: OwlEditProposal? = nil) {
-        self.role = role; self.text = text; self.proposal = proposal
+    public init(role: Role, text: String, proposals: [OwlEditProposal] = []) {
+        self.role = role; self.text = text; self.proposals = proposals
+    }
+
+    public init(role: Role, text: String, proposal: OwlEditProposal?) {
+        self.init(role: role, text: text, proposals: proposal.map { [$0] } ?? [])
     }
 
     /// The history as Markdown (Copy as Markdown).
@@ -982,7 +1135,10 @@ public struct OwlChatEntry: Sendable, Equatable {
             case .user: out += "\n**You:** \(e.text)\n"
             case .owl:
                 out += "\n**Cedric:** \(e.text)\n"
-                if let p = e.proposal { out += "\n```diff\n\(p.unifiedText)\n```\n" }
+                for p in e.proposals {
+                    if !p.reason.isEmpty { out += "\n_\(p.reason)_\n" }
+                    out += "\n```diff\n\(p.unifiedText)\n```\n"
+                }
             case .tool: out += "\n> _\(e.text)_\n"
             case .note: out += "\n_\(e.text)_\n"
             case .scan: out += "\n**Offline scan:**\n\(e.text)\n"

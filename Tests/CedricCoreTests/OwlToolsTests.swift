@@ -60,12 +60,13 @@ import Testing
     }
 
     @Test func proposeEditReturnsAProposalAgainstTheSnapshot() {
-        let r = OwlTools.run(call("propose_edit", ["start": .number(3), "end": .number(3), "new_text": .string("Intro, rewritten."), "reason": .string("clearer")]), on: snap())
+        let r = OwlTools.run(call("propose_edit", ["find": .string("Intro line."), "replace": .string("Intro, rewritten."), "reason": .string("clearer")]), on: snap())
         let p = try! #require(r.proposal)
         #expect(p.original == "Intro line." && p.replacement == "Intro, rewritten." && p.generation == 3 && p.reason == "clearer")
         #expect(p.isCurrent(text: Self.doc as NSString, generation: 3))
-        #expect(!OwlTools.run(call("propose_edit", ["start": .number(3), "end": .number(3), "new_text": .string("Intro line.")]), on: snap()).ok)
-        #expect(!OwlTools.run(call("propose_edit", ["start": .number(5), "end": .number(2), "new_text": .string("x")]), on: snap()).ok)
+        #expect(!OwlTools.run(call("propose_edit", ["find": .string("Intro line."), "replace": .string("Intro line."), "reason": .string("")]), on: snap()).ok)
+        #expect(OwlTools.run(call("propose_edit", ["find": .string("value=3"), "replace": .string("x"), "reason": .string("")]), on: snap()).text.contains("more than once"))
+        #expect(OwlTools.run(call("propose_edit", ["find": .string("Outro"), "replace": .string("x"), "reason": .string("")]), on: snap()).text.contains("not found"))
         #expect(!OwlTools.run(call("propose_edit", ["start": .number(1)]), on: snap()).ok)
     }
 
