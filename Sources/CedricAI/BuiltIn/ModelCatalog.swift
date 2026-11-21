@@ -49,7 +49,7 @@ public struct BuiltInModel: Codable, Sendable, Equatable, Identifiable {
         physicalMemory < UInt64(minRAMGB) * 1_073_741_824
     }
 
-    /// As the settings sheet's model list wants it.
+    /// As Settings › Cedric's model list wants it.
     public var info: LocalModelInfo {
         LocalModelInfo(id: id, sizeBytes: sizeBytes, parametersB: parametersB,
                        quantization: quantization, type: "llm")

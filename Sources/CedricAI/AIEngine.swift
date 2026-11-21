@@ -1,7 +1,7 @@
 import Foundation
 import CedricCore
 
-/// Where the owl's AI runs. The settings sheet talks only to this protocol
+/// Where the owl's AI runs. Settings › Cedric talks only to this protocol
 /// (availability, model list, test, provider), so a new engine, such as the
 /// built-in one with its own model downloader, plugs in without UI changes.
 /// Every engine uses the same prompts (`OwlPrompts`).

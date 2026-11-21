@@ -484,7 +484,7 @@ public enum ModelPicker {
     /// The largest model the automatic choice will take.
     public static let maxAutoParametersB = 4.0
 
-    /// ≤ 2B: the settings sheet says "Small models give weaker hints."
+    /// ≤ 2B: Settings › Cedric says "Small models give weaker hints."
     public static func isWeak(_ m: LocalModelInfo) -> Bool { (m.parametersB ?? 99) <= 2 }
 
     private static func rank(_ m: LocalModelInfo, target: Double) -> Double {
