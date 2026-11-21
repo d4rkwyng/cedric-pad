@@ -35,6 +35,12 @@ are its section below (`Scripts/changelog-section.sh`).
 ### Security
 - **Git info runs with less of the repository's own config.** Owlink's git calls (branch name, change bars, Compare with Last Commit) now also turn off automatic gc and maintenance and lazy fetching, and a repository whose config sets `gc.recentObjectsHook` (also through an `[include]`) is treated like one with other command hooks: no git info for it. `core.hooksPath` stays allowed (husky sets it) and is pinned to `/dev/null` as before.
 
+### Known issues
+- Ask Cedric's coverage note ("I can see lines 1–12 of N") also appears on questions that aren't about the document.
+- Copy as Rich Text, on a document with `[[wikilinks]]`, builds the folder's note-name index on the main thread, so the first copy in a large vault can pause briefly.
+- Exported HTML keeps site-root image paths (`/images/…`) as written; the preview and PDF export find them on disk, an HTML file opened elsewhere may not.
+- With the built-in Qwen3 4B model, Ask Cedric still sometimes says the document doesn't mention something without looking it up first.
+
 ## [0.3.0]
 
 ### Added
