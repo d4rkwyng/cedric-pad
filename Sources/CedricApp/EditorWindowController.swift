@@ -40,12 +40,40 @@ final class EditorContainer: NSView {
         let side = sidebar == nil ? 0 : min(OutlineSidebar.width, max(0, bounds.width - 200))
         sidebar?.frame = NSRect(x: 0, y: 0, width: side, height: bounds.height)
         let g = showsGutter ? gutterWidth : 0
-        gutter.frame = NSRect(x: side, y: 0, width: g, height: bounds.height)
-        scrollView.frame = NSRect(x: side + g, y: 0, width: bounds.width - g - side, height: bounds.height)
+        // Beside the scroll view, at the window edge. Readable Width draws
+        // it in the column's margin instead, just left of the text.
+        var gutterX = side
+        var scrollX = side + g
+        var scrollW = max(0, bounds.width - side - g)
+        if g > 0, let tv = gutter.textView, let column = tv.readableColumnWidth {
+            let fullW = max(0, bounds.width - side)
+            let textLeft: CGFloat
+            if abs(scrollView.frame.minX - CGFloat(side)) < 0.5, abs(scrollView.frame.width - fullW) < 0.5 {
+                textLeft = tv.convert(NSPoint(x: tv.textContainerOrigin.x, y: 0), to: self).x
+            } else {
+                // The scroll view is about to take the gutter's width too.
+                // A legacy scroller keeps the text that much narrower.
+                let extra = fullW - scrollView.frame.width
+                let contentW = scrollView.contentSize.width > 1 ? scrollView.contentSize.width + extra : fullW
+                textLeft = CGFloat(side) + CGFloat(ReadableWidth.inset(viewWidth: Double(contentW), column: Double(column)))
+            }
+            if let x = ReadableWidth.overlaidGutterMinX(textMinX: Double(textLeft), gutterWidth: Double(g), sidebarWidth: Double(side)) {
+                gutterX = CGFloat(x)
+                scrollX = side
+                scrollW = fullW
+                // On top of the margin, so a click on a line number hits the gutter.
+                if let si = subviews.firstIndex(of: scrollView), let gi = subviews.firstIndex(of: gutter), gi < si {
+                    addSubview(gutter, positioned: .above, relativeTo: scrollView)
+                }
+            }
+        }
+        gutter.frame = NSRect(x: gutterX, y: 0, width: g, height: bounds.height)
+        scrollView.frame = NSRect(x: scrollX, y: 0, width: scrollW, height: bounds.height)
         if let overlay {
-            // Over the text area, clear of the scrollers.
+            // Over the text area, clear of the scrollers, above the gutter.
             scrollView.layoutSubtreeIfNeeded()
             overlay.frame = scrollView.convert(scrollView.contentView.frame, to: self)
+            if subviews.last !== overlay { addSubview(overlay) }
         }
     }
 }

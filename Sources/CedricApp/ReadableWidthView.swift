@@ -3,19 +3,19 @@ import CedricCore
 
 /// View › Readable Width (0.4.0): the text in a centred column of
 /// Settings › Readable width characters (72 by default), iA Writer-style.
-/// Per tab, on by default for Markdown and plain text and off for code
-/// (`ReadableWidth.defaultOn`); only while lines wrap.
+/// Per tab, off until the tab turns it on or Settings › Writing's
+/// checkbox is checked; only while lines wrap.
 ///
 /// The column is the text view's horizontal inset (EditorTextView
 /// `readableColumnWidth`), set again only when the view's width, the font
 /// or the switch changes: typing never touches it, and nothing else moves.
-/// The gutter (line numbers, folds, git bars) is beside the scroll view and
-/// follows each line's y, which the inset doesn't change; Typewriter
+/// With the column on, the gutter (line numbers, folds, git bars) is drawn
+/// in the margin just left of the text (EditorContainer). Typewriter
 /// Scrolling and Focus work on lines and the vertical scroll, so they act
 /// the same in the column.
 extension EditorWindowController {
-    /// The tab's switch (its own, else its language's default).
-    var readableWidthOn: Bool { editing.readableWidth ?? ReadableWidth.defaultOn(for: doc.language) }
+    /// The tab's switch (its own, else the Writing default, which is off).
+    var readableWidthOn: Bool { editing.readableWidth ?? Settings.shared.readableWidthDefault }
     /// On, and lines wrap (without wrapping there is no column to keep).
     var readableWidthActive: Bool { readableWidthOn && wrapsLines }
 

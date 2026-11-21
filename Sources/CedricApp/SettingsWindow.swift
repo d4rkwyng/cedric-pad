@@ -93,6 +93,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     // Writing
     /// View › Readable Width's column, in characters (ReadableWidthView.swift).
     let readableColumns = NSTextField()
+    /// The default for tabs that have not chosen (off).
+    let readableWidthDefault = NSButton(checkboxWithTitle: String(localized: "Readable Width"), target: nil, action: nil)
     let readableStepper = NSStepper()
     /// Style Check (0.4.0) and its two lists, comma-separated.
     let styleCheck = NSButton(checkboxWithTitle: String(localized: "Style Check: filler words, redundancies, clichés"), target: nil, action: nil)
@@ -176,7 +178,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                 MainActor.assumeIsolated { self?.refresh() }
             })
         }
-        for b in [gitChanges, owlChat, showOwl, styleTips, styleCheck, quitOnLastClose, useProseFont] + Array(toggles.values) {
+        for b in [gitChanges, owlChat, showOwl, styleTips, styleCheck, quitOnLastClose, useProseFont, readableWidthDefault] + Array(toggles.values) {
             b.target = self; b.action = #selector(changed(_:))
         }
     }
@@ -362,6 +364,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         readableStepper.increment = 1
         readableStepper.target = self; readableStepper.action = #selector(stepped(_:))
         readableStepper.setAccessibilityLabel(String(localized: "Readable width"))
+        readableWidthDefault.toolTip = String(localized: "Centre the text in a column. Off until you turn it on. View › Readable Width switches the current tab and keeps that choice; this is the default for every other tab.")
         let readableRow = NSStackView(views: [readableColumns, readableStepper, NSTextField(labelWithString: String(localized: "characters"))])
         readableRow.spacing = 6
         for (f, hint, spoken) in [(styleExtra, String(localized: "Also flag: words or phrases, comma-separated"), String(localized: "Also flag")),
@@ -404,7 +407,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             [label(String(localized: "Prose font:")), useProseFont],
             [NSGridCell.emptyContentView, proseRow],
             [NSGridCell.emptyContentView, note(String(localized: "Markdown and plain text only; code keeps the font in General. Zoom changes both. Text › Selection › Add Caret Above and Below keep the character column, which need not line up in a proportional font."))],
-            [label(String(localized: "Readable width:")), readableRow],
+            [label(String(localized: "Readable width:")), readableWidthDefault],
+            [NSGridCell.emptyContentView, readableRow],
             [label(String(localized: "Spelling:")), t[.checkSpellingWhileTyping]!],
             [label(String(localized: "Grammar:")), t[.checkGrammar]!],
             [label(String(localized: "Style:")), styleCheck],
@@ -488,6 +492,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             proseFontStepper.integerValue = Int(s.proseFontSize)
         }
         for c in [proseFontPopup, proseFontSize, proseFontStepper] as [NSControl] { c.isEnabled = s.useProseFont }
+        readableWidthDefault.state = s.readableWidthDefault ? .on : .off
         if readableColumns.currentEditor() == nil {
             readableColumns.integerValue = s.readableColumns
             readableStepper.integerValue = s.readableColumns
@@ -536,6 +541,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         case fontPopup: s.fontName = fontNames[max(0, fontPopup.indexOfSelectedItem)]
         case fontSize: if fontSize.integerValue >= 6, CGFloat(fontSize.integerValue) != s.fontSize { s.fontSize = CGFloat(fontSize.integerValue) }
         case readableColumns: if readableColumns.integerValue > 0, readableColumns.integerValue != s.readableColumns { s.readableColumns = readableColumns.integerValue }
+        case readableWidthDefault: s.readableWidthDefault = readableWidthDefault.state == .on
         case useProseFont: s.useProseFont = useProseFont.state == .on
         case proseFontPopup:
             let rep = proseFontPopup.selectedItem?.representedObject as? String ?? ""

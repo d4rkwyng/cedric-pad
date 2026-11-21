@@ -29,8 +29,8 @@ final class EditingState {
 
     /// View › Writing Mode for this tab (WritingMode.swift): off by default.
     var writing = WritingModeState()
-    /// View › Readable Width switched for this tab (nil: the language's
-    /// default, on for Markdown and plain text; ReadableWidthView.swift).
+    /// View › Readable Width switched for this tab (nil: the Writing
+    /// default, off until that checkbox is on; ReadableWidthView.swift).
     var readableWidth: Bool?
     /// What Focus last applied, per text view: the focus and visible
     /// ranges, their ends counted from the text's end (WritingMode.swift).

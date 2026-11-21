@@ -2,13 +2,15 @@ import AppKit
 import CedricCore
 
 /// CEDRIC_CHECK=readable (Scripts/writing-check.sh): View › Readable Width.
-/// On by default in a Markdown tab and centred (inset + column + inset is
-/// the view's width, the column is the setting's characters wide), off in
-/// a Swift tab; the gutter's line under a wrapped paragraph's first line is
-/// that line; typing leaves the inset alone; a narrower window re-centres
-/// it; Typewriter Scrolling keeps the caret line at the middle and Focus
-/// dims, in the column; the menu item turns it off and on; Settings ›
-/// Readable width changes the column; without Wrap Lines it is off.
+/// Off by default in a Markdown tab and a Swift tab. Turned on, the column
+/// is centred (inset + column + inset is the view's width, the column is
+/// the setting's characters wide) and the gutter sits just left of the
+/// text; the gutter's line under a wrapped paragraph's first line is that
+/// line; typing leaves the inset alone; a narrower window re-centres it;
+/// Typewriter Scrolling keeps the caret line at the middle and Focus dims,
+/// in the column; the menu item turns it off and on; an explicit choice
+/// stays when the Writing default changes; Settings › Readable width
+/// changes the column; without Wrap Lines it is off.
 @MainActor
 extension DevChecks {
     static func readableWidthCheck(_ app: AppDelegate) {
@@ -21,6 +23,7 @@ extension DevChecks {
         sized(swiftTab)
         let defaults = UserDefaults.standard
         let savedColumns = defaults.object(forKey: "readableColumns"), savedWrap = defaults.object(forKey: "wrapLines")
+        let savedDefault = defaults.object(forKey: "readableWidthDefault")
         func inset(_ t: EditorWindowController) -> CGFloat { t.textView.textContainerInset.width }
         func centred(_ t: EditorWindowController) -> Bool {
             let tv = t.textView
@@ -41,17 +44,33 @@ extension DevChecks {
         run([
             sync {
                 defaults.removeObject(forKey: "readableColumns")
+                defaults.removeObject(forKey: "readableWidthDefault")
                 focus(mdTab)
+                mdTab.applyReadableWidth()
+                swiftTab.applyReadableWidth()
                 mdTab.window?.layoutIfNeeded()
+                swiftTab.window?.layoutIfNeeded()
                 print(String(format: "check: readable: view %.0f pt, inset %.0f pt, column %.1f characters",
                              mdTab.textView.bounds.width, inset(mdTab), columnChars(mdTab)))
-                expect(mdTab.readableWidthOn && inset(mdTab) > 100, "on by default in a Markdown tab", "inset \(inset(mdTab))")
-                expect(centred(mdTab), "the column is centred")
-                expect(abs(columnChars(mdTab) - 72) < 1, "72 characters wide by default", "\(columnChars(mdTab))")
+                expect(!Settings.shared.readableWidthDefault, "Settings › Writing › Readable Width is unchecked")
+                expect(!mdTab.readableWidthOn && inset(mdTab) == 4, "off by default in a Markdown tab", "inset \(inset(mdTab))")
                 expect(!swiftTab.readableWidthOn && inset(swiftTab) == 4, "off in a Swift tab", "inset \(inset(swiftTab))")
                 if let i = menuItem(action: #selector(AppDelegate.toggleReadableWidthMenu(_:))) {
-                    expect(app.validateMenuItem(i) && i.state == .on, "View › Readable Width is checked in the Markdown tab")
+                    expect(app.validateMenuItem(i) && i.state == .off, "View › Readable Width is unchecked in the Markdown tab")
                 } else { expect(false, "View › Readable Width exists") }
+                app.toggleReadableWidthMenu(nil)
+                mdTab.window?.layoutIfNeeded()
+                print(String(format: "check: readable on: view %.0f pt, inset %.0f pt, column %.1f characters",
+                             mdTab.textView.bounds.width, inset(mdTab), columnChars(mdTab)))
+                expect(mdTab.readableWidthOn && inset(mdTab) > 100, "the menu turns it on in a Markdown tab", "inset \(inset(mdTab))")
+                expect(centred(mdTab), "the column is centred")
+                expect(abs(columnChars(mdTab) - 72) < 1, "72 characters wide by default", "\(columnChars(mdTab))")
+                let tv = mdTab.textView
+                let host = tv.enclosingScrollView?.superview
+                let textLeft = host.map { tv.convert(NSPoint(x: tv.textContainerOrigin.x, y: 0), to: $0).x } ?? -1
+                expect(abs(mdTab.gutter.frame.maxX - textLeft) < 2 && mdTab.gutter.frame.minX > 30,
+                       "line numbers sit just left of the column, not at the window edge",
+                       "gutter \(mdTab.gutter.frame) text \(textLeft)")
             },
             { next in snapshot("readable-md.png", window: mdTab.window)(next) },
             sync {
@@ -88,7 +107,8 @@ extension DevChecks {
                 for ch in "more " { TypingCheck.key(w, String(ch)) }
                 w.displayIfNeeded()
                 let b = mdTab.scrollView.contentView.bounds
-                let off = mdTab.caretLineMidY(tv).map { $0 - b.midY } ?? .infinity
+                let mid = mdTab.caretLineMidY(tv)
+                let off = mid.map { $0 - b.midY } ?? .infinity
                 expect(abs(off) <= lineHeight, "Typewriter Scrolling keeps the caret line at the middle", String(format: "%.1f pt off", off))
                 expect(!mdTab.editing.focusDimmed.isEmpty, "Focus dims around the caret's paragraph")
                 expect(centred(mdTab), "still centred with Writing Mode on")
@@ -108,11 +128,20 @@ extension DevChecks {
                 expect(inset(mdTab) == 4, "off while lines don't wrap", "inset \(inset(mdTab))")
                 Settings.shared.wrapLines = true
                 expect(centred(mdTab) && inset(mdTab) > 4, "back with Wrap Lines")
+                // The menu wrote an explicit choice. The Writing default going off leaves it.
+                Settings.shared.readableWidthDefault = false
+                mdTab.window?.layoutIfNeeded()
+                expect(mdTab.editing.readableWidth == true && mdTab.readableWidthOn && centred(mdTab),
+                       "an explicit per-tab choice stays when the Writing default is off")
+                let fresh = app.open(write("readable-fresh.md", "fresh\n"))!
+                sized(fresh)
+                fresh.window?.layoutIfNeeded()
+                expect(!fresh.readableWidthOn && inset(fresh) == 4, "a new tab follows the unchecked default", "inset \(inset(fresh))")
                 focus(swiftTab)
                 app.toggleReadableWidthMenu(nil)
                 expect(swiftTab.readableWidthOn && inset(swiftTab) > 4 && centred(swiftTab), "a code tab can turn it on")
                 // The machine's settings as they were.
-                for (k, v) in [("readableColumns", savedColumns), ("wrapLines", savedWrap)] {
+                for (k, v) in [("readableColumns", savedColumns), ("wrapLines", savedWrap), ("readableWidthDefault", savedDefault)] {
                     if let v { defaults.set(v, forKey: k) } else { defaults.removeObject(forKey: k) }
                 }
             },

@@ -95,6 +95,8 @@ extension DevChecks {
                 expect((prose.folding?.state.folds.count ?? 0) == 2, "Text › Folding › Fold All folds both headings", "\(prose.folding?.state.folds ?? [])")
                 NSApp.sendAction(#selector(AppDelegate.unfoldAllMenu(_:)), to: app, from: nil)
                 expect((prose.folding?.state.folds.count ?? 0) == 0, "Unfold All")
+                prose.setReadableWidth(true)
+                prose.window?.layoutIfNeeded()
                 let tv = prose.textView, f = tv.font!
                 let chars = ((tv.textContainer?.size.width ?? 0) - 2 * (tv.textContainer?.lineFragmentPadding ?? 0)) / f.readableCharacterWidth
                 expect(prose.readableWidthOn && abs(chars - CGFloat(Settings.shared.readableColumns)) < 1.5,

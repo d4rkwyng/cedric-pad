@@ -52,6 +52,14 @@ final class Settings {
         set { defaults.set(newValue, forKey: "wrapLines"); changed() }
     }
 
+    /// Settings › Writing › Readable Width: the default for a tab that has
+    /// not chosen for itself. Off (unchecked). An explicit per-tab choice
+    /// is kept (ReadableWidthView.swift).
+    var readableWidthDefault: Bool {
+        get { defaults.bool(forKey: "readableWidthDefault") }
+        set { defaults.set(newValue, forKey: "readableWidthDefault"); changed() }
+    }
+
     /// Settings › Readable width: View › Readable Width's column, in
     /// characters (60–100, 72 by default; ReadableWidthView.swift).
     var readableColumns: Int {

@@ -3,10 +3,20 @@ import Testing
 @testable import CedricCore
 
 @Suite struct ReadableWidthTests {
-    @Test func onForProseOffForCode() {
-        #expect(ReadableWidth.defaultOn(for: .markdown))
-        #expect(ReadableWidth.defaultOn(for: .plain))
-        for l in [Language.swift, .python, .json, .yaml, .shell, .csv] { #expect(!ReadableWidth.defaultOn(for: l)) }
+    @Test func offForEveryLanguage() {
+        #expect(!ReadableWidth.defaultOn(for: .markdown))
+        #expect(!ReadableWidth.defaultOn(for: .plain))
+        for l in Language.allCases { #expect(!ReadableWidth.defaultOn(for: l)) }
+    }
+
+    @Test func gutterSitsBesideTheColumnWhenTheMarginAllows() {
+        // A 214 pt inset and a 48 pt gutter: the numbers start at 166, not at the window edge.
+        #expect(ReadableWidth.overlaidGutterMinX(textMinX: 214, gutterWidth: 48, sidebarWidth: 0) == 166)
+        // The normal 4 pt inset is narrower than the gutter: stay at the edge.
+        #expect(ReadableWidth.overlaidGutterMinX(textMinX: 4, gutterWidth: 48, sidebarWidth: 0) == nil)
+        // The gutter must not cover the sidebar.
+        #expect(ReadableWidth.overlaidGutterMinX(textMinX: 80, gutterWidth: 48, sidebarWidth: 40) == nil)
+        #expect(ReadableWidth.overlaidGutterMinX(textMinX: 200, gutterWidth: 48, sidebarWidth: 40) == 152)
     }
 
     @Test func columnsClampedTo60Through100() {

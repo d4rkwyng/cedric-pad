@@ -95,6 +95,17 @@ final class EditorTextView: NSTextView {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        var newSize = newSize
+        // Tiling the scroll view (the gutter moves into the column's margin,
+        // so this view gets wider) tries to make the text exactly as tall as
+        // the visible area. The document is taller; keeping that short height
+        // makes typewriter scrolling clamp to the top.
+        if let clip = enclosingScrollView?.contentView {
+            let visible = clip.bounds.height
+            let inset = enclosingScrollView?.contentInsets.bottom ?? 0
+            let fillingClip = abs(newSize.height - visible) < 1 || (inset > 0 && abs(newSize.height - (visible - inset)) < 1)
+            if fillingClip, frame.height > visible + 100 { newSize.height = frame.height }
+        }
         let widthChanged = newSize.width != frame.width
         super.setFrameSize(newSize)
         // Typing grows the height only: nothing to do then.
@@ -106,6 +117,8 @@ final class EditorTextView: NSTextView {
             ?? ReadableWidth.minimumInset)
         guard textContainerInset.width != w else { return }
         textContainerInset = NSSize(width: w, height: textContainerInset.height)
+        // The gutter follows the column (EditorContainer).
+        enclosingScrollView?.superview?.needsLayout = true
     }
 
     /// View › Writing Mode › Typewriter Scrolling (WritingMode.swift): set
