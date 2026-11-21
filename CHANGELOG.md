@@ -30,6 +30,7 @@ are its section below (`Scripts/changelog-section.sh`).
 - **Word counts** count each Chinese or Japanese character as a word (a run of them was one word), no longer count emoji as words or a Markdown `___` rule as one, and count a Windows line ending as one character.
 - **Bold, Italic and Strikethrough over text that already has some** merge the inner markers into the new pair: Bold over `a **b** c` gives `**a b c**`, not bold nested in bold.
 - **File › Page Setup… has no shortcut**: ⇧⌘P opens the command palette, as in VS Code and iA Writer. Print stays ⌘P.
+- **The tool eval has 50 prompts** (was 46): two for check_document and two for read_section, and each prompt is offered only the tools Ask Cedric would offer that question. Measured for this release: the built-in Qwen3 4B Instruct 88% (it keeps its tools; 80% is still the bar) and Apple Intelligence 52% (no tools, as before; the 72.5% recorded for 0.3.0 came from the older prompt set and moves between runs).
 
 ### Security
 - **Git info runs with less of the repository's own config.** Owlink's git calls (branch name, change bars, Compare with Last Commit) now also turn off automatic gc and maintenance and lazy fetching, and a repository whose config sets `gc.recentObjectsHook` (also through an `[include]`) is treated like one with other command hooks: no git info for it. `core.hooksPath` stays allowed (husky sets it) and is pinned to `/dev/null` as before.
