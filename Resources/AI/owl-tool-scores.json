@@ -1,9 +1,9 @@
 {
   "models" : {
     "apple:apple-on-device" : {
-      "cases" : 40,
-      "date" : "2026-11-19",
-      "score" : 0.725
+      "cases" : 50,
+      "date" : "2026-11-20",
+      "score" : 0.52
     },
     "builtIn:qwen2.5-coder-3b-instruct-q4_k_m" : {
       "cases" : 40,
@@ -11,9 +11,9 @@
       "score" : 0.65
     },
     "builtIn:qwen3-4b-instruct-2507-q4_k_m" : {
-      "cases" : 40,
-      "date" : "2026-11-19",
-      "score" : 0.9
+      "cases" : 50,
+      "date" : "2026-11-20",
+      "score" : 0.88
     },
     "lmStudio:qwen2.5-coder-1.5b-instruct-mlx" : {
       "cases" : 40,

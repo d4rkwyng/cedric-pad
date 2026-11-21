@@ -121,6 +121,14 @@ owl or no owl. **⌘S never overwrites another app's changes:** if the file
 changed since Owlink read or saved it, a sheet asks first (**Keep My
 Version**, **Reload Theirs** (undoable) or **Compare**).
 
+**A file deleted or moved away** while its tab is open gets a bar when
+you come back to the window: "“name” was deleted or moved. Its text is
+still here, unsaved." with **Keep Open**, **Save** (writes it back at the
+old path), **Save As…** and **Close** (⇧⌘T reopens it). The tab counts as
+unsaved, so its text survives a quit. If the file comes back unchanged
+the bar goes away; if it comes back changed, you get the changed-on-disk
+bar above.
+
 ### Encodings and line endings
 
 UTF-8 (with or without BOM), UTF-16 LE/BE,
@@ -1205,10 +1213,13 @@ them). Tools go only to
 models that score at least 80% on a fixed 50-prompt set
 (`Scripts/owl-tools-eval.sh`, scores in
 `Resources/AI/owl-tool-scores.json`). Other models get the quick
-actions without tools. Measured 2026-11-18: the built-in Qwen3 4B
-Instruct 90%, so it gets tools; Apple Intelligence 72.5%, Qwen2.5-Coder
-1.5B on LM Studio 75% and the built-in Qwen2.5-Coder 3B 65% stay
-without. A model without tools asked about problems ("what problems
+actions without tools. Measured 2026-11-20 on the 50-prompt set, with
+each prompt offered only its own few tools: the built-in Qwen3 4B
+Instruct 88%, so it gets tools; Apple Intelligence 52% stays without
+(it scores differently from run to run; it was 72.5% on the older
+40-prompt set). Measured 2026-11-18/19 on the 40-prompt set and not
+re-run since: Qwen2.5-Coder 1.5B on LM Studio 75% and the built-in
+Qwen2.5-Coder 3B 65%, both without. A model without tools asked about problems ("what problems
 does this file have?") gets the offline checks' list in its prompt
 instead.
 

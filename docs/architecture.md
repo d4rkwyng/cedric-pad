@@ -1760,6 +1760,18 @@ score moves between runs, 0.725 recorded on 11-18 and 0.650 here):
 | Built-in Qwen2.5 Coder 3B | 0.650 | 0.000 | 1.000 | 0.875 | 0.589 |
 | Apple Intelligence | 0.650 | 0.200 | 0.600 | 1.000 | 0.589 |
 
+Re-measured 2026-11-20 for 0.4.0, M4 Pro (50 first-move cases, each offered its routed 3–5 tools plus describe_image;
+scenarios as above; recorded in `owl-tool-scores.json`):
+
+| Engine | first move | end-to-end | no-tool | injection | overall |
+|---|---|---|---|---|---|
+| Built-in Qwen3 4B Instruct 2507 | 0.880 | 0.267 | 1.000 | 0.909 | 0.791 |
+| Apple Intelligence | 0.520 | 0.067 | 0.900 | 0.909 | 0.535 |
+
+Qwen3 4B's first-move misses: three questions whose expected tool (document_stats, get_selection) it answered
+directly, two read_section cases where it searched for the heading instead, and one search for "image" where no
+tool was expected. Its end-to-end misses are still mostly "the document doesn't mention it" without looking.
+
 The end-to-end misses are mostly one thing: asked about something past line 12, every engine answers that the
 document doesn't mention it instead of looking. The user turn says "Shown: visible, lines 1-12" but not how many
 lines the document has. Apple Intelligence also refuses general questions ("I cannot find the capital of Norway in
