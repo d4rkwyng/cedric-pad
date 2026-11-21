@@ -45,6 +45,9 @@ enum PolishCheck {
         guard let tab = app.tabs.last, let window = tab.window else { report(false, "owl-drag/tab", "no tab"); return }
         window.setContentSize(NSSize(width: 900, height: 670))
         window.makeKeyAndOrderFront(nil)
+        // Readable Width (0.4.0, on for plain text) centres the text, so the
+        // caret would no longer sit under the owl parked at the top left.
+        tab.setReadableWidth(false)
         Settings.shared.owlOverride = true
         NotificationCenter.default.post(name: .cedricOwlSettingsChanged, object: nil)
         TypingCheck.settle(0.1)
