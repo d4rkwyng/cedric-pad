@@ -1765,7 +1765,12 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         let rootView = QuickOpenView(headings: headings, root: root, onHeading: { [weak self] heading in
             host.dismiss(animated: true) { self?.revealLine(heading.line + 1) }
         }, onFile: { [weak self] url in
-            host.dismiss(animated: true) { self?.openLinked(url) }
+            host.dismiss(animated: true) {
+                // A symlink out of the folder is listed nowhere, and is
+                // refused again here: the resolved path has to stay under root.
+                guard let self, let root, QuickOpen.containedFile(url, under: root) != nil else { return }
+                self.openLinked(url)
+            }
         })
         host = UIHostingController(rootView: rootView)
         host.modalPresentationStyle = .pageSheet

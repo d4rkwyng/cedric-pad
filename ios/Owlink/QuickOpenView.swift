@@ -81,7 +81,7 @@ struct QuickOpenView: View {
                     .foregroundStyle(.secondary)
             }
         } else if let match {
-            let hits = match.rank(q)
+            let hits = match.rank(q).filter { contained($0, match) }
             if hits.isEmpty {
                 Text(String(localized: "No matching files."))
                     .foregroundStyle(.secondary)
@@ -89,7 +89,7 @@ struct QuickOpenView: View {
             ForEach(hits, id: \.self) { i in
                 let path = match.paths[i]
                 Button {
-                    onFile(root!.appendingPathComponent(path))
+                    if let file = containedFile(path) { onFile(file) }
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(match.name(i)).lineLimit(1)
@@ -105,6 +105,18 @@ struct QuickOpenView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// `paths[i]`, when its resolved path is a file under `root`.
+    private func contained(_ i: Int, _ match: FileMatchIndex) -> Bool {
+        containedFile(match.paths[i]) != nil
+    }
+
+    /// The file to open, or nil when the path leaves the folder (a symlink
+    /// out, a directory, a missing file). Same containment as a preview link.
+    private func containedFile(_ path: String) -> URL? {
+        guard let root else { return nil }
+        return QuickOpen.containedFile(root.appendingPathComponent(path), under: root)
     }
 
     private func indexFolder() async {

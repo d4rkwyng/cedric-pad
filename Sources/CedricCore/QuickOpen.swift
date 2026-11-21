@@ -54,6 +54,18 @@ public enum QuickOpen {
         }
         return CommandIndex(candidates).rank(query: query)
     }
+
+    /// A file Open Quickly may open. The real path, symbolic links resolved,
+    /// has to be an existing file under `root` — the same rule as a preview
+    /// link (`PreviewFolder.linkTarget` / `SafePaths.isInside`). A link that
+    /// leaves the folder, a directory, and a missing path are refused.
+    public static func containedFile(_ url: URL, under root: URL, fileManager fm: FileManager = .default) -> URL? {
+        guard SafePaths.isInside(url, root) else { return nil }
+        let target = PreviewFolder.resolved(url.standardizedFileURL)
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: target.path, isDirectory: &isDir), !isDir.boolValue else { return nil }
+        return url.standardizedFileURL
+    }
 }
 
 /// The files below a folder, for Open Quickly: names per folder (relative
