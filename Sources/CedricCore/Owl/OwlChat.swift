@@ -524,6 +524,121 @@ public enum OwlTools {
         return out
     }
 
+    /// Whether a typed question is about the open document. The coverage
+    /// note ("I can see lines 1–40 of 111…") is only for those: a fact, a
+    /// definition, a translation or a sum is answered on its own and says
+    /// nothing about which lines were shown. Cheap, on this Mac: a few
+    /// phrases, task words (count, list, find, summarise) and structure
+    /// words (line, section, heading), then whether the question's own
+    /// words appear in the document. Not the tool gate (`typedTools`).
+    public static func asksAboutDocument(_ question: String, snapshot s: OwlDocumentSnapshot) -> Bool {
+        let q = question.lowercased()
+        if q.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
+        if askDocumentPhrases.contains(where: { q.contains($0) }) { return true }
+        let words = Set(normalizedWords(q))
+        if asksAboutStructure(words, question: q) { return true }
+        let content = words.filter(isAskContentWord)
+        // Problems in the file ("any errors?"), unless the question also
+        // names something that isn't in the document ("check the weather").
+        if OwlChecks.asksAboutProblems(question),
+           content.isEmpty || content.contains(where: { documentHasWord($0, in: s.text) }) { return true }
+        if content.contains(where: { documentHasWord($0, in: s.text) }) { return true }
+        // "Summarise", "how many?" — a task with no topic of its own is about the open text.
+        if content.isEmpty, isDocumentTask(words, question: q) { return true }
+        return false
+    }
+
+    /// "this file", "the whole document", and the same for a note or script.
+    private static let askDocumentPhrases: [String] = [
+        "this file", "this document", "this doc", "this note", "this text", "this page", "this script", "this code",
+        "this selection", "the whole file", "the whole document", "whole document", "whole file",
+        "in the file", "in this file", "in the document", "in this document", "in the note", "in this note",
+        "in this text", "the open file", "my document", "my file", "my notes", "the script",
+    ]
+
+    /// Count, list, find, search, summarise (and the American spelling).
+    private static let askTaskWords: Set<String> = [
+        "count", "counts", "counting", "list", "lists", "listed", "listing", "find", "finding", "search", "searching",
+        "summarise", "summarize", "summarise", "summary", "summarizing", "summarising",
+    ]
+
+    /// Lines, sections, headings: the question is about the document's shape.
+    private static let askStructureWords: Set<String> = [
+        "section", "sections", "heading", "headings", "chapter", "chapters", "paragraph", "paragraphs",
+        "subsection", "subsections", "outline",
+    ]
+
+    /// Too common, or a sum's own words ("12 times 7"), to count as a term from the document.
+    /// "line" and "lines" are not here: they only count in `asksAboutStructure`.
+    private static let askStopWords: Set<String> = [
+        "the", "and", "for", "are", "but", "not", "you", "your", "yours", "can", "could", "would", "should",
+        "what", "whats", "which", "who", "whom", "why", "when", "where", "how", "does", "did", "don", "dont",
+        "this", "that", "these", "those", "there", "here", "with", "from", "into", "about", "per", "each", "every",
+        "all", "any", "some", "have", "has", "was", "were", "will", "its", "than", "then", "them", "they", "their",
+        "his", "her", "she", "him", "our", "out", "off", "too", "also", "just", "tell", "give", "show", "please",
+        "want", "need", "like", "make", "much", "many", "more", "most", "other", "only", "over", "such", "onto",
+        "been", "being", "having", "doing", "done", "get", "got", "let", "say", "says", "said", "see", "look",
+        "use", "used", "using", "via", "between", "across", "after", "before", "again", "once", "times", "plus",
+        "minus", "divided", "multiply", "multiplied", "equals", "equal", "squared", "square", "half", "percent",
+        "really", "very", "just", "into", "over", "under", "above", "below", "hello", "please", "thanks",
+        "translate", "translation", "define", "definition", "convert", "calculate", "compute", "explain",
+        "row", "rows", "item", "items", "word", "words", "character", "characters", "sentence", "sentences",
+    ]
+
+    private static func isAskContentWord(_ w: String) -> Bool {
+        w.count >= 3 && w.count <= 40 && !w.allSatisfy(\.isNumber)
+            && !askStopWords.contains(w) && !askTaskWords.contains(w) && !askStructureWords.contains(w)
+            && !OwlChecks.problemWords.contains(w)
+    }
+
+    /// "how many", "list", "find", "summarise": the open document is the thing being asked about
+    /// when the question names no other topic.
+    private static func isDocumentTask(_ words: Set<String>, question q: String) -> Bool {
+        if q.contains("how many") || q.contains("how much") || q.contains("number of") { return true }
+        return !words.isDisjoint(with: askTaskWords)
+    }
+
+    /// A section, heading, chapter, paragraph or outline, or a line named by number
+    /// ("line 12", "how many lines"). "the bottom line" is not one.
+    private static func asksAboutStructure(_ words: Set<String>, question q: String) -> Bool {
+        if !words.isDisjoint(with: askStructureWords) { return true }
+        guard words.contains("line") || words.contains("lines") else { return false }
+        if q.contains("how many") || q.contains("how much") { return true }
+        if q.range(of: #"\blines?\s+\d"#, options: .regularExpression) != nil { return true }
+        if q.range(of: #"\b(which|what|on) lines?\b"#, options: .regularExpression) != nil { return true }
+        return false
+    }
+
+    /// `word` as a whole word in `text` (also the form without a trailing s, so "games" matches "game").
+    private static func documentHasWord(_ word: String, in text: String) -> Bool {
+        if textHasWord(word, in: text) { return true }
+        if word.count >= 5, word.hasSuffix("s"), !word.hasSuffix("ss") {
+            return textHasWord(String(word.dropLast()), in: text)
+        }
+        return false
+    }
+
+    private static func textHasWord(_ word: String, in text: String) -> Bool {
+        let ns = text as NSString
+        guard ns.length > 0, !word.isEmpty else { return false }
+        var at = 0
+        while at < ns.length {
+            let r = ns.range(of: word, options: .caseInsensitive, range: NSRange(location: at, length: ns.length - at))
+            if r.location == NSNotFound { return false }
+            let before = r.location == 0 || !isAskWordChar(ns.character(at: r.location - 1))
+            let end = r.location + r.length
+            let after = end >= ns.length || !isAskWordChar(ns.character(at: end))
+            if before && after { return true }
+            at = max(end, r.location + 1)
+        }
+        return false
+    }
+
+    private static func isAskWordChar(_ u: unichar) -> Bool {
+        guard let s = UnicodeScalar(u) else { return false }
+        return Character(s).isLetter || Character(s).isNumber
+    }
+
     /// A Markdown document with headings, and a question that names a
     /// section ("section", "heading", "chapter"…) or a word of a heading's title.
     static func asksAboutSection(_ words: Set<String>, snapshot s: OwlDocumentSnapshot) -> Bool {

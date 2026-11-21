@@ -78,4 +78,33 @@ import Testing
         #expect(c.lines.map { $0.count } ?? 0 <= shown && (c.lines?.count ?? 0) >= shown - 1)
         #expect(OwlTools.run(OwlToolCall(name: "get_outline"), on: snap()).lines == nil)
     }
+
+    /// The coverage note is only for a question about the open document.
+    @Test func coverageQuestionIsAboutTheDocument() {
+        let s = snap()
+        let yes = [
+            "How many games per system?",
+            "What is in the Genesis section?",
+            "List the NES games",
+            "Summarise this document",
+            "Which lines mention Sonic?",
+            "Find Sonic",
+            "How many headings are there?",
+            "What does this file say about Genesis?",
+            "Any errors?",
+            "What's on line 12?",
+        ]
+        let no = [
+            "What is 12 times 7?",
+            "What is the capital of France?",
+            "Translate hello into French",
+            "How many feet are in a mile?",
+            "Define photosynthesis",
+            "What is 2 plus 2?",
+            "Who wrote Hamlet?",
+            "Check the weather tomorrow",
+        ]
+        for q in yes { #expect(OwlTools.asksAboutDocument(q, snapshot: s), "\(q) is about the document") }
+        for q in no { #expect(!OwlTools.asksAboutDocument(q, snapshot: s), "\(q) is not about the document") }
+    }
 }

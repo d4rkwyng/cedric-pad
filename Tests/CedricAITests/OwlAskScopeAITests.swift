@@ -68,6 +68,9 @@ import CedricCore
         #expect(r.coverageNote(linesRead: IndexSet(integersIn: 21...184)) == nil)
         #expect(Self.request(scope: .wholeDocument, budget: 50_000).coverageNote() == nil)
         #expect(Self.request("Explain", action: .explain).coverageNote() == nil)
+        // A sum or a fact is not about the document, so no note.
+        #expect(Self.request("What is 12 times 7?").coverageNote() == nil)
+        #expect(Self.request("What is the capital of France?").coverageNote() == nil)
         // The whole document asked for but trimmed to the budget: said too.
         let trimmed = Self.request(scope: .visible, budget: 200)
         #expect(trimmed.coverageNote()?.hasPrefix("I can see lines 1–") == true)
