@@ -871,7 +871,14 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         guard !cards.isEmpty, let tab else { layoutCards(); return }
         let result = OwlEditProposal.refresh(cards.map(\.proposal), text: tab.textView.string as NSString,
                                              generation: tab.doc.changeCount, readOnly: documentIsReadOnly)
-        for (c, s) in zip(cards, result.states) { c.show(s) }
+        for (c, s) in zip(cards, result.states) {
+            // The title names where the unique match is now, not where it was proposed.
+            if case .ready(let range) = s {
+                let span = OwlEditProposal.lineSpan(range, in: tab.lineIndex)
+                c.setLocation(first: span.first, last: span.last)
+            }
+            c.show(s)
+        }
         layoutCards()
     }
 

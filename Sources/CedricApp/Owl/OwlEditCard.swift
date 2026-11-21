@@ -251,6 +251,14 @@ final class OwlEditCard: NSStackView {
         skipButton.setAccessibilityLabel(String(localized: "Skip the change to \(lines)"))
     }
 
+    /// Where the unique match is now. The title and the Apply / Skip
+    /// labels follow it; the warning, when there is one, stays.
+    func setLocation(first: Int, last: Int) {
+        titleLabel.stringValue = title(first: first, last: last)
+        updateButtonLabels(first: first, last: last)
+        updateAccessLabel()
+    }
+
     private func updateAccessLabel() {
         var label = titleLabel.stringValue
         if !proposal.reason.isEmpty { label += ": " + proposal.reason }

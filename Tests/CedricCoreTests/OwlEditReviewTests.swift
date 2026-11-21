@@ -104,4 +104,17 @@ import Testing
         #expect(!OwlEditReview.applyEnabled(ready: false, needsShowAll: false, hasShownAll: true))
         #expect(!OwlEditReview.applyEnabled(ready: false, needsShowAll: true, hasShownAll: true))
     }
+
+    @Test func theLineTitleFollowsTheUniqueMatch() {
+        let text = "one\ntwo\nSeeds cost 40 euros.\n" as NSString
+        let index = LineIndex(text)
+        let at = text.range(of: "Seeds cost 40 euros.")
+        #expect(OwlEditProposal.lineSpan(at, in: index) == (first: 3, last: 3))
+        let shifted = "\n" + (text as String) as NSString
+        let moved = shifted.range(of: "Seeds cost 40 euros.")
+        #expect(OwlEditProposal.lineSpan(moved, lines: LineIndex(shifted), length: shifted.length) == (first: 4, last: 4))
+        // The newline belongs to the line it ends, not the one it starts.
+        #expect(OwlEditProposal.lineSpan(NSRange(location: 0, length: 4), lines: index, length: text.length) == (first: 1, last: 1))
+        #expect(OwlEditProposal.lineSpan(NSRange(location: 0, length: 8), lines: index, length: text.length) == (first: 1, last: 2))
+    }
 }

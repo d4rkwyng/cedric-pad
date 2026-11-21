@@ -78,6 +78,22 @@ extension OwlEditProposal {
         return OwlEditRefresh(states: states, searches: searches)
     }
 
+    /// 1-based lines covering `range`. The last line is the one that holds
+    /// the last character, so a range ending on a newline stays on that line.
+    public static func lineSpan(_ range: NSRange, in index: LineIndex) -> (first: Int, last: Int) {
+        lineSpan(range, lines: index, length: index.length)
+    }
+
+    public static func lineSpan(_ range: NSRange, lines: LineIndex, length: Int) -> (first: Int, last: Int) {
+        let limit = max(0, length)
+        let loc = min(max(0, range.location), limit)
+        let end = min(max(loc, NSMaxRange(range)), limit)
+        let lastOffset = end == loc ? loc : end - 1
+        let first = lines.line(containing: loc) + 1
+        let last = lines.line(containing: min(lastOffset, limit)) + 1
+        return (first, max(first, last))
+    }
+
     /// VoiceOver reads the whole change. Invisible characters are named,
     /// so a zero-width space is not skipped, and nothing is clipped.
     public var spokenDiff: String {
