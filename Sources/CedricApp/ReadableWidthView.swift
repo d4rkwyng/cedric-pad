@@ -32,10 +32,21 @@ extension EditorWindowController {
         let tv = pane.textView
         guard readableWidthActive else { tv.readableColumnWidth = nil; return }
         let font = tv.font ?? Settings.shared.font
-        let charWidth = ("0" as NSString).size(withAttributes: [.font: font]).width
+        let charWidth = font.readableCharacterWidth
         let padding = tv.textContainer?.lineFragmentPadding ?? 0
         tv.readableColumnWidth = CGFloat(ReadableWidth.columnWidth(columns: Settings.shared.readableColumns,
                                                                     charWidth: Double(charWidth), padding: Double(padding)))
+    }
+}
+
+extension NSFont {
+    /// One character of Readable Width's column: "0" in a fixed-pitch
+    /// font, the average lowercase letter in a proportional (prose) font.
+    var readableCharacterWidth: CGFloat {
+        let zero = ("0" as NSString).size(withAttributes: [.font: self]).width
+        if isFixedPitch { return zero }
+        let letters = ("abcdefghijklmnopqrstuvwxyz" as NSString).size(withAttributes: [.font: self]).width
+        return CGFloat(ProseFont.characterWidth(fixedPitch: false, zeroWidth: Double(zero), lowercaseAlphabetWidth: Double(letters)))
     }
 }
 

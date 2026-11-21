@@ -134,7 +134,7 @@ extension EditorWindowController {
         view.textContainer?.widthTracksTextView = true
         view.textContainer?.lineFragmentPadding = 0
         view.source = text
-        view.printFont = Settings.shared.font
+        view.printFont = editorFont
         view.tabWidth = tabWidth
         let options = PrintOptions()
         options.printView = view

@@ -8,8 +8,8 @@ import CedricCore
 /// name; each View/Edit menu toggle and its checkbox move together (the
 /// menu updates the box, the box updates the menu); Tab moves between the
 /// fields; the window reopens on the tab it was left on; Cedric › Cedric AI
-/// Settings… opens the Cedric tab, which has no Save or Cancel. Snapshots:
-/// settings-general/editor/writing/cedric.png.
+/// Settings… opens the Cedric tab, which has no Save or Cancel; the prose
+/// font (ProseFontCheck.swift). Snapshots: settings-general/editor/writing/cedric.png.
 @MainActor
 extension DevChecks {
     static let toggleActions: [MenuToggleSetting: Selector] = [
@@ -133,6 +133,9 @@ extension DevChecks {
                 let item = menuItem(#selector(AppDelegate.showAISettings(_:)))
                 expect(item?.title == "Cedric AI Settings…", "the Cedric menu keeps Cedric AI Settings…")
             },
+        ]
+        plan += proseFontSteps(app)
+        plan += [
             sync {
                 s?.window?.close()
                 restore()

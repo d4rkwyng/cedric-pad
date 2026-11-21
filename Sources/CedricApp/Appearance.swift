@@ -301,6 +301,54 @@ final class Settings {
         return f
     }
 
+    /// Settings › Writing › "Use a prose font for Markdown and plain text"
+    /// (0.4.1): off by default, so nothing changes until it is turned on.
+    var useProseFont: Bool {
+        get { defaults.bool(forKey: "useProseFont") }
+        set { defaults.set(newValue, forKey: "useProseFont"); changed() }
+    }
+
+    /// The prose font: a font's PostScript name, `ProseFont.systemSerif`
+    /// (New York), or nil for the system font (SF Pro).
+    var proseFontName: String? {
+        get { defaults.string(forKey: "proseFontName") }
+        set {
+            if let newValue { defaults.set(newValue, forKey: "proseFontName") } else { defaults.removeObject(forKey: "proseFontName") }
+            changed()
+        }
+    }
+
+    /// The prose font's size at 100% zoom (ProseFont.defaultSize, 15 pt).
+    var proseFontSize: CGFloat {
+        get { let v = defaults.double(forKey: "proseFontSize"); return v > 0 ? v : ProseFont.defaultSize }
+        set { defaults.set(ProseFont.clamp(newValue), forKey: "proseFontSize"); changed() }
+    }
+
+    private var cachedProseFont: (name: String?, size: CGFloat, font: NSFont)?
+
+    /// The prose font at the current zoom (cached like `font`).
+    var proseFont: NSFont {
+        let name = proseFontName
+        let size = CGFloat(ProseFont.size(prose: proseFontSize, editor: fontSize, editorDefault: Self.defaultFontSize))
+        if let c = cachedProseFont, c.name == name, c.size == size { return c.font }
+        let system = NSFont.systemFont(ofSize: size)
+        let f: NSFont
+        switch name {
+        case nil: f = system
+        case ProseFont.systemSerif?:
+            f = system.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: size) } ?? system
+        case let n?: f = NSFont(name: n, size: size) ?? system
+        }
+        cachedProseFont = (name, size, f)
+        return f
+    }
+
+    /// The font for a tab in `language`: the prose font for Markdown and
+    /// plain text when it is on, else the (monospaced) editor font.
+    func font(for language: Language) -> NSFont {
+        ProseFont.applies(to: language, enabled: useProseFont) ? proseFont : font
+    }
+
     /// The palette for a view, resolving System against its appearance.
     func palette(for appearance: NSAppearance?) -> EditorPalette {
         let dark = (appearance ?? NSApp.effectiveAppearance).bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
