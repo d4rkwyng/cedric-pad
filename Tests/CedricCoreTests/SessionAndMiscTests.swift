@@ -69,6 +69,51 @@ func tempDir() -> URL {
     }
 }
 
+@Suite struct DockedPreviewSessionTests {
+    @Test func savedWithTheTab() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = SessionStore(directory: dir)
+        let shown = SessionTab(path: "/tmp/notes.md", language: .markdown, previewShown: true, previewWidth: 420)
+        let plain = SessionTab(path: "/tmp/plain.txt")
+        let detached = SessionTab(path: "/tmp/other.md", previewDetached: true, previewFrame: "10 20 400 300 0 0 1440 900")
+        try store.save(Session(windows: [SessionWindow(tabs: [shown, plain, detached])]))
+        let back = try #require(store.load())
+        #expect(back.allTabs.map(\.previewShown) == [true, nil, nil])
+        #expect(back.allTabs.map(\.previewWidth) == [420, nil, nil])
+        #expect(back.allTabs.map(\.previewDetached) == [nil, nil, true])
+        let json = try String(contentsOf: dir.appendingPathComponent("session.json"), encoding: .utf8)
+        #expect(json.contains("\"previewShown\" : true"))
+        #expect(json.contains("\"previewWidth\" : 420"))
+        #expect(!json.contains("previewSide"))
+        // Not shown: the keys are left out. A detached preview keeps its own fields.
+        let plainJSON = String(decoding: try JSONEncoder().encode(plain), as: UTF8.self)
+        #expect(!plainJSON.contains("previewShown") && !plainJSON.contains("previewWidth") && !plainJSON.contains("previewSide"))
+        let detachedJSON = String(decoding: try JSONEncoder().encode(detached), as: UTF8.self)
+        #expect(detachedJSON.contains("previewDetached") && !detachedJSON.contains("previewShown") && !detachedJSON.contains("previewWidth"))
+    }
+
+    @Test func olderSessionWithoutTheFieldsStillLoads() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // A 0.4 session: a detached preview, and a tab with neither key.
+        // Missing keys decode as nil, which means the docked preview is not shown.
+        let old = #"{"version":1,"untitledCounter":0,"windows":[{"selectedTab":0,"tabs":[{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","path":"/tmp/notes.md","hasBuffer":false,"encoding":"utf8","lineEnding":"lf","selectionLocation":0,"selectionLength":0,"topLine":2,"previewDetached":true,"previewFrame":"10 20 400 300 0 0 1440 900"},{"id":"7C9E6679-7425-40DE-944B-E07FC1F90AE7","path":"/tmp/plain.txt","hasBuffer":false,"encoding":"utf8","lineEnding":"lf","selectionLocation":0,"selectionLength":0,"topLine":0}]}]}"#
+        try Data(old.utf8).write(to: dir.appendingPathComponent("session.json"))
+        let loaded = try #require(SessionStore(directory: dir).load())
+        #expect(loaded.allTabs.count == 2)
+        #expect(loaded.allTabs[0].previewDetached == true)
+        #expect(loaded.allTabs[0].previewFrame == "10 20 400 300 0 0 1440 900")
+        #expect(loaded.allTabs[0].previewShown == nil && loaded.allTabs[0].previewWidth == nil)
+        #expect(loaded.allTabs[1].previewShown == nil && loaded.allTabs[1].previewWidth == nil && loaded.allTabs[1].previewDetached == nil)
+        // An explicit false is not "shown" (only true reopens the preview).
+        let hidden = #"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","hasBuffer":false,"encoding":"utf8","lineEnding":"lf","selectionLocation":0,"selectionLength":0,"topLine":0,"previewShown":false}"#
+        let tab = try JSONDecoder().decode(SessionTab.self, from: Data(hidden.utf8))
+        #expect(tab.previewShown == false && tab.previewWidth == nil)
+    }
+}
+
 @Suite struct LanguageDetectionTests {
     @Test func byExtensionAndName() {
         #expect(LanguageDetector.language(forFileName: "a.swift") == .swift)

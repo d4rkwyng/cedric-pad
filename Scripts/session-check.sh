@@ -3,7 +3,8 @@
 # edits to a file and an untitled tab must survive both a crash (kill -9
 # after the autosave) and a normal quit; a tab closed with unsaved text
 # (hot close) must survive a crash and come back with Reopen Closed Tab; a
-# detached preview comes back in its window with its frame; closing the
+# detached preview comes back in its window with its frame; a docked
+# Markdown preview comes back at its width, after the first frame; closing the
 # last window quits, and the tabs closed stay closed (⇧⌘T has them). Uses a throwaway session
 # directory and file; never touches the real session. Needs a GUI session
 # (works with the screen locked). A saved folder sidebar comes back after
@@ -349,6 +350,52 @@ print("none" if not sp else "%s %.1f %d %s" % (sp["sideBySide"], sp["ratio"], sp
 dump
 check "split restored after the first frame, as it was" \
     "^split: name=split.txt sideBySide=true ratio=0.40 top2=120 secondActive=true layoutManagers=2 before-first-frame=0"
+
+# 11. Docked Markdown preview: shown beside the text at a set width, then
+#     a normal quit. The next launch docks it again at that width, after
+#     the first frame. A session from before these keys (no previewShown)
+#     leaves the preview closed.
+export CEDRIC_SESSION_DIR="$W/session11"
+printf '# Docked\n\nside by side\n' > "$W/dock.md"
+env -u CEDRIC_TEST_TYPE CEDRIC_OPEN="$W/dock.md" CEDRIC_TEST_DOCK_PREVIEW=420 "$BIN" -ApplePersistenceIgnoreState YES >/dev/null 2>&1 &
+pid=$!
+sleep 3
+quit_app $pid
+saved=$(python3 -c '
+import json,sys
+s=json.load(open(sys.argv[1])); t=[t for w in s["windows"] for t in w["tabs"] if (t.get("path") or "").endswith("dock.md")]
+if not t:
+    print("none"); raise SystemExit
+w=t[0].get("previewWidth"); shown=t[0].get("previewShown")
+ok = shown is True and isinstance(w,(int,float)) and abs(w-420)<=2 and "previewSide" not in t[0] and not t[0].get("previewDetached")
+print("ok %s" % int(round(w)) if ok else "bad shown=%s width=%s detached=%s side=%s" % (shown, w, t[0].get("previewDetached"), "previewSide" in t[0]))
+' "$W/session11/session.json")
+if [ "${saved#ok }" != "$saved" ]; then echo "session-check: OK   docked preview saved shown, width ${saved#ok }, no side"
+else echo "session-check: FAIL docked preview saved as '$saved', want shown width 420 and no side" >&2; fail=1; fi
+dump
+dockline=$(grep '^preview: name=dock.md ' "$W/dump.txt" || true)
+dockw=$(printf '%s' "$dockline" | sed -n 's/.* width=\([0-9][0-9]*\).*/\1/p')
+if printf '%s' "$dockline" | grep -q 'detached=false .*before-first-frame=0 docked=true' \
+    && [ -n "$dockw" ] && [ "$(( dockw > 417 && dockw < 423 ))" = 1 ]; then
+    echo "session-check: OK   docked preview restored at its width, after the first frame"
+else echo "session-check: FAIL docked preview restored as '$dockline', want docked width 420 after the first frame" >&2; fail=1; fi
+export CEDRIC_SESSION_DIR="$W/session11b"
+python3 - "$W" <<'PY11'
+import os, json, uuid, sys
+w = sys.argv[1]
+d = os.path.join(w, "session11b")
+os.makedirs(d, exist_ok=True)
+p = os.path.join(w, "old.md")
+open(p, "w").write("# Old\n\nno preview key\n")
+tab = {"id": str(uuid.uuid4()).upper(), "path": p, "hasBuffer": False, "encoding": "utf8", "lineEnding": "lf",
+       "selectionLocation": 0, "selectionLength": 0, "topLine": 0}
+json.dump({"version": 1, "untitledCounter": 0, "windows": [{"tabs": [tab], "selectedTab": 0}]},
+          open(os.path.join(d, "session.json"), "w"))
+PY11
+dump
+check "old session: the markdown tab is restored" "^tab: name=old.md"
+grep -q "^preview:" "$W/dump.txt" && { echo "session-check: FAIL an old session opened a preview" >&2; fail=1; } \
+    || echo "session-check: OK   old session without previewShown leaves the preview closed"
 
 [ $fail = 0 ] && echo "session-check: all OK"
 exit $fail
