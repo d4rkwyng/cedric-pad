@@ -152,6 +152,25 @@ extension DevChecks {
                 expect(button("preview")?.state == .on, "and shows as on")
                 expect(button("preview")?.accessibilityValue() as? String == "on", "VoiceOver hears it is on")
             },
+            // A click at Bold's real window point while the docked preview
+            // has the keyboard. The web view must not take the hit.
+            sync {
+                focus(tab)
+                selectText("world", in: tab)
+                guard let web = tab.preview?.webView, let b = button("bold"), let w = tab.window else {
+                    expect(false, "preview and bold button"); return
+                }
+                w.layoutIfNeeded()
+                expect(w.makeFirstResponder(web) && w.firstResponder === web, "the preview's web view has the keyboard")
+                let mid = NSPoint(x: b.bounds.midX, y: b.bounds.midY)
+                let hit = w.contentView?.superview?.hitTest(b.convert(mid, to: nil))
+                expect(hit === b, "the click lands on Bold, not the web view", hit?.identifier?.rawValue ?? "-")
+                let before = tab.text
+                click(b, at: mid)
+                expect(tab.text != before, "a click on Bold while the preview is focused changes the text", tab.text.debugDescription)
+                if tab.text != before { undo() }
+                expect(tab.text == start, "the preview-focused Bold click is one undo step", tab.text.debugDescription)
+            },
             snapshot("contextbar-preview.png"),
             sync {
                 key("p", [.command, .option])
@@ -249,6 +268,20 @@ extension DevChecks {
             sync {
                 if Settings.shared.showContextBar { toggleBar() }
                 expect(tab.contextBar == nil && !tab.stack.arrangedSubviews.contains { $0 is ContextBarView }, "off again: the view is gone")
+            },
+            // On by default the bar is built in the tab's initializer, before
+            // the window is current, which used to leave every button disabled.
+            sync {
+                focus(code)
+                Settings.shared.contextBarOverride = true
+                let fresh = app.open(write("launch.md", "hello world\n"))!
+                sized(fresh)
+                fresh.window?.layoutIfNeeded()
+                let b = fresh.contextBar?.buttons["bold"]
+                expect(b?.isEnabled == true, "Bold is enabled on a Markdown tab whose bar was built before the window was shown")
+                selectText("world", in: fresh)
+                if let b { click(b, at: NSPoint(x: b.bounds.midX, y: b.bounds.midY)) }
+                expect(fresh.text.contains("**world**"), "a click on Bold works on that tab", fresh.text.debugDescription)
             },
         ])
     }

@@ -353,7 +353,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             window.center()
         }
         PerfTrace.mark("tab_built")
-        if show { window.makeKeyAndOrderFront(nil) }
+        if show {
+            window.makeKeyAndOrderFront(nil)
+            // A check (and a launch that never becomes key) still has this
+            // tab current once it is ordered front. The bar was refreshed
+            // earlier, while it was not, so its buttons stayed disabled.
+            tab.contextBar?.refreshStates()
+        }
         PerfTrace.mark("order_front")
         scheduleSessionSave()
         return tab

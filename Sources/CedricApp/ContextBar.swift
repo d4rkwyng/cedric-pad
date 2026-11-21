@@ -180,8 +180,8 @@ final class ContextBarView: NSView {
     /// Runs the menu command `command` for this window, as the menu bar
     /// would (beeps when it is disabled there).
     func run(_ command: String) {
-        guard let window, let item = Self.menuItem(command), let action = item.action,
-              CommandPalette.validate(item, in: window) else { NSSound.beep(); refreshStates(); return }
+        guard let window, let item = Self.menuItem(command), let action = item.action else { NSSound.beep(); refreshStates(); return }
+        guard CommandPalette.validate(item, in: window) else { NSSound.beep(); refreshStates(); return }
         NSApp.sendAction(action, to: CommandPalette.target(for: item, in: window), from: item)
         runs += 1
         refreshStates()
@@ -237,6 +237,10 @@ final class ContextBarView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Often before the window is current: the tab is built, then ordered
+        // front. A disabled button never sends its action, so this first
+        // pass can leave every button dead. windowDidBecomeKey and makeTab
+        // refresh again once this document is the current one.
         if window != nil { refreshStates() }
     }
 }

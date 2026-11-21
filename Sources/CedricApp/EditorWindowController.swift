@@ -1189,6 +1189,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         if AfterFirstFrame.passed { reloadIfChangedOnDisk() }
         gitTabShown()
         (NSApp.delegate as? AppDelegate)?.tabBecameKey(self)
+        // The bar's first refresh runs from its initializer, before this
+        // window is current, and disables every button (ContextBar.swift).
+        contextBar?.refreshStates()
+    }
+
+    func windowDidBecomeMain(_ notification: Notification) {
+        contextBar?.refreshStates()
     }
 
     // MARK: Navigation
