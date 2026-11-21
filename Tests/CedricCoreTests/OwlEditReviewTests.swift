@@ -25,4 +25,14 @@ import Testing
         #expect(OwlBufferReplacement.kept([lines, text]).isEmpty)
         #expect(OwlBufferReplacement.kept([]).isEmpty)
     }
+
+    @Test func largeModeAndPausedExtrasAreReadOnly() throws {
+        #expect(OwlEditAccess.readOnly(editable: true, following: false, largeDocument: true, extrasPaused: false))
+        #expect(OwlEditAccess.readOnly(editable: true, following: false, largeDocument: false, extrasPaused: true))
+        #expect(OwlEditAccess.readOnly(editable: false, following: false, largeDocument: false, extrasPaused: false))
+        #expect(OwlEditAccess.readOnly(editable: true, following: true, largeDocument: false, extrasPaused: false))
+        #expect(!OwlEditAccess.readOnly(editable: true, following: false, largeDocument: false, extrasPaused: false))
+        let p = try OwlEditProposal.anchored(find: "Seeds cost 40 euros.", replace: "Seeds cost 45 euros.", in: snap()).get()
+        #expect(p.state(text: Self.doc as NSString, generation: 4, readOnly: true) == .readOnly)
+    }
 }

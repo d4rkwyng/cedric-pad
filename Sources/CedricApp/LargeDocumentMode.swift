@@ -102,7 +102,13 @@ extension EditorWindowController {
         // Spell checking (Spelling.swift) follows extrasPaused.
         spelling.apply()
         grammar.apply()
-        if extrasPaused != wasPaused { OwlHub.shared.largeModeChanged(self) }
+        if extrasPaused != wasPaused {
+            OwlHub.shared.largeModeChanged(self)
+            // Cards from before the paste would still show Apply. A whole
+            // replacement drops them in setText; an edit that trips large
+            // mode does not.
+            if !newText { owlChat?.refreshCards() }
+        }
         writingLargeModeChanged()
         // An edit made the document large: the prose font (if any) gives way to the monospaced one.
         // A whole-text replacement syncs in setText, after the new text is stored, and only once
@@ -124,9 +130,11 @@ extension EditorWindowController {
     /// TextKit has finished with the edit).
     func checkLargeAfterEdit(lines: Range<Int>) {
         guard largeReason == nil, !largePending, let reason = LargeDocument.reason(afterEditOf: lines, in: lineIndex) else { return }
-        // Paused from now (no sniff, spell check or owl for this edit);
-        // TextKit switches to chunks once it's done with the edit.
+        // Paused from now (no sniff, spell check or owl for this edit).
+        // Any edit card shows Apply off before the bar appears on the next
+        // turn. TextKit switches to chunks once it's done with the edit.
         largePending = true
+        owlChat?.refreshCards()
         DispatchQueue.main.async { [weak self] in
             guard let self, self.largeReason == nil else { return }
             self.applyLargeMode(reason, newText: false)

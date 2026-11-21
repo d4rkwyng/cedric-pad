@@ -9,7 +9,8 @@ import CedricAI
 /// proposed diff cards (up to five per answer) with Apply / Skip, each
 /// applied as one undo step only while its text is still in the document
 /// exactly once (a quick action's block: while the document is unchanged
-/// since asking). History is per document, in memory only.
+/// since asking). A large document, and a tab whose extras are paused,
+/// is treated as read-only. History is per document, in memory only.
 @MainActor
 final class OwlChatStore {
     static let shared = OwlChatStore()
@@ -847,11 +848,12 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         removeCards()
     }
 
-    /// Read-only: Apply never applies (a read-only tab, a followed file;
-    /// on iOS, read mode).
+    /// Read-only: Apply never applies (a read-only tab, a followed file,
+    /// large-document mode, extras paused; on iOS, read mode).
     private var documentIsReadOnly: Bool {
         guard let tab else { return true }
-        return !tab.textView.isEditable || tab.tail != nil
+        return OwlEditAccess.readOnly(editable: tab.textView.isEditable, following: tab.tail != nil,
+                                      largeDocument: tab.isLargeDocument, extrasPaused: tab.extrasPaused)
     }
 
     func state(of p: OwlEditProposal) -> OwlEditProposal.ApplyState {
