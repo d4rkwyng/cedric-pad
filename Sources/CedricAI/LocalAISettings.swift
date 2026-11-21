@@ -307,4 +307,60 @@ extension LocalAISettings {
 
     /// Ready to register: on, with a local/LAN endpoint.
     public var isUsable: Bool { enabled && (!backend.usesServer || LocalEndpointPolicy.isAllowed(baseURL)) }
+
+    /// The Cedric settings controls, as they stand when one of them changes.
+    public struct ControlDraft: Sendable, Equatable {
+        public var enabled: Bool
+        public var backend: Backend
+        /// The Address field. Read only when `backend` is `.custom`.
+        public var addressText: String
+        public var model: String?
+        public var minInterval: TimeInterval
+        public var automaticChecks: Bool
+
+        public init(enabled: Bool, backend: Backend, addressText: String, model: String?,
+                    minInterval: TimeInterval, automaticChecks: Bool) {
+            self.enabled = enabled
+            self.backend = backend
+            self.addressText = addressText
+            self.model = model
+            self.minInterval = minInterval
+            self.automaticChecks = automaticChecks
+        }
+    }
+
+    /// What `readControls` decided. An address that isn't on this Mac or the
+    /// LAN never changes the saved settings, except turning AI off: that
+    /// always applies, so a bad address can't leave the engine running.
+    public enum ControlRead: Sendable, Equatable {
+        /// Address is local, or this engine has none. Apply `settings`.
+        case apply(LocalAISettings)
+        /// Address is not local, and the user turned AI off. Apply this
+        /// (enabled false; backend, address, model and schedule unchanged).
+        case disable(LocalAISettings)
+        /// Address is not local and this is not turning AI off. Apply nothing.
+        case invalidAddress
+    }
+
+    /// Validates the address before changing anything.
+    public func readControls(_ draft: ControlDraft) -> ControlRead {
+        if draft.backend == .custom, Self.parseEndpoint(draft.addressText) == nil {
+            if enabled, !draft.enabled {
+                var off = self
+                off.enabled = false
+                return .disable(off)
+            }
+            return .invalidAddress
+        }
+        var next = self
+        next.enabled = draft.enabled
+        if draft.backend != next.backend { next.selectBackend(draft.backend) }
+        if draft.backend == .custom, let url = Self.parseEndpoint(draft.addressText), url != next.baseURL {
+            next.baseURL = url
+        }
+        next.model = draft.model
+        next.minInterval = draft.minInterval
+        next.automaticChecks = draft.automaticChecks
+        return .apply(next)
+    }
 }

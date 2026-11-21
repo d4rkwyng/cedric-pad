@@ -52,6 +52,57 @@ import CedricCore
         s.save(to: d)
         #expect(LocalAISettings.load(from: d).enabled == false)
     }
+
+    /// An address that isn't local applies nothing, except turning AI off.
+    @Test func invalidAddressAppliesNothingExceptTurningAIOff() {
+        let url = URL(string: "http://192.168.1.20:1234/v1")!
+        let s = LocalAISettings(enabled: true, backend: .custom, baseURL: url, model: "qwen",
+                                minInterval: 90, pauseDelay: 7, timeout: 11, minIdle: 3, automaticChecks: true)
+        let bad = "https://api.openai.com/v1"
+        let turningOff = LocalAISettings.ControlDraft(enabled: false, backend: .custom, addressText: bad,
+                                                      model: "other", minInterval: 30, automaticChecks: false)
+        guard case .disable(let off) = s.readControls(turningOff) else {
+            Issue.record("turning AI off must apply even when the address is not local")
+            return
+        }
+        #expect(off.enabled == false)
+        #expect(off.backend == .custom && off.baseURL == url && off.model == "qwen")
+        #expect(off.minInterval == 90 && off.automaticChecks && off.pauseDelay == 7 && off.timeout == 11 && off.minIdle == 3)
+        #expect(s == LocalAISettings(enabled: true, backend: .custom, baseURL: url, model: "qwen",
+                                     minInterval: 90, pauseDelay: 7, timeout: 11, minIdle: 3, automaticChecks: true))
+
+        let intervalOnly = LocalAISettings.ControlDraft(enabled: true, backend: .custom, addressText: bad,
+                                                        model: "other", minInterval: 30, automaticChecks: false)
+        #expect(s.readControls(intervalOnly) == .invalidAddress)
+        #expect(s.readControls(LocalAISettings.ControlDraft(enabled: true, backend: .custom, addressText: "8.8.8.8:1234",
+                                                           model: "qwen", minInterval: 90, automaticChecks: true)) == .invalidAddress)
+        #expect(s.readControls(LocalAISettings.ControlDraft(enabled: true, backend: .custom, addressText: "",
+                                                           model: "qwen", minInterval: 90, automaticChecks: true)) == .invalidAddress)
+        var alreadyOff = s
+        alreadyOff.enabled = false
+        #expect(alreadyOff.readControls(LocalAISettings.ControlDraft(enabled: true, backend: .custom, addressText: bad,
+                                                                     model: nil, minInterval: 30, automaticChecks: true)) == .invalidAddress)
+
+        guard case .apply(let moved) = s.readControls(LocalAISettings.ControlDraft(
+            enabled: true, backend: .custom, addressText: "10.0.0.5:8080", model: nil, minInterval: 30, automaticChecks: false))
+        else { Issue.record("a local address applies"); return }
+        #expect(moved.baseURL.absoluteString == "http://10.0.0.5:8080/v1")
+        #expect(moved.model == nil && moved.minInterval == 30 && moved.automaticChecks == false)
+        #expect(moved.pauseDelay == 7 && moved.timeout == 11 && moved.minIdle == 3)
+
+        // Not Custom: the address field is the preset's, and a garbage string doesn't block the change.
+        guard case .apply(let ollama) = s.readControls(LocalAISettings.ControlDraft(
+            enabled: true, backend: .ollama, addressText: bad, model: "m", minInterval: 60, automaticChecks: true))
+        else { Issue.record("leaving Custom applies"); return }
+        #expect(ollama.backend == .ollama)
+        #expect(ollama.baseURL.absoluteString == "http://localhost:11434/v1")
+        #expect(ollama.model == "m" && ollama.minInterval == 60)
+
+        let lm = LocalAISettings(enabled: true, backend: .lmStudio, model: "qwen", minInterval: 90, automaticChecks: true)
+        #expect(lm.readControls(LocalAISettings.ControlDraft(enabled: true, backend: .custom, addressText: bad,
+                                                            model: "qwen", minInterval: 90, automaticChecks: true)) == .invalidAddress)
+        #expect(lm.backend == .lmStudio)
+    }
 }
 
 /// A provider that answers after `delay` (real time) with one hint at

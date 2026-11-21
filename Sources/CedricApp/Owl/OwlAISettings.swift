@@ -78,8 +78,10 @@ struct FakeAIProvider: OwlHintProvider {
 /// Settings › Cedric's AI part (was the Cedric AI window, with Save and
 /// Cancel, until 0.4.1): every control applies the moment it changes. The
 /// address applies on Return or when the field loses focus, and only once
-/// it is a local one. What must not happen on its own stays a button:
-/// Test Connection, and each built-in model's Download / Pause / Delete.
+/// it is a local one. An address that isn't local applies nothing, except
+/// turning AI off, which always applies. What must not happen on its own
+/// stays a button: Test Connection, and each built-in model's Download /
+/// Pause / Delete.
 @MainActor
 final class AISettingsSection: NSObject {
     /// Applies saved settings one at a time; a burst of changes applies
@@ -258,6 +260,11 @@ final class AISettingsSection: NSObject {
     }
 
     private func refresh() {
+        // An invalid address rejects the edit: these show the saved settings again.
+        enabledBox.state = settings.enabled ? .on : .off
+        presetPopup.selectItem(at: LocalAISettings.Backend.allCases.firstIndex(of: settings.backend) ?? 0)
+        intervalPopup.selectItem(at: intervals.firstIndex(of: settings.minInterval) ?? 0)
+        automaticBox.state = settings.automaticChecks ? .on : .off
         let custom = settings.backend == .custom
         let needsAddress = engine.needsAddress
         grid?.cell(for: urlField)?.row?.isHidden = !needsAddress
@@ -324,26 +331,23 @@ final class AISettingsSection: NSObject {
         onResize?()
     }
 
-    /// Controls → settings. False (with a message) if the address isn't local.
-    @discardableResult
-    private func read() -> Bool {
-        settings.enabled = enabledBox.state == .on
-        let backend = LocalAISettings.Backend.allCases[max(0, presetPopup.indexOfSelectedItem)]
-        if backend != settings.backend {
-            settings.selectBackend(backend)
-            report = nil
-        }
-        if backend == .custom {
-            guard let url = LocalAISettings.parseEndpoint(urlField.stringValue) else {
-                status(String(localized: "Not an address on this Mac or the local network."), error: true)
-                return false
-            }
-            if url != settings.baseURL { settings.baseURL = url; report = nil }
-        }
-        settings.model = modelPopup.selectedItem?.representedObject as? String
-        settings.minInterval = intervals[max(0, intervalPopup.indexOfSelectedItem)]
-        settings.automaticChecks = automaticBox.state == .on
-        return true
+    /// The controls, for `LocalAISettings.readControls` (address validated first).
+    private func draft() -> LocalAISettings.ControlDraft {
+        .init(enabled: enabledBox.state == .on,
+              backend: LocalAISettings.Backend.allCases[max(0, presetPopup.indexOfSelectedItem)],
+              addressText: urlField.stringValue,
+              model: modelPopup.selectedItem?.representedObject as? String,
+              minInterval: intervals[max(0, intervalPopup.indexOfSelectedItem)],
+              automaticChecks: automaticBox.state == .on)
+    }
+
+    private func adopt(_ next: LocalAISettings) {
+        if next.backend != settings.backend || next.baseURL != settings.baseURL { report = nil }
+        settings = next
+    }
+
+    private func rejectAddress() {
+        status(String(localized: "Not an address on this Mac or the local network."), error: true)
     }
 
     private func status(_ s: String, error: Bool = false) {
@@ -351,12 +355,21 @@ final class AISettingsSection: NSObject {
         statusLabel.textColor = error ? .systemRed : .secondaryLabelColor
     }
 
-    /// Any control: read it, and if the result is valid and new, apply it.
+    /// Any control: validate, and if the result is new, apply it. An invalid
+    /// address applies only a turn-off; every other control snaps back.
     @objc private func changed() {
         let before = settings
-        if read() {
+        switch settings.readControls(draft()) {
+        case .apply(let next):
+            adopt(next)
             status("")
             if settings != before { apply() }
+        case .disable(let next):
+            adopt(next)
+            rejectAddress()
+            if settings != before { apply() }
+        case .invalidAddress:
+            rejectAddress()
         }
         refresh()
     }
@@ -368,7 +381,15 @@ final class AISettingsSection: NSObject {
     }
 
     @objc func test() {
-        guard read(), !testing else { refresh(); return }
+        guard !testing else { return }
+        switch settings.readControls(draft()) {
+        case .apply(let next):
+            adopt(next)
+        case .disable, .invalidAddress:
+            rejectAddress()
+            refresh()
+            return
+        }
         testing = true
         testButton.isEnabled = false
         let builtIn = settings.backend == .builtIn
