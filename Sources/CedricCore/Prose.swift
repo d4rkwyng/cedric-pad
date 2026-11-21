@@ -24,10 +24,12 @@ import Foundation
 ///   log line or a CSV row (`looksLikeCode`);
 /// - it is not a log (`looksLikeLog`): every line is one, or at least two
 ///   lines and half of them are. A log line starts with a timestamp (an
-///   ISO date-time, syslog `Nov 20 08:14:01`, or a bracketed time) and
-///   also has a level (INFO, ERROR, …) or a process token (`sshd[1234]:`,
-///   `app:`). A time inside a sentence, or `0:00:00 Start the jog`, is
-///   not one. A meeting note's "Date: 18 Nov 2026" is not one.
+///   ISO date-time, an Apple unified-log time with a fractional second
+///   and a numeric offset, syslog `Nov 20 08:14:01`, or a bracketed time)
+///   and also has a level (INFO, Error, NOTICE, CRIT, …) or a process
+///   token (`sshd[1234]:`, or syslog `host app:`). A time inside a
+///   sentence, `0:00:00 Start the jog`, or `Meeting notes:` is not one.
+///   A meeting note's "Date: 18 Nov 2026" is not one.
 ///
 /// Short bullet lists (a shopping list, "- eggs / - milk") do NOT count:
 /// they have no sentences and next to no function words. A bulleted list
@@ -215,50 +217,64 @@ public enum ProseDetector {
     }
 
     /// A log line starts with a timestamp and also has a log marker.
-    /// Timestamps: ISO `2026-11-18 10:42:01` or `2026-11-18T10:42:01`,
-    /// syslog `Nov 20 08:14:01` (the day may be space-padded), or a
-    /// bracketed time `[08:14:01]` / `[20/Nov/2026 08:14:01]`.
-    /// Markers: a level word (DEBUG, INFO, WARN, WARNING, ERROR, FATAL,
-    /// TRACE) or a `[pid]` / `[thread]` / `process:` token (`sshd[1234]:`,
-    /// `app:`). A time in the middle of a sentence, or `0:00:00 Start
-    /// the jog`, is not one. "The ERROR was" is not one.
+    /// Timestamps: ISO `2026-11-18 10:42:01` or `2026-11-18T10:42:01Z`,
+    /// Apple unified log `2024-11-20 08:14:01.123456-0700` (fractional
+    /// seconds and a numeric offset), syslog `Nov 20 08:14:01` (the day
+    /// may be space-padded), or a bracketed time `[08:14:01]` /
+    /// `[20/Nov/2026 08:14:01]`.
+    /// Markers: a level word, in any case (DEBUG, INFO, NOTICE, WARN,
+    /// WARNING, ERROR, ERR, CRIT, CRITICAL, ALERT, EMERG, FATAL, TRACE,
+    /// DEFAULT, FAULT), a `[pid]` / `[thread]` token, `name[pid]:`
+    /// (`sshd[1234]:`), or, after a syslog stamp only, `host proc:` /
+    /// `host proc[pid]:`. A time in the middle of a sentence, `0:00:00
+    /// Start the jog`, or `2026-11-18 10:42:01 Meeting notes:` is not one.
+    /// "The ERROR was" is not one.
     static func looksLikeLog(_ line: String) -> Bool {
         let t = line.trimmingCharacters(in: .whitespaces)
-        guard t.count >= 8, let rest = textAfterLogTimestamp(t) else { return false }
+        guard t.count >= 8, let stamp = logTimestamp(t) else { return false }
         if hasLogLevelOrPid(t) { return true }
-        return hasProcessTag(rest)
+        guard stamp.isSyslog else { return false }
+        return hasSyslogProcessTag(stamp.remainder)
     }
 
-    /// The text after a timestamp that starts `t`, or nil when `t` does not start with one.
-    private static func textAfterLogTimestamp(_ t: String) -> String? {
-        let patterns = [
-            #"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"#,
-            #"^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}"#,
-            #"^\[[^\]]*?\d{1,2}:\d{2}:\d{2}[^\]]*\]"#,
-        ]
-        for pattern in patterns {
+    /// Where a leading timestamp ended, and whether it was syslog's `Mon DD HH:MM:SS`.
+    private struct LogTimestamp {
+        var remainder: String
+        var isSyslog: Bool
+    }
+
+    /// The timestamp that starts `t`, or nil when `t` does not start with one.
+    /// The ISO form includes Apple's unified log: fractional seconds and a
+    /// numeric offset (`08:14:01.123456-0700`), and a trailing `Z`.
+    private static func logTimestamp(_ t: String) -> LogTimestamp? {
+        let iso = #"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})?"#
+        let syslog = #"^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}"#
+        let bracket = #"^\[[^\]]*?\d{1,2}:\d{2}:\d{2}[^\]]*\]"#
+        let patterns: [(String, Bool)] = [(iso, false), (syslog, true), (bracket, false)]
+        for (pattern, isSyslog) in patterns {
             guard let r = t.range(of: pattern, options: .regularExpression) else { continue }
-            return String(t[r.upperBound...])
+            return LogTimestamp(remainder: String(t[r.upperBound...]), isSyslog: isSyslog)
         }
         return nil
     }
 
-    /// A level word, a `[pid]` / `[thread]` token, or `name[pid]:`.
+    /// A level word (any case), a `[pid]` / `[thread]` token, or `name[pid]:`.
     private static func hasLogLevelOrPid(_ t: String) -> Bool {
-        // Longer names first, so WARNING is not read as WARN.
-        let level = "WARNING|DEBUG|TRACE|FATAL|ERROR|WARN|INFO"
-        if t.range(of: "\\b(?:\(level))\\b", options: .regularExpression) != nil { return true }
+        // Word boundaries, so WARNING is not read as WARN and ERR is not read inside ERROR.
+        // Apple's unified log writes these in Title Case (Error, Default, Fault).
+        let level = "WARNING|CRITICAL|NOTICE|DEBUG|TRACE|FATAL|ERROR|ALERT|EMERG|FAULT|DEFAULT|WARN|CRIT|INFO|ERR"
+        if t.range(of: "\\b(?:\(level))\\b", options: [.regularExpression, .caseInsensitive]) != nil { return true }
         if t.range(of: #"\[(?:pid|tid|thread)\b[^\]]*\]"#, options: [.regularExpression, .caseInsensitive]) != nil { return true }
         if t.range(of: #"\b[A-Za-z_][\w.-]*\[\d+\]:"#, options: .regularExpression) != nil { return true }
         if t.range(of: #"\[\d{2,8}\]"#, options: .regularExpression) != nil { return true }
         return false
     }
 
-    /// The syslog tag in the header: `app:`, `sshd[1234]:`. Not a colon later in the sentence.
-    private static func hasProcessTag(_ remainder: String) -> Bool {
-        let header = remainder.prefix(64)
-        return header.range(of: #"\b[A-Za-z_][\w.-]{0,32}\[\d+\]:"#, options: .regularExpression) != nil
-            || header.range(of: #"\b[a-z][a-z0-9_.-]{1,32}:"#, options: .regularExpression) != nil
+    /// Syslog's host-then-process tag, only in the header after `Mon DD HH:MM:SS`:
+    /// `host sshd[1234]:` or `host app:`. A `word:` in a dated note is not one.
+    private static func hasSyslogProcessTag(_ remainder: String) -> Bool {
+        let header = String(remainder.prefix(64))
+        return header.range(of: #"^\s+\S+\s+[A-Za-z_][\w.-]{0,32}(?:\[\d+\])?:"#, options: .regularExpression) != nil
     }
 
     /// The most common short words of English, French, German, Spanish,

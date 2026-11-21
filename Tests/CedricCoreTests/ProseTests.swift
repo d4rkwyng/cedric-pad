@@ -247,6 +247,41 @@ import Testing
         }
     }
 
+    /// Apple's unified log (Title Case level, fractional seconds, numeric
+    /// offset) and syslog NOTICE / CRIT lines are logs. A dated note whose
+    /// only colon is "Meeting notes:" or "Action items:" stays prose.
+    @Test func unifiedLogAndSyslogLevelsAreLogsDatedNotesStayProse() {
+        let unified = "2024-11-20 08:14:01.123456-0700 0x8a3d1 Error 0x0 481 0 Cedric: (Owlink) opened the notes"
+        #expect(ProseDetector.looksLikeLog(unified))
+        #expect(ProseDetector.looksLikeLog("2024-11-20 08:14:01.123456-0700 0x1 Default 0x0 1 0 Cedric: idle"))
+        #expect(ProseDetector.looksLikeLog("2024-11-20 08:14:01.123456+0000 0x1 Fault 0x0 1 0 Cedric: trap"))
+        #expect(ProseDetector.looksLikeLog("2024-11-20 08:14:01.123456-0700 0x1 Info 0x0 1 0 Cedric: ready"))
+        let notice = "Nov 20 08:14:01 host NOTICE disk almost full and the queue stopped"
+        let crit = "Nov 20 08:14:02 host CRIT shutting down after the disk filled"
+        #expect(ProseDetector.looksLikeLog(notice))
+        #expect(ProseDetector.looksLikeLog(crit))
+        #expect(ProseDetector.signals(notice + "\n" + crit).readsAsLog)
+
+        let notes = "2026-11-18 10:42:01 Meeting notes: kickoff"
+        let actions = "Action items: send agenda"
+        #expect(!ProseDetector.looksLikeLog(notes))
+        #expect(!ProseDetector.looksLikeLog(actions))
+        // A title-case name, or a bare `app:`, is not a process tag. Syslog still wants host then process.
+        #expect(!ProseDetector.looksLikeLog("2024-11-20 08:14:01.123456-0700 0x1 Cedric: opened the notes"))
+        #expect(!ProseDetector.looksLikeLog("2026-11-18 10:42:01 app: the server started"))
+        #expect(ProseDetector.looksLikeLog("Nov 20 08:14:01 host app: the server started"))
+        #expect(ProseDetector.looksLikeLog("Nov 20 08:14:01 host sshd[1234]: accepted a key"))
+        let page = """
+        \(notes)
+        \(actions) to the whole team before Friday, and bring the draft.
+        We met for an hour and agreed on the plan for the next release.
+        The notes from today will go out with the agenda in the morning.
+        """
+        let g = ProseDetector.signals(page)
+        #expect(!g.readsAsLog, "\(g)")
+        #expect(ProseDetector.isProse(page as NSString, language: .plain, fileName: "notes.txt"), "\(g)")
+    }
+
     @Test func codeLineShapes() {
         for l in ["let x = 5", "}", "foo(bar);", "2026-11-18 10:00 started", "[ERROR] boom", "key_name: value", "port: 8080",
                   "a,b,c,d", "x\ty\tz", "<div>", "// note"] {
