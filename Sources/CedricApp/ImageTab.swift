@@ -495,6 +495,7 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
     }
 
     @objc func copyImagePath(_ sender: Any?) {
+        PasteboardCopy.claim()
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(fileURL.path, forType: .string)
@@ -611,6 +612,7 @@ final class ImageTabController: NSWindowController, NSWindowDelegate, NSMenuItem
     /// and TIFF made only when something pastes it).
     @objc func copy(_ sender: Any?) {
         guard info != nil else { NSSound.beep(); return }
+        PasteboardCopy.claim()
         let pb = NSPasteboard.general
         pb.clearContents()
         let item = NSPasteboardItem()

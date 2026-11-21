@@ -612,6 +612,7 @@ final class FolderSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     }
 
     @objc func copyPath(_ sender: Any?) {
+        PasteboardCopy.claim()
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(target(sender).url.path, forType: .string)
     }

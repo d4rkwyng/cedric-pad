@@ -435,6 +435,7 @@ extension EditorWindowController {
         var line = ns.substring(with: block)
         if !line.hasSuffix("\n") { line += "\n" }
         guard !(block.length == 0 && ns.length == 0) else { NSSound.beep(); return }
+        PasteboardCopy.claim()
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(line, forType: .string)

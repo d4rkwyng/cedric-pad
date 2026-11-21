@@ -3,6 +3,24 @@ import CedricCore
 import PDFKit
 import WebKit
 
+/// The generation of copies onto the general pasteboard. Main actor only.
+/// Every copy takes the next number, and an async Copy as Rich Text (or
+/// Copy as HTML) completion writes only when its number is still the
+/// latest and its tab is still the active one.
+@MainActor
+enum PasteboardCopy {
+    private static var generation = CopyGeneration()
+
+    /// The next generation. Call for every copy that writes the pasteboard,
+    /// including a synchronous plain copy.
+    @discardableResult
+    static func claim() -> UInt64 { generation.issue() }
+
+    static func allowsWrite(ticket: UInt64, documentIsActive: Bool) -> Bool {
+        generation.allowsPasteboardWrite(ticket: ticket, documentIsActive: documentIsActive)
+    }
+}
+
 /// File › Export as HTML… / Export as PDF…, and Edit › Copy as HTML /
 /// Copy as Rich Text, for Markdown: the rendered document (as the preview
 /// renders it, fenced code coloured) in a theme-neutral light style,
@@ -75,12 +93,15 @@ extension EditorWindowController {
 
     /// Edit › Copy as HTML: the rendered HTML of the selection (or the
     /// whole document), as text. Rendered off the main thread; `done`
-    /// runs once the pasteboard has it.
+    /// runs once the pasteboard has it, or once this copy is no longer
+    /// the one that should write (a newer copy, or another tab in front).
     func copyAsHTML(done: (@MainActor () -> Void)? = nil) {
         guard doc.language == .markdown else { NSSound.beep(); return }
+        let ticket = PasteboardCopy.claim()
         let md = exportSelectionMarkdown
         let vault = PreviewController.exportVault(for: doc.fileURL?.deletingLastPathComponent())
-        MarkdownWork.run({ HTMLScrub.noScript(Markdown.render(md, options: .export(vault: vault))) }) { html in
+        MarkdownWork.run({ HTMLScrub.noScript(Markdown.render(md, options: .export(vault: vault))) }) { [weak self] html in
+            guard let self, self.pasteboardCopyIsCurrent(ticket) else { done?(); return }
             let pb = NSPasteboard.general
             pb.clearContents()
             pb.setString(html, forType: .string)
@@ -95,8 +116,13 @@ extension EditorWindowController {
     /// with `[[wikilinks]]` reuses the preview's index when that is already
     /// built, and otherwise builds it on a background queue before the
     /// pasteboard is written. With no wikilinks, `done` runs synchronously.
+    /// The async completion writes only when this copy's generation is still
+    /// the latest and this tab is still the active one.
     func copyAsRichText(done: (@MainActor () -> Void)? = nil) {
         guard doc.language == .markdown else { NSSound.beep(); done?(); return }
+        // Taken now, before the background index walk, so a later copy has
+        // a higher generation before this completion can write.
+        let ticket = PasteboardCopy.claim()
         let markdown = exportSelectionMarkdown
         let title = exportBaseName
         let folder = doc.fileURL?.deletingLastPathComponent()
@@ -116,11 +142,18 @@ extension EditorWindowController {
             vault.prepareIndex()
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self?.writeRichText(markdown: markdown, title: title, vault: vault)
+                    guard let self, self.pasteboardCopyIsCurrent(ticket) else { done?(); return }
+                    self.writeRichText(markdown: markdown, title: title, vault: vault)
                     done?()
                 }
             }
         }
+    }
+
+    /// This copy's generation is still the latest, and this tab is still active.
+    private func pasteboardCopyIsCurrent(_ ticket: UInt64) -> Bool {
+        let active = (NSApp.delegate as? AppDelegate)?.currentTab === self
+        return PasteboardCopy.allowsWrite(ticket: ticket, documentIsActive: active)
     }
 
     /// Renders `markdown` and puts RTF, HTML and plain text on the pasteboard.

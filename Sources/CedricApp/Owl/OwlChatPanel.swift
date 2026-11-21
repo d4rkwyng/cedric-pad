@@ -892,6 +892,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     @objc func copyMarkdown(_ sender: Any?) {
         guard let id = docID else { return }
         let md = OwlChatEntry.markdown(OwlChatStore.shared.history(id), fileName: tab?.doc.fileURL?.lastPathComponent)
+        PasteboardCopy.claim()
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(md, forType: .string)
     }

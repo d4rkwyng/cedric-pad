@@ -117,6 +117,7 @@ final class ToolResultController: NSViewController {
     }
 
     @objc func copyBody() {
+        MainActor.assumeIsolated { _ = PasteboardCopy.claim() }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(body, forType: .string)
     }
