@@ -45,7 +45,10 @@ final class AskCedricModel: ObservableObject {
 
     let fileName: String?
     let language: Language
-    var apply: (OwlEditProposal) -> Bool = { _ in false }
+    /// What Apply did. `.refused` is a text view that could not place the
+    /// range; that is not the document having changed.
+    enum ApplyResult { case applied, stale, refused }
+    var apply: (OwlEditProposal) -> ApplyResult = { _ in .refused }
     var openSettings: () -> Void = {}
     var documentNow: () -> DocumentNow = { DocumentNow(text: "", generation: 0, readOnly: true, large: false, lines: LineIndex()) }
     var makeSnapshot: () -> OwlDocumentSnapshot = { OwlDocumentSnapshot(text: "", generation: 0) }
@@ -250,12 +253,14 @@ final class AskCedricModel: ObservableObject {
         entries[i].cards[j].state = state
         let ready = if case .ready = state { true } else { false }
         guard OwlEditReview.applyEnabled(ready: ready, needsShowAll: card.needsShowAll, hasShownAll: card.shownAll) else { return }
-        guard apply(card.proposal) else {
+        switch apply(card.proposal) {
+        case .applied:
+            removeCard(entry: entry, card: card.id, note: String(localized: "Applied. Undo puts it back."))
+        case .stale:
             entries.append(Entry(role: .note, text: String(localized: "The text changed since Cedric read it, so the edit wasn’t applied.")))
-            refreshCards()
-            return
+        case .refused:
+            entries.append(Entry(role: .note, text: String(localized: "Couldn’t apply this edit here; ask again.")))
         }
-        removeCard(entry: entry, card: card.id, note: String(localized: "Applied. Undo puts it back."))
         refreshCards()
     }
 

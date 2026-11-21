@@ -1150,7 +1150,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         // Ask is about the text: Focus Preview ends.
         if focusOn { exitFocusPreview() }
         let model = AskCedricModel(fileName: document.displayName, language: document.language.language)
-        model.apply = { [weak self] proposal in self?.apply(proposal) ?? false }
+        model.apply = { [weak self] proposal in self?.apply(proposal) ?? .refused }
         model.documentNow = { [weak self] in self?.currentDocument() ?? AskCedricModel.DocumentNow(text: "", generation: 0, readOnly: true, large: false, lines: LineIndex()) }
         model.makeSnapshot = { [weak self] in self?.askSnapshot() ?? OwlDocumentSnapshot(text: "", generation: 0) }
         model.askIsVisible = { [weak self] in self?.askPanel != nil || self?.askSheet != nil }
@@ -1313,12 +1313,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     }
 
     /// Applies an Ask Cedric edit where it matches the live document, as one undo step.
-    private func apply(_ p: OwlEditProposal) -> Bool {
+    /// `.stale`: the text no longer matches. `.refused`: it matches, but this
+    /// text view could not turn the range into a position.
+    private func apply(_ p: OwlEditProposal) -> AskCedricModel.ApplyResult {
         let now = currentDocument()
-        guard case .ready(let range) = p.state(text: now.text, generation: now.generation, readOnly: now.readOnly) else { return false }
+        guard case .ready(let range) = p.state(text: now.text, generation: now.generation, readOnly: now.readOnly) else { return .stale }
         guard let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
               let end = textView.position(from: start, offset: range.length),
-              let r = textView.textRange(from: start, to: end) else { return false }
+              let r = textView.textRange(from: start, to: end) else { return .refused }
         let um = textView.undoManager
         um?.beginUndoGrouping()
         textView.replace(r, withText: p.replacement)
@@ -1327,7 +1329,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         let placed = NSRange(location: range.location, length: (p.replacement as NSString).length)
         textView.selectedRange = placed
         textView.scrollRangeToVisible(placed)
-        return true
+        return .applied
     }
 
     // MARK: Preview
