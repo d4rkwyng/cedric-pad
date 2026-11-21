@@ -198,9 +198,10 @@ import CedricCore
     @Test func callBudgetAndOneProposalPerQuestion() {
         let s = OwlDocumentSnapshot(text: "a\nb\nc", generation: 1)
         let box = OwlToolbox(snapshot: s, allowed: Set(OwlToolName.allCases))
-        let edit = OwlToolCall(name: "propose_edit", arguments: .object(["start": .number(1), "end": .number(1), "new_text": .string("A")]))
+        let edit = OwlToolCall(name: "propose_edit", arguments: .object(["find": .string("a"), "replace": .string("A"), "reason": .string("")]))
         #expect(box.run(edit).ok)
-        #expect(!box.run(OwlToolCall(name: "propose_edit", arguments: .object(["start": .number(2), "end": .number(2), "new_text": .string("B")]))).ok)
+        // A second edit of the same text is refused (separate edits are fine: OwlProposeEditTests).
+        #expect(!box.run(OwlToolCall(name: "propose_edit", arguments: .object(["find": .string("a"), "replace": .string("B"), "reason": .string("")]))).ok)
         #expect(box.proposal?.replacement == "A")
         for _ in 0..<20 { _ = box.run(OwlToolCall(name: "get_outline")) }
         #expect(box.callCount == 22)

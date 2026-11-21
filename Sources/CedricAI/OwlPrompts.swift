@@ -117,7 +117,7 @@ public enum OwlPrompts {
     /// The system prompt for a chat question.
     /// `digest`: a digest of the rest of the document follows the shown
     /// text (`OwlChatRequest.digest`, for a model without tools).
-    public static func chatSystem(toolsOn: Bool, server: Bool = false, digest: Bool = false, checks: Bool = false) -> String {
+    public static func chatSystem(toolsOn: Bool, server: Bool = false, digest: Bool = false, checks: Bool = false, canEdit: Bool = false) -> String {
         var s = persona(server: server) + "\n\n" + chatTask + "\n\n" + untrustedDocument + " " + chatInjection
         if checks, !toolsOn {
             s += "\n\nBefore the question come the results of Owlink's offline checks of the document (line, rule, message). "
@@ -130,11 +130,16 @@ public enum OwlPrompts {
                 + "and table rows each section has) and the lines that best match the question: use them for questions about the "
                 + "whole document, and count from the outline. Never answer as if you had seen lines you haven't."
         } else if toolsOn {
-            s += "\n\nYou can call tools to read more of the document or to propose an edit. "
+            s += "\n\nYou can call tools to read more of the document" + (canEdit ? " or to propose an edit" : "") + ". "
                 + "You usually see only part of the document: the \"Shown:\" line gives the lines you see and how many it has in all. "
                 + "Before saying something isn't in the document, call search_document (or get_lines) to look at the rest. "
-                + "Use a tool only when it helps; to change the text, call propose_edit — never paste the whole changed text in your answer. "
-                + "After at most three tool calls, answer."
+                + "Use a tool only when it helps. "
+            if canEdit {
+                s += "To change the text, call propose_edit with find (the exact text to change, copied without the \"12| \" line numbers, "
+                    + "just long enough to occur once) and replace (the new text); one call per separate change, at most \(OwlTools.maxProposals). "
+                    + "It only proposes: the user applies it or not. Never paste the whole changed text in your answer. "
+            }
+            s += "After at most three tool calls, answer."
         }
         return s
     }
@@ -145,7 +150,8 @@ public enum OwlPrompts {
         let lines = "lines \(context.firstLine)-\(context.lastLine)"
         let what = prose ? "text" : "code"
         let edit = toolsOn
-            ? "Call propose_edit with start \(context.firstLine), end \(context.lastLine) and the new text, then say in one sentence what you changed."
+            ? "For each change call propose_edit with find (the exact text from \(lines), copied without the line numbers) and replace (the new text), "
+                + "at most \(OwlTools.maxProposals) calls, then say in one sentence what you changed."
             : "Reply with only the new text for \(lines) in one ``` block, without line numbers, then one sentence on what you changed."
         switch action {
         case .explain:
@@ -206,8 +212,8 @@ public enum OwlPrompts {
     public static func chatMessages(question: String, context: OwlChatContext, language: String, fileName: String?,
                                     history: [OwlChatEntry], toolsOn: Bool, model: String, server: Bool = false,
                                     canDescribeImage: Bool = false, totalLines: Int? = nil,
-                                    digest: String? = nil, checks: String? = nil) -> [OwlChatMessage] {
-        var out: [OwlChatMessage] = [.system(chatSystem(toolsOn: toolsOn, server: server, digest: digest != nil, checks: checks != nil))]
+                                    digest: String? = nil, checks: String? = nil, canEdit: Bool = true) -> [OwlChatMessage] {
+        var out: [OwlChatMessage] = [.system(chatSystem(toolsOn: toolsOn, server: server, digest: digest != nil, checks: checks != nil, canEdit: canEdit))]
         // Older turns are dropped (small context): the last two questions and answers.
         var kept: [OwlChatEntry] = []
         var users = 0
@@ -277,6 +283,14 @@ public enum OwlPrompts {
             ? "\n- It asks about problems, errors, broken links, headings, footnotes or grammar in the document: call check_document." : ""
         let sectionRule = tools.contains { $0.name == .readSection }
             ? "\n- It asks what one named section says, or to read a section: call read_section with its heading." : ""
+        let edits = tools.contains { $0.name == .proposeEdit }
+        let editRule = edits
+            ? "\n- It asks you to change, fix, rewrite, rename or shorten the text: call propose_edit with find copied exactly from the text (no line numbers; get_lines first if you can't see it) and replace; one call per change."
+                + "\n- It only asks whether the text is right, or what you would change, without asking you to change it: don't call propose_edit."
+            : ""
+        let editExample = edits
+            ? #" "Change the budget to 45 euros." (line 9 is "Budget: 40 euros.") → {"tool":"propose_edit","args":{"find":"Budget: 40 euros.","replace":"Budget: 45 euros.","reason":"new budget"}}."#
+            : ""
         var s = "\n\nTools:\n"
         for t in tools {
             var params: [String] = []
@@ -291,8 +305,7 @@ public enum OwlPrompts {
         - It says "selected", "selection" or "my selection": call get_selection (you were not shown the selection).
         - It asks to find, search, or where or how often a word appears: call search_document with that word.\(sectionRule)
         - It asks for headings, sections, structure, keys or which functions exist: call get_outline.
-        - It asks how many words, lines or characters, or the file name or language: call document_stats.
-        - It asks to change, rename, rewrite or propose an edit: call propose_edit (or get_lines first).\(look)\(checkRule)
+        - It asks how many words, lines or characters, or the file name or language: call document_stats.\(editRule)\(look)\(checkRule)
         - It asks about something that is not in lines A-B (a value, a name, a section) while the document has more lines: call search_document with a key word, or get_lines; never answer that it isn't there without looking.
         - Otherwise, when the answer is in lines A-B or needs no document (general knowledge): answer directly.
 
@@ -301,7 +314,7 @@ public enum OwlPrompts {
         Examples (shown lines 1-12): "What does line 80 say?" → {"tool":"get_lines","args":{"start":80,"end":80}}. \
         "Where is foo used?" → {"tool":"search_document","args":{"query":"foo"}}. \
         "Explain what I selected." → {"tool":"get_selection","args":{}}. \
-        "What is on line 2?" → {"answer":"…"}. "What is 2 + 2?" → {"answer":"4"}.\(lookExample)
+        "What is on line 2?" → {"answer":"…"}. "What is 2 + 2?" → {"answer":"4"}.\(editExample)\(lookExample)
         """
         return s
     }

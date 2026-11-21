@@ -56,7 +56,8 @@ extension OwlChatEngine {
 }
 
 /// Runs tool calls against the frozen snapshot: the allowed subset only,
-/// a call budget, at most one proposal. Thread-safe (Apple calls tools
+/// a call budget, at most `OwlTools.maxProposals` proposals that don't
+/// overlap. Thread-safe (Apple calls tools
 /// from its own tasks). describe_image needs `imageSource` (the app gives
 /// one for a document that draws a picture) and runs in `perform`.
 public final class OwlToolbox: @unchecked Sendable {
@@ -66,7 +67,7 @@ public final class OwlToolbox: @unchecked Sendable {
     public let imageSource: (any OwlImageSource)?
     private let lock = NSLock()
     private var calls = 0
-    private var _proposal: OwlEditProposal?
+    private var _proposals: [OwlEditProposal] = []
     private var _picture: Task<OwlRenderedImage, Error>?
     private let onEvent: @Sendable (OwlChatEvent) -> Void
     public static let maxCalls = OwlTools.maxRounds * OwlTools.maxCallsPerRound
@@ -79,7 +80,9 @@ public final class OwlToolbox: @unchecked Sendable {
         self.onEvent = onEvent
     }
 
-    public var proposal: OwlEditProposal? { lock.withLock { _proposal } }
+    /// The edits proposed so far, in order.
+    public var proposals: [OwlEditProposal] { lock.withLock { _proposals } }
+    public var proposal: OwlEditProposal? { proposals.first }
     public var callCount: Int { lock.withLock { calls } }
     /// Every call asked for, in order (the tool eval reads the first).
     public var log: [OwlToolCall] { lock.withLock { _log } }
@@ -111,10 +114,18 @@ public final class OwlToolbox: @unchecked Sendable {
     private func runAdmitted(_ call: OwlToolCall) -> OwlToolResult {
         let name = OwlToolName(rawValue: call.name)
         if name == .searchDocument { onEvent(.phase(.searching)) }
-        if name == .proposeEdit, proposal != nil {
-            return OwlToolResult(text: "error: one edit per question; it is already proposed", proposal: nil, summary: "second edit refused", ok: false)
+        if name == .proposeEdit, proposals.count >= OwlTools.maxProposals {
+            let r = OwlToolResult(text: "error: at most \(OwlTools.maxProposals) edits per answer; they are proposed, now answer",
+                                  proposal: nil, summary: String(localized: "edit limit reached"), ok: false)
+            onEvent(.tool(name, String(localized: "A tool call was refused: \(r.summary)")))
+            return r
         }
-        let r = OwlTools.run(call, on: snapshot, allowed: allowed)
+        var r = OwlTools.run(call, on: snapshot, allowed: allowed)
+        if let p = r.proposal, let other = proposals.first(where: { $0.overlaps(p) }) {
+            let same = other.original == p.original && other.replacement == p.replacement
+            r = OwlToolResult(text: same ? "error: this edit is already proposed" : "error: this overlaps an edit you already proposed (lines \(other.firstLine)-\(other.lastLine)); put both changes in one edit",
+                              proposal: nil, summary: String(localized: "overlapping edit refused"), ok: false)
+        }
         if r.ok {
             lock.withLock {
                 if let l = r.lines { _linesRead.insert(integersIn: l) }
@@ -123,7 +134,7 @@ public final class OwlToolbox: @unchecked Sendable {
         }
         onEvent(.tool(name, r.ok ? r.summary : String(localized: "A tool call was refused: \(r.summary)")))
         if let p = r.proposal {
-            lock.withLock { _proposal = p }
+            lock.withLock { _proposals.append(p) }
             onEvent(.proposal(p))
             onEvent(.phase(.writing))
         }
@@ -348,7 +359,9 @@ public struct OwlChatRequest: Sendable {
 
 public struct OwlChatOutcome: Sendable, Equatable {
     public var answer: String
-    public var proposal: OwlEditProposal?
+    /// The edits proposed, in order (at most `OwlTools.maxProposals`).
+    public var proposals: [OwlEditProposal]
+    public var proposal: OwlEditProposal? { proposals.first }
     public var toolCalls: Int
     public var rounds: Int
     /// The coverage note `answer` starts with (`OwlChatRequest.coverageNote`), if any.
@@ -386,7 +399,8 @@ public enum OwlChatRunner {
                                                fileName: req.snapshot.fileName, history: req.history,
                                                toolsOn: !specs.isEmpty, model: model, server: engine.usesServer,
                                                canDescribeImage: req.tools.contains(.describeImage),
-                                               totalLines: req.snapshot.lineCount, digest: digest?.text, checks: checks)
+                                               totalLines: req.snapshot.lineCount, digest: digest?.text, checks: checks,
+                                               canEdit: req.tools.contains(.proposeEdit))
         onEvent(.phase(.thinking))
         let wrote = Flag()
         let streamed = TextBuffer()
@@ -430,11 +444,12 @@ public enum OwlChatRunner {
             }
             break
         }
-        var proposal = toolbox.proposal
-        if proposal == nil, req.action?.proposesEdit == true, let block = fencedBlock(answer) {
-            proposal = OwlEditProposal.lines(req.context.firstLine, req.context.lastLine, with: stripLineNumbers(block),
-                                             reason: "", in: req.snapshot)
-            if let proposal { onEvent(.proposal(proposal)) }
+        var proposals = toolbox.proposals
+        if proposals.isEmpty, req.action?.proposesEdit == true, let block = fencedBlock(answer),
+           let p = OwlEditProposal.lines(req.context.firstLine, req.context.lastLine, with: stripLineNumbers(block),
+                                         reason: "", in: req.snapshot) {
+            proposals = [p]
+            onEvent(.proposal(p))
         }
         // No final answer (the last round ended in a tool call, or only
         // "<think>" came): the text that streamed is the answer, and goes
@@ -453,7 +468,7 @@ public enum OwlChatRunner {
             said = note.value.trimmingCharacters(in: .newlines)
             shown = note.value + shown
         }
-        return OwlChatOutcome(answer: shown, proposal: proposal, toolCalls: toolbox.callCount, rounds: rounds, coverageNote: said)
+        return OwlChatOutcome(answer: shown, proposals: proposals, toolCalls: toolbox.callCount, rounds: rounds, coverageNote: said)
     }
 
     /// The text kept in the chat for a finished answer: `answer` (already
@@ -478,14 +493,7 @@ public enum OwlChatRunner {
     }
 
     /// "12| text" lines → "text", only when every non-empty line has a number.
-    public static func stripLineNumbers(_ s: String) -> String {
-        let lines = s.components(separatedBy: "\n")
-        let re = try! NSRegularExpression(pattern: #"^\s*\d+\| ?"#)
-        let numbered = lines.allSatisfy { $0.isEmpty || re.firstMatch(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length)) != nil }
-        guard numbered, lines.contains(where: { !$0.isEmpty }) else { return s }
-        return lines.map { re.stringByReplacingMatches(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length), withTemplate: "") }
-            .joined(separator: "\n")
-    }
+    public static func stripLineNumbers(_ s: String) -> String { OwlTools.stripLineNumbers(s) }
 
     /// Qwen3's "<think>…</think>" scratchpad, if a model sent one anyway.
     public static func stripThinking(_ s: String) -> String {

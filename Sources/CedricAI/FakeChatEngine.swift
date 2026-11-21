@@ -4,8 +4,8 @@ import CedricCore
 /// A scripted engine for tests, the in-app checks (CEDRIC_AI_FAKE) and the
 /// tool eval's CI mode. No model, no network. It streams its answer in
 /// small pieces (`delay` apart, cancellable), picks tools by keywords, and
-/// for an edit it reads the lines and proposes adding a comment line above
-/// the first one ("// Cedric: checked", or "# …" for hash-comment
+/// for an edit it reads the lines and proposes (find/replace) adding a
+/// comment line above the first one ("// Cedric: checked", or "# …" for hash-comment
 /// languages), so a check can see exactly what Apply changed.
 public struct FakeChatEngine: OwlChatEngine {
     public var delay: TimeInterval
@@ -56,8 +56,8 @@ public struct FakeChatEngine: OwlChatEngine {
            !results.contains(OwlToolName.proposeEdit.rawValue), let lines = Self.lastToolText(messages) {
             let original = Self.firstNumberedLine(lines)
             return .toolCalls([OwlToolCall(id: "fake_edit", name: "propose_edit", arguments: .object([
-                "start": .number(Double(original.number)), "end": .number(Double(original.number)),
-                "new_text": .string(Self.commented(original.text, question: question)), "reason": .string("adds a comment")]))])
+                "find": .string(original.text), "replace": .string(Self.commented(original.text, question: question)),
+                "reason": .string("adds a comment")]))])
         }
         var answer: String
         if results.last == OwlToolName.describeImage.rawValue, let seen = Self.lastToolText(messages) {
@@ -104,7 +104,8 @@ public struct FakeChatEngine: OwlChatEngine {
             return OwlToolCall(name: "describe_image")
         }
         let lineRef = firstNumber(after: "line", in: s)
-        if tools.contains(.proposeEdit), has(["add short, useful comments", "rewrite", "simplify", "rename", "replace", "change line", "fix line", "propose"]) {
+        if tools.contains(.proposeEdit), has(["add short, useful comments", "rewrite", "simplify", "rename", "replace", "change line", "fix line",
+                                              "propose", "shorten", "update the", "rephrase"]) {
             if tools.contains(.getLines) { return OwlToolCall(name: "get_lines", arguments: .object(["start": .number(Double(lineRef ?? first)), "end": .number(Double(lineRef ?? last))])) }
             if tools.contains(.getSelection) { return OwlToolCall(name: "get_selection") }
         }

@@ -42,8 +42,8 @@ import CedricCore
             #"{"tool":"get_selection","args":{ }}"#,
             #"{"tool":"document_stats","args":{}}"#,
             #"{"tool":"describe_image","args":{}}"#,
-            #"{"tool":"propose_edit","args":{"start":3,"end":3,"new_text":"struct AppConfig {"}}"#,
-            #"{"tool":"propose_edit","args":{"start":3,"end":4,"new_text":"a\nb","reason":"rename"}}"#,
+            #"{"tool":"propose_edit","args":{"find":"struct Config {","replace":"struct AppConfig {","reason":"rename"}}"#,
+            #"{"tool":"propose_edit","args":{"find":"a","replace":"a\nb","reason":""}}"#,
         ] { #expect(m.matches(ok), "\(ok)") }
     }
 
@@ -60,7 +60,8 @@ import CedricCore
             #"{"tool":"search_document","args":{"query":"a","regex":"yes"}}"#,
             #"{"tool":"search_document","args":{"regex":true}}"#,            // query is required
             #"{"tool":"describe_image","args":{"path":"x.svg"}}"#,           // takes no arguments
-            #"{"tool":"propose_edit","args":{"start":3,"end":3}}"#,          // new_text is required
+            #"{"tool":"propose_edit","args":{"find":"a","replace":"b"}}"#,  // reason is required
+            #"{"tool":"propose_edit","args":{"start":3,"end":3,"new_text":"x"}}"#,  // no line ranges (0.4.1)
             #"{"tool":"get_outline","args":{"depth":2}}"#,                   // takes nothing
             #"{"tool":"delete_file","args":{}}"#,                             // no such tool
             #"{"answer":"x","tool":"get_outline"}"#,
@@ -105,10 +106,10 @@ import CedricCore
         #expect(c.arguments["start"] == .number(40) && c.arguments["end"] == .number(44))
         let snap = OwlDocumentSnapshot(text: (1...50).map { "line \($0)" }.joined(separator: "\n"), generation: 1)
         #expect(OwlTools.run(c, on: snap).ok)
-        let edit = #"{"tool":"propose_edit","args":{"start":2,"end":2,"new_text":"new \"two\"\n","reason":"r"}}"#
+        let edit = #"{"tool":"propose_edit","args":{"find":"line 2\n","replace":"new \"two\"\n","reason":"r"}}"#
         #expect(m.matches(edit))
         guard case .toolCalls(let e)? = EnvelopeStreamParser.parse(edit) else { Issue.record("no edit"); return }
-        #expect(e[0].arguments["new_text"] == .string("new \"two\"\n"))
+        #expect(e[0].arguments["replace"] == .string("new \"two\"\n"))
         #expect(OwlTools.run(e[0], on: snap).proposal?.firstLine == 2)
         let answer = #"{"answer":"Line 3 says \"hi\""}"#
         #expect(m.matches(answer))
