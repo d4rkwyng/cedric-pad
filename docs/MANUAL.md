@@ -722,7 +722,9 @@ window, "notes.md — Preview", still updating as you type; it stays
 with its own document whichever tab is in front, and closes with that
 tab. Attach Preview docks it again; closing its window closes the
 preview. A detached preview and its window's frame are kept with the
-session (restored just after the window first shows).
+session (restored just after the window first shows). A docked Markdown
+preview is kept too, at the width you left it, and comes back the same
+way. A session saved before that leaves the preview closed.
 
 ### Markdown editing
 

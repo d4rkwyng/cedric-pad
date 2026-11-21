@@ -103,6 +103,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     /// The detached preview's window (View › Detach Preview).
     private(set) var previewWindow: PreviewWindowController?
     var previewDetached: Bool { previewWindow != nil }
+    /// The docked preview's width in points, or nil when it isn't docked
+    /// (hidden, detached, or the split has no size yet).
+    var dockedPreviewWidth: Double? {
+        guard let pane = previewPane, pane.superview === split, !previewDetached else { return nil }
+        split.layoutSubtreeIfNeeded()
+        let w = pane.frame.width
+        guard w.isFinite, w >= 1 else { return nil }
+        return w.rounded()
+    }
     /// Shown: detached, or docked in this tab's split. By identity, not by
     /// counting the split's panes: Find in Files and the folder sidebar
     /// dock there too.
@@ -1448,18 +1457,53 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         return p
     }
 
-    private func dock(_ pane: PreviewPane) {
+    private func dock(_ pane: PreviewPane, width: Double? = nil) {
         pane.setDetached(false)
         split.addArrangedSubview(pane)
         split.adjustSubviews()
         FolderSidebar.keepWidth(in: split)
-        // Half the room right of a folder sidebar: the divider right after
-        // the editor (the sidebar may sit before it).
-        let w = split.bounds.width
-        if w > 0, let i = split.arrangedSubviews.firstIndex(of: editorArea) {
+        let total = split.bounds.width
+        guard total > 0, let i = split.arrangedSubviews.firstIndex(of: editorArea) else { return }
+        if let width, width.isFinite, width > 0 {
+            applyDockedPreviewWidth(width)
+        } else {
+            // Half the room right of a folder sidebar: the divider right after
+            // the editor (the sidebar may sit before it).
             let left = editorArea.frame.minX
-            split.setPosition(left + (w - left) / 2, ofDividerAt: i)
+            split.setPosition(left + (total - left) / 2, ofDividerAt: i)
         }
+    }
+
+    /// Moves the divider so the docked preview is `width` points wide.
+    /// The preview is always the pane to the right of the editor (the
+    /// split is vertical); the editor takes the difference. No-op when
+    /// the preview isn't docked or the split has no size yet. The split's
+    /// own 200 pt minimum still applies.
+    func applyDockedPreviewWidth(_ width: Double) {
+        guard width.isFinite, width >= 1, let pane = previewPane, pane.superview === split, !previewDetached else { return }
+        guard let i = split.arrangedSubviews.firstIndex(of: pane), i > 0 else { return }
+        split.layoutSubtreeIfNeeded()
+        guard split.bounds.width > 1 else { return }
+        let current = pane.frame.width
+        guard abs(current - CGFloat(width)) >= 0.5 else { return }
+        let prev = split.arrangedSubviews[i - 1]
+        split.setPosition(prev.frame.maxX - (CGFloat(width) - current), ofDividerAt: i - 1)
+    }
+
+    /// A docked Markdown preview from the session, after the first frame
+    /// (the same deferral as a detached preview: no preview work on the
+    /// launch path). `width` nil: half the room, as Show Preview does.
+    func restoreDockedPreview(width: Double?) {
+        guard window != nil, previewPane == nil, !previewDetached, doc.language == .markdown else { return }
+        dock(makePreviewPane(), width: width)
+        renderPreview()
+        updatePreviewBar()
+        contextBar?.refreshStates()
+        onChange?(self)
+        guard let width, width.isFinite, width > 0 else { return }
+        // The split can still be 0 wide on this turn (the window's frame
+        // lands with the first frame). Set the width once it has one.
+        DispatchQueue.main.async { [weak self] in self?.applyDockedPreviewWidth(width) }
     }
 
     func closePreview() {

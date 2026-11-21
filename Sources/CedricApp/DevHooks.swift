@@ -28,6 +28,7 @@ import WebKit
 ///   CEDRIC_TEST_TYPE=text         type this at the end of the frontmost tab (session tests)
 ///   CEDRIC_TEST_TYPE_UNTITLED=t   open a new untitled tab and type this
 ///   CEDRIC_TEST_DETACH_PREVIEW=x,y,w,h  detach the front tab's preview to this frame (session tests)
+///   CEDRIC_TEST_DOCK_PREVIEW=width  dock the front tab's Markdown preview at this width (session tests)
 ///   CEDRIC_TEST_CLOSE_LAST=1      then close the newest tab (as ⌘W does; session tests)
 ///   CEDRIC_TEST_SPLIT=line        split the front tab side by side, the second pane scrolled to `line` (session tests)
 ///   CEDRIC_TEST_QUIT_ON_LAST_CLOSE=1  let closing the last window quit (off under the other test hooks)
@@ -158,6 +159,27 @@ enum DevHooks {
             tab.detachPreview()
             tab.previewWindow?.window?.setFrame(NSRect(x: f[0], y: f[1], width: f[2], height: f[3]), display: true)
         }
+        // Session check: dock the front tab's Markdown preview at this width (points).
+        // Once now and again after the first frame, so a split that has no
+        // size yet still ends at that width before the test quits.
+        if let w = env["CEDRIC_TEST_DOCK_PREVIEW"].flatMap(Double.init), w > 0,
+           let tab = app.currentTab ?? app.tabs.last, tab.doc.language == .markdown {
+            tab.window?.setContentSize(NSSize(width: 1000, height: 640))
+            let apply: @MainActor (EditorWindowController) -> Void = { tab in
+                tab.window?.layoutIfNeeded()
+                if tab.previewPane == nil { tab.togglePreview() }
+                tab.applyDockedPreviewWidth(w)
+            }
+            apply(tab)
+            AfterFirstFrame.run { [weak tab] in
+                guard let tab else { return }
+                apply(tab)
+                DispatchQueue.main.async { [weak tab] in
+                    guard let tab else { return }
+                    apply(tab)
+                }
+            }
+        }
         if let delay = env["CEDRIC_TEST_ZOOM_MENU"].flatMap(Double.init), let tab = app.currentTab ?? app.tabs.last {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak tab] in tab?.statusBar.zoom.performClick(nil) }
         }
@@ -189,7 +211,7 @@ enum DevHooks {
         }
         if env["CEDRIC_TEST_REOPEN_CLOSED"] == "1" { app.reopenClosedTab(nil) }
         if env["CEDRIC_SESSION_DUMP"] == "1" {
-            // A detached preview is restored after the first frame: none may exist yet.
+            // A preview (detached or docked) is restored after the first frame: none may exist yet.
             let earlyPreviews = app.tabs.filter { $0.previewPane != nil }.count
             let earlyFolder = FolderSidebar.shared != nil ? 1 : 0
             let earlySplits = app.tabs.filter(\.isSplit).count
@@ -216,9 +238,12 @@ enum DevHooks {
                 }
                 for t in app.tabs where t.previewPane != nil {
                     let f = t.previewWindow?.window?.frame ?? .zero
+                    let docked = t.previewPane?.superview === t.split
+                    if docked { t.split.layoutSubtreeIfNeeded() }
+                    let width = docked ? Int((t.previewPane?.frame.width ?? 0).rounded()) : 0
                     print("preview: name=\(t.doc.displayName) detached=\(t.previewDetached) visible=\(t.previewWindow?.window?.isVisible ?? false) "
                           + "title=\(t.previewWindow?.window?.title ?? "-") frame=\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width)),\(Int(f.height)) "
-                          + "before-first-frame=\(earlyPreviews)")
+                          + "before-first-frame=\(earlyPreviews) docked=\(docked) width=\(width)")
                 }
                 exit(0)
             } }

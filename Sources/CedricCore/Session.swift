@@ -35,6 +35,16 @@ public struct SessionTab: Codable, Equatable, Sendable {
     /// that window's frame (NSWindow's frame descriptor). Nil otherwise.
     public var previewDetached: Bool?
     public var previewFrame: String?
+    /// The preview was docked beside the text (View › Show Preview).
+    /// Nil when it wasn't, and in sessions saved before a docked preview
+    /// was remembered: nil means not shown, so those sessions still open
+    /// with the preview closed. Only `true` reopens it.
+    public var previewShown: Bool?
+    /// The docked preview's width in points (the pane, as laid out). Nil
+    /// with none shown, or when the split had no size yet; restore then
+    /// uses the usual half. The dock is a vertical split with the preview
+    /// always to the right of the editor, so there is no side to store.
+    public var previewWidth: Double?
     /// A PDF tab (a read-only viewer, never written): its page and zoom.
     /// Nil for text tabs and in sessions saved before PDF tabs.
     public var pdf: PDFTabState?
@@ -61,7 +71,8 @@ public struct SessionTab: Codable, Equatable, Sendable {
     public init(id: UUID = UUID(), path: String? = nil, untitledName: String? = nil, hasBuffer: Bool = false,
                 encoding: TextEncoding = .utf8, lineEnding: LineEnding = .lf, language: Language? = nil,
                 selectionLocation: Int = 0, selectionLength: Int = 0, topLine: Int = 0, fileModified: Date? = nil,
-                bookmarks: [Int]? = nil, indentation: Indentation? = nil, previewDetached: Bool? = nil, previewFrame: String? = nil, pdf: PDFTabState? = nil,
+                bookmarks: [Int]? = nil, indentation: Indentation? = nil, previewDetached: Bool? = nil, previewFrame: String? = nil,
+                previewShown: Bool? = nil, previewWidth: Double? = nil, pdf: PDFTabState? = nil,
                 image: ImageTabState? = nil, office: OfficeTabState? = nil, certificate: OfficeTabState? = nil, folds: [Int]? = nil,
                 split: SplitEditorState? = nil, writing: WritingModeState? = nil, wordGoal: Int? = nil) {
         self.id = id
@@ -79,6 +90,8 @@ public struct SessionTab: Codable, Equatable, Sendable {
         self.indentation = indentation
         self.previewDetached = previewDetached
         self.previewFrame = previewFrame
+        self.previewShown = previewShown
+        self.previewWidth = previewWidth
         self.pdf = pdf
         self.image = image
         self.office = office

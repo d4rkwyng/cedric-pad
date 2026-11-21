@@ -616,9 +616,13 @@ and a `PreviewRenderer`: the web view, or the CSV grid). **Detach Preview**
 moves the pane into a `PreviewWindowController` window owned by the tab,
 so it stays bound to that document (not the front tab) and closes with
 it; the same debounced `renderPreview` feeds it. `SessionTab` keeps
-`previewDetached` and `previewFrame`; restore detaches with
-`AfterFirstFrame`, so a restored detached preview costs nothing before the
-first frame and nothing at all when there is none.
+`previewDetached` and `previewFrame` for a detached preview, and
+`previewShown` plus `previewWidth` (the pane's width in points) for a
+docked Markdown preview. The dock is a vertical split with the preview
+always to the right of the editor, so there is no side to store. Restore
+runs in `AfterFirstFrame` for both, so a restored preview costs nothing
+before the first frame and nothing at all when there is none. Sessions
+saved before `previewShown` decode it as nil, which means not shown.
 
 **CSV / TSV grid** (`CSVPreview`): `CSV.parse` (CedricCore, RFC 4180,
 UTF-16 offsets) on a background queue from an immutable copy of the text

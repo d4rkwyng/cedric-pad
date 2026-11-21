@@ -547,6 +547,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 // An untouched empty untitled tab isn't worth restoring.
                 if d.fileURL == nil && isEmpty { continue }
                 let sel = t.primaryTextView.selectedRange()
+                // A docked Markdown preview (not a detached one: that has its own frame).
+                let dockedPreview = d.language == .markdown && t.previewVisible && !t.previewDetached
                 sessionTabs.append(SessionTab(id: d.id, path: d.fileURL?.path, untitledName: d.fileURL == nil ? d.untitledName : nil,
                                               hasBuffer: needsBuffer, encoding: d.encoding, lineEnding: d.lineEnding,
                                               language: d.languageIsManual ? d.language : nil,
@@ -556,6 +558,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                               indentation: d.indentation,
                                               previewDetached: t.previewDetached ? true : nil,
                                               previewFrame: t.previewWindow?.window?.frameDescriptor,
+                                              previewShown: dockedPreview ? true : nil,
+                                              previewWidth: dockedPreview ? t.dockedPreviewWidth : nil,
                                               folds: t.sessionFolds, split: t.sessionSplit, writing: t.sessionWriting,
                                               wordGoal: d.fileURL == nil ? t.editing.wordGoal : nil))
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
@@ -716,10 +720,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // So does a split (SplitEditor.swift).
         if let sp = st.split { tab.restoreSplit(sp) }
         // A detached preview comes back in its window, after the first
-        // frame: no preview work on the launch path.
+        // frame: no preview work on the launch path. A docked Markdown
+        // preview comes back the same way, at the width it was left
+        // (nil width: the usual half). Nil previewShown is an older
+        // session, which stays closed.
         if st.previewDetached == true {
             let frame = st.previewFrame
             AfterFirstFrame.run { [weak tab] in tab?.detachPreview(frame: frame, activate: false) }
+        } else if st.previewShown == true, tab.doc.language == .markdown {
+            let width = st.previewWidth
+            AfterFirstFrame.run { [weak tab] in tab?.restoreDockedPreview(width: width) }
         }
         return tab
     }
