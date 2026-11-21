@@ -3,7 +3,7 @@ import Foundation
 // Ask Cedric (the owl's chat panel): the pure parts. A frozen snapshot of
 // the document taken when the user asks, the context the model is shown,
 // the quick actions, the owl's read-only tools and the edit proposals
-// that becomes a diff the user applies (or not). No AppKit, no engines:
+// that become diffs the user applies (or not). No AppKit, no engines:
 // the engines are in CedricAI, the panel in the app.
 
 // MARK: - JSON values

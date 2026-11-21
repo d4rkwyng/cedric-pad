@@ -502,7 +502,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         spellStep?.textEdited(oldRange, newLength: edited.length)
         if !primaryTextView.grammarRanges.isEmpty { grammar.textEdited(oldRange, newLength: edited.length) }
         grammarStep?.textEdited(oldRange, newLength: edited.length)
-        if let chat = owlChat, chat.pending != nil { DispatchQueue.main.async { MainActor.assumeIsolated { chat.documentEdited() } } }
+        if let chat = owlChat, chat.hasProposals { DispatchQueue.main.async { MainActor.assumeIsolated { chat.documentEdited() } } }
         storageEdits += 1
         let seen = storageEdits
         // Only undo and redo: Follow File appends on purpose without a

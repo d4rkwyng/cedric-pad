@@ -6,9 +6,10 @@ import CedricAI
 /// popover or Cedric › Ask Cedric… (⌥⌘/). Created on first use, so it costs
 /// nothing at launch. Questions go to the AI engine chosen in Cedric AI
 /// Settings (local or LAN only); answers stream in; an edit comes back as
-/// a proposed diff with Apply / Discard, applied as one undo step only
-/// while the document is unchanged since asking. History is per document,
-/// in memory only.
+/// proposed diff cards (up to five per answer) with Apply / Skip, each
+/// applied as one undo step only while its text is still in the document
+/// exactly once (a quick action's block: while the document is unchanged
+/// since asking). History is per document, in memory only.
 @MainActor
 final class OwlChatStore {
     static let shared = OwlChatStore()
@@ -123,18 +124,17 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private(set) var stopButton: NSButton!
     private(set) var actionButtons: [OwlQuickAction: NSButton] = [:]
     let footer = NSTextField(labelWithString: "")
-    // The diff card.
-    let card = NSStackView()
-    let cardTitle = NSTextField(labelWithString: "")
-    let diffView = NSTextView()
-    private(set) var applyButton: NSButton!
-    private(set) var discardButton: NSButton!
-    private(set) var askAgainButton: NSButton!
-    let staleLabel = NSTextField(wrappingLabelWithString: String(localized: "The text changed since you asked, so this can’t be applied safely."))
+    // The proposed edits: a card each, in a scroll view under the transcript.
+    let cardsStack = NSStackView()
+    let cardsScroll = NSScrollView()
+    private var cardsHeight: NSLayoutConstraint!
+    private(set) var cards: [OwlEditCard] = []
 
     private var task: Task<Void, Never>?
     private(set) var running = false
-    private(set) var pending: OwlEditProposal?
+    /// The first card's proposal (checks).
+    var pending: OwlEditProposal? { cards.first?.proposal }
+    var hasProposals: Bool { !cards.isEmpty }
     private var lastRequest: (question: String, action: OwlQuickAction?)?
     /// Streamed text not yet shown (flushed at ~30 Hz).
     private var pendingText = ""
@@ -222,32 +222,28 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         tScroll.setContentHuggingPriority(.defaultLow, for: .vertical)
         tScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
 
-        // Diff card.
-        cardTitle.font = .systemFont(ofSize: 11, weight: .semibold)
-        diffView.isEditable = false
-        diffView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        diffView.isVerticallyResizable = true
-        diffView.autoresizingMask = [.width]
-        diffView.textContainer?.widthTracksTextView = true
-        let dScroll = NSScrollView()
-        dScroll.documentView = diffView
-        dScroll.hasVerticalScroller = true
-        dScroll.borderType = .bezelBorder
-        dScroll.heightAnchor.constraint(equalToConstant: 120).isActive = true
-        applyButton = small(String(localized: "Apply"), #selector(applyProposal(_:)))
-        applyButton.keyEquivalent = ""
-        discardButton = small(String(localized: "Discard"), #selector(discardProposal(_:)))
-        askAgainButton = small(String(localized: "Ask Again"), #selector(askAgain(_:)))
-        staleLabel.font = .systemFont(ofSize: 11)
-        staleLabel.textColor = .systemOrange
-        let cardButtons = NSStackView(views: [applyButton, discardButton, askAgainButton])
-        card.orientation = .vertical
-        card.alignment = .leading
-        card.spacing = 4
-        for v in [cardTitle, dScroll, staleLabel, cardButtons] as [NSView] { card.addArrangedSubview(v) }
-        dScroll.translatesAutoresizingMaskIntoConstraints = false
-        dScroll.widthAnchor.constraint(equalTo: card.widthAnchor).isActive = true
-        card.isHidden = true
+        // Proposed edits.
+        cardsStack.orientation = .vertical
+        cardsStack.alignment = .leading
+        cardsStack.spacing = 6
+        cardsStack.translatesAutoresizingMaskIntoConstraints = false
+        let flipped = CardsDocumentView()
+        flipped.translatesAutoresizingMaskIntoConstraints = false
+        flipped.addSubview(cardsStack)
+        NSLayoutConstraint.activate([
+            cardsStack.topAnchor.constraint(equalTo: flipped.topAnchor),
+            cardsStack.leadingAnchor.constraint(equalTo: flipped.leadingAnchor),
+            cardsStack.trailingAnchor.constraint(equalTo: flipped.trailingAnchor),
+            cardsStack.bottomAnchor.constraint(equalTo: flipped.bottomAnchor),
+        ])
+        cardsScroll.documentView = flipped
+        cardsScroll.hasVerticalScroller = true
+        cardsScroll.drawsBackground = false
+        flipped.widthAnchor.constraint(equalTo: cardsScroll.contentView.widthAnchor).isActive = true
+        cardsHeight = cardsScroll.heightAnchor.constraint(equalToConstant: 0)
+        cardsHeight.isActive = true
+        cardsScroll.setAccessibilityLabel(String(localized: "Proposed changes"))
+        cardsScroll.isHidden = true
 
         input.placeholderString = String(localized: "Ask about this text…")
         input.font = .systemFont(ofSize: 12)
@@ -270,13 +266,13 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         let foot = NSStackView(views: [footer, NSView(), clear, copy])
         foot.spacing = 6
 
-        let stack = NSStackView(views: [head, actions, tScroll, card, inputRow, foot])
+        let stack = NSStackView(views: [head, actions, tScroll, cardsScroll, inputRow, foot])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 8, right: 10)
         stack.setHuggingPriority(.defaultLow, for: .vertical)
-        for v in [head, tScroll, card, inputRow, foot, actions] as [NSView] {
+        for v in [head, tScroll, cardsScroll, inputRow, foot, actions] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             v.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 10).isActive = true
             v.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -10).isActive = true
@@ -788,7 +784,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             if let outcome {
                 // An empty answer falls back to what streamed, guarded the same way.
                 let text = OwlChatRunner.storedText(answer: outcome.answer, streamed: streamed, guard: safeClaimGuard, forced: forcedVerdict)
-                OwlChatStore.shared.replaceLast(OwlChatEntry(role: .owl, text: text, proposal: outcome.proposal), in: id)
+                OwlChatStore.shared.replaceLast(OwlChatEntry(role: .owl, text: text, proposals: outcome.proposals), in: id)
             } else if let error {
                 // A script check cut short still never reads as "safe".
                 let partial = !streamed.isEmpty
@@ -799,7 +795,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         }
         render()
         updateButtons()
-        if let p = outcome?.proposal { showProposal(p) }
+        if let ps = outcome?.proposals, !ps.isEmpty { showProposals(ps) }
         panel.makeFirstResponder(input)
         onFinish?(outcome)
     }
@@ -810,64 +806,119 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         finish(nil, error: String(localized: "Stopped."))
     }
 
-    // MARK: The proposed edit
+    // MARK: The proposed edits
 
-    private func showProposal(_ p: OwlEditProposal) {
-        pending = p
-        cardTitle.stringValue = p.firstLine == p.lastLine
-            ? String(localized: "Proposed change to line \(p.firstLine)")
-            : String(localized: "Proposed change to lines \(p.firstLine)–\(p.lastLine)")
-        let out = NSMutableAttributedString()
-        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        for row in p.diffLines {
-            let (prefix, bg): (String, NSColor) = row.kind == .removed ? ("- ", NSColor.systemRed.withAlphaComponent(0.18))
-                : row.kind == .added ? ("+ ", NSColor.systemGreen.withAlphaComponent(0.18)) : ("  ", .clear)
-            out.append(NSAttributedString(string: prefix + row.text + "\n",
-                                          attributes: [.font: font, .foregroundColor: NSColor.labelColor, .backgroundColor: bg]))
+    /// A card per proposal (at most `OwlTools.maxProposals`), each with Apply / Skip.
+    func showProposals(_ ps: [OwlEditProposal]) {
+        removeCards()
+        let shown = Array(ps.prefix(OwlTools.maxProposals))
+        for (i, p) in shown.enumerated() {
+            let c = OwlEditCard(p, index: i, of: shown.count, target: self, apply: #selector(applyCard(_:)),
+                                skip: #selector(skipCard(_:)), askAgain: #selector(askAgain(_:)))
+            c.translatesAutoresizingMaskIntoConstraints = false
+            cardsStack.addArrangedSubview(c)
+            c.widthAnchor.constraint(equalTo: cardsStack.widthAnchor).isActive = true
+            cards.append(c)
         }
-        diffView.textStorage?.setAttributedString(out)
-        let current = isProposalCurrent
-        staleLabel.isHidden = current
-        applyButton.isEnabled = current && tab?.textView.isEditable == true
-        askAgainButton.isHidden = current
-        card.isHidden = false
+        refreshCards()
+        cardsScroll.contentView.scroll(to: .zero)
     }
 
+    /// The scroll view as tall as the cards (a stale note adds a line), at most about two cards.
+    private func layoutCards() {
+        cardsScroll.isHidden = cards.isEmpty
+        cardsStack.layoutSubtreeIfNeeded()
+        // Up to about two cards high; more scroll.
+        cardsHeight.constant = cards.isEmpty ? 0 : min(cardsStack.fittingSize.height, 250)
+    }
+
+    private func removeCards() {
+        for c in cards { cardsStack.removeArrangedSubview(c); c.removeFromSuperview() }
+        cards = []
+        layoutCards()
+    }
+
+    /// Read-only: Apply never applies (a read-only tab, a followed file;
+    /// on iOS, read mode).
+    private var documentIsReadOnly: Bool {
+        guard let tab else { return true }
+        return !tab.textView.isEditable || tab.tail != nil
+    }
+
+    func state(of p: OwlEditProposal) -> OwlEditProposal.ApplyState {
+        guard let tab else { return .stale }
+        return p.state(text: tab.textView.string as NSString, generation: tab.doc.changeCount, readOnly: documentIsReadOnly)
+    }
+
+    /// Every card's Apply, against the document as it is now.
+    func refreshCards() {
+        for c in cards { c.show(state(of: c.proposal)) }
+        layoutCards()
+    }
+
+    /// The first card applies now (checks).
     var isProposalCurrent: Bool {
-        guard let p = pending, let tab else { return false }
-        return p.isCurrent(text: tab.textView.string as NSString, generation: tab.doc.changeCount)
+        guard let p = pending else { return false }
+        if case .ready = state(of: p) { return true }
+        return false
     }
 
-    /// Apply: one undo step, only if the document is what the model saw;
-    /// otherwise the card says so and offers Ask Again.
+    private func card(for sender: Any?) -> OwlEditCard? {
+        guard let b = sender as? NSButton else { return cards.first }
+        return cards.first { $0.applyButton === b || $0.skipButton === b || $0.askAgainButton === b }
+    }
+
+    @objc private func applyCard(_ sender: Any?) { if let c = card(for: sender) { apply(c) } }
+    @objc private func skipCard(_ sender: Any?) { if let c = card(for: sender) { skip(c) } }
+
+    /// Apply the first card (checks).
     @discardableResult
-    @objc func applyProposal(_ sender: Any?) -> Bool {
-        guard let p = pending, let tab else { return false }
-        guard isProposalCurrent else {
-            staleLabel.isHidden = false
-            askAgainButton.isHidden = false
-            applyButton.isEnabled = false
+    @objc func applyProposal(_ sender: Any?) -> Bool { cards.first.map(apply) ?? false }
+
+    /// Apply: one undo step, only where the proposal applies now (its text
+    /// once in the document); otherwise the card says why and offers Ask Again.
+    @discardableResult
+    func apply(_ c: OwlEditCard) -> Bool {
+        guard let tab else { return false }
+        let now = state(of: c.proposal)
+        guard case .ready(let range) = now else {
+            c.show(now)
             NSSound.beep()
             return false
         }
-        guard tab.replaceAsOneStep(p.range, with: p.replacement, actionName: String(localized: "Cedric’s Edit")) else { return false }
-        let r = NSRange(location: p.range.location, length: (p.replacement as NSString).length)
+        let p = c.proposal
+        guard tab.replaceAsOneStep(range, with: p.replacement, actionName: String(localized: "Cedric’s Edit")) else { return false }
+        let r = NSRange(location: range.location, length: (p.replacement as NSString).length)
         tab.textView.setSelectedRange(r)
         tab.reveal(r)
-        pending = nil
-        card.isHidden = true
+        remove(c)
         if let id = docID { OwlChatStore.shared.append(OwlChatEntry(role: .note, text: String(localized: "Applied. ⌘Z undoes it.")), to: id) }
         render()
         tab.owl?.chatCue(.applied)
         return true
     }
 
+    func skip(_ c: OwlEditCard) {
+        remove(c)
+        if let id = docID {
+            OwlChatStore.shared.append(OwlChatEntry(role: .note, text: String(localized: "Skipped.")), to: id)
+            render()
+        }
+    }
+
+    private func remove(_ c: OwlEditCard) {
+        cardsStack.removeArrangedSubview(c)
+        c.removeFromSuperview()
+        cards.removeAll { $0 === c }
+        refreshCards()
+    }
+
+    /// Every card goes (a new question, Clear); with a sender, a note says so.
     @objc func discardProposal(_ sender: Any?) {
-        guard pending != nil || !card.isHidden else { return }
-        pending = nil
-        card.isHidden = true
+        guard !cards.isEmpty else { return }
+        removeCards()
         if sender != nil, let id = docID {
-            OwlChatStore.shared.append(OwlChatEntry(role: .note, text: String(localized: "Discarded.")), to: id)
+            OwlChatStore.shared.append(OwlChatEntry(role: .note, text: String(localized: "Skipped.")), to: id)
             render()
         }
     }
@@ -878,13 +929,19 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         ask(question: r.question, action: r.action)
     }
 
-    /// The document changed: a pending proposal may have gone stale.
+    private var recheckQueued = false
+
+    /// The document changed: a card may have gone stale (or come back).
+    /// Rechecked once per burst of typing, not per key.
     func documentEdited() {
-        guard pending != nil, !card.isHidden else { return }
-        let current = isProposalCurrent
-        staleLabel.isHidden = current
-        askAgainButton.isHidden = current
-        applyButton.isEnabled = current
+        guard !cards.isEmpty, !recheckQueued else { return }
+        recheckQueued = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.recheckQueued = false
+                self?.refreshCards()
+            }
+        }
     }
 
     // MARK: History
@@ -948,4 +1005,9 @@ extension EditorWindowController {
         guard canCheckGrammarWithAI else { NSSound.beep(); return }
         grammar.checkWithAI(userAsked: true)
     }
+}
+
+/// Top-down layout for the cards' scroll view.
+private final class CardsDocumentView: NSView {
+    override var isFlipped: Bool { true }
 }

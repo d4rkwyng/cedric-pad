@@ -9,14 +9,16 @@ import CedricAI
 ///   2. Explain: the answer streams in (several partial lengths seen);
 ///   3. Add Comments on a selected line, with tools: get_lines, then
 ///      propose_edit becomes a diff; Apply changes the text; one ⌘Z undoes it;
-///   4. the same again, then an edit in the document: Apply refuses, Ask Again shows;
-///   5. Stop cancels a running answer;
-///   6. Escape closes the panel.
+///   4. three proposals at once: a card each, Skip, Apply, read-only;
+///   5. Add Comments again, then an edit elsewhere (the card still applies)
+///      and one inside the proposed text: Apply refuses, Ask Again shows;
+///   6. Stop cancels a running answer;
+///   7. Escape closes the panel.
 /// Before step 2, the one owl (`owlInChat`): the panel has no owl of its
 /// own and opens beside the editor's owl; he waves, listens to real
 /// typing, thinks, searches, talks and nods through a question, and only
 /// changes still poses under Reduce Motion; his own idle animations wait
-/// meanwhile. After step 6 (`placement`): reopened beside him wherever he
+/// meanwhile. After step 7 (`placement`): reopened beside him wherever he
 /// moved, at the default place with the owl hidden (the chat still
 /// works), where the user left it once moved; nothing left running after
 /// close.
@@ -366,22 +368,25 @@ enum OwlChatCheck {
             check(chat.lastUsedTools, "tools on for the fake engine (CEDRIC_OWL_TOOLS=1)")
             check((o?.toolCalls ?? 0) >= 2, "the model used tools (\(o?.toolCalls ?? 0) calls: get_lines, propose_edit)")
             check(chat.transcriptText.contains("Looked at lines"), "the transcript shows what Cedric looked at")
-            check(o?.proposal != nil && !chat.card.isHidden, "propose_edit became a diff card")
-            check(chat.isProposalCurrent && chat.applyButton.isEnabled, "Apply is enabled while the text is unchanged")
+            check(o?.proposal?.anchor == .text && chat.cards.count == 1 && !chat.cardsScroll.isHidden, "propose_edit (find/replace) became a diff card")
+            check(chat.isProposalCurrent && chat.cards.first?.applyButton.isEnabled == true, "Apply is enabled while the text is unchanged")
+            check(chat.cards.first?.accessibilityLabel()?.isEmpty == false && chat.cards.first?.diffView.accessibilityValue() as? String != nil,
+                  "the card has VoiceOver labels")
             OwlCheck.snapshot(chat.panel, "\(out)/chat-2-diff.png") {
-                OwlCheck.click(chat.applyButton)
+                guard let apply = chat.cards.first?.applyButton else { several(tab, chat, out: out); return }
+                OwlCheck.click(apply)
                 let applied = tab.text
                 check(applied.contains("// \(FakeChatEngine.commentText)\n"), "Apply inserted the comment")
-                check(chat.card.isHidden, "the card closes after Apply")
+                check(chat.cards.isEmpty && chat.cardsScroll.isHidden, "the card closes after Apply")
                 check(tab.owl?.chatMood == .flap && tab.owl?.owl.isPlaying == true,
                       "the editor's owl flaps on Apply (\(tab.owl.map { "\($0.chatMood)" } ?? "no owl"))")
-                guard let w = tab.window else { stale(tab, chat, out: out); return }
+                guard let w = tab.window else { several(tab, chat, out: out); return }
                 OwlCheck.snapshot(w, "\(out)/chat-owl-6-flap.png") {
                     w.makeKeyAndOrderFront(nil)
                     w.makeFirstResponder(tv)
                     OwlCheck.key(w, "z", code: 6, [.command])
                     check(tab.text == original, "one ⌘Z undoes Cedric’s edit")
-                    stale(tab, chat, out: out)
+                    several(tab, chat, out: out)
                 }
             }
         }
@@ -398,20 +403,72 @@ enum OwlChatCheck {
         OwlCheck.click(chat.actionButtons[.addComments]!)
         waitDone(chat) { _ in
             check(chat.pending != nil, "a second proposal")
-            // The user edits the document meanwhile.
-            guard let w = tab.window else { return }
+            // The user edits the document meanwhile: first elsewhere (line 1).
+            guard let w = tab.window, let p = chat.pending else { return }
             w.makeFirstResponder(tv)
             tv.setSelectedRange(NSRange(location: 0, length: 0))
             OwlCheck.key(w, "x", code: 7, [])
-            after(0.1) {
-                check(!chat.isProposalCurrent, "after an edit the proposal is stale")
-                let before = tab.text
-                let ok = chat.applyProposal(nil)
-                check(!ok && tab.text == before, "Apply refuses a stale proposal")
-                check(!chat.askAgainButton.isHidden && !chat.staleLabel.isHidden, "the card offers Ask Again")
-                OwlCheck.snapshot(chat.panel, "\(out)/chat-3-stale.png") {
+            after(0.3) {
+                check(chat.isProposalCurrent && chat.cards.first?.applyButton.isEnabled == true,
+                      "an edit elsewhere leaves the find/replace card applicable")
+                // Then inside the text it would replace.
+                let at = (tab.text as NSString).range(of: p.original)
+                tv.setSelectedRange(NSRange(location: at.location + 1, length: 0))
+                OwlCheck.key(w, "x", code: 7, [])
+                after(0.3) {
+                    check(!chat.isProposalCurrent, "after an edit inside it the proposal is stale")
+                    check(chat.cards.first?.applyButton.isEnabled == false, "Apply is disabled once stale")
+                    let before = tab.text
+                    let ok = chat.applyProposal(nil)
+                    check(!ok && tab.text == before, "Apply refuses a stale proposal")
+                    check(chat.cards.first?.askAgainButton.isHidden == false && chat.cards.first?.staleLabel.stringValue == OwlEditCard.staleText,
+                          "the card says it changed and offers Ask Again")
+                    OwlCheck.snapshot(chat.panel, "\(out)/chat-3-stale.png") {
+                        chat.discardProposal(nil)
+                        cancel(tab, chat, out: out)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Three proposals at once (as a model's three propose_edit calls make
+    /// them): a card each; Skip one, Apply another (the third, elsewhere,
+    /// still applies); read-only, none applies; one ⌘Z undoes the edit.
+    static func several(_ tab: EditorWindowController, _ chat: OwlChatPanel, out: String) {
+        let snap = chat.snapshot()
+        let edits = [("for i in items", "for item in items", "clearer name"), ("return t", "return t // sum", "says what it returns"),
+                     ("-> Int {", "-> Int { // total", "says what it is")]
+        let ps = edits.compactMap { try? OwlEditProposal.anchored(find: $0.0, replace: $0.1, reason: $0.2, in: snap).get() }
+        guard ps.count == 3, let w = tab.window else { check(false, "three proposals for the cards check"); stale(tab, chat, out: out); return }
+        chat.showProposals(ps)
+        check(chat.cards.count == 3 && chat.cards.allSatisfy(\.isReady), "three proposals: three cards, each applicable")
+        check(chat.cards[0].titleLabel.stringValue.contains("1") && chat.cards[0].titleLabel.stringValue.contains("3"), "cards are numbered (\(chat.cards[0].titleLabel.stringValue))")
+        check(chat.cards[1].accessibilityLabel()?.contains("says what it returns") == true
+              && chat.cards[1].applyButton.accessibilityLabel()?.contains("line") == true, "VoiceOver hears each card's reason and what Apply changes")
+        OwlCheck.snapshot(chat.panel, "\(out)/chat-4-cards.png") {
+            let before = tab.text
+            OwlCheck.click(chat.cards[0].skipButton)
+            check(chat.cards.count == 2 && tab.text == before, "Skip drops a card and changes nothing")
+            OwlCheck.click(chat.cards[0].applyButton)
+            let applied = tab.text
+            check(applied.contains("return t // sum") && !applied.contains("for item in items"), "Apply changes only its own text")
+            check(chat.cards.count == 1 && chat.cards[0].isReady, "the card left still applies after an edit elsewhere")
+            w.makeKeyAndOrderFront(nil)
+            w.makeFirstResponder(tab.textView)
+            // The window becomes key first, so ⌘Z goes to the text, not the panel's field.
+            after(0.3) {
+                OwlCheck.key(w, "z", code: 6, [.command])
+                check(tab.text == before, "one ⌘Z undoes the applied card")
+                tab.textView.isEditable = false
+                chat.refreshCards()
+                check(chat.cards.first?.state == .readOnly && chat.cards.first?.applyButton.isEnabled == false
+                      && chat.cards.first?.staleLabel.stringValue == OwlEditCard.readOnlyText, "read-only: Apply is off and the card says why")
+                check(!chat.applyProposal(nil) && tab.text == before, "read-only: nothing applies")
+                OwlCheck.snapshot(chat.panel, "\(out)/chat-5-readonly.png") {
+                    tab.textView.isEditable = true
                     chat.discardProposal(nil)
-                    cancel(tab, chat, out: out)
+                    stale(tab, chat, out: out)
                 }
             }
         }
