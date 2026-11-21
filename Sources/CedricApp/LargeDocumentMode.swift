@@ -105,6 +105,8 @@ extension EditorWindowController {
         if extrasPaused != wasPaused { OwlHub.shared.largeModeChanged(self) }
         writingLargeModeChanged()
         // An edit made the document large: the prose font (if any) gives way to the monospaced one.
+        // A whole-text replacement syncs in setText, after the new text is stored, and only once
+        // the appearance has already been applied (the initial load applies it once, just after).
         if !newText, textView.font != editorFont { applyAppearance() }
     }
 

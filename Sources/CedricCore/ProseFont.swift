@@ -38,4 +38,17 @@ public enum ProseFont {
     public static func characterWidth(fixedPitch: Bool, zeroWidth: Double, lowercaseAlphabetWidth: Double) -> Double {
         fixedPitch || lowercaseAlphabetWidth <= 0 ? zeroWidth : lowercaseAlphabetWidth / 26
     }
+
+    /// Whether replacing a tab's whole text should re-apply the appearance
+    /// (the text view's font, the gutter, Readable Width). The storage
+    /// already carries the editor font. The view's font lags when the
+    /// replacement crosses the large-document boundary, either way: a
+    /// prose face gives way to the monospaced one, or comes back.
+    ///
+    /// `didApplyAppearance` is false only on the initial load, which
+    /// applies the appearance once immediately afterwards. Applying it
+    /// here as well would do that work twice before the first frame.
+    public static func replacementNeedsAppearance(viewFontMatchesEditor: Bool, didApplyAppearance: Bool) -> Bool {
+        didApplyAppearance && !viewFontMatchesEditor
+    }
 }

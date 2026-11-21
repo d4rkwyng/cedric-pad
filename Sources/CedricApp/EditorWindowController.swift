@@ -192,6 +192,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     var lastFoldAllMs: Double = 0
     /// How long laying out the last split's new pane took (the split check logs it).
     var lastSplitLayoutMs: Double = 0
+    /// True after the first `applyAppearance`. `setText` on a live tab uses it
+    /// so the initial load (setText, then applyAppearance) does not apply twice
+    /// before the first frame.
+    private var didApplyAppearance = false
 
     init(doc: EditorDocument, text: String) {
         self.doc = doc
@@ -413,6 +417,20 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         }
         textView.undoManager?.removeAllActions()
         loading = false
+        // The storage already has `editorFont`. Crossing the large-document
+        // boundary (either way) leaves `textView.font` on the previous face,
+        // and the gutter, Readable Width and typewriter metrics read that.
+        if ProseFont.replacementNeedsAppearance(viewFontMatchesEditor: textView.font == editorFont,
+                                                didApplyAppearance: didApplyAppearance) {
+            let font = editorFont
+            let attrs = baseAttributes()
+            for tv in panes.map(\.textView) {
+                tv.font = font
+                tv.typingAttributes = attrs
+            }
+            applyReadableWidth()
+            for pane in panes { updateTypewriterInset(pane) }
+        }
         updateGutterWidth()
         colorizer.recolorAll()
         PerfTrace.mark("recolor_all")
@@ -641,6 +659,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         gitState?.settingChanged()
         // Grammar waits for the first frame (a pass is scheduled, never run, here).
         AfterFirstFrame.run { [weak self] in self?.grammar.apply() }
+        didApplyAppearance = true
     }
 
     /// One pane's colours and switches (applyAppearance; a new second pane).

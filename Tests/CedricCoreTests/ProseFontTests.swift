@@ -35,4 +35,14 @@ import Testing
         #expect(ProseFont.characterWidth(fixedPitch: false, zeroWidth: 9, lowercaseAlphabetWidth: 182) == 7)
         #expect(ProseFont.characterWidth(fixedPitch: false, zeroWidth: 9, lowercaseAlphabetWidth: 0) == 9)
     }
+
+    @Test func aLiveReplacementReappliesAppearanceOnlyWhenTheFontChanged() {
+        // Initial load applies the appearance once, immediately after setText.
+        #expect(!ProseFont.replacementNeedsAppearance(viewFontMatchesEditor: false, didApplyAppearance: false))
+        #expect(!ProseFont.replacementNeedsAppearance(viewFontMatchesEditor: true, didApplyAppearance: false))
+        // Reload that stays on the same side of the large-document boundary.
+        #expect(!ProseFont.replacementNeedsAppearance(viewFontMatchesEditor: true, didApplyAppearance: true))
+        // Disk reload, Follow File reset or reopen-with-encoding crossed it.
+        #expect(ProseFont.replacementNeedsAppearance(viewFontMatchesEditor: false, didApplyAppearance: true))
+    }
 }
