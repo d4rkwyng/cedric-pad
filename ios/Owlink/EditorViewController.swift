@@ -511,6 +511,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         let goTo = UIAction(title: String(localized: "Go to Line…"), image: UIImage(systemName: "arrow.down.to.line")) { [weak self] _ in
             self?.goToLine()
         }
+        let quickly = UIAction(title: String(localized: "Open Quickly…"), image: UIImage(systemName: "magnifyingglass")) { [weak self] _ in
+            self?.openQuickly()
+        }
+        quickly.accessibilityIdentifier = "editor.menu.quickOpen"
         let readable = UIAction(title: String(localized: "Readable Width"), image: UIImage(systemName: "text.aligncenter")) { [weak self] _ in
             self?.toggleReadableWidth()
         }
@@ -526,7 +530,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         let settings = UIAction(title: String(localized: "Settings"), image: UIImage(systemName: "gear")) { [weak self] _ in
             self?.showSettings()
         }
-        var first: [UIMenuElement] = [save, replace, goTo, readable, ask, check]
+        var first: [UIMenuElement] = [save, replace, goTo, quickly, readable, ask, check]
         if document.language.language == .markdown {
             let focus = UIAction(title: String(localized: "Focus Preview"), image: UIImage(systemName: "arrow.up.left.and.arrow.down.right")) { [weak self] _ in
                 self?.toggleFocusPreview()
@@ -648,9 +652,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         }
         let esc = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(hideKeyboard))
         let dot = UIKeyCommand(title: String(localized: "Hide Keyboard"), action: #selector(hideKeyboard), input: ".", modifierFlags: .command)
+        let quickly = UIKeyCommand(title: String(localized: "Open Quickly…"), action: #selector(openQuickly), input: "o", modifierFlags: [.command, .alternate])
         // Esc stays with find and other system uses when they want it.
         esc.wantsPriorityOverSystemBehavior = false
-        return [esc, dot]
+        return [esc, dot, quickly]
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -1724,6 +1729,37 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
                                       identifier: nil, alternate: nil) { _ in
             UIWindowScene.ActivationConfiguration(userActivity: NSUserActivity(activityType: "app.owlink.ios.newWindow"))
         }
+    }
+
+    /// Headings of the open Markdown file, and files under a folder this
+    /// app can list (the document's folder, or a folder the preview was
+    /// granted). The sheet closes before a file is opened.
+    @objc func openQuickly() {
+        let headings = document.language.language == .markdown ? MarkdownOutline.headings(in: textView.text) : []
+        let root = quickOpenRoot()
+        var host: UIHostingController<QuickOpenView>!
+        let rootView = QuickOpenView(headings: headings, root: root, onHeading: { [weak self] heading in
+            host.dismiss(animated: true) { self?.revealLine(heading.line + 1) }
+        }, onFile: { [weak self] url in
+            host.dismiss(animated: true) { self?.openLinked(url) }
+        })
+        host = UIHostingController(rootView: rootView)
+        host.modalPresentationStyle = .pageSheet
+        if let sheet = host.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(host, animated: true)
+    }
+
+    /// The document's own folder when it can be listed, else the nearest
+    /// folder the preview was granted that contains it.
+    private func quickOpenRoot() -> URL? {
+        let folder = document.fileURL.deletingLastPathComponent()
+        if (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) != nil {
+            return folder
+        }
+        return PreviewFolderGrants.shared.root(for: folder)
     }
 
     @objc func goToLine() {
