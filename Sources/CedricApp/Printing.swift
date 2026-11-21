@@ -21,8 +21,11 @@ enum PrintLayout {
         para.lineBreakMode = .byWordWrapping
         var numberWidth: CGFloat = 0
         if lineNumbers {
-            let digits = max(2, String(index.lineCount).count)
-            numberWidth = space * CGFloat(digits)
+            // A proportional face's digits are wider than its space (the gutter
+            // measures a digit for the same reason). The column takes the widest of 0–9.
+            let digitWidths = (0...9).map { (String($0) as NSString).size(withAttributes: [.font: font]).width }
+            let digit = PrintMetrics.widestDigit(digitWidths.map { Double($0) })
+            numberWidth = CGFloat(PrintMetrics.lineNumberColumnWidth(widestDigit: digit, lineCount: index.lineCount))
             let gap = space * 2
             para.headIndent = numberWidth + gap
             // The number (right-aligned), the text, then the text's own tab stops.
