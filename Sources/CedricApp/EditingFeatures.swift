@@ -380,34 +380,45 @@ extension EditorWindowController {
     @discardableResult
     func replaceAsOneStep(_ range: NSRange, with replacement: String, actionName: String?, bookmarks: Bookmarks? = nil) -> Bool {
         guard let storage = textView.textStorage else { return false }
-        let marks = bookmarks ?? (editing.bookmarks.isEmpty ? nil
-            : editing.bookmarks.replacing(range, with: replacement, in: storage.string as NSString,
-                                          firstLine: lineIndex.line(containing: range.location)))
+        // Ask first. A refusal (marked text, or the view is no longer
+        // editable) must not open a group: closing and naming it left an
+        // empty "Cedric's Edit" step when bookmarks were being tracked.
+        let accepted = textView.shouldChangeText(in: range, replacementString: replacement)
+        let marks: Bookmarks? = accepted
+            ? (bookmarks ?? (editing.bookmarks.isEmpty ? nil
+                : editing.bookmarks.replacing(range, with: replacement, in: storage.string as NSString,
+                                              firstLine: lineIndex.line(containing: range.location))))
+            : nil
+        let plan = OwlApplyUndo.plan(changeAccepted: accepted, tracksBookmarks: marks != nil)
         let um = textView.undoManager
         let before = editing.bookmarks
-        textView.breakUndoCoalescing()
-        um?.beginUndoGrouping()
+        if plan.openGroup {
+            textView.breakUndoCoalescing()
+            um?.beginUndoGrouping()
+        }
         // Undo and redo put the bookmarks back as they were (the text's own
         // undo only moves them by line counts, which drops a moved or
         // deleted line's bookmark): one record before the text change and
         // one after, so each sets them once the text is back.
-        if marks != nil { registerBookmarks(before, setNow: true) }
+        if plan.registerBookmarkBefore { registerBookmarks(before, setNow: true) }
         var changed = false
-        if textView.shouldChangeText(in: range, replacementString: replacement) {
+        if plan.replaceText {
             storage.beginEditing()
             storage.replaceCharacters(in: range, with: NSAttributedString(string: replacement, attributes: baseAttributes()))
             storage.endEditing()
             textView.didChangeText()
             changed = true
         }
-        if changed, var marks {
+        if changed, plan.registerBookmarkAfter, var marks {
             marks.clamp(lineCount: lineIndex.lineCount)
             editing.bookmarks = marks
             setGuttersNeedDisplay()
             registerBookmarks(marks, setNow: false)
         }
-        um?.endUndoGrouping()
-        if let actionName { um?.setActionName(actionName) }
+        if plan.closeAndNameGroup {
+            um?.endUndoGrouping()
+            if let actionName { um?.setActionName(actionName) }
+        }
         return changed
     }
 

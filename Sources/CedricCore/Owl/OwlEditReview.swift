@@ -226,3 +226,27 @@ public enum OwlEditReview {
         ready && (!needsShowAll || hasShownAll)
     }
 }
+
+/// What an Apply does with the undo stack. A refused change (the text
+/// view declines the edit) opens no group and records no bookmarks, so
+/// it cannot leave an empty "Cedric's Edit" step. An accepted change
+/// records the bookmark state before the replacement, then the text,
+/// then the bookmarks again.
+public enum OwlApplyUndo {
+    public struct Plan: Equatable, Sendable {
+        public var openGroup: Bool
+        public var registerBookmarkBefore: Bool
+        public var replaceText: Bool
+        public var registerBookmarkAfter: Bool
+        public var closeAndNameGroup: Bool
+    }
+
+    public static func plan(changeAccepted: Bool, tracksBookmarks: Bool) -> Plan {
+        guard changeAccepted else {
+            return Plan(openGroup: false, registerBookmarkBefore: false, replaceText: false,
+                        registerBookmarkAfter: false, closeAndNameGroup: false)
+        }
+        return Plan(openGroup: true, registerBookmarkBefore: tracksBookmarks, replaceText: true,
+                    registerBookmarkAfter: tracksBookmarks, closeAndNameGroup: true)
+    }
+}

@@ -117,4 +117,16 @@ import Testing
         #expect(OwlEditProposal.lineSpan(NSRange(location: 0, length: 4), lines: index, length: text.length) == (first: 1, last: 1))
         #expect(OwlEditProposal.lineSpan(NSRange(location: 0, length: 8), lines: index, length: text.length) == (first: 1, last: 2))
     }
+
+    @Test func aRefusedApplyOpensNoUndoGroup() {
+        let refused = OwlApplyUndo.plan(changeAccepted: false, tracksBookmarks: true)
+        #expect(!refused.openGroup && !refused.registerBookmarkBefore && !refused.replaceText)
+        #expect(!refused.registerBookmarkAfter && !refused.closeAndNameGroup)
+        let plain = OwlApplyUndo.plan(changeAccepted: true, tracksBookmarks: false)
+        #expect(plain.openGroup && plain.replaceText && plain.closeAndNameGroup)
+        #expect(!plain.registerBookmarkBefore && !plain.registerBookmarkAfter)
+        let marked = OwlApplyUndo.plan(changeAccepted: true, tracksBookmarks: true)
+        #expect(marked.openGroup && marked.registerBookmarkBefore && marked.replaceText)
+        #expect(marked.registerBookmarkAfter && marked.closeAndNameGroup)
+    }
 }
