@@ -410,8 +410,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let s = Settings.shared
         theme.selectItem(at: EditorTheme.allCases.firstIndex(of: s.theme) ?? 0)
         if fontPopup.numberOfItems > 0 { fontPopup.selectItem(at: fontNames.firstIndex(of: s.fontName) ?? 0) }
-        fontSize.integerValue = Int(s.fontSize)
-        fontStepper.integerValue = Int(s.fontSize)
+        // Same as the style fields: a refresh while the field editor is up would wipe a half-typed number.
+        if fontSize.currentEditor() == nil {
+            fontSize.integerValue = Int(s.fontSize)
+            fontStepper.integerValue = Int(s.fontSize)
+        }
         gitChanges.state = s.showGitChanges ? .on : .off
         quitOnLastClose.state = s.quitWhenLastWindowCloses ? .on : .off
         for (k, b) in toggles { b.state = s[toggle: k] ? .on : .off }
@@ -434,8 +437,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             indentKind.selectItem(at: ind.usesTabs ? 1 : 0)
             tabWidth.selectItem(withTag: ind.width)
         }
-        readableColumns.integerValue = s.readableColumns
-        readableStepper.integerValue = s.readableColumns
+        if readableColumns.currentEditor() == nil {
+            readableColumns.integerValue = s.readableColumns
+            readableStepper.integerValue = s.readableColumns
+        }
         defaultEditor?.refresh()
     }
 
