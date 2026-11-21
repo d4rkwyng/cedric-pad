@@ -169,6 +169,9 @@ enum SelfCheck {
         await body(editor)
         try? await Task.sleep(for: .milliseconds(500))
         render(window, outDir!.appendingPathComponent(name + ".png"))
+        if let bar = editor.navigationController?.navigationBar {
+            EditorBarStyle.renderNavigationBar(bar, to: outDir!.appendingPathComponent(name + "-navbar.png"))
+        }
         if editor.presentedViewController != nil {
             await withCheckedContinuation { c in editor.dismiss(animated: false) { c.resume() } }
         }

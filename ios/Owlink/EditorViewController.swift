@@ -193,6 +193,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         // The window is nil until the editor is on screen, so the scene-level
         // title colour is applied again here.
         applyBarStyle()
+        EditorBarStyle.renderNavigationBarIfRequested(navigationController?.navigationBar)
         updateEdited()
         colorizer.colorViewport()
         if let r = pendingRecovery {
@@ -823,8 +824,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
-            themedWindow?.overrideUserInterfaceStyle = .unspecified
-            themedWindow?.traitOverrides.userInterfaceStyle = .unspecified
+            EditorBarStyle.restore(window: themedWindow)
             themedWindow = nil
         }
     }
@@ -1881,6 +1881,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             navigationItem.title = edited ? String(localized: "\(name) — Edited") : name
         }
         view.window?.windowScene?.title = edited ? String(localized: "\(name) — Edited") : name
+        // Setting `title` drops an attributed title. Colour it again.
+        applyBarStyle()
         saveItem.isEnabled = edited
     }
 
