@@ -3,12 +3,12 @@ import CedricCore
 import CedricAI
 
 /// CEDRIC_BUILTIN_CHECK=/out/dir: the built-in engine's downloads in the
-/// settings sheet, in process, with real clicks. Use CEDRIC_MODELS_DIR=<temp>
+/// Settings › Cedric, in process, with real clicks. Use CEDRIC_MODELS_DIR=<temp>
 /// so the real Application Support models are left alone. Downloads the
 /// catalog model CEDRIC_BUILTIN_CHECK_MODEL (default: the 1.5B, the smallest)
 /// for real from Hugging Face.
 ///
-///   1. Cedric › Cedric AI Settings…; pick "Built-in"; the catalog rows show
+///   1. Cedric › Cedric AI Settings… (Settings › Cedric); pick "Built-in"; the catalog rows show
 ///      (snapshot 0-models).
 ///   2. Click Download; progress moves (snapshot 1-downloading).
 ///   3. Click Pause; the row says Paused, the partial file is on disk
@@ -24,7 +24,9 @@ enum BuiltInCheck {
         try? FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)
         NSApp.activate(ignoringOtherApps: true)
         NSApp.sendAction(#selector(AppDelegate.showAISettings(_:)), to: app, from: nil)
-        guard let sheet = AISettingsSheet.current else { AICheck.check(false, "the settings sheet opened"); AICheck.finish(); return }
+        guard let sheet = SettingsWindowController.shared?.ai, let panel = SettingsWindowController.shared?.window else {
+            AICheck.check(false, "Settings opened on the Cedric tab"); AICheck.finish(); return
+        }
         let downloads = BuiltInDownloads.shared
         AICheck.log("models dir: \(downloads.store.directory.path)")
         guard let i = LocalAISettings.Backend.allCases.firstIndex(of: .builtIn) else { return }
@@ -37,16 +39,16 @@ enum BuiltInCheck {
         let m = row.model
         AICheck.check(downloads.state(m) == .notDownloaded && row.action.title == "Download", "\(m.name): Download")
         OwlCheck.after(0.3) {
-            OwlCheck.snapshot(sheet.panel, "\(out)/0-models.png") {
+            OwlCheck.snapshot(panel, "\(out)/0-models.png") {
                 AICheck.press(row.action, "Download") { if case .downloading = downloads.state(m) { return true }; return false }
                 AICheck.wait("progress", timeout: 60, { (downloads.state(m).fraction ?? 0) > 0.05 }) { ok in
                     AICheck.check(ok && row.action.title == "Pause" && !row.progress.isHidden, "downloading: \(row.status.stringValue)")
-                    OwlCheck.snapshot(sheet.panel, "\(out)/1-downloading.png") {
+                    OwlCheck.snapshot(panel, "\(out)/1-downloading.png") {
                         AICheck.press(row.action, "Pause") { if case .paused = downloads.state(m) { return true }; return false }
                         AICheck.wait("paused", timeout: 10, { if case .paused = downloads.state(m) { return true }; return false }) { ok in
                             let part = downloads.store.partialBytes(m)
                             AICheck.check(ok && row.action.title == "Resume" && part > 0, "paused with \(part) bytes on disk: \(row.status.stringValue)")
-                            OwlCheck.snapshot(sheet.panel, "\(out)/2-paused.png") { resume(sheet, row, out: out) }
+                            OwlCheck.snapshot(panel, "\(out)/2-paused.png") { resume(sheet, panel, row, out: out) }
                         }
                     }
                 }
@@ -54,7 +56,7 @@ enum BuiltInCheck {
         }
     }
 
-    static func resume(_ sheet: AISettingsSheet, _ row: BuiltInModelsView.Row, out: String) {
+    static func resume(_ sheet: AISettingsSection, _ panel: NSWindow, _ row: BuiltInModelsView.Row, out: String) {
         let downloads = BuiltInDownloads.shared
         let m = row.model
         let t0 = Date()
@@ -65,12 +67,12 @@ enum BuiltInCheck {
             let offered = sheet.modelPopup.itemArray.compactMap { $0.representedObject as? String }
             AICheck.check(offered == [m.id], "the Model menu offers the download (\(offered))")
             AICheck.check(sheet.modelPopup.itemArray.first?.title.contains(m.id) == true, "Automatic picks it: \(sheet.modelPopup.itemArray.first?.title ?? "-")")
-            OwlCheck.snapshot(sheet.panel, "\(out)/3-installed.png") {
+            OwlCheck.snapshot(panel, "\(out)/3-installed.png") {
                 AICheck.press(row.action, "Delete") { downloads.state(m) == .notDownloaded }
                 AICheck.wait("deleted", timeout: 10, { downloads.state(m) == .notDownloaded }) { ok in
                     AICheck.check(ok && !FileManager.default.fileExists(atPath: downloads.store.fileURL(for: m).path), "deleted from disk")
                     AICheck.check(row.action.title == "Download", "row back to Download")
-                    OwlCheck.snapshot(sheet.panel, "\(out)/4-deleted.png") { AICheck.finish() }
+                    OwlCheck.snapshot(panel, "\(out)/4-deleted.png") { AICheck.finish() }
                 }
             }
         }

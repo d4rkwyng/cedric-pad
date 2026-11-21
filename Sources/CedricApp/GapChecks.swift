@@ -257,7 +257,7 @@ extension DevChecks {
     static func macBasics(_ app: AppDelegate) {
         let restore = keepDefaults(["fontName", "fontSize", EditorTheme.defaultsKey, "wrapLines", "showInvisibles", "showLineNumbers",
                                     "highlightOccurrences", "autoCloseBrackets", "checkSpellingWhileTyping", "tabWidth", "indentWithTabs",
-                                    "quitWhenLastWindowCloses"])
+                                    "quitWhenLastWindowCloses", SettingsPane.defaultsKey])
         let a = app.open(write("a.txt", "alpha\n"))!
         let b = app.open(write("b.txt", "beta\n"))!
         sized(a)
@@ -289,13 +289,19 @@ extension DevChecks {
                 s.changed(s.fontPopup)
                 expect(Settings.shared.fontName == nil && a.textView.font?.fontName == NSFont.monospacedSystemFont(ofSize: 15, weight: .regular).fontName,
                        "SF Mono (System) goes back to the system font", a.textView.font?.fontName ?? "-")
-                // 0.2.1: each option in one place (settings-audit.md).
-                let titles = Set(allSubviews(s.window?.contentView).compactMap { ($0 as? NSButton)?.title })
+                // 0.4.1 (UX review #1): the View and Edit menu toggles are
+                // checkboxes in Settings too, bound to the same settings.
+                var titles = Set<String>()
+                for p in SettingsPane.allCases {
+                    s.select(p)
+                    titles.formUnion(allSubviews(s.window?.contentView).compactMap { ($0 as? NSButton)?.title })
+                }
                 let moved = ["Wrap lines", "Show invisibles", "Show line numbers", "Highlight occurrences",
                              "Auto-close brackets and quotes", "Check spelling while typing", "Check grammar in prose"]
-                expect(moved.allSatisfy { !titles.contains($0) }, "Settings has no copy of the View and Edit menu toggles", "\(titles.sorted())")
+                expect(moved.allSatisfy(titles.contains), "Settings has checkboxes for the View and Edit menu toggles", "\(titles.sorted())")
                 expect(["Show git changes in the gutter", "Ask Cedric", "Quit when the last window closes"].allSatisfy(titles.contains),
                        "…and keeps the preferences without a menu")
+                expect(!titles.contains("Save") && !titles.contains("Cancel"), "no Save or Cancel anywhere in Settings")
                 let viewTitles = NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu?.items.map(\.title) ?? []
                 expect(!viewTitles.contains("Theme") && viewTitles.contains("Wrap Lines")
                        && (viewTitles.contains("Show Invisibles") || viewTitles.contains("Hide Invisibles")),
@@ -303,6 +309,9 @@ extension DevChecks {
                 let wrap = Settings.shared.wrapLines
                 key("z", [.command, .option])
                 expect(Settings.shared.wrapLines == !wrap, "View › Wrap Lines (⌥⌘Z) still toggles the same setting")
+                expect(s.toggles[.wrapLines]?.state == (wrap ? .off : .on), "…and Settings › Editor's Wrap lines box follows it")
+                s.toggles[.wrapLines]?.performClick(nil)
+                expect(Settings.shared.wrapLines == wrap, "the box toggles it back")
                 UserDefaults.standard.removeObject(forKey: "quitWhenLastWindowCloses")
                 s.refresh()
                 expect(Settings.shared.quitWhenLastWindowCloses && s.quitOnLastClose.state == .on, "Quit when the last window closes: on by default")

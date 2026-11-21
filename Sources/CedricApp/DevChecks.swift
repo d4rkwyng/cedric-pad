@@ -8,7 +8,7 @@ import CedricCore
 /// responder chain), checks the result, writes PNG snapshots and exits 0
 /// (all passed) or 1. Scripts/tools-check.sh runs them all.
 ///
-///   CEDRIC_CHECK=texttool|findinfiles|compare|follow|recent|large|replaceinfiles|folder|multicaret|folding|split|palette|quickopen|readable|contextbar|…
+///   CEDRIC_CHECK=texttool|findinfiles|compare|follow|recent|large|replaceinfiles|folder|multicaret|folding|split|palette|quickopen|readable|contextbar|settings|…
 ///   CEDRIC_CHECK_OUT=/dir      where snapshots go (default: the temp folder)
 @MainActor
 enum DevChecks {
@@ -236,6 +236,7 @@ enum DevChecks {
         case "writing": writingCheck(app)
         case "readable": readableWidthCheck(app)
         case "writingrestore": writingRestoreCheck(app)
+        case "settings": settingsCheck(app)
         default:
             if !editingCheck(name, app), !pdfCheck(name, app), !imageCheck(name, app), !binaryCheck(name, app) { print("check: unknown check \(name)"); exit(2) }
         }

@@ -7,7 +7,7 @@ import Foundation
 /// (RFC 1918 / CGNAT / link-local) host — see `LocalEndpointPolicy`. There is
 /// no cloud backend and no API-key field.
 public struct LocalAISettings: Codable, Sendable, Equatable {
-    /// Where the AI runs ("engine"), in the settings sheet's order.
+    /// Where the AI runs ("engine"), in Settings › Cedric's order.
     /// `custom` is another Mac on the network (raw value kept for saved
     /// settings). `builtIn` is Cedric's own engine (llama.cpp, models
     /// downloaded in the app); `apple` is Apple Intelligence's on-device model.
@@ -38,7 +38,7 @@ public struct LocalAISettings: Codable, Sendable, Equatable {
     /// Hard cap on one request, cancelled sooner by a new edit.
     public var timeout: TimeInterval
     /// A document must have been open and idle this long before the AI
-    /// looks at it (any engine). Not shown in the sheet; tests shorten it.
+    /// looks at it (any engine). Not shown in Settings; tests shorten it.
     public var minIdle: TimeInterval
     /// Ask the model on its own after typing pauses. Off by default on
     /// Intel Macs (`defaultAutomaticChecks`): there the editor comes first
@@ -251,10 +251,10 @@ extension LocalEndpointPolicy {
     }
 }
 
-// MARK: - The settings sheet's model
+// MARK: - Settings › Cedric's model
 
 extension LocalAISettings.Backend {
-    /// The endpoint preset's name in the settings sheet.
+    /// The endpoint preset's name in Settings › Cedric.
     public var title: String {
         switch self {
         case .builtIn: return "Built-in (on this Mac)"
@@ -267,7 +267,7 @@ extension LocalAISettings.Backend {
 }
 
 extension LocalAISettings {
-    /// Shown under the endpoint in the settings sheet, word for word.
+    /// Shown under the endpoint in Settings › Cedric, word for word.
     public static let privacyNote = "Sends only the visible text (up to 8 KB) to the address above. Never the cloud."
     /// The same promise for engines without an address.
     public static let privacyNoteOnDevice = "Uses only the visible text (up to 8 KB), on this Mac. Never the cloud."

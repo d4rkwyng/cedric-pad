@@ -93,7 +93,7 @@ public final class LocalAIOwlBridge {
         guard token == applyToken else { return }
         guard let provider else {
             lastProblem = new.backend == .builtIn
-                ? "No model downloaded yet: download one in Cedric AI settings."
+                ? "No model downloaded yet: download one in Settings › Cedric."
                 : "No model: pick one, or start the server and test the connection."
             onStateChange?(); return
         }

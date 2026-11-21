@@ -74,12 +74,19 @@ struct FakeAIProvider: OwlHintProvider {
     }
 }
 
-/// Cedric › Cedric AI Settings…: a sheet over the current tab.
-@MainActor
-final class AISettingsSheet: NSObject {
-    static var current: AISettingsSheet?
 
-    let panel: NSPanel
+/// Settings › Cedric's AI part (was the Cedric AI window, with Save and
+/// Cancel, until 0.4.1): every control applies the moment it changes. The
+/// address applies on Return or when the field loses focus, and only once
+/// it is a local one. What must not happen on its own stays a button:
+/// Test Connection, and each built-in model's Download / Pause / Delete.
+@MainActor
+final class AISettingsSection: NSObject {
+    /// Applies saved settings one at a time; a burst of changes applies
+    /// only the last (never two engine switches at once).
+    static let applier = LatestOnlyRunner<LocalAISettings> { await OwlHub.shared.applyAISettings($0) }
+
+    let view: NSView
     let enabledBox = NSButton(checkboxWithTitle: String(localized: "Ask a local model for hints"), target: nil, action: nil)
     let presetPopup = NSPopUpButton()
     let urlField = NSTextField()
@@ -91,17 +98,15 @@ final class AISettingsSheet: NSObject {
     let intervalPopup = NSPopUpButton()
     let automaticBox = NSButton(checkboxWithTitle: String(localized: "Check automatically when I pause typing"), target: nil, action: nil)
     let automaticNote = NSTextField(wrappingLabelWithString: String(localized: "Off by default on Intel Macs, so the editor stays fast. Click the owl and choose Ask AI Now to check."))
-    let saveButton = NSButton(title: String(localized: "Save"), target: nil, action: nil)
-    let cancelButton = NSButton(title: String(localized: "Cancel"), target: nil, action: nil)
 
-    private var settings: LocalAISettings
+    private(set) var settings: LocalAISettings
     private var grid: NSGridView?
     let privacyLabel = NSTextField(wrappingLabelWithString: LocalAISettings.privacyNote)
     /// Built-in only: the catalog with Download / Pause / Delete per model.
     let modelsView = BuiltInModelsView()
     /// The engine's caveat ("Slow on Intel Macs…"), hidden when it has none.
     let noteLabel = NSTextField(wrappingLabelWithString: "")
-    /// The selected engine (the sheet only talks to `AIEngine`).
+    /// The selected engine (the section only talks to `AIEngine`).
     var engine: any AIEngine {
         settings.backend == .builtIn ? BuiltInDownloads.shared.engine : AIEngines.engine(for: settings)
     }
@@ -109,26 +114,30 @@ final class AISettingsSheet: NSObject {
     private lazy var intervals: [TimeInterval] = Array(Set(LocalAISettings.intervalChoices + [settings.minInterval])).sorted()
     private(set) var report: ConnectionReport?
     private(set) var testing = false
-    /// Called when the sheet closes (saved or not), for the checks.
-    var onClose: ((Bool) -> Void)?
+    /// Rows came or went: the window fits the tab again.
+    var onResize: (() -> Void)?
+    /// After each change is handed to the engine (the checks wait on it).
+    private(set) var applyCount = 0
+    /// The width of the grid's label column (the Cedric tab's other grid matches it).
+    private(set) var labelColumnWidth: CGFloat = 0
 
     init(settings: LocalAISettings) {
         self.settings = settings
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 500, height: 420), styleMask: [.titled], backing: .buffered, defer: false)
+        view = NSView()
         super.init()
-        panel.title = String(localized: "Cedric AI")
         build()
         load()
     }
 
-    private func label(_ s: String) -> NSTextField {
+    private func label(_ s: String, for control: NSView) -> NSTextField {
         let l = NSTextField(labelWithString: s)
         l.alignment = .right
+        control.setAccessibilityLabel(s.trimmingCharacters(in: CharacterSet(charactersIn: ":")))
         return l
     }
 
     private func build() {
-        for (b, a) in [(enabledBox, #selector(changed)), (automaticBox, #selector(changed)), (testButton, #selector(test)), (saveButton, #selector(save)), (cancelButton, #selector(cancel))] {
+        for (b, a) in [(enabledBox, #selector(changed)), (automaticBox, #selector(changed)), (testButton, #selector(test))] {
             b.target = self; b.action = a
         }
         for p in [presetPopup, modelPopup, intervalPopup] { p.target = self; p.action = #selector(changed) }
@@ -148,6 +157,7 @@ final class AISettingsSheet: NSObject {
         }
         urlField.target = self
         urlField.action = #selector(changed)
+        urlField.cell?.sendsActionOnEndEditing = true
         urlField.placeholderString = "http://studio.local:1234/v1"
         let small = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         let privacy = privacyLabel
@@ -157,28 +167,32 @@ final class AISettingsSheet: NSObject {
         automaticNote.textColor = .secondaryLabelColor
         noteLabel.textColor = .systemOrange
         modelsView.onChange = { [weak self] in self?.refresh() }
+        modelsView.setAccessibilityLabel(String(localized: "Built-in models"))
         weakLabel.textColor = .systemOrange
         modelsLabel.textColor = .secondaryLabelColor
-        saveButton.keyEquivalent = "\r"
-        cancelButton.keyEquivalent = "\u{1b}"
+        statusLabel.setAccessibilityLabel(String(localized: "Connection status"))
 
         let testRow = NSStackView(views: [testButton, statusLabel])
         testRow.alignment = .firstBaseline
         let grid = NSGridView(views: [
-            [NSGridCell.emptyContentView, enabledBox],
-            [label(String(localized: "Where the AI runs:")), presetPopup],
-            [label(String(localized: "Address:")), urlField],
+            [label(String(localized: "AI hints:"), for: enabledBox), enabledBox],
+            [label(String(localized: "Where the AI runs:"), for: presetPopup), presetPopup],
+            [label(String(localized: "Address:"), for: urlField), urlField],
             [NSGridCell.emptyContentView, privacy],
             [NSGridCell.emptyContentView, noteLabel],
-            [label(String(localized: "Download:")), modelsView],
+            [label(String(localized: "Download:"), for: modelsView), modelsView],
             [NSGridCell.emptyContentView, testRow],
             [NSGridCell.emptyContentView, modelsLabel],
-            [label(String(localized: "Model:")), modelPopup],
+            [label(String(localized: "Model:"), for: modelPopup), modelPopup],
             [NSGridCell.emptyContentView, weakLabel],
-            [label(String(localized: "Check at most every:")), intervalPopup],
+            [label(String(localized: "Check at most every:"), for: intervalPopup), intervalPopup],
             [NSGridCell.emptyContentView, automaticBox],
             [NSGridCell.emptyContentView, automaticNote],
         ])
+        // The checkbox says what it does; VoiceOver reads its own title.
+        enabledBox.setAccessibilityLabel(nil)
+        labelColumnWidth = (0..<grid.numberOfRows).compactMap { grid.cell(atColumnIndex: 0, rowIndex: $0).contentView?.fittingSize.width }.max() ?? 0
+        grid.column(at: 0).width = labelColumnWidth
         self.grid = grid
         grid.rowSpacing = 8
         grid.columnSpacing = 8
@@ -188,28 +202,17 @@ final class AISettingsSheet: NSObject {
         for l in [privacy, modelsLabel, statusLabel, noteLabel, automaticNote] {
             l.preferredMaxLayoutWidth = 380
             // Without a hard cap a wrapping label in a grid column takes its
-            // one-line width and runs into the sheet's edge.
+            // one-line width and runs into the window's edge.
             l.widthAnchor.constraint(lessThanOrEqualToConstant: 380).isActive = true
         }
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let buttons = NSStackView(views: [spacer, cancelButton, saveButton])
-        let stack = NSStackView(views: [grid, buttons])
-        stack.orientation = .vertical
-        stack.alignment = .trailing
-        stack.spacing = 16
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = NSView()
-        content.addSubview(stack)
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(grid)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: content.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            grid.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            grid.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            grid.topAnchor.constraint(equalTo: view.topAnchor),
+            grid.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
-        buttons.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
-        panel.contentView = content
     }
 
     /// Settings → controls.
@@ -220,6 +223,17 @@ final class AISettingsSheet: NSObject {
         intervalPopup.selectItem(at: intervals.firstIndex(of: settings.minInterval) ?? 0)
         automaticBox.state = settings.automaticChecks ? .on : .off
         refresh()
+    }
+
+    /// The saved settings may have changed elsewhere (Ask Cedric's setup):
+    /// show them, unless a change of ours is still being applied or typed.
+    func reloadIfIdle() {
+        guard !Self.applier.isBusy, !testing, urlField.currentEditor() == nil else { return }
+        let saved = AIStore.load()
+        guard saved != settings else { return }
+        settings = saved
+        report = nil
+        load()
     }
 
     /// The models the popup offers: the tested list (no embedding models),
@@ -307,15 +321,7 @@ final class AISettingsSheet: NSObject {
         // The interval only matters for automatic checks; the note only where they're off by default.
         intervalPopup.isEnabled = settings.automaticChecks
         grid?.cell(for: automaticNote)?.row?.isHidden = LocalAISettings.defaultAutomaticChecks
-        fit()
-    }
-
-    /// The panel takes the content's size (rows come and go).
-    private func fit() {
-        guard let content = panel.contentView else { return }
-        content.layoutSubtreeIfNeeded()
-        let size = content.fittingSize
-        if size.height > 0 { panel.setContentSize(NSSize(width: max(size.width, 480), height: size.height)) }
+        onResize?()
     }
 
     /// Controls → settings. False (with a message) if the address isn't local.
@@ -345,9 +351,20 @@ final class AISettingsSheet: NSObject {
         statusLabel.textColor = error ? .systemRed : .secondaryLabelColor
     }
 
+    /// Any control: read it, and if the result is valid and new, apply it.
     @objc private func changed() {
-        if read() { status("") }
+        let before = settings
+        if read() {
+            status("")
+            if settings != before { apply() }
+        }
         refresh()
+    }
+
+    /// Saves and hands the settings to the engine (in order, newest wins).
+    private func apply() {
+        applyCount += 1
+        Self.applier.submit(settings)
     }
 
     @objc func test() {
@@ -386,29 +403,5 @@ final class AISettingsSheet: NSObject {
         case .badResponse: return String(localized: "unexpected answer")
         case .cancelled: return String(localized: "cancelled")
         }
-    }
-
-    @objc func save() {
-        guard read() else { return }
-        let s = settings
-        close(saved: true)
-        Task { @MainActor in await OwlHub.shared.applyAISettings(s) }
-    }
-
-    @objc func cancel() { close(saved: false) }
-
-    private func close(saved: Bool) {
-        modelsView.detach()
-        if let parent = panel.sheetParent { parent.endSheet(panel) } else { panel.orderOut(nil) }
-        Self.current = nil
-        onClose?(saved)
-    }
-
-    /// Opens the sheet on `window` (or as a panel when there is none).
-    static func show(on window: NSWindow?) {
-        if let c = current { c.panel.makeKeyAndOrderFront(nil); return }
-        let sheet = AISettingsSheet(settings: AIStore.load())
-        current = sheet
-        if let window { window.beginSheet(sheet.panel) } else { sheet.panel.center(); sheet.panel.makeKeyAndOrderFront(nil) }
     }
 }

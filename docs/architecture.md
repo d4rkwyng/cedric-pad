@@ -1569,7 +1569,8 @@ In the app, `OwlHub` owns the bridge:
   dedupe/snooze/never and quiet checks as a rules query) → the same bubble,
   with `OwlCoordinator.documentRange` (`range + textStart`) for Apply.
 
-**Settings sheet.** Cedric › Cedric AI Settings… (`AISettingsSheet`): "Ask a
+**Settings › Cedric.** (`AISettingsSection`, in the Cedric tab of the
+Settings window since 0.4.1; Cedric › Cedric AI Settings… opens it.) "Ask a
 local model for hints" (off by default), "Where the AI runs" (the engines
 above; unavailable ones disabled), the address (Custom only; typed text
 gets `http://` and `/v1` as needed and must pass `LocalEndpointPolicy`),
@@ -1577,9 +1578,25 @@ the privacy line "Sends only the visible text (up to 8 KB) to the address
 above. Never the cloud.", Test Connection (models with size and
 quantisation, latency, the suggested model), a model picker (Automatic or
 a listed model), the weak-model note, and "Check at most every" (30 s–5
-min, default 90 s). Save stores `LocalAISettings` (UserDefaults
-`CedricLocalAISettings`), applies them and, once a provider registers,
-selects Cedric › Cedric’s Hints › Rules + AI.
+min, default 90 s). There is no Save: each change that reads as valid
+settings is stored as `LocalAISettings` (UserDefaults
+`CedricLocalAISettings`) and applied through `AISettingsSection.applier`, a
+`LatestOnlyRunner` (one apply at a time, a burst coalesced to the newest),
+and once a provider registers Cedric › Cedric’s Hints › Rules + AI is
+selected. The address applies on Return or end of editing, and only when
+it passes the policy. Test Connection and the built-in downloads stay
+explicit buttons.
+
+**Settings window.** `SettingsWindowController` (SettingsWindow.swift) is
+an `NSTabViewController` in toolbar style with one `SettingsPaneController`
+per `SettingsPane` (General, Editor, Writing, Cedric). Nothing is built at
+launch; each tab's view on first show. Every control writes to `Settings`
+at once. The View/Edit toggles are `MenuToggleSetting`s: the menu action and
+the checkbox both go through `Settings[toggle:]`, and the window refreshes
+on `cedricAppearanceChanged`, `cedricSettingsChanged` and
+`cedricOwlSettingsChanged`. The last tab is saved under `settingsPane`
+(in memory only with `CEDRIC_NO_SESSION_SAVE`). `CEDRIC_CHECK=settings`
+covers it (SettingsCheck.swift).
 
 **Tests.** `Tests/CedricAITests` uses a URLProtocol stub server, a fake
 clock and a fake power source. `CEDRIC_AI_LIVE=1 Scripts/test.sh --filter
@@ -1593,8 +1610,9 @@ paused/inactive never asks; turning off mid-request clears thinking; real
 factory auto-picks from a stub server).
 
 `Scripts/ai-check.sh` runs `AICheck` in process with real NSEvents (fake
-provider, no server; CI-safe): opens the sheet through the menu action,
-ticks the box, Save → provider registered and Rules + AI selected; on line
+provider, no server; CI-safe): opens Settings › Cedric through the menu
+action, ticks the box (applied at once) → provider registered and Rules +
+AI selected; on line
 200 of a 260-line Swift file (past the 8 KB cap, so `textStart` > 0) types
 `for i in 0...items.count`, checks the thinking pose, the bubble with the
 `local:<model>` hint whose document range is exactly the typed text,

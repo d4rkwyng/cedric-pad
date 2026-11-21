@@ -36,7 +36,7 @@ extension DevChecks {
         }
         run([
             sync {
-                SettingsWindowController.show()
+                SettingsWindowController.show(pane: .general)
                 expect(pane != nil, "Settings has the Default editor for… pane")
                 expect(fake.sets.isEmpty, "opening Settings changes no default")
                 guard let p = pane else { return }

@@ -4,6 +4,11 @@ All notable changes to Owlink. The format follows [Keep a Changelog](https://kee
 and Owlink uses [semantic versioning](https://semver.org/). Each release's notes on GitHub
 are its section below (`Scripts/changelog-section.sh`).
 
+## [0.4.1] - Unreleased
+
+### Changed
+- **Settings has tabs and applies at once.** Owlink › Settings… (⌘,) is one window with toolbar tabs: General (theme, font, quit on last close, Default editor for…), Editor (default indentation, Wrap lines, Show invisibles, Show line numbers, Highlight occurrences, Auto-close brackets and quotes, git changes in the gutter), Writing (readable width, spelling while typing, grammar in prose, Style Check) and Cedric (Show Cedric, Ask Cedric, Style tips in code, and the AI settings). Every control applies the moment it changes, with no Save or Cancel; text fields apply on Return or when you leave them. The View and Edit menu toggles are checkboxes there too, bound to the same settings, so a change in either place shows in both. The separate Cedric AI window is gone: Cedric › Cedric AI Settings… opens the Cedric tab, where Test Connection and each built-in model's Download, Pause and Delete stay buttons. Settings reopens on the tab you last used, names every tab and control for VoiceOver, and is still built only when first opened (each tab when first shown), never at launch.
+
 ## [0.4.0] - 2026-11-21
 
 ### Added
