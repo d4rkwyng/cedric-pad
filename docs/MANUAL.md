@@ -1270,24 +1270,35 @@ stream in (built-in, Apple Intelligence, or LM Studio / Ollama on this
 Mac or the local network, never the cloud; a slow model gets 2 minutes
 for its first word, then 30 s between words, up to 15 minutes in all);
 **Stop** cancels. An edit is never
-made by the model: it comes back as a diff with **Apply** / **Discard**,
-applied as one undo step only if the document hasn't changed since you
-asked (otherwise **Ask Again**). History is per document, in memory
-only, with **Copy as Markdown** and **Clear**.
+made by the model: each change it proposes (up to five per answer)
+comes back as a card with its reason, the before and after, and
+**Apply** / **Skip**. Apply is one undo step, and works only while the
+text it replaces is in the document exactly once: typing elsewhere is
+fine, but if that text changed or now appears twice, the card says
+"Text changed or isn't unique; ask again" (with **Ask Again**). A
+read-only document never applies. (A Rewrite or Add Comments answer from
+a model without tools comes back as one card for the lines it was shown,
+applicable only while the document is unchanged since you asked.)
+History is per document, in memory only, with **Copy as Markdown** and
+**Clear**.
 Cedric can also use read-only tools on a frozen copy of the
 document (get the selection or lines, search, outline, counts, the
 offline checks' findings with check_document, one Markdown section by
-its heading with read_section, and propose an edit), plus describe_image
+its heading with read_section, and propose_edit, which names the exact
+text to change and its replacement, offered only when the question asks
+for a change: "rewrite", "fix", "shorten", "rephrase", "correct"…, not
+"is this correct?"), plus describe_image
 for an SVG's picture (below), at most three rounds per question. A
 question is offered only the few tools it needs (get_lines, search and
 outline, and the others when the question or the document calls for
 them). Tools go only to
-models that score at least 80% on a fixed 50-prompt set
+models that score at least 80% on a fixed 58-prompt set
 (`Scripts/owl-tools-eval.sh`, scores in
 `Resources/AI/owl-tool-scores.json`). Other models get the quick
-actions without tools. Measured 2026-11-20 on the 50-prompt set, with
-each prompt offered only its own few tools: the built-in Qwen3 4B
-Instruct 88%, so it gets tools; Apple Intelligence 52% stays without
+actions without tools. Measured 2026-11-21 on the 58-prompt set (eight
+of them on proposing edits, or not), with each prompt offered only its
+own few tools: the built-in Qwen3 4B Instruct 87.9%, so it gets tools.
+Measured 2026-11-20 on the 50-prompt set: Apple Intelligence 52% stays without
 (it scores differently from run to run; it was 72.5% on the older
 40-prompt set). Measured 2026-11-18/19 on the 40-prompt set and not
 re-run since: Qwen2.5-Coder 1.5B on LM Studio 75% and the built-in
