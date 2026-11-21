@@ -231,7 +231,10 @@ extension AppDelegate {
         compareWindows.append(c)
         c.onClose = { [weak self] c in self?.compareWindows.removeAll { $0 === c } }
         if let w = c.window {
-            if let h = host.window, h.isVisible { h.addTabbedWindow(w, ordered: .above) } else { w.center() }
+            if let h = host.window, h.isVisible {
+                h.addTabbedWindow(w, ordered: .above)
+                adoptFloat(of: h, for: w)
+            } else { w.center() }
             w.makeKeyAndOrderFront(nil)
         }
     }

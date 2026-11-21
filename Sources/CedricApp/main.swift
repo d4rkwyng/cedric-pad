@@ -352,6 +352,7 @@ func buildMainMenu() -> NSMenu {
     let window = submenu(String(localized: "Window"), [
         item(String(localized: "Minimize"), #selector(NSWindow.performMiniaturize(_:)), "m"),
         item(String(localized: "Zoom"), #selector(NSWindow.performZoom(_:))),
+        item(String(localized: "Float on Top"), #selector(AppDelegate.toggleFloatOnTop(_:))),
         .separator(),
         item(String(localized: "Bring All to Front"), #selector(NSApplication.arrangeInFront(_:))),
     ])

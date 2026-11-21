@@ -51,10 +51,17 @@ final class EditingState {
     var wordGoal: Int?
     /// The stats popover while it is shown (StatsPopover.swift).
     var statsPopover: StatsPopover?
+    /// Today's word count (DailyWords.swift): one note after typing pauses.
+    /// Never per keystroke. `dailyArm` moves when a reload arms a new
+    /// baseline, so a count of the previous text is dropped.
+    var dailyTimer: Timer?
+    var dailyArm = 0
 
     func stop() {
         countsTimer?.invalidate()
         countsTimer = nil
+        dailyTimer?.invalidate()
+        dailyTimer = nil
         highlightTimer?.invalidate()
         highlightTimer = nil
         markCountTimer?.invalidate()

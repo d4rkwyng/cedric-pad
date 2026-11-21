@@ -82,6 +82,13 @@ Save All (⌥⌘S), Revert to Saved (undoable with ⌘Z),
 Close Window (⇧⌘W: every tab in the window, each hot-closed; on the last window, then quits, ⇧⌘T has the tabs), and the
 system Services in the app menu.
 
+### Float on Top
+
+**Window › Float on Top** keeps that window above your other windows. A
+checkmark shows while it is on. It applies to the whole window (every tab
+in it), and it comes back when the session is restored. A sheet, and the
+command palette, still open above the window.
+
 ### Drop a file on the text to open it
 
 **Drop a file on the text to open it** (in its own tab), rather than
@@ -490,6 +497,18 @@ comes back after a quit, and when you open the file again later, also in
 a new tab. It is kept in Owlink's session, never written into the file.
 Empty the field to clear it. An untitled tab keeps its own goal, and takes
 it to the file when you save it.
+
+### Daily word target
+
+The same popover has a **Daily target**, off until you set one. Type a
+number and press Return (empty, or 0, clears it). The second ring fills
+with the words you write today, in every document, not with the length of
+the file: opening a file does not count the words already in it. Deleting
+text takes those words back, and the day never goes below zero. It resets
+at midnight on this Mac. Owlink updates the count when you save, when you
+close the tab, and when you pause typing, so typing stays as fast with a
+target as without one. The target and the count are kept for Owlink, not
+written into any file.
 
 ### Writing Mode
 

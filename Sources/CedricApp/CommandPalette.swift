@@ -204,6 +204,10 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSTableViewDataSource
         resize()
         place()
         mark("frame")
+        // Float on Top uses `.floating` (level 3). This panel is a child
+        // ordered above, so AppKit keeps it — and a sheet — above that
+        // parent. Raising the panel further would put it over a sheet
+        // (modalPanel is 8; a sheet stays with its parent). Do not.
         if let window, panel.parent !== window { panel.parent?.removeChildWindow(panel); window.addChildWindow(panel, ordered: .above) }
         mark("place")
         panel.makeKeyAndOrderFront(nil)
