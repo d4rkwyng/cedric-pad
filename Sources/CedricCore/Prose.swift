@@ -23,8 +23,11 @@ import Foundation
 /// - at most `maxCodeLineShare` of the lines look like code, config, a
 ///   log line or a CSV row (`looksLikeCode`);
 /// - it is not a log (`looksLikeLog`): every line is one, or at least two
-///   lines and half of them are (a timestamp with seconds, or a level
-///   such as INFO). A meeting note's "Date: 18 Nov 2026" is not one.
+///   lines and half of them are. A log line starts with a timestamp (an
+///   ISO date-time, syslog `Nov 20 08:14:01`, or a bracketed time) and
+///   also has a level (INFO, ERROR, …) or a process token (`sshd[1234]:`,
+///   `app:`). A time inside a sentence, or `0:00:00 Start the jog`, is
+///   not one. A meeting note's "Date: 18 Nov 2026" is not one.
 ///
 /// Short bullet lists (a shopping list, "- eggs / - milk") do NOT count:
 /// they have no sentences and next to no function words. A bulleted list
@@ -177,15 +180,19 @@ public enum ProseDetector {
         // A call or index with no space before the bracket: print(x), a[1].
         if t.range(of: #"[A-Za-z_]\w*[\(\[][^\s].*[\)\]]"#, options: .regularExpression) != nil,
            !(last == "." || last == "?" || last == "!") { return true }
-        // Log lines: a timestamp, a date, or a level first.
-        if t.range(of: #"^\[?\d{1,4}[-/:.]\d{1,2}"#, options: .regularExpression) != nil { return true }
+        // A date, or a bracketed time, at the start. A bare "0:00:00 Start the jog" is a note.
+        if t.range(of: #"^\d{4}[-/]\d{1,2}"#, options: .regularExpression) != nil { return true }
+        if t.range(of: #"^\[(?:\d{4}|\d{1,2}[:/\-])"#, options: .regularExpression) != nil { return true }
         if t.range(of: #"^\[?(INFO|WARN|WARNING|ERROR|DEBUG|TRACE|FATAL|NOTICE|CRIT)\b"#, options: .regularExpression) != nil { return true }
         if t.range(of: #"\b(INFO|WARN|ERROR|DEBUG|TRACE|FATAL)\b[\]:]"#, options: .regularExpression) != nil { return true }
         // key = value, key: value (a key with no spaces and a one-token value or a code-ish key).
         if let m = t.range(of: #"^[A-Za-z_][\w.\-\[\]]*\s*="#, options: .regularExpression), !t[m].contains("==") { return true }
         if let colon = t.firstIndex(of: ":"), colon != t.startIndex {
             let key = t[..<colon], value = t[t.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-            if !key.contains(" "), key.count <= 40 {
+            // "0:00:00 Start the jog." is a clock time in a note, not a setting.
+            let clock = key.count <= 2 && key.allSatisfy(\.isNumber)
+                && value.range(of: #"^\d{2}:\d{2}\b"#, options: .regularExpression) != nil
+            if !clock, !key.contains(" "), key.count <= 40 {
                 let codeKey = key.contains(where: { $0 == "_" || $0 == "." || $0 == "-" || $0.isNumber })
                 let oneToken = !value.isEmpty && !value.contains(" ")
                 let valueIsData = value.isEmpty || value.first.map { $0.isNumber || "\"'[{/~$".contains($0) } == true
@@ -207,24 +214,51 @@ public enum ProseDetector {
         return false
     }
 
-    /// A log line: a timestamp that includes seconds, or a level token
-    /// (INFO, WARN, ERROR, …) at the start, in brackets, before a colon,
-    /// or between pipes. "Nov 20 10:42" and "The ERROR was" are not.
+    /// A log line starts with a timestamp and also has a log marker.
+    /// Timestamps: ISO `2026-11-18 10:42:01` or `2026-11-18T10:42:01`,
+    /// syslog `Nov 20 08:14:01` (the day may be space-padded), or a
+    /// bracketed time `[08:14:01]` / `[20/Nov/2026 08:14:01]`.
+    /// Markers: a level word (DEBUG, INFO, WARN, WARNING, ERROR, FATAL,
+    /// TRACE) or a `[pid]` / `[thread]` / `process:` token (`sshd[1234]:`,
+    /// `app:`). A time in the middle of a sentence, or `0:00:00 Start
+    /// the jog`, is not one. "The ERROR was" is not one.
     static func looksLikeLog(_ line: String) -> Bool {
         let t = line.trimmingCharacters(in: .whitespaces)
-        guard t.count >= 8 else { return false }
-        // Longer names first, so CRITICAL is not read as CRIT.
-        let level = "CRITICAL|WARNING|NOTICE|DEBUG|TRACE|FATAL|ERROR|WARN|INFO|CRIT"
+        guard t.count >= 8, let rest = textAfterLogTimestamp(t) else { return false }
+        if hasLogLevelOrPid(t) { return true }
+        return hasProcessTag(rest)
+    }
+
+    /// The text after a timestamp that starts `t`, or nil when `t` does not start with one.
+    private static func textAfterLogTimestamp(_ t: String) -> String? {
         let patterns = [
-            #"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"#,
-            #"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b.{0,16}\d{1,2}:\d{2}:\d{2}\b"#,
-            #"^\[?\d{1,2}:\d{2}:\d{2}\b"#,
-            "^\\[?(?:\(level))\\b",
-            "\\[(?:\(level))\\]",
-            "\\b(?:\(level)):",
-            "(?:^|\\|)\\s*(?:\(level))\\s*\\|",
+            #"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"#,
+            #"^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}"#,
+            #"^\[[^\]]*?\d{1,2}:\d{2}:\d{2}[^\]]*\]"#,
         ]
-        return patterns.contains { t.range(of: $0, options: .regularExpression) != nil }
+        for pattern in patterns {
+            guard let r = t.range(of: pattern, options: .regularExpression) else { continue }
+            return String(t[r.upperBound...])
+        }
+        return nil
+    }
+
+    /// A level word, a `[pid]` / `[thread]` token, or `name[pid]:`.
+    private static func hasLogLevelOrPid(_ t: String) -> Bool {
+        // Longer names first, so WARNING is not read as WARN.
+        let level = "WARNING|DEBUG|TRACE|FATAL|ERROR|WARN|INFO"
+        if t.range(of: "\\b(?:\(level))\\b", options: .regularExpression) != nil { return true }
+        if t.range(of: #"\[(?:pid|tid|thread)\b[^\]]*\]"#, options: [.regularExpression, .caseInsensitive]) != nil { return true }
+        if t.range(of: #"\b[A-Za-z_][\w.-]*\[\d+\]:"#, options: .regularExpression) != nil { return true }
+        if t.range(of: #"\[\d{2,8}\]"#, options: .regularExpression) != nil { return true }
+        return false
+    }
+
+    /// The syslog tag in the header: `app:`, `sshd[1234]:`. Not a colon later in the sentence.
+    private static func hasProcessTag(_ remainder: String) -> Bool {
+        let header = remainder.prefix(64)
+        return header.range(of: #"\b[A-Za-z_][\w.-]{0,32}\[\d+\]:"#, options: .regularExpression) != nil
+            || header.range(of: #"\b[a-z][a-z0-9_.-]{1,32}:"#, options: .regularExpression) != nil
     }
 
     /// The most common short words of English, French, German, Spanish,

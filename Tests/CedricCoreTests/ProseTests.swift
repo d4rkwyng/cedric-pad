@@ -207,6 +207,46 @@ import Testing
         #expect(Date().timeIntervalSince(t0) < 1.0, "10 detections on a big file (sample only)")
     }
 
+    /// A time inside a sentence, or a leading clock time with no log marker,
+    /// stays prose. A real syslog or app line (timestamp and a marker) does not.
+    @Test func timestampsInsideProseStayProse() {
+        let diary = """
+        We landed at 2024-06-12 14:30:00 after a long delay on the tarmac.
+        By 2024-06-12 16:05:00 we had walked to the hotel and checked in.
+        """
+        let workout = """
+        0:00:00 Start with a light jog around the park near home.
+        0:10:00 Stretch your legs and drink some water slowly.
+        0:15:00 Begin the main set of intervals on the track.
+        """
+        for sample in [diary, workout] {
+            let masked = ProseMask.masked(sample as NSString, language: .plain)
+            #expect(!ProseDetector.signals(masked).readsAsLog, "\(ProseDetector.signals(masked))")
+            #expect(ProseDetector.isProse(sample as NSString, language: .plain, fileName: "notes.txt"),
+                    "\(ProseDetector.signals(masked))")
+        }
+        #expect(!ProseDetector.looksLikeLog("We landed at 2024-06-12 14:30:00 after a long delay on the tarmac."))
+        #expect(!ProseDetector.looksLikeLog("0:00:00 Start with a light jog around the park near home."))
+        // A level word with no leading timestamp is not a log line.
+        #expect(!ProseDetector.looksLikeLog("app | INFO | The server was very slow today and we were really unhappy."))
+        let syslog = """
+        Nov 18 10:42:01 host sshd[1234]: Accepted publickey for droid from 10.0.0.5 port 50422
+        Nov 18 10:42:03 host sshd[1234]: pam_unix(sshd:session): session opened for user droid
+        """
+        let iso = """
+        2026-11-18 10:42:01 INFO Server started on port 8080
+        2026-11-18 10:42:02 WARN Cache is cold
+        """
+        let bracketed = """
+        [08:14:01] ERROR The cache was cold
+        [08:14:02] INFO Retrying in 5 seconds
+        """
+        for sample in [syslog, iso, bracketed] {
+            #expect(ProseDetector.signals(sample).readsAsLog, "\(ProseDetector.signals(sample))")
+            #expect(!ProseDetector.isProse(sample as NSString, language: .plain, fileName: "events.txt"))
+        }
+    }
+
     @Test func codeLineShapes() {
         for l in ["let x = 5", "}", "foo(bar);", "2026-11-18 10:00 started", "[ERROR] boom", "key_name: value", "port: 8080",
                   "a,b,c,d", "x\ty\tz", "<div>", "// note"] {

@@ -65,9 +65,10 @@ import Testing
         [20/Nov/2026 08:14:01] INFO The cache was very cold and the disk was really full of old files.
         [20/Nov/2026 08:14:02] ERROR The server was very slow today and we were really stuck for a while.
         """
+        // The level is a marker only together with a timestamp at the start of the line.
         let pipes = """
-        app | INFO | The server was very slow today and we were really unhappy with the wait.
-        app | WARN | The cache was very cold and the disk was really full of old files.
+        2026-11-18 08:14:01 app | INFO | The server was very slow today and we were really unhappy with the wait.
+        2026-11-18 08:14:02 app | WARN | The cache was very cold and the disk was really full of old files.
         """
         for sample in [syslog, tomcat, pipes] {
             let g = ProseDetector.signals(sample)
