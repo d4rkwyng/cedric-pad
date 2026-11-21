@@ -50,6 +50,33 @@ import Testing
         #expect(hints(prose, language: "plain", file: "trip.txt").map(\.id) == ["rules.style.filler:very"])
     }
 
+    /// A .log name, and plain text that looks like a log, are not prose, so
+    /// Style Check stays quiet. The same sentences in a note are still checked.
+    @Test func skipsLogFilesAndLogLikePlainText() {
+        let told = "The server was very slow today and we were really unhappy with it. The cache was very cold and the disk was really full.\n"
+        #expect(hints(told, language: "plain", file: "server.log").isEmpty)
+        #expect(hints(told, language: "plain", file: "notes.txt").contains { $0.id == "rules.style.filler:very" })
+        let syslog = """
+        Nov 20 08:14:01 host app: The server was very slow today and the cache was really cold.
+        Nov 20 08:14:02 host app: We were very happy that it recovered after a long restart.
+        Nov 20 08:14:03 host app: The disk was really full and the queue was very long today.
+        """
+        let tomcat = """
+        [20/Nov/2026 08:14:01] INFO The cache was very cold and the disk was really full of old files.
+        [20/Nov/2026 08:14:02] ERROR The server was very slow today and we were really stuck for a while.
+        """
+        let pipes = """
+        app | INFO | The server was very slow today and we were really unhappy with the wait.
+        app | WARN | The cache was very cold and the disk was really full of old files.
+        """
+        for sample in [syslog, tomcat, pipes] {
+            let g = ProseDetector.signals(sample)
+            #expect(g.logLines >= 2 && g.readsAsLog, "\(g)")
+            #expect(hints(sample, language: "plain", file: "events.txt").isEmpty)
+            #expect(hints(sample, language: "plain", file: nil).isEmpty)
+        }
+    }
+
     @Test func offByDefaultWithExceptionsAndExtraPhrases() {
         let text = "It is very clear that we must utilize the tools, very much so.\n"
         #expect(hints(text, settings: nil).isEmpty)

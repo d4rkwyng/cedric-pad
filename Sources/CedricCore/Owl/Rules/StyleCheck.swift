@@ -147,7 +147,9 @@ public enum StyleCheck {
 
     /// Style Check's hints for the rules provider: one per phrase (the first
     /// place it appears), at most `maxHints`, as (id, kind, title, detail,
-    /// range, replacement). Markdown and Plain Text only, prose only.
+    /// range, replacement). Markdown and Plain Text only, and only when the
+    /// text reads as prose. A `.log` name, and plain text that looks like a
+    /// log (timestamps, levels), are left alone.
     static func hints(_ c: OwlContext, facts: OwlDocumentFacts, text: NSString, lines: [NSRange]) -> [(String, OwlHint.Kind, String, String?, NSRange, String?)] {
         guard let settings = facts.styleCheck else { return [] }
         guard let language = Language(rawValue: c.language), language == .markdown || language == .plain,

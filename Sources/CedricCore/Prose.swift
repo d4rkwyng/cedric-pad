@@ -21,7 +21,10 @@ import Foundation
 /// - few symbols and operators (`{}[]<>=;|\/_*&^%$#@~` and backticks):
 ///   at most `maxSymbolDensity` of the visible characters;
 /// - at most `maxCodeLineShare` of the lines look like code, config, a
-///   log line or a CSV row (`looksLikeCode`).
+///   log line or a CSV row (`looksLikeCode`);
+/// - it is not a log (`looksLikeLog`): every line is one, or at least two
+///   lines and half of them are (a timestamp with seconds, or a level
+///   such as INFO). A meeting note's "Date: 18 Nov 2026" is not one.
 ///
 /// Short bullet lists (a shopping list, "- eggs / - milk") do NOT count:
 /// they have no sentences and next to no function words. A bulleted list
@@ -46,6 +49,7 @@ public enum ProseDetector {
         public var sentences = 0
         public var lines = 0
         public var codeLines = 0
+        public var logLines = 0
         public var symbols = 0
         public var visible = 0
 
@@ -54,6 +58,13 @@ public enum ProseDetector {
         public var averageSentence: Double { sentences == 0 ? 0 : Double(words) / Double(sentences) }
         public var symbolDensity: Double { visible == 0 ? 0 : Double(symbols) / Double(visible) }
         public var codeLineShare: Double { lines == 0 ? 0 : Double(codeLines) / Double(lines) }
+        public var logLineShare: Double { lines == 0 ? 0 : Double(logLines) / Double(lines) }
+
+        /// Every line is a log line, or at least two are and they are half the lines.
+        /// One quoted log line in a longer note stays prose.
+        public var readsAsLog: Bool {
+            lines > 0 && (logLines == lines || (logLines >= 2 && logLineShare >= 0.5))
+        }
 
         public var readsAsProse: Bool {
             words >= ProseDetector.minWords && wordShare >= ProseDetector.minWordShare
@@ -61,6 +72,7 @@ public enum ProseDetector {
                 && sentences > 0 && ProseDetector.sentenceWords.contains(averageSentence)
                 && symbolDensity <= ProseDetector.maxSymbolDensity
                 && codeLineShare <= ProseDetector.maxCodeLineShare
+                && !readsAsLog
         }
     }
 
@@ -89,6 +101,7 @@ public enum ProseDetector {
             if line.isEmpty { continue }
             g.lines += 1
             if looksLikeCode(line) { g.codeLines += 1 }
+            if looksLikeLog(line) { g.logLines += 1 }
             for u in line.unicodeScalars where !CharacterSet.whitespaces.contains(u) {
                 g.visible += 1
                 if symbolSet.contains(u) { g.symbols += 1 }
@@ -192,6 +205,26 @@ public enum ProseDetector {
         let symbols = visible.filter { symbolSet.contains($0) }.count
         if visible.count >= 6, Double(symbols) / Double(visible.count) > 0.12 { return true }
         return false
+    }
+
+    /// A log line: a timestamp that includes seconds, or a level token
+    /// (INFO, WARN, ERROR, …) at the start, in brackets, before a colon,
+    /// or between pipes. "Nov 20 10:42" and "The ERROR was" are not.
+    static func looksLikeLog(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard t.count >= 8 else { return false }
+        // Longer names first, so CRITICAL is not read as CRIT.
+        let level = "CRITICAL|WARNING|NOTICE|DEBUG|TRACE|FATAL|ERROR|WARN|INFO|CRIT"
+        let patterns = [
+            #"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"#,
+            #"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b.{0,16}\d{1,2}:\d{2}:\d{2}\b"#,
+            #"^\[?\d{1,2}:\d{2}:\d{2}\b"#,
+            "^\\[?(?:\(level))\\b",
+            "\\[(?:\(level))\\]",
+            "\\b(?:\(level)):",
+            "(?:^|\\|)\\s*(?:\(level))\\s*\\|",
+        ]
+        return patterns.contains { t.range(of: $0, options: .regularExpression) != nil }
     }
 
     /// The most common short words of English, French, German, Spanish,
