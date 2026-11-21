@@ -82,6 +82,13 @@ Save All (⌥⌘S), Revert to Saved (undoable with ⌘Z),
 Close Window (⇧⌘W: every tab in the window, each hot-closed; on the last window, then quits, ⇧⌘T has the tabs), and the
 system Services in the app menu.
 
+### Float on Top
+
+**Window › Float on Top** keeps that window above your other windows. A
+checkmark shows while it is on. It applies to the whole window (every tab
+in it), and it comes back when the session is restored. A sheet, and the
+command palette, still open above the window.
+
 ### Drop a file on the text to open it
 
 **Drop a file on the text to open it** (in its own tab), rather than

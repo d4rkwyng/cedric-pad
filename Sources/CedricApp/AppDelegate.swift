@@ -40,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var fileWordGoals: [FileWordGoal] = []
     /// Words written today, across documents (the stats popover's second ring).
     let dailyWords = DailyWordCounter()
+    /// Window › Float on Top, per window (FloatOnTop.swift). The set, not
+    /// the live level: full screen changes the level on its own.
+    var floatingWindows = Set<ObjectIdentifier>()
     var closedTexts: [UUID: String] = [:]
 
     // MARK: Launch
@@ -48,6 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         LaunchTrace.mark("will_finish")
         NSWindow.allowsAutomaticWindowTabbing = true
         dailyWords.onChange = { [weak self] in self?.refreshOpenStatsPopovers() }
+        NotificationCenter.default.addObserver(self, selector: #selector(windowExitedFullScreen(_:)),
+                                               name: NSWindow.didExitFullScreenNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(noteWindowWillClose(_:)),
+                                               name: NSWindow.willCloseNotification, object: nil)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         rotateCLIToken()
@@ -338,8 +345,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let tabIndex, let host = group, host !== window, let tg = host.tabGroup {
             // A restored tab built after launch: its saved place in the tab bar.
             tg.insertWindow(window, at: min(tabIndex, tg.windows.count))
+            adoptFloat(of: host, for: window)
         } else if let host, host !== window, host.isVisible {
             host.addTabbedWindow(window, ordered: .above)
+            adoptFloat(of: host, for: window)
         } else {
             window.center()
         }
@@ -580,7 +589,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if t.window === NSApp.keyWindow || t.window?.tabGroup?.selectedWindow === t.window { selected = sessionTabs.count - 1 }
             }
             if !sessionTabs.isEmpty {
-                windows.append(SessionWindow(tabs: sessionTabs, selectedTab: selected, frame: group.first?.frameDescriptor))
+                // Any tab still in the set: the window was floating, including
+                // one saved while full screen has the level at something else.
+                let floats = group.contains { floatingWindows.contains(ObjectIdentifier($0)) }
+                windows.append(SessionWindow(tabs: sessionTabs, selectedTab: selected, frame: group.first?.frameDescriptor,
+                                              floatOnTop: floats ? true : nil))
             }
         }
         for c in closedTabs where c.hasBuffer { keep.insert(c.id) }
@@ -643,6 +656,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         /// The saved window's frame, for a window rebuilt after its built
         /// tabs all closed.
         var frame: String?
+        /// Window › Float on Top, kept for a tab rebuilt into its own window.
+        var floatOnTop = false
     }
 
     private var pendingRestore: [PendingTab] = []
@@ -667,6 +682,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 ? [w.selectedTab] + w.tabs.indices.filter { $0 != w.selectedTab } : Array(w.tabs.indices)
             let group = RestoreGroup()
             group.frame = w.frame
+            group.floatOnTop = w.floatOnTop == true
             var host: NSWindow?
             var rest: [Int] = []
             for i in order {
@@ -677,6 +693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if let f = w.frame { window.setFrame(from: f) }
             }
             guard let host else { continue }
+            if group.floatOnTop { setWindowFloats(true, host) }
             pendingRestore += rest.sorted().map { PendingTab(tab: w.tabs[$0], group: group, index: $0) }
             host.makeKeyAndOrderFront(nil)
         }
@@ -777,6 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let tab = restoreTab(p.tab, into: nil), let w = tab.window {
                 // Where the saved window was, not a new default place.
                 if let f = p.group.frame { w.setFrame(from: f) }
+                if p.group.floatOnTop { setWindowFloats(true, w) }
                 p.group.built.append((p.index, w))
                 w.orderFront(nil)
             }
@@ -933,6 +951,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(pickLineEndingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.lineEnding.rawValue ? .on : .off
         case #selector(pickEncodingMenu(_:)): item.state = (item.representedObject as? String) == tab?.doc.encoding.rawValue ? .on : .off
         case #selector(reopenClosedTab(_:)): return !closedTabs.isEmpty
+        case #selector(toggleFloatOnTop(_:)):
+            // An attribute toggle: a checkmark, not Show/Hide. The palette
+            // and a sheet can be key; the document window behind them is the one.
+            let target = floatTargetWindow()
+            item.state = target.map { windowFloats($0) } == true ? .on : .off
+            return target != nil
         case #selector(goToLine(_:)):
             item.title = String(localized: "Go to Line…") // a PDF tab shows "Go to Page…"
             return tab != nil

@@ -67,6 +67,13 @@ them; orphan buffers are pruned after each save.
   saved places in the tab bar (AppKit spends ~10 ms adding a window to a
   tab group, ~45 ms for the first, which creates the tab bar). A save,
   quit, opening one of their files or a dev hook builds them first.
+- Window › Float on Top is `SessionWindow.floatOnTop` (only `true` is
+  stored). The app keeps the choice in `floatingWindows`, not in the live
+  `NSWindow.level`, because full screen changes the level; leaving full
+  screen applies the set again. The level used is `.floating`: a sheet
+  and the command palette (a child window ordered above) stay above it.
+  A higher level would cover a sheet. A new tab joined to the window
+  takes the same choice.
 
 ## Launch
 

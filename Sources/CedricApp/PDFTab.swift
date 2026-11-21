@@ -954,8 +954,10 @@ extension AppDelegate {
         let host = newWindow ? nil : group ?? AppDelegate.documentKeyWindow ?? (tabs.last?.window ?? viewerTabs.last { $0.window !== window }?.window)
         if let tabIndex, let host = group, host !== window, let tg = host.tabGroup {
             tg.insertWindow(window, at: min(tabIndex, tg.windows.count))
+            adoptFloat(of: host, for: window)
         } else if let host, host !== window, host.isVisible {
             host.addTabbedWindow(window, ordered: .above)
+            adoptFloat(of: host, for: window)
         } else {
             window.center()
         }

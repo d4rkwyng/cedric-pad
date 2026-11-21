@@ -67,6 +67,31 @@ func tempDir() -> URL {
         #expect(SessionStore.defaultDirectory(environment: ["CEDRIC_SESSION_DIR": "/tmp/x"]).path == "/tmp/x")
         #expect(SessionStore.defaultDirectory(environment: [:]).path.hasSuffix("Application Support/Cedric/Session"))
     }
+
+    @Test func floatOnTopRoundTripsPerWindow() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = SessionStore(directory: dir)
+        let floating = SessionWindow(tabs: [SessionTab(path: "/tmp/a.txt")], floatOnTop: true)
+        let plain = SessionWindow(tabs: [SessionTab(path: "/tmp/b.txt")])
+        let session = Session(windows: [floating, plain])
+        try store.save(session)
+        let back = try #require(SessionStore(directory: dir).load())
+        #expect(back == session)
+        #expect(back.windows[0].floatOnTop == true)
+        #expect(back.windows[1].floatOnTop == nil)
+        let json = try String(contentsOf: dir.appendingPathComponent("session.json"), encoding: .utf8)
+        #expect(json.contains("\"floatOnTop\" : true"))
+        // Off, and a session from before the key: the key is absent, which decodes as nil.
+        let plainJSON = String(decoding: try JSONEncoder().encode(plain), as: UTF8.self)
+        #expect(!plainJSON.contains("floatOnTop"))
+        let legacy = #"{"version":1,"untitledCounter":0,"windows":[{"selectedTab":0,"frame":"0 0 800 600 0 0 1440 900","tabs":[{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","path":"/tmp/a.txt","hasBuffer":false,"encoding":"utf8","lineEnding":"lf","selectionLocation":0,"selectionLength":0,"topLine":0}]}]}"#
+        try Data(legacy.utf8).write(to: dir.appendingPathComponent("session.json"))
+        let old = try #require(SessionStore(directory: dir).load())
+        #expect(old.windows.count == 1)
+        #expect(old.windows[0].floatOnTop == nil)
+        #expect(old.windows[0].frame == "0 0 800 600 0 0 1440 900")
+    }
 }
 
 @Suite struct DockedPreviewSessionTests {

@@ -109,11 +109,16 @@ public struct SessionWindow: Codable, Equatable, Sendable {
     public var selectedTab: Int
     /// NSWindow's frame descriptor string.
     public var frame: String?
+    /// Window › Float on Top. Only `true` is stored; nil (and a session
+    /// saved before the key) is off. The app keeps this apart from the
+    /// live window level, which full screen changes on its own.
+    public var floatOnTop: Bool?
 
-    public init(tabs: [SessionTab], selectedTab: Int = 0, frame: String? = nil) {
+    public init(tabs: [SessionTab], selectedTab: Int = 0, frame: String? = nil, floatOnTop: Bool? = nil) {
         self.tabs = tabs
         self.selectedTab = selectedTab
         self.frame = frame
+        self.floatOnTop = floatOnTop
     }
 }
 
