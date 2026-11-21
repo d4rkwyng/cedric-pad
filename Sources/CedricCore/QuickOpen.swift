@@ -66,6 +66,16 @@ public enum QuickOpen {
         guard fm.fileExists(atPath: target.path, isDirectory: &isDir), !isDir.boolValue else { return nil }
         return url.standardizedFileURL
     }
+
+    /// The folder Open Quickly lists. A directory listing is not access:
+    /// the document's folder counts only when `readable` (a sibling, or the
+    /// lone document, actually opened — see `PreviewFolderAccess`). Otherwise
+    /// the granted folder, whose security scope was started once. Nil when
+    /// neither holds, so nothing is listed that cannot be opened.
+    public static func folderRoot(documentFolder: URL, readable: Bool, granted: URL?) -> URL? {
+        if readable { return documentFolder }
+        return granted
+    }
 }
 
 /// The files below a folder, for Open Quickly: names per folder (relative

@@ -1781,14 +1781,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         present(host, animated: true)
     }
 
-    /// The document's own folder when it can be listed, else the nearest
-    /// folder the preview was granted that contains it.
+    /// The document's own folder when a file in it can actually be opened,
+    /// else the nearest folder the preview was granted (its security scope
+    /// started once). A listing on its own is not access: Files often lists
+    /// a parent the app was not granted, and those siblings then fail to open.
     private func quickOpenRoot() -> URL? {
         let folder = document.fileURL.deletingLastPathComponent()
-        if (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) != nil {
-            return folder
-        }
-        return PreviewFolderGrants.shared.root(for: folder)
+        let granted = PreviewFolderGrants.shared.root(for: folder)
+        let readable = PreviewFolderAccess.canRead(PreviewFolderAccess.facts(folder: folder, document: document.fileURL))
+        return QuickOpen.folderRoot(documentFolder: folder, readable: readable, granted: granted)
     }
 
     @objc func goToLine() {
