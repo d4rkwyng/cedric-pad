@@ -67,4 +67,41 @@ import Testing
         let blocked = OwlEditProposal.refresh([seeds, compost], text: ns, generation: 4, readOnly: true)
         #expect(blocked.searches == 0 && blocked.states == [.readOnly, .readOnly])
     }
+
+    @Test func invisibleCharactersAreShownAndNamed() {
+        #expect(OwlTools.maxFindLength == 2_000 && OwlTools.maxReplaceLength == 2_000)
+        #expect(!OwlEditInvisibles.contains("a\tb\nc"))
+        #expect(OwlEditInvisibles.render("a\tb").text == "a\tb")
+        #expect(OwlEditInvisibles.render("a\tb").invisibleRanges.isEmpty)
+        let rendered = OwlEditInvisibles.render("a\u{200B}\u{0000}b")
+        #expect(rendered.text == "a⟨U+200B⟩⟨U+0000⟩b")
+        #expect(rendered.containsInvisible && rendered.invisibleRanges.count == 2)
+        let token = "⟨U+200B⟩" as NSString
+        #expect(rendered.invisibleRanges[0] == NSRange(location: 1, length: token.length))
+        #expect(OwlEditInvisibles.spoken("a\u{200B}") == "a zero width space (U+200B)")
+        #expect(OwlEditInvisibles.warning == "Contains invisible characters")
+        let long = String(repeating: "b", count: 500)
+        let p = OwlEditProposal(range: NSRange(location: 0, length: 2), original: "a\u{200B}", replacement: long,
+                                reason: "", firstLine: 1, lastLine: 1, generation: 1, anchor: .text)
+        #expect(p.spokenDiff == "Replace “a zero width space (U+200B)” with “\(long)”.")
+        #expect(!p.spokenDiff.contains("…"))
+        let gone = OwlEditProposal(range: NSRange(location: 0, length: 2), original: "\u{FEFF}x", replacement: "",
+                                   reason: "", firstLine: 1, lastLine: 1, generation: 1, anchor: .text)
+        #expect(gone.spokenDiff.contains("byte order mark (U+FEFF)"))
+        #expect(gone.spokenDiff.hasPrefix("Delete"))
+    }
+
+    @Test func applyWaitsUntilTheFullReplacementHasBeenShown() {
+        #expect(!OwlEditReview.needsShowAll(rows: ["old", "new"], charsPerRow: 40))
+        #expect(OwlEditReview.needsShowAll(rows: [String(repeating: "a", count: 2_000)], charsPerRow: 40))
+        #expect(OwlEditReview.needsShowAll(rows: (0..<7).map { "line \($0)" }, charsPerRow: 80))
+        #expect(!OwlEditReview.needsShowAll(rows: (0..<6).map { "line \($0)" }, charsPerRow: 80))
+        let zw = String(repeating: "\u{200B}", count: 40)
+        #expect(OwlEditReview.needsShowAll(rows: [zw], charsPerRow: 40))
+        #expect(!OwlEditReview.applyEnabled(ready: true, needsShowAll: true, hasShownAll: false))
+        #expect(OwlEditReview.applyEnabled(ready: true, needsShowAll: true, hasShownAll: true))
+        #expect(OwlEditReview.applyEnabled(ready: true, needsShowAll: false, hasShownAll: false))
+        #expect(!OwlEditReview.applyEnabled(ready: false, needsShowAll: false, hasShownAll: true))
+        #expect(!OwlEditReview.applyEnabled(ready: false, needsShowAll: true, hasShownAll: true))
+    }
 }

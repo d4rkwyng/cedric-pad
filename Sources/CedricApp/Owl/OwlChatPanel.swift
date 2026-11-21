@@ -819,6 +819,7 @@ final class OwlChatPanel: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         for (i, p) in shown.enumerated() {
             let c = OwlEditCard(p, index: i, of: shown.count, target: self, apply: #selector(applyCard(_:)),
                                 skip: #selector(skipCard(_:)), askAgain: #selector(askAgain(_:)))
+            c.onLayout = { [weak self] in self?.layoutCards() }
             c.translatesAutoresizingMaskIntoConstraints = false
             cardsStack.addArrangedSubview(c)
             c.widthAnchor.constraint(equalTo: cardsStack.widthAnchor).isActive = true

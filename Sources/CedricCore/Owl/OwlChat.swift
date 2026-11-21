@@ -559,8 +559,9 @@ public enum OwlTools {
     public static let maxEditLines = 400
     public static let maxEditLength = 32_768
     /// propose_edit (UTF-16 units): the text to find, its replacement, the reason.
-    public static let maxFindLength = 4_000
-    public static let maxReplaceLength = 8_000
+    /// Short enough that the card can show the whole replacement for review.
+    public static let maxFindLength = 2_000
+    public static let maxReplaceLength = 2_000
     public static let maxReasonLength = 120
     /// Edits proposed per answer; more are refused.
     public static let maxProposals = 5
