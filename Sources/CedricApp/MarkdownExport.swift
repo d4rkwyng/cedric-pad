@@ -90,16 +90,44 @@ extension EditorWindowController {
 
     /// Edit › Copy as Rich Text: the rendered selection (or document) as
     /// RTF and HTML for mail, notes and word processors, and its plain text.
-    /// On the main thread: AppKit's HTML importer runs there anyway (and
-    /// run from a background render's completion it sometimes returned
-    /// nothing); the renderer is linear now, so a crafted document can't
-    /// hang it. `done` runs after, synchronously.
+    /// AppKit's HTML importer stays on the main thread (off it, it sometimes
+    /// returned nothing). The vault's note-name index does not: a document
+    /// with `[[wikilinks]]` reuses the preview's index when that is already
+    /// built, and otherwise builds it on a background queue before the
+    /// pasteboard is written. With no wikilinks, `done` runs synchronously.
     func copyAsRichText(done: (@MainActor () -> Void)? = nil) {
-        defer { done?() }
-        guard doc.language == .markdown else { NSSound.beep(); return }
-        // Nothing remote: the HTML importer must not fetch a tracking image.
-        let page = HTMLScrub.noScriptNoRemote(Self.exportPage(markdown: exportSelectionMarkdown, title: exportBaseName,
-                                                                         vault: PreviewController.exportVault(for: doc.fileURL?.deletingLastPathComponent())))
+        guard doc.language == .markdown else { NSSound.beep(); done?(); return }
+        let markdown = exportSelectionMarkdown
+        let title = exportBaseName
+        let folder = doc.fileURL?.deletingLastPathComponent()
+        if let ready = preview?.vaultReadyForExport(of: folder) {
+            writeRichText(markdown: markdown, title: title, vault: ready)
+            done?()
+            return
+        }
+        let vault = PreviewController.exportVault(for: folder)
+        // No names to look up: render here. The checks read the pasteboard as soon as `done` returns.
+        guard let vault, markdown.contains("[[") else {
+            writeRichText(markdown: markdown, title: title, vault: vault)
+            done?()
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            vault.prepareIndex()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.writeRichText(markdown: markdown, title: title, vault: vault)
+                    done?()
+                }
+            }
+        }
+    }
+
+    /// Renders `markdown` and puts RTF, HTML and plain text on the pasteboard.
+    /// Main thread only: AppKit's HTML importer runs there. Nothing remote,
+    /// so the importer does not fetch a tracking image.
+    private func writeRichText(markdown: String, title: String, vault: WikiVault?) {
+        let page = HTMLScrub.noScriptNoRemote(Self.exportPage(markdown: markdown, title: title, vault: vault))
         guard let attributed = NSAttributedString(html: Data(page.utf8), options: [.characterEncoding: String.Encoding.utf8.rawValue],
                                                   documentAttributes: nil) else { NSSound.beep(); return }
         let pb = NSPasteboard.general

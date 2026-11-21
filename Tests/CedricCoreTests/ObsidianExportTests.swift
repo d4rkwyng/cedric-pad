@@ -31,6 +31,23 @@ private func put(_ root: URL, _ rel: String, _ text: String) throws {
         #expect(!html.contains("cedric-doc"))
     }
 
+    /// Building the note-name index first (as Copy as Rich Text does, off the
+    /// main thread) leaves the exported HTML the same as a cold vault.
+    @Test func aWarmedIndexExportsTheSameHtml() throws {
+        let t = try makeTree(["v/.obsidian/app.json", "v/notes/doc.md", "v/x/Target.md", "v/notes/Other Note.md"])
+        defer { try? FileManager.default.removeItem(at: t) }
+        let folder = t.appendingPathComponent("v/notes")
+        let md = "See [[Target|the target]], [[Other Note#Setup]] and [[Missing|gone]]."
+        let golden = "<p>See <a class=\"wikilink\" href=\"../x/Target.md\">the target</a>, <a class=\"wikilink\" href=\"Other%20Note.md\">Other Note › Setup</a> and gone.</p>\n"
+        let cold = WikiVault(documentFolder: folder)
+        let warm = WikiVault(documentFolder: folder)
+        #expect(!warm.indexIsFresh)
+        DispatchQueue.global(qos: .userInitiated).sync { warm.prepareIndex() }
+        #expect(warm.indexIsFresh)
+        #expect(ex(md, vault: cold) == golden)
+        #expect(ex(md, vault: warm) == golden)
+    }
+
     @Test func imageEmbedsBecomeRelativeSources() throws {
         let t = try makeTree(["v/.obsidian/app.json", "v/notes/doc.md", "v/attachments/pic one.png"])
         defer { try? FileManager.default.removeItem(at: t) }

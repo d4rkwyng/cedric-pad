@@ -66,6 +66,16 @@ final class PreviewController: NSObject, WKNavigationDelegate {
     static func exportVault(for folder: URL?) -> WikiVault? {
         folder.map { WikiVault(documentFolder: $0, openedRoot: openedRoot(for: $0)) }
     }
+
+    /// The preview's own vault when it is that export vault and its note-name
+    /// index is already built. Copy as Rich Text reuses it instead of walking
+    /// the folder again.
+    func vaultReadyForExport(of folder: URL?) -> WikiVault? {
+        guard let folder, let vault, vault.indexIsFresh else { return nil }
+        let export = WikiVault(documentFolder: folder, openedRoot: Self.openedRoot(for: folder))
+        guard vault.documentFolder == export.documentFolder, vault.root == export.root else { return nil }
+        return vault
+    }
     /// The last link clicked (for checks).
     private(set) var lastLinkAction: PreviewLinkAction?
 

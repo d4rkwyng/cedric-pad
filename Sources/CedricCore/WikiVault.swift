@@ -95,6 +95,21 @@ public final class WikiVault: @unchecked Sendable {
         return index
     }
 
+    /// Builds the note-name index when it is older than `refreshSeconds`.
+    /// Copy as Rich Text calls this off the main thread, then writes the
+    /// pasteboard, so a vault of up to `maxEntries` names does not pause the app.
+    public func prepareIndex() {
+        _ = currentIndex()
+    }
+
+    /// Whether a resolve or `prepareIndex` has built the index within `refreshSeconds`.
+    public var indexIsFresh: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let built else { return false }
+        return Date().timeIntervalSince(built) < Self.refreshSeconds
+    }
+
     static func buildIndex(_ root: URL, _ fm: FileManager) -> [String: [URL]] {
         var idx: [String: [URL]] = [:]
         var count = 0
