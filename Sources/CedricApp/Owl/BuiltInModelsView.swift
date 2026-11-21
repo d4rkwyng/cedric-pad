@@ -113,6 +113,11 @@ final class BuiltInModelsView: NSStackView {
 
         required init?(coder: NSCoder) { fatalError() }
 
+        private func showTitle(_ button: NSButton, _ title: String, _ spoken: String) {
+            button.title = title
+            button.setAccessibilityLabel(spoken)
+        }
+
         func show(_ state: ModelDownloadState) {
             var name = model.name
             if model.isDefault { name += String(localized: " (recommended)") }
@@ -125,29 +130,33 @@ final class BuiltInModelsView: NSStackView {
             secondary.isHidden = true
             action.isEnabled = true
             let f = ByteCountFormatter()
+            let modelName = model.name
             switch state {
             case .notDownloaded:
-                action.title = String(localized: "Download")
+                showTitle(action, String(localized: "Download"), String(localized: "Download \(modelName)"))
                 status.stringValue = ""
             case .downloading(let r, let t):
-                action.title = String(localized: "Pause")
-                secondary.title = String(localized: "Cancel"); secondary.isHidden = false
+                showTitle(action, String(localized: "Pause"), String(localized: "Pause \(modelName)"))
+                showTitle(secondary, String(localized: "Cancel"), String(localized: "Cancel \(modelName)"))
+                secondary.isHidden = false
                 progress.isHidden = false; progress.doubleValue = state.fraction ?? 0
                 status.stringValue = String(localized: "Downloading \(f.string(fromByteCount: r)) of \(f.string(fromByteCount: t))…")
             case .paused(let r, let t):
-                action.title = String(localized: "Resume")
-                secondary.title = String(localized: "Cancel"); secondary.isHidden = false
+                showTitle(action, String(localized: "Resume"), String(localized: "Resume \(modelName)"))
+                showTitle(secondary, String(localized: "Cancel"), String(localized: "Cancel \(modelName)"))
+                secondary.isHidden = false
                 progress.isHidden = false; progress.doubleValue = state.fraction ?? 0
                 status.stringValue = String(localized: "Paused at \(f.string(fromByteCount: r)) of \(f.string(fromByteCount: t)).")
             case .verifying:
-                action.title = String(localized: "Verifying…"); action.isEnabled = false
+                showTitle(action, String(localized: "Verifying…"), String(localized: "Verifying \(modelName)"))
+                action.isEnabled = false
                 status.stringValue = String(localized: "Checking the SHA-256…")
             case .installed:
-                action.title = String(localized: "Delete")
+                showTitle(action, String(localized: "Delete"), String(localized: "Delete \(modelName)"))
                 status.stringValue = String(localized: "Downloaded and verified.")
                 status.textColor = .systemGreen
             case .failed(let e):
-                action.title = String(localized: "Download")
+                showTitle(action, String(localized: "Download"), String(localized: "Download \(modelName)"))
                 status.stringValue = e.message
                 status.textColor = .systemRed
             }

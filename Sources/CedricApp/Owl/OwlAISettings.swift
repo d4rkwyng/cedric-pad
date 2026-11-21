@@ -131,9 +131,14 @@ final class AISettingsSection: NSObject {
         load()
     }
 
-    private func label(_ s: String, for control: NSView) -> NSTextField {
+    private func label(_ s: String) -> NSTextField {
         let l = NSTextField(labelWithString: s)
         l.alignment = .right
+        return l
+    }
+
+    private func label(_ s: String, for control: NSView) -> NSTextField {
+        let l = label(s)
         control.setAccessibilityLabel(s.trimmingCharacters(in: CharacterSet(charactersIn: ":")))
         return l
     }
@@ -169,7 +174,6 @@ final class AISettingsSection: NSObject {
         automaticNote.textColor = .secondaryLabelColor
         noteLabel.textColor = .systemOrange
         modelsView.onChange = { [weak self] in self?.refresh() }
-        modelsView.setAccessibilityLabel(String(localized: "Built-in models"))
         weakLabel.textColor = .systemOrange
         modelsLabel.textColor = .secondaryLabelColor
         statusLabel.setAccessibilityLabel(String(localized: "Connection status"))
@@ -182,7 +186,7 @@ final class AISettingsSection: NSObject {
             [label(String(localized: "Address:"), for: urlField), urlField],
             [NSGridCell.emptyContentView, privacy],
             [NSGridCell.emptyContentView, noteLabel],
-            [label(String(localized: "Download:"), for: modelsView), modelsView],
+            [label(String(localized: "Download:")), modelsView],
             [NSGridCell.emptyContentView, testRow],
             [NSGridCell.emptyContentView, modelsLabel],
             [label(String(localized: "Model:"), for: modelPopup), modelPopup],
@@ -193,6 +197,9 @@ final class AISettingsSection: NSObject {
         ])
         // The checkbox says what it does; VoiceOver reads its own title.
         enabledBox.setAccessibilityLabel(nil)
+        // The column title is "Download:" for sighted users. The group keeps
+        // its own name (label(for:) would replace it with "Download").
+        modelsView.setAccessibilityLabel(String(localized: "Built-in models"))
         labelColumnWidth = (0..<grid.numberOfRows).compactMap { grid.cell(atColumnIndex: 0, rowIndex: $0).contentView?.fittingSize.width }.max() ?? 0
         grid.column(at: 0).width = labelColumnWidth
         self.grid = grid
