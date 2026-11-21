@@ -68,11 +68,11 @@ import CedricCore
         #expect(r.coverageNote(linesRead: IndexSet(integersIn: 21...184)) == nil)
         #expect(Self.request(scope: .wholeDocument, budget: 50_000).coverageNote() == nil)
         #expect(Self.request("Explain", action: .explain).coverageNote() == nil)
-        // A pure sum, or a fact whose subject is not in the file: no note.
+        // A pure sum has no note. General knowledge keeps it (France is not in this file).
         // A question that only points at the document keeps it.
         #expect(Self.request("What is 12 times 7?").coverageNote() == nil)
         #expect(Self.request("3+4*2").coverageNote() == nil)
-        #expect(Self.request("What is the capital of France?").coverageNote() == nil)
+        #expect(Self.request("What is the capital of France?").coverageNote() == "I can see lines 1–20 of 184.")
         #expect(Self.request("What's this about?").coverageNote() == "I can see lines 1–20 of 184.")
         #expect(Self.request("Explain this.").coverageNote() == "I can see lines 1–20 of 184.")
         #expect(Self.request("What does it say about multiplayer?").coverageNote() == "I can see lines 1–20 of 184.")

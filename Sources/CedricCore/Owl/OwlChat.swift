@@ -527,20 +527,19 @@ public enum OwlTools {
     /// Whether the coverage note applies ("I can see lines 1–40 of 111…").
     /// On by default when the question is non-empty: a missing note reads
     /// as if the whole file had been seen, which is worse than an extra
-    /// note. It stays off only when the question is clearly not about the
-    /// open document — a pure sum ("what is 12 times 7", "3+4*2"), or an
-    /// explicit translation, definition, or general-knowledge question
-    /// whose subject words appear nowhere in the file ("translate hello
-    /// into French", "what is the capital of France" when France isn't in
-    /// it). A question that merely uses other words than the file
-    /// ("how many games?" on a list of titles) keeps the note. Not the
-    /// tool gate (`typedTools`).
+    /// note. It stays off only for a pure sum ("what is 12 times 7",
+    /// "3+4*2") or an explicit translation whose source text appears
+    /// nowhere in the file ("translate hello into French"). A question
+    /// about the open document keeps the note ("Who wrote the first
+    /// section?", "Define the selected term"), and so does a
+    /// general-knowledge question ("what is the capital of France").
+    /// Not the tool gate (`typedTools`).
     public static func coverageNoteApplies(_ question: String, snapshot s: OwlDocumentSnapshot) -> Bool {
         let q = question.lowercased()
         if q.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         if isPureArithmetic(q) { return false }
-        if let subjects = explicitOutsideSubjects(q), !subjects.isEmpty,
-           !subjects.contains(where: { documentHasWord($0, in: s.text) }) {
+        if let sources = translationSources(q), !sources.isEmpty,
+           !sources.contains(where: { documentHasWord($0, in: s.text) }) {
             return false
         }
         return true
@@ -564,27 +563,20 @@ public enum OwlTools {
         return words.allSatisfy { filler.contains($0) || arith.contains($0) || $0.allSatisfy(\.isNumber) }
     }
 
-    /// Subject words of an explicit translation, definition, or
-    /// general-knowledge question. nil when the question is not one of
-    /// those, so the coverage note stays (a "how many" or "what does it
-    /// say" question is not one). An empty list means the subject is a
-    /// pronoun ("translate this"): not clearly unrelated.
-    private static func explicitOutsideSubjects(_ question: String) -> [String]? {
-        let words = normalizedWords(question)
+    /// Words of the text an explicit translation request asks to translate
+    /// ("translate hello into French" → hello, french). nil when the
+    /// question is not a translation, so the coverage note stays. An empty
+    /// list means the source is a pronoun ("translate this"): not clearly
+    /// unrelated.
+    private static func translationSources(_ question: String) -> [String]? {
         let translation = question.range(of: #"\btranslat(?:e|ion|ing)\b"#, options: .regularExpression) != nil
             || question.range(of: #"\bhow do you say\b"#, options: .regularExpression) != nil
-        let definition = words.contains("define") || question.contains("definition of")
-            || question.range(of: #"\bwhat does [a-z0-9][a-z0-9'-]{1,40} mean\b"#, options: .regularExpression) != nil
-        let knowledge = question.range(of: #"\bcapital of\b"#, options: .regularExpression) != nil
-            || question.range(of: #"\bwho (?:wrote|invented|discovered|painted|composed|directed|founded)\b"#,
-                              options: .regularExpression) != nil
-        guard translation || definition || knowledge else { return nil }
+        guard translation else { return nil }
+        let words = normalizedWords(question)
         let boilerplate: Set<String> = [
             "translate", "translation", "translating", "into", "to", "from", "in", "the", "a", "an",
-            "what", "whats", "is", "are", "of", "define", "definition", "capital", "who", "wrote",
-            "invented", "discovered", "painted", "composed", "directed", "founded", "does", "do",
-            "mean", "means", "how", "you", "say", "please", "word", "phrase", "this", "that", "it",
-            "me", "for", "and", "its", "my", "your",
+            "what", "whats", "is", "are", "of", "does", "do", "how", "you", "say", "please", "word",
+            "phrase", "this", "that", "it", "me", "for", "and", "its", "my", "your",
         ]
         return words.filter { $0.count >= 2 && !boilerplate.contains($0) && !$0.allSatisfy(\.isNumber) }
     }

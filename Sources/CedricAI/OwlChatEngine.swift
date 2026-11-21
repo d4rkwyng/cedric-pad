@@ -280,8 +280,8 @@ public struct OwlChatRequest: Sendable {
     /// "I can see lines 1–52 of 210." (and what the tools added), so a
     /// partial answer never reads as a whole one. On unless the question
     /// is clearly unrelated (`OwlTools.coverageNoteApplies`): a pure sum,
-    /// or an explicit definition, translation, or general-knowledge
-    /// question whose subject is not in the file. Also nil when he saw
+    /// or an explicit translation whose source text is not in the file.
+    /// Also nil when he saw
     /// every line, for a quick action (it is about the scope it names),
     /// and for a selection he was shown whole (the user chose it).
     public func coverageNote(linesRead: IndexSet = IndexSet(), looks: Set<OwlToolName> = []) -> String? {

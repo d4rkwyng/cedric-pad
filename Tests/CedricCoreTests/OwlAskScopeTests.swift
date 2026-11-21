@@ -81,8 +81,7 @@ import Testing
 
     /// The coverage note is on for a question about the open document, and
     /// also when that is only doubtful. It is off for a pure sum and for
-    /// an explicit translation, definition, or general-knowledge question
-    /// whose subject is not in the file.
+    /// an explicit translation whose source text is not in the file.
     @Test func coverageQuestionIsAboutTheDocument() {
         let s = snap()
         let yes = [
@@ -98,26 +97,30 @@ import Testing
             "What's on line 12?",
             "What's this about?",
             "Explain this.",
-            // Not a sum, and not an explicit fact question: "how many" can be about the file.
+            // Not a sum, and not a translation: "how many" can be about the file.
             "How many feet are in a mile?",
             // Not one of the forms that suppress the note.
             "Check the weather tomorrow",
+            // A definition or a who-wrote question about the open document.
+            "Who wrote the first section?",
+            "Define the selected term",
+            "Define photosynthesis",
+            "Who wrote Hamlet?",
+            "What is the capital of France?",
         ]
         let no = [
             "What is 12 times 7?",
             "3+4*2",
-            "What is the capital of France?",
             "Translate hello into French",
-            "Define photosynthesis",
             "What is 2 plus 2?",
-            "Who wrote Hamlet?",
         ]
         for q in yes { #expect(OwlTools.coverageNoteApplies(q, snapshot: s), "\(q) keeps the coverage note") }
         for q in no { #expect(!OwlTools.coverageNoteApplies(q, snapshot: s), "\(q) is clearly unrelated") }
     }
 
     /// Cursor's cases: the file's own words need not be the question's.
-    /// A fact whose subject does appear in the file keeps the note.
+    /// General knowledge keeps the note even when the subject is absent.
+    /// A translation keeps it when its source text is in the file.
     @Test func coverageNoteStaysWhenTheWordingIsNotInTheFile() {
         let titles = """
         # Catalogue
@@ -141,8 +144,13 @@ import Testing
         #expect(OwlTools.coverageNoteApplies("Explain this.", snapshot: s))
 
         let trip = "We spent a week in France and ate too much bread.\n"
+        // "capital of" is not a suppression: the note stays with France in the file and without it.
         #expect(OwlTools.coverageNoteApplies("What is the capital of France?", snapshot: snap(trip)))
-        #expect(!OwlTools.coverageNoteApplies("What is the capital of France?", snapshot: s))
+        #expect(OwlTools.coverageNoteApplies("What is the capital of France?", snapshot: s))
+        // A pure sum still suppresses it.
         #expect(!OwlTools.coverageNoteApplies("What is 12 times 7?", snapshot: s))
+        let hello = "She wrote hello on the board and left the room.\n"
+        #expect(OwlTools.coverageNoteApplies("Translate hello into French", snapshot: snap(hello)))
+        #expect(!OwlTools.coverageNoteApplies("Translate hello into French", snapshot: s))
     }
 }
