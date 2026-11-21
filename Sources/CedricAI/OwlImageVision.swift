@@ -1,4 +1,6 @@
+#if os(macOS)
 import AppKit
+#endif
 import CoreGraphics
 import ImageIO
 import Vision
@@ -55,6 +57,7 @@ public struct OwlRasterImageSource: OwlImageSource {
     }
 }
 
+#if os(macOS)
 /// SVG text drawn by AppKit's own SVG support (NSImage): the app's
 /// fallback when the preview's WebKit renderer can't snapshot, and the
 /// renderer the tests use. Safe off the main thread.
@@ -87,6 +90,7 @@ public struct OwlSVGImageSource: OwlImageSource {
         return picture
     }
 }
+#endif
 
 public enum OwlImageError: Error, Equatable {
     case unreadable, tooLarge, timedOut

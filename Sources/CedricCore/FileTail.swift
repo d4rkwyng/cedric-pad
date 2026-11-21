@@ -59,10 +59,12 @@ public final class FileTail: @unchecked Sendable {
     /// file (by its real path), for the tests and checks that a stopped
     /// tail leaves none behind.
     public static func descriptorsOpen(on url: URL) -> Int {
+        #if os(macOS)
         guard let real = realpath(url.path, nil) else { return 0 }
         let want = String(cString: real)
         free(real)
         // The open descriptors (not 0..<getdtablesize(), which can be huge).
+        // libproc (proc_pidinfo) is macOS-only; iOS has no Follow File checks.
         let pid = getpid()
         let size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
         guard size > 0 else { return 0 }
@@ -76,6 +78,9 @@ public final class FileTail: @unchecked Sendable {
             if String(cString: buf) == want { n += 1 }
         }
         return n
+        #else
+        return 0
+        #endif
     }
 
     static func fileInfo(_ url: URL) -> (size: UInt64, inode: UInt64)? {

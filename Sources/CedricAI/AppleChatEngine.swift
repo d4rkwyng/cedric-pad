@@ -39,9 +39,14 @@ public struct AppleChatEngine: OwlChatEngine {
         let session = LanguageModelSession(model: SystemLanguageModel.default, tools: appleTools, instructions: system)
         let options = GenerationOptions(temperature: 0, maximumResponseTokens: maxTokens)
         // One stream per session: a second one before the first ends is an error.
+        // Attaching the rendered picture is macOS 27 (FoundationModels Attachment).
+        #if os(macOS)
         let picture = await Self.picture(toolbox)
         let stream = picture.map { Self.streamWithPicture(session, prompt: prompt, picture: $0, options: options) }
             ?? session.streamResponse(to: prompt, options: options)
+        #else
+        let stream = session.streamResponse(to: prompt, options: options)
+        #endif
         var sent = ""
         for try await snapshot in stream {
             try Task.checkCancellation()
@@ -55,6 +60,7 @@ public struct AppleChatEngine: OwlChatEngine {
         return .answer(sent)
     }
 
+    #if os(macOS)
     /// The model can take an image as input (FoundationModels 2, macOS 27:
     /// `Attachment` and the `.vision` capability): the document's picture
     /// goes in the prompt itself, rendered once and time-limited. Before
@@ -82,6 +88,7 @@ public struct AppleChatEngine: OwlChatEngine {
         #endif
         return session.streamResponse(to: prompt, options: options)
     }
+    #endif
 }
 
 @available(macOS 26.0, iOS 26.0, *)
