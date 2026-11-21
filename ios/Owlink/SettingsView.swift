@@ -58,6 +58,9 @@ struct SettingsView: View {
     @AppStorage(AppSettings.Key.theme) private var theme = EditorTheme.system.rawValue
     @AppStorage(AppSettings.Key.saveAutomatically) private var saveAutomatically = true
     @AppStorage(AppSettings.Key.openReadOnly) private var openReadOnly = AppSettings.openReadOnlyDefault
+    @AppStorage(AppSettings.Key.styleCheck) private var styleCheck = false
+    @State private var styleExtra = ""
+    @State private var styleExcept = ""
     @State private var ai = LocalAISettings.load()
     @State private var address = ""
     @State private var testResult: String?
@@ -101,6 +104,24 @@ struct SettingsView: View {
                 .onChange(of: openReadOnly) { AppSettings.post() }
 
                 Section {
+                    Toggle(String(localized: "Style Check"), isOn: $styleCheck)
+                        .accessibilityIdentifier("settings.styleCheck")
+                    TextField(String(localized: "Also flag"), text: $styleExtra)
+                        .disabled(!styleCheck)
+                        .accessibilityIdentifier("settings.styleExtra")
+                    TextField(String(localized: "Never flag"), text: $styleExcept)
+                        .disabled(!styleCheck)
+                        .accessibilityIdentifier("settings.styleExceptions")
+                } header: {
+                    Text(String(localized: "Writing"))
+                } footer: {
+                    Text(String(localized: "Style Check points out filler words, redundancies (“past history”) and clichés in Markdown and plain text, one at a time, never in code. Offline, no AI. Off until you turn it on. Separate phrases with commas. Ignore on a hint adds that phrase to Never flag."))
+                }
+                .onChange(of: styleCheck) { AppSettings.post() }
+                .onChange(of: styleExtra) { writeStylePhrases() }
+                .onChange(of: styleExcept) { writeStylePhrases() }
+
+                Section {
                     LabeledContent(String(localized: "Apple Intelligence"), value: AIStatus.appleLine)
                         .accessibilityIdentifier("settings.appleStatus")
                     Picker(String(localized: "Engine"), selection: Binding(get: { ai.backend.usesServer ? .custom : ai.backend },
@@ -141,7 +162,17 @@ struct SettingsView: View {
             .navigationTitle(String(localized: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button(String(localized: "Done")) { dismiss() } } }
-            .onAppear { address = ai.backend.usesServer ? ai.baseURL.absoluteString : "" }
+            .onAppear {
+                address = ai.backend.usesServer ? ai.baseURL.absoluteString : ""
+                if styleExtra.isEmpty { styleExtra = AppSettings.styleCheckExtra.joined(separator: ", ") }
+                if styleExcept.isEmpty { styleExcept = AppSettings.styleCheckExceptions.joined(separator: ", ") }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AppSettings.changed)) { _ in
+                // "Ignore this word" appends an exception while this screen is closed
+                // or open. Don't overwrite a phrase still being typed.
+                let stored = AppSettings.styleCheckExceptions
+                if AppSettings.phrases(styleExcept) != stored { styleExcept = stored.joined(separator: ", ") }
+            }
         }
     }
 
@@ -191,6 +222,14 @@ struct SettingsView: View {
         default:
             Button(String(localized: "Download")) { models.confirm = m }.disabled(BuiltInPlatform.runtime == nil)
         }
+    }
+
+    /// Writes the comma-separated fields when they differ from what is stored.
+    private func writeStylePhrases() {
+        let extra = AppSettings.phrases(styleExtra)
+        if extra != AppSettings.styleCheckExtra { AppSettings.styleCheckExtra = extra }
+        let except = AppSettings.phrases(styleExcept)
+        if except != AppSettings.styleCheckExceptions { AppSettings.styleCheckExceptions = except }
     }
 
     private func save() {

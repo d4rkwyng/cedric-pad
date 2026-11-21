@@ -290,6 +290,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         }
         hintBar.onNext = { [weak self] in self?.owl.showNext() }
         hintBar.onFix = { [weak self] in self?.applyFix() }
+        hintBar.onIgnore = { [weak self] in self?.ignoreStylePhrase() }
         setUpOwlSprite()
         setUpDivider()
         setUpSaveErrorBanner()
@@ -856,7 +857,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
                                   facts: OwlDocumentFacts(isWholeDocument: text.length <= OwlContextWindow.byteCap,
                                                           unsavedSince: document.firstUnsavedEdit, lineEnding: document.lineEnding,
                                                           mixedLineEndings: document.mixedLineEndings,
-                                                          languageIsManual: document.language.isManual))
+                                                          languageIsManual: document.language.isManual,
+                                                          styleCheck: AppSettings.styleCheckSettings))
     }
 
     /// The hints he may show: the offline ones only with the setting on;
@@ -884,10 +886,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             return
         }
         var fixTitle: String?
+        var ignoreTitle: String?
         if shown.hint.replacement != nil, shown.hint.range != nil { fixTitle = String(localized: "Fix it") }
+        if StyleCheck.isStyleHint(shown.hint.id) {
+            ignoreTitle = String(localized: "Ignore")
+            if shown.hint.replacement == nil { fixTitle = String(localized: "Show Me") }
+        }
         if let l = RulesHintProvider.guessedLanguage(shown.hint) { fixTitle = String(localized: "Use \(l.displayName)") }
         if shown.hint.id == RulesHintProvider.saveCopyID { fixTitle = String(localized: "Save") }
-        hintBar.show(shown.hint, fixTitle: fixTitle, more: shownHints.count > 1)
+        hintBar.show(shown.hint, fixTitle: fixTitle, ignoreTitle: ignoreTitle, more: shownHints.count > 1)
         if hintBar.isHidden {
             hintBar.alpha = 0
             hintBar.isHidden = false
@@ -1076,6 +1083,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
             owl.dismissCurrent()
             return
         }
+        if shown.hint.replacement == nil, StyleCheck.isStyleHint(shown.hint.id) {
+            showHintRange(shown)
+            return
+        }
         guard editableOrSay() else { return }
         guard let fix = owl.fix(in: textView.textStorage.string as NSString),
               let start = textView.position(from: textView.beginningOfDocument, offset: fix.range.location),
@@ -1087,6 +1098,27 @@ final class EditorViewController: UIViewController, UITextViewDelegate, UIGestur
         }
         // Through UITextInput, so it is one undoable edit.
         textView.replace(range, withText: fix.replacement)
+        bubbleOpen = false
+        owl.dismissCurrent()
+    }
+
+    /// Selects the phrase Style Check pointed at (a cliché has no fix).
+    private func showHintRange(_ shown: EditorOwl.Shown) {
+        guard let r = shown.hint.range else { return }
+        let abs = NSRange(location: r.location + shown.offset, length: r.length)
+        guard NSMaxRange(abs) <= (textView.text as NSString).length else { return }
+        textView.selectedRange = abs
+        textView.scrollRangeToVisible(abs)
+        showLineNumbers = true
+        layoutGutter()
+    }
+
+    /// "Ignore this word": the phrase joins Style Check's exceptions.
+    private func ignoreStylePhrase() {
+        guard let id = owl.visible?.hint.id, let phrase = StyleCheck.phrase(fromHintID: id) else { return }
+        if !AppSettings.styleCheckExceptions.contains(phrase) {
+            AppSettings.styleCheckExceptions.append(phrase)
+        }
         bubbleOpen = false
         owl.dismissCurrent()
     }

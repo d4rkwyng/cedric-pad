@@ -12,6 +12,10 @@ enum AppSettings {
         static let wrap = "ios.wrap"
         static let owlHints = "ios.owlHints"
         static let lineNumbers = "ios.lineNumbers"
+        /// Same keys as the Mac (Settings › Writing). This app has its own defaults.
+        static let styleCheck = "styleCheck"
+        static let styleCheckExtra = "styleCheckExtra"
+        static let styleCheckExceptions = "styleCheckExceptions"
         static let saveAutomatically = "ios.saveAutomatically"
         static let openReadOnly = "ios.openReadOnly"
         static let theme = EditorTheme.defaultsKey
@@ -60,6 +64,38 @@ enum AppSettings {
     static var owlHints: Bool {
         get { defaults.object(forKey: Key.owlHints) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Key.owlHints); post() }
+    }
+
+    /// Style Check (filler, redundancies, clichés). Off until turned on.
+    static var styleCheck: Bool {
+        get { defaults.bool(forKey: Key.styleCheck) }
+        set { defaults.set(newValue, forKey: Key.styleCheck); post() }
+    }
+
+    /// Phrases to flag on top of the English list ("very, kind of").
+    static var styleCheckExtra: [String] {
+        get { defaults.stringArray(forKey: Key.styleCheckExtra) ?? [] }
+        set { defaults.set(newValue, forKey: Key.styleCheckExtra); post() }
+    }
+
+    /// Phrases never flagged. "Ignore this word" appends here.
+    static var styleCheckExceptions: [String] {
+        get { defaults.stringArray(forKey: Key.styleCheckExceptions) ?? [] }
+        set { defaults.set(newValue, forKey: Key.styleCheckExceptions); post() }
+    }
+
+    /// What the owl's rules get. Nil while Style Check is off.
+    static var styleCheckSettings: StyleCheck.Settings? {
+        styleCheck ? StyleCheck.Settings(language: "en", extra: styleCheckExtra, exceptions: styleCheckExceptions) : nil
+    }
+
+    /// "very, kind of ,, actually" → ["very", "kind of", "actually"].
+    static func phrases(_ s: String) -> [String] {
+        var out: [String] = []
+        for p in s.split(separator: ",").map({ StyleCheck.normalize(String($0)) }) where !p.isEmpty && !out.contains(p) {
+            out.append(p)
+        }
+        return out
     }
 
     /// Save automatically (UIDocument's autosave): on by default. Off, the

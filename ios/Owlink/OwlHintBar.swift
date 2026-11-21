@@ -17,9 +17,11 @@ final class OwlHintBar: UIView {
     let title = UILabel()
     let detail = UILabel()
     let fix = UIButton(configuration: .borderedProminent())
+    let ignore = UIButton(configuration: .bordered())
     let nextButton = UIButton(configuration: .bordered())
     let close = UIButton(type: .close)
     var onFix: (() -> Void)?
+    var onIgnore: (() -> Void)?
     var onNext: (() -> Void)?
     var onClose: (() -> Void)?
 
@@ -46,9 +48,15 @@ final class OwlHintBar: UIView {
         fix.configuration?.title = String(localized: "Fix it")
         fix.configuration?.buttonSize = .small
         fix.accessibilityIdentifier = "owl.hint.fix"
+        ignore.configuration?.title = String(localized: "Ignore")
+        ignore.configuration?.buttonSize = .small
+        ignore.accessibilityLabel = String(localized: "Ignore this word")
+        ignore.accessibilityIdentifier = "owl.hint.ignore"
+        ignore.isHidden = true
         nextButton.configuration?.title = String(localized: "Next")
         nextButton.configuration?.buttonSize = .small
         fix.addAction(UIAction { [weak self] _ in self?.onFix?() }, for: .primaryActionTriggered)
+        ignore.addAction(UIAction { [weak self] _ in self?.onIgnore?() }, for: .primaryActionTriggered)
         nextButton.addAction(UIAction { [weak self] _ in self?.onNext?() }, for: .primaryActionTriggered)
         close.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .primaryActionTriggered)
         close.accessibilityIdentifier = "owl.hint.close"
@@ -56,7 +64,7 @@ final class OwlHintBar: UIView {
         let text = UIStackView(arrangedSubviews: [title, detail])
         text.axis = .vertical
         text.spacing = 2
-        let buttons = UIStackView(arrangedSubviews: [nextButton, fix])
+        let buttons = UIStackView(arrangedSubviews: [nextButton, ignore, fix])
         buttons.spacing = 8
         let right = UIStackView(arrangedSubviews: [close, buttons])
         right.axis = .vertical
@@ -122,12 +130,14 @@ final class OwlHintBar: UIView {
         shape.strokeColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
     }
 
-    func show(_ hint: OwlHint, fixTitle: String?, more: Bool) {
+    func show(_ hint: OwlHint, fixTitle: String?, ignoreTitle: String? = nil, more: Bool) {
         title.text = hint.title
         detail.text = hint.detail
         detail.isHidden = hint.detail?.isEmpty ?? true
         fix.isHidden = fixTitle == nil
         if let fixTitle { fix.configuration?.title = fixTitle }
+        ignore.isHidden = ignoreTitle == nil
+        if let ignoreTitle { ignore.configuration?.title = ignoreTitle }
         nextButton.isHidden = !more
         accessibilityLabel = "Cedric: \(hint.title)"
     }
